@@ -7,7 +7,9 @@ if [[ "$(go env GOARCH)" == amd64 ]]; then
 fi
 temporary="shadow6-guard.tmp.$$"
 trap 'rm -f "$temporary"' EXIT
-go build -buildvcs=false -o "$temporary" -trimpath -buildmode=pie -ldflags='-s -w -buildid=' .
+build_args=(-buildvcs=false -o "$temporary" -trimpath -ldflags='-s -w -buildid=')
+[[ "$(go env GOOS)" != "openbsd" ]] && build_args+=(-buildmode=pie)
+go build "${build_args[@]}" .
 mv -f "$temporary" shadow6-guard
 chmod 0755 shadow6-guard
 trap - EXIT

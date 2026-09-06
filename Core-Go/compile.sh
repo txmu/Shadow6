@@ -16,7 +16,8 @@ case "${CROSED_LEVEL:-0}" in
 esac
 [[ "${APP_TRANSPORT:-0}" == 1 ]] && tags+=(app_transport)
 [[ "${QUBES_ISOLATION:-0}" == 1 ]] && tags+=(qubes_isolation)
-build_args=(-buildvcs=false -o "$temporary" -trimpath -buildmode=pie -ldflags='-s -w -buildid=')
+build_args=(-buildvcs=false -o "$temporary" -trimpath -ldflags='-s -w -buildid=')
+[[ "$(go env GOOS)" != "openbsd" ]] && build_args+=(-buildmode=pie)
 if ((${#tags[@]})); then
     joined_tags=$(IFS=,; printf '%s' "${tags[*]}")
     build_args+=(-tags "$joined_tags")

@@ -129,7 +129,7 @@ jobs:
           version: '14.2'
           shell: bash
           run: |
-            command -v go || (sudo pkg update -f || true; sudo pkg install -y go126 || sudo pkg install -y go)
+            command -v go || (sudo pkg update -f || true; sudo pkg install -y go123 || sudo pkg install -y go)
             sudo pkg install -y rust cargo || true
             cd Core-Go
             go test ./...
@@ -193,7 +193,7 @@ jobs:
           version: '10.1'
           shell: bash
           run: |
-            command -v go || (sudo pkgin -y update || true; sudo pkgin -y install go126 || sudo pkgin -y install go)
+            command -v go || (sudo pkgin -y update || true; sudo pkgin -y install go123 || sudo pkgin -y install go)
             cd Core-Go
             go test ./...
             bash ./compile.sh

@@ -5,7 +5,12 @@ cpu_target=generic
 if [[ "${SHADOW6_NATIVE:-0}" == 1 ]]; then
     cpu_target=native
 fi
-export RUSTFLAGS="${RUSTFLAGS:-} -C target-cpu=${cpu_target} -C link-arg=-Wl,-z,relro,-z,now -C link-arg=-Wl,-z,noexecstack"
+link_flags=""
+case "$(uname -s)" in
+    Darwin) link_flags="" ;;
+    *) link_flags=" -C link-arg=-Wl,-z,relro,-z,now -C link-arg=-Wl,-z,noexecstack" ;;
+esac
+export RUSTFLAGS="${RUSTFLAGS:-} -C target-cpu=${cpu_target}${link_flags}"
 features=()
 case "${CROSED_LEVEL:-0}" in
     0) ;;
