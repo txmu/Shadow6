@@ -240,8 +240,8 @@ jobs:
         env:
           SHADOW6_ANDROID_BUILD_JOBS: '16'
         run: |
-          ndk_dir="$(find "${ANDROID_SDK_ROOT:-$ANDROID_HOME}/ndk" -mindepth 1 -maxdepth 1 -type d -print -quit)"
-          test -n "$ndk_dir"
+          ndk_dir="${ANDROID_SDK_ROOT:-$ANDROID_HOME}/ndk/27.3.13750724"
+          test -d "$ndk_dir"
           python3 Android/build_android_cores.py --ndk "$ndk_dir"
       - name: Build debug APK
         run: gradle --no-daemon --no-configuration-cache --max-workers=16 --console=plain -Dorg.gradle.jvmargs='-Xms256m -Xmx2g -XX:MaxMetaspaceSize=768m -XX:ReservedCodeCacheSize=128m -XX:ActiveProcessorCount=8' -p Android assembleDebug
