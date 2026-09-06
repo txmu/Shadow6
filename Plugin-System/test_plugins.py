@@ -27,6 +27,11 @@ class PluginSystemTests(unittest.TestCase):
     def setUp(self):
         self.registry = PluginRegistry()
 
+    def _require_namespace(self):
+        unshare = shutil.which("unshare")
+        if unshare is None or os.system(f"{unshare} --user --map-current-user --net true >/dev/null 2>&1") != 0:
+            self.skipTest("Linux user/network namespaces unavailable in this CI sandbox")
+
     def test_bundled_plugins_are_signed_and_discoverable(self):
         self.assertEqual(
             self.registry.discover(),
@@ -38,6 +43,7 @@ class PluginSystemTests(unittest.TestCase):
             self.assertEqual(manifest.capabilities, frozenset({"game.local"}))
 
     def test_games_execute_in_isolated_processes(self):
+        self._require_namespace()
         number = self.registry.load("number-guess")
         response = run_plugin(number, {"action": "new", "state": {}})
         secret = response["state"]["secret"]
@@ -91,6 +97,7 @@ class PluginSystemTests(unittest.TestCase):
             run_plugin(manifest, {"payload": "x" * 70_000})
 
     def test_signed_hook_dispatch_has_no_host_network(self):
+        self._require_namespace()
         code = b"""import json, socket, sys
 request = json.loads(sys.stdin.buffer.readline())
 blocked = False

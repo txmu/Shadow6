@@ -91,8 +91,7 @@ jobs:
           version: '14.2'
           shell: bash
           run: |
-            sudo pkg update -f
-            sudo pkg install -y go126
+            command -v go || (sudo pkg update -f || true; sudo pkg install -y go126 || sudo pkg install -y go)
             cd Core-Go
             go test ./...
             cd ../Guard
@@ -108,7 +107,7 @@ jobs:
           version: '7.6'
           shell: bash
           run: |
-            sudo pkg_add go
+            command -v go || sudo pkg_add go
             cd Core-Go
             go test ./...
             cd ../Guard
@@ -124,7 +123,7 @@ jobs:
           version: '10.1'
           shell: bash
           run: |
-            sudo pkgin -y install go126
+            command -v go || (sudo pkgin -y update || true; sudo pkgin -y install go126 || sudo pkgin -y install go)
             cd Core-Go
             go test ./...
             cd ../Guard
@@ -157,7 +156,7 @@ jobs:
           test -n "$ndk_dir"
           python3 Android/build_android_cores.py --ndk "$ndk_dir"
       - name: Build debug APK
-        run: gradle --no-daemon --no-configuration-cache --max-workers=16 --console=plain -p Android assembleDebug
+        run: gradle --no-daemon --no-configuration-cache --max-workers=16 --console=plain -Dorg.gradle.jvmargs='-Xms256m -Xmx2g -XX:MaxMetaspaceSize=768m -XX:ReservedCodeCacheSize=128m -XX:ActiveProcessorCount=8' -p Android assembleDebug
       - uses: actions/upload-artifact@v4
         with:
           name: shadow6-android-debug
