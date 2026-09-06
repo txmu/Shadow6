@@ -13,7 +13,7 @@ pub fn build(b: *std.Build) void {
             .x86_64 => "x86_64-linux-android",
             else => @panic("Supported Android ABIs: arm64-v8a and x86_64"),
         };
-        const libc = b.addWriteFiles().add("android-libc.conf", b.fmt("include_dir={s}/usr/include\nsys_include_dir={s}/usr/include/{s}\ncrt_dir={s}/usr/lib/{s}/28\nmsvc_lib_dir=\nkernel32_lib_dir=\ngcc_dir=\n", .{ sysroot, sysroot, triple, sysroot, triple }));
+        const libc = b.addWriteFiles().add("android-libc.conf", b.fmt("include_dir={s}/usr/include\nsys_include_dir={s}/usr/include/{s}\ncrt_dir={s}/usr/lib/{s}\nmsvc_lib_dir=\nkernel32_lib_dir=\ngcc_dir=\n", .{ sysroot, sysroot, triple, sysroot, triple }));
         exe.setLibCFile(libc);
         module.addSystemIncludePath(.{ .cwd_relative = b.fmt("{s}/usr/include/{s}", .{ sysroot, triple }) });
     }
