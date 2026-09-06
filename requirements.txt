@@ -1,0 +1,8 @@
+aiohttp==3.14.3
+asyncssh==2.24.0
+cryptography==50.0.1
+PyYAML==6.0.3
+rich==15.0.0
+textual==8.2.8
+typer==0.27.2
+

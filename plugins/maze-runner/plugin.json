@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "id": "maze-runner",
+  "name": "迷宫探险",
+  "version": "1.0.0",
+  "runtime": "python3",
+  "entrypoint": "main.py",
+  "capabilities": [
+    "game.local"
+  ],
+  "hooks": [],
+  "timeout_seconds": 3,
+  "max_output_bytes": 65536,
+  "sha256": "2667bc3fef54c0ed6b5245eb535c57fb7a22237094b66090b50291c9ccabe0f5",
+  "signer": "shadow6-release",
+  "signature": "a040d975526e7b700aebf247dfff405c1f23df7d0047d5c0a9927b9fdbb196083b2dcb0d0e5dadf404e217fcfe6ae5a831f8eae798967357b387131a98ad5c06"
+}

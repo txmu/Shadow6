@@ -1,0 +1,39 @@
+version: "1.0"
+global:
+  mtd_rotation_interval: 24h
+  stealth_mode: true
+  broker_scheme: wss
+  output_dir: generated
+nodes:
+  - name: "aws-broker"
+    type: broker
+    ssh_host: broker.example.com
+    known_hosts: ~/.ssh/known_hosts
+    advertise_host: broker.example.com
+    ssh_user: root
+    listen_port: 4433
+    engines:
+      - shadow6-rust
+      - shadow6-guard
+  - name: "site-agent"
+    type: agent
+    ssh_host: agent.example.com
+    known_hosts: ~/.ssh/known_hosts
+    ssh_user: root
+    target_port: 22
+    auto_close_after: 900
+    allow_local_discovery: false
+    engines:
+      - shadow6-rust
+  - name: "ops-client"
+    type: client
+    ssh_host: client.example.com
+    known_hosts: ~/.ssh/known_hosts
+    ssh_user: root
+    target_agent: site-agent
+    allowed_agents:
+      - site-agent
+    allow_local_discovery: false
+    on_success: "ssh -p $LOCAL_TCP_PORT root@127.0.0.1"
+    engines:
+      - shadow6-rust

@@ -1,0 +1,21 @@
+{
+  "role": "agent",
+  "broker": null,
+  "agent": {
+    "id": "nas-1",
+    "broker_addrs": [
+      "wss://your-cdn.com/ws",
+      "vps_ip:4433"
+    ],
+    "broker_pubkey": "<BROKER_PUB_KEY>",
+    "private_key": "<HEX_PRIVATE_KEY>",
+    "target_port": 22,
+    "auto_close_after": 7200,
+    "allow_local_discovery": true,
+    "client_pubkeys": {
+      "mac-1": "<CLIENT_PUB_KEY>"
+    },
+    "transport": "quic"
+  },
+  "client": null
+}

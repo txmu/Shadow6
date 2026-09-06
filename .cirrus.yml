@@ -1,0 +1,5 @@
+freebsd_task:
+  freebsd_instance:
+    image: freebsd-14-2
+  install_script: pkg install -y go126
+  test_script: cd Core-Go && go test ./...

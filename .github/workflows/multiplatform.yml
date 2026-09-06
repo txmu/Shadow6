@@ -1,0 +1,28 @@
+name: multiplatform
+on:
+  push:
+  pull_request:
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: {go-version-file: Core-Go/go.mod}
+      - run: make build
+      - run: cd Core-Go && go test ./...
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: {go-version-file: Core-Go/go.mod}
+      - run: cd Core-Go && go test ./...
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: {go-version-file: Core-Go/go.mod}
+      - shell: bash
+        run: cd Core-Go && go test ./...

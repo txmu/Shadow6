@@ -1,0 +1,11 @@
+{
+  "role": "broker_guard",
+  "broker_shield": {
+    "enabled": true,
+    "public_host": "127.0.0.1",
+    "public_port": 8443,
+    "local_broker_port": 4433,
+    "secret_path": "/private-control-path",
+    "max_conn_per_ip": 32
+  }
+}

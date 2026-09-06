@@ -1,0 +1,26 @@
+{
+  "role": "agent_guard",
+  "target_backend": "127.0.0.1:4434",
+  "spa_config": {
+    "enabled": true,
+    "secret": "replace-with-at-least-32-random-bytes",
+    "knock_port": 4440,
+    "public_tcp_port": 4441,
+    "agent_tcp_port": 4434,
+    "unlock_window": 30
+  },
+  "lpd_limiter": {
+    "enabled": true,
+    "rate": 20,
+    "burst": 40,
+    "public_port": 44333,
+    "agent_port": 44334
+  },
+  "anti_probe": {
+    "enabled": true,
+    "public_port": 4442,
+    "local_port": 0,
+    "max_fails": 5,
+    "ban_duration_sec": 300
+  }
+}

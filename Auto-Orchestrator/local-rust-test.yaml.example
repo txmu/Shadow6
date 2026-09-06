@@ -1,0 +1,32 @@
+version: "1.0"
+global:
+  stealth_mode: true
+  mtd_rotation_interval: 1h
+  broker_scheme: ws
+  output_dir: generated-rust
+nodes:
+  - name: "local-rust-broker"
+    type: broker
+    ssh_host: 127.0.0.1
+    ssh_user: admin
+    listen_host: 127.0.0.1
+    advertise_host: 127.0.0.1
+    listen_port: 4433
+    engines: ["shadow6-rust"]
+  - name: "local-rust-agent"
+    type: agent
+    ssh_host: 127.0.0.1
+    ssh_user: admin
+    target_port: 22
+    auto_close_after: 300
+    allow_local_discovery: true
+    engines: ["shadow6-rust"]
+  - name: "local-rust-client"
+    type: client
+    ssh_host: 127.0.0.1
+    ssh_user: admin
+    target_agent: local-rust-agent
+    allowed_agents: ["local-rust-agent"]
+    allow_local_discovery: true
+    on_success: ""
+    engines: ["shadow6-rust"]

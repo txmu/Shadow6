@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "id": "rock-paper-scissors",
+  "name": "石头剪刀布",
+  "version": "1.0.0",
+  "runtime": "python3",
+  "entrypoint": "main.py",
+  "capabilities": [
+    "game.local"
+  ],
+  "hooks": [],
+  "timeout_seconds": 3,
+  "max_output_bytes": 65536,
+  "sha256": "84c17a5a3f8c95cccc1d7049944a649b2e49345aef2c4755c50393f6010b78b2",
+  "signer": "shadow6-release",
+  "signature": "e9f28bda7b3ed97823b9f38410ae71f61705248fc5b9adcfd8ba105daadd0e66ac7a5aaba5faa8acf4a9b644ae8b84ed39cb22ebfe7019ba716c97761645680c"
+}

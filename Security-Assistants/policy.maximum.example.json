@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "profile": "maximum",
+  "core": {
+    "default_crosed_max_level": 0,
+    "variant_min_level": 5,
+    "require_app_transport": true,
+    "require_qubes_isolation": true,
+    "require_utf8": true
+  },
+  "plugins": {
+    "require_signatures": true,
+    "allowed_signers": [
+      "shadow6-release"
+    ],
+    "allowed_capabilities": [
+      "game.local"
+    ]
+  },
+  "audit": {
+    "require_ledger": true,
+    "ledger_path": "/secure/shadow6/events.jsonl",
+    "public_key": "/secure/shadow6/ledger.pub.json"
+  }
+}

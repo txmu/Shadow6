@@ -1,0 +1,15 @@
+{
+  "mods": {
+    "example-mod": {
+      "pubkey": "<64_HEX_ED25519_PUBLIC_KEY>",
+      "max_level": 3,
+      "capabilities": [
+        "observe.version",
+        "transport.application"
+      ],
+      "allowed_domains": [
+        "chat-vm"
+      ]
+    }
+  }
+}

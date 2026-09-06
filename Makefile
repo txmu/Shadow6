@@ -1,0 +1,359 @@
+-include config.mk
+
+BUILD_GO ?= 1
+BUILD_RUST ?= 1
+BUILD_RELAY ?= 1
+BUILD_GUARD ?= 1
+BUILD_AUTO ?= 1
+BUILD_DETECTOR ?= 1
+BUILD_PLUGINS ?= 1
+BUILD_CROSED ?= 1
+BUILD_APP ?= 1
+BUILD_ASSISTANTS ?= 1
+BUILD_CONTROL ?= 1
+BUILD_SLOTS ?= 1
+BUILD_PUBLIC6 ?= 1
+BUILD_GATE ?= 1
+BUILD_MIGRATION ?= 1
+BUILD_COMPLIANCE ?= 0
+CROSED_LEVEL ?= 0
+APP_TRANSPORT ?= 0
+QUBES_ISOLATION ?= 0
+CROSED_VARIANT_QUBES ?= 1
+export CROSED_LEVEL APP_TRANSPORT QUBES_ISOLATION
+PREFIX ?= /usr/local
+DESTDIR ?=
+PYTHON ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python3)
+
+.PHONY: all build core-go core-rust gate migration i18n crosed-variants public6 public6-variants public6-contract relay guard service-init auto detector plugins package-manager easybuild crosed app-layer assistants slots control-center android-preflight android-cores android-apk integration-test test check audit package install clean distclean
+
+all: build
+
+build: core-go core-rust gate migration i18n cli online-repository relay guard service-init auto detector plugins package-manager easybuild crosed app-layer assistants slots control-center public6-contract
+
+i18n:
+	@PYTHONPATH=I18n $(PYTHON) -m py_compile I18n/shadow6_i18n.py
+
+cli:
+	@PYTHONPATH=CLI $(PYTHON) -m py_compile CLI/shadow6.py
+
+online-repository:
+	@PYTHONPATH=Online-Repository $(PYTHON) -m py_compile Online-Repository/shadow6_repo.py Gate/portmap.py
+
+gate:
+ifeq ($(BUILD_GATE),1)
+	@echo "Building Gate"
+	@cd Gate && CGO_ENABLED=0 GOCACHE="$(abspath .tmp/go-build)" go build -buildvcs=false -trimpath -buildmode=pie -ldflags='-s -w -buildid=' -o shadow6-gate .
+endif
+
+migration:
+ifeq ($(BUILD_MIGRATION),1)
+	@PYTHONPATH=Migration $(PYTHON) -m py_compile Migration/shadow6_migrate.py
+endif
+
+service-init:
+	@PYTHONPATH=Service-Init $(PYTHON) -m py_compile Service-Init/shadow6_init.py
+
+core-go:
+ifeq ($(BUILD_GO),1)
+	@echo "Building Core-Go"
+	@cd Core-Go && bash ./compile.sh
+endif
+
+core-rust:
+ifeq ($(BUILD_RUST),1)
+	@echo "Building Core-Rust"
+	@cd Core-Rust && bash ./compile.sh
+endif
+
+crosed-variants:
+	@$(MAKE) core-go core-rust CROSED_LEVEL=5 APP_TRANSPORT=1 QUBES_ISOLATION=$(CROSED_VARIANT_QUBES)
+	@install -m 0755 Core-Go/shadow6-go Core-Go/shadow6-go-crosed
+	@install -m 0755 Core-Rust/shadow6-rust Core-Rust/shadow6-rust-crosed
+	@$(MAKE) core-go core-rust CROSED_LEVEL=0 APP_TRANSPORT=0 QUBES_ISOLATION=0
+
+public6: public6-contract
+	@$(MAKE) build BUILD_GO=1 BUILD_RUST=1 BUILD_RELAY=1 BUILD_GUARD=1 BUILD_AUTO=1 BUILD_DETECTOR=1 BUILD_PLUGINS=1 BUILD_CROSED=1 BUILD_APP=1 BUILD_ASSISTANTS=1 BUILD_CONTROL=1 BUILD_SLOTS=1 BUILD_PUBLIC6=1 BUILD_COMPLIANCE=0 CROSED_LEVEL=0 APP_TRANSPORT=0 QUBES_ISOLATION=0
+	@$(MAKE) public6-variants
+
+public6-variants:
+	@$(MAKE) core-go core-rust BUILD_GO=1 BUILD_RUST=1 CROSED_LEVEL=5 APP_TRANSPORT=1 QUBES_ISOLATION=1
+	@install -m 0755 Core-Go/shadow6-go Core-Go/shadow6-go-public6
+	@install -m 0755 Core-Rust/shadow6-rust Core-Rust/shadow6-rust-public6
+	@$(MAKE) core-go core-rust BUILD_GO=1 BUILD_RUST=1 CROSED_LEVEL=0 APP_TRANSPORT=0 QUBES_ISOLATION=0
+
+public6-contract:
+ifeq ($(BUILD_PUBLIC6),1)
+	@$(PYTHON) -m py_compile Public6/shadow6_public.py
+	@$(PYTHON) Public6/shadow6_public.py profile >/dev/null
+endif
+
+relay:
+ifeq ($(BUILD_RELAY),1)
+	@echo "Building C11Relay"
+	@cd C11Relay && bash ./compile.sh
+endif
+
+guard:
+ifeq ($(BUILD_GUARD),1)
+	@echo "Building Guard"
+	@cd Guard && bash ./compile.sh
+endif
+
+auto:
+ifeq ($(BUILD_AUTO),1)
+	@$(PYTHON) -m py_compile Auto-Orchestrator/shadow6_auto.py integration/stack_test.py
+endif
+
+detector:
+ifeq ($(BUILD_DETECTOR),1)
+	@$(PYTHON) -m py_compile Detector/detector_core.py Detector/shadow6_detector.py Detector/shadow6_detector_neo.py Detector/watch.py
+endif
+
+plugins:
+ifeq ($(BUILD_PLUGINS),1)
+	@$(PYTHON) -m py_compile Plugin-System/shadow6_plugins.py Plugin-System/sign_plugin.py plugins/*/main.py
+	@$(PYTHON) Plugin-System/shadow6_plugins.py list
+endif
+
+package-manager:
+	@PYTHONPATH=Package-Manager $(PYTHON) -m py_compile Package-Manager/shadow6_pkg.py
+
+easybuild:
+	@PYTHONPATH=Package-Manager $(PYTHON) -m py_compile EasyBuild/shadow6_easybuild.py Android/build_android_cores.py
+
+android-preflight:
+	@$(PYTHON) Android/check_build_resources.py
+
+android-cores: android-preflight
+	@test -n "$(ANDROID_NDK)" || (echo "ANDROID_NDK=/absolute/path/to/ndk is required" >&2; exit 2)
+	@$(PYTHON) Android/build_android_cores.py --ndk "$(ANDROID_NDK)"
+
+android-apk: android-cores
+	@test -n "$(ANDROID_SDK_ROOT)" || (echo "ANDROID_SDK_ROOT=/absolute/path/to/sdk is required" >&2; exit 2)
+	@test -d "$(ANDROID_SDK_ROOT)/platforms/android-36" || (echo "Android SDK API 36 is incomplete" >&2; exit 2)
+	@cd Android && if command -v ionice >/dev/null 2>&1; then \
+		exec ionice -c 3 nice -n 10 "$(if $(ANDROID_GRADLE),$(ANDROID_GRADLE),gradle)" --no-daemon --no-configuration-cache --max-workers=1 --console=plain --stacktrace assembleDebug; \
+	else \
+		exec nice -n 10 "$(if $(ANDROID_GRADLE),$(ANDROID_GRADLE),gradle)" --no-daemon --no-configuration-cache --max-workers=1 --console=plain --stacktrace assembleDebug; \
+	fi
+
+crosed:
+ifeq ($(BUILD_CROSED),1)
+	@$(PYTHON) -m py_compile Crosed/crosedctl.py
+endif
+
+app-layer:
+ifeq ($(BUILD_APP),1)
+	@$(PYTHON) -m py_compile Application-Layer/shadow_protocols.py
+endif
+
+assistants:
+ifeq ($(BUILD_ASSISTANTS),1)
+	@$(PYTHON) -m py_compile Security-Assistants/shadow6_security.py Infrastructure-Assistants/shadow6_infra.py
+	@$(PYTHON) Security-Assistants/shadow6_security.py list
+endif
+
+control-center:
+ifeq ($(BUILD_CONTROL),1)
+	@PYTHONPATH=Control-Center $(PYTHON) -m py_compile Control-Center/shadow6_control.py
+	@PYTHONPATH=Control-Center $(PYTHON) Control-Center/shadow6_control.py schema >/dev/null
+endif
+
+slots:
+ifeq ($(BUILD_SLOTS),1)
+	@PYTHONPATH=Plugin-System:Security-Assistants:Slot-System $(PYTHON) -m py_compile Slot-System/shadow6_slots.py
+	@PYTHONPATH=Plugin-System:Security-Assistants:Slot-System $(PYTHON) Slot-System/shadow6_slots.py catalog >/dev/null
+endif
+
+integration-test:
+ifeq ($(BUILD_GO)$(BUILD_RUST)$(BUILD_AUTO),111)
+	@echo "Running single-host full-stack integration tests"
+	@$(PYTHON) integration/stack_test.py --engine all
+endif
+
+test:
+	@$(PYTHON) -m unittest -v test_compliance.py
+	@PYTHONPATH=Tools $(PYTHON) -m unittest -v Tools/test_package_release.py
+ifeq ($(BUILD_GO),1)
+	@cd Core-Go && go test -buildvcs=false -race -count=1 ./...
+endif
+ifeq ($(BUILD_RUST),1)
+	@cd Core-Rust && cargo test --all-targets -- --test-threads=1
+endif
+ifeq ($(BUILD_RELAY),1)
+	@cd C11Relay && bash ./test.sh
+endif
+ifeq ($(BUILD_GUARD),1)
+	@cd Guard && go test -buildvcs=false -race -count=1 ./...
+endif
+ifeq ($(BUILD_GATE),1)
+	@cd Gate && GOCACHE="$(abspath .tmp/go-build)" go test -buildvcs=false -race -count=1 ./...
+endif
+	@PYTHONPATH=Migration $(PYTHON) -m unittest -v Migration/test_migrate.py
+	@PYTHONPATH=I18n $(PYTHON) -m unittest -v I18n/test_i18n.py
+	@PYTHONPATH=CLI $(PYTHON) -m unittest -v CLI/test_shadow6_cli.py
+	@PYTHONPATH=Online-Repository $(PYTHON) -m unittest -v Online-Repository/test_repo.py
+	@PYTHONPATH=Service-Init $(PYTHON) -m unittest discover -s Service-Init -v
+ifeq ($(BUILD_AUTO),1)
+	@$(PYTHON) -m unittest discover -s Auto-Orchestrator -v
+endif
+ifeq ($(BUILD_DETECTOR),1)
+	@PYTHONPATH=Detector $(PYTHON) -m unittest discover -s Detector -v
+	@PYTHONPATH=Detector $(PYTHON) Detector/shadow6_detector.py --test
+	@PYTHONPATH=Detector $(PYTHON) Detector/shadow6_detector_neo.py --test
+endif
+ifeq ($(BUILD_PLUGINS),1)
+	@$(PYTHON) -m unittest -v Plugin-System/test_plugins.py
+endif
+	@PYTHONPATH=Package-Manager $(PYTHON) -m unittest discover -s Package-Manager -v
+	@PYTHONPATH=Package-Manager $(PYTHON) -m unittest discover -s EasyBuild -v
+	@$(PYTHON) -m unittest discover -s Android -v
+ifeq ($(BUILD_APP),1)
+	@$(PYTHON) -m unittest -v Application-Layer/test_protocols.py
+endif
+ifeq ($(BUILD_CROSED),1)
+	@$(PYTHON) -m unittest -v Crosed/test_crosed.py
+endif
+ifeq ($(BUILD_ASSISTANTS),1)
+	@$(PYTHON) -m unittest -v Security-Assistants/test_security.py Infrastructure-Assistants/test_infra.py
+endif
+ifeq ($(BUILD_CONTROL),1)
+	@PYTHONPATH=Control-Center $(PYTHON) -m unittest -v Control-Center/test_control.py
+endif
+ifeq ($(BUILD_SLOTS),1)
+	@PYTHONPATH=Plugin-System:Security-Assistants:Slot-System $(PYTHON) -m unittest -v Slot-System/test_slots.py
+endif
+ifeq ($(BUILD_PUBLIC6),1)
+	@PYTHONPATH=Public6 $(PYTHON) -m unittest -v Public6/test_public6.py
+endif
+	@$(MAKE) integration-test BUILD_GO=$(BUILD_GO) BUILD_RUST=$(BUILD_RUST) BUILD_AUTO=$(BUILD_AUTO)
+
+check:
+	@PYTHONPATH=CLI:Online-Repository:Gate $(PYTHON) -m py_compile CLI/*.py Online-Repository/*.py Gate/*.py
+ifeq ($(BUILD_GO),1)
+	@cd Core-Go && go vet -buildvcs=false ./...
+endif
+ifeq ($(BUILD_RUST),1)
+	@cd Core-Rust && cargo clippy --all-targets --all-features -- -D warnings
+endif
+ifeq ($(BUILD_GUARD),1)
+	@cd Guard && go vet -buildvcs=false ./...
+endif
+ifeq ($(BUILD_GATE),1)
+	@cd Gate && GOCACHE="$(abspath .tmp/go-build)" go vet -buildvcs=false ./...
+endif
+ifeq ($(BUILD_RELAY),1)
+	@set -eu; analysis_dir=$$(mktemp -d /tmp/shadow6-c11-analyzer.XXXXXX); \
+	trap 'rm -rf "$$analysis_dir"' EXIT HUP INT TERM; \
+	cd C11Relay; \
+	if $(CC) -fanalyzer -x c -c /dev/null -o "$$analysis_dir/probe.o" >/dev/null 2>&1; then \
+		$(CC) -std=c11 -O0 -fanalyzer -Wall -Wextra -Wpedantic -D_GNU_SOURCE -c c11relay.c -o "$$analysis_dir/relay.o"; \
+	else \
+		echo "Warning: $(CC) does not support -fanalyzer; running syntax checks only" >&2; \
+		$(CC) -std=c11 -O0 -Wall -Wextra -Wpedantic -D_GNU_SOURCE -fsyntax-only c11relay.c; \
+	fi
+endif
+	@PYTHONPATH=Control-Center:Slot-System:Service-Init:Package-Manager:Public6:Migration:I18n $(PYTHON) -m py_compile Service-Init/*.py Auto-Orchestrator/shadow6_auto.py integration/stack_test.py Detector/*.py Plugin-System/*.py Package-Manager/*.py EasyBuild/*.py Android/*.py plugins/*/main.py Crosed/*.py Application-Layer/*.py Security-Assistants/*.py Infrastructure-Assistants/*.py Slot-System/*.py Control-Center/*.py Public6/*.py Migration/*.py I18n/*.py shadow6_audit.py
+
+audit:
+	@$(PYTHON) shadow6_audit.py
+
+package:
+	@bash Tools/package_release.sh
+
+install: build
+	@install -d "$(DESTDIR)$(PREFIX)/bin"
+ifeq ($(BUILD_GO),1)
+	@install -m 0755 Core-Go/shadow6-go "$(DESTDIR)$(PREFIX)/bin/shadow6-go"
+endif
+ifeq ($(BUILD_RUST),1)
+	@install -m 0755 Core-Rust/shadow6-rust "$(DESTDIR)$(PREFIX)/bin/shadow6-rust"
+endif
+ifeq ($(BUILD_RELAY),1)
+	@install -m 0755 C11Relay/bridge_relay "$(DESTDIR)$(PREFIX)/bin/shadow6-relay"
+endif
+ifeq ($(BUILD_GUARD),1)
+	@install -m 0755 Guard/shadow6-guard "$(DESTDIR)$(PREFIX)/bin/shadow6-guard"
+	@install -m 0755 Guard/shadow6-guard-ctl.sh "$(DESTDIR)$(PREFIX)/bin/shadow6-guard-ctl"
+endif
+ifeq ($(BUILD_GATE),1)
+	@install -m 0755 Gate/shadow6-gate "$(DESTDIR)$(PREFIX)/bin/shadow6-gate"
+endif
+	@install -m 0755 Migration/shadow6_migrate.py "$(DESTDIR)$(PREFIX)/bin/shadow6-migrate"
+	@install -m 0755 CLI/shadow6.py "$(DESTDIR)$(PREFIX)/bin/shadow6"
+	@install -m 0755 Online-Repository/shadow6_repo.py "$(DESTDIR)$(PREFIX)/bin/shadow6-repo"
+	@install -m 0755 Gate/portmap.py "$(DESTDIR)$(PREFIX)/bin/shadow6-portmap"
+	@install -d -m 0755 "$(DESTDIR)$(PREFIX)/share/shadow6/i18n"
+	@install -m 0644 I18n/shadow6_i18n.py I18n/README.md "$(DESTDIR)$(PREFIX)/share/shadow6/i18n/"
+ifeq ($(BUILD_AUTO),1)
+	@install -m 0755 Auto-Orchestrator/shadow6_auto.py "$(DESTDIR)$(PREFIX)/bin/shadow6-auto"
+endif
+ifeq ($(BUILD_DETECTOR),1)
+	@install -m 0755 Detector/shadow6_detector.py "$(DESTDIR)$(PREFIX)/bin/shadow6-detector"
+	@install -m 0755 Detector/shadow6_detector_neo.py "$(DESTDIR)$(PREFIX)/bin/shadow6-detector-neo"
+	@install -m 0644 Detector/shadow6_detector.py "$(DESTDIR)$(PREFIX)/bin/shadow6_detector.py"
+	@install -m 0644 Detector/shadow6_detector_neo.py "$(DESTDIR)$(PREFIX)/bin/shadow6_detector_neo.py"
+	@install -m 0755 Detector/watch.py "$(DESTDIR)$(PREFIX)/bin/shadow6-watch"
+	@install -m 0644 Detector/detector_core.py "$(DESTDIR)$(PREFIX)/bin/detector_core.py"
+endif
+ifeq ($(BUILD_PLUGINS),1)
+	@install -m 0755 Plugin-System/shadow6_plugins.py "$(DESTDIR)$(PREFIX)/bin/shadow6-plugins"
+	@install -m 0755 Plugin-System/sign_plugin.py "$(DESTDIR)$(PREFIX)/bin/shadow6-sign-plugin"
+	@install -d -m 0755 "$(DESTDIR)$(PREFIX)/share/shadow6"
+	@install -m 0644 Plugin-System/trusted_signers.json "$(DESTDIR)$(PREFIX)/share/shadow6/trusted_signers.json"
+	@cp -R plugins "$(DESTDIR)$(PREFIX)/share/shadow6/"
+endif
+	@install -m 0755 Package-Manager/shadow6_pkg.py "$(DESTDIR)$(PREFIX)/bin/shadow6-pkg"
+	@install -m 0755 EasyBuild/shadow6_easybuild.py "$(DESTDIR)$(PREFIX)/bin/shadow6-easybuild"
+ifeq ($(BUILD_CROSED),1)
+	@install -m 0755 Crosed/crosedctl.py "$(DESTDIR)$(PREFIX)/bin/crosedctl"
+endif
+ifeq ($(BUILD_APP),1)
+	@install -d -m 0755 "$(DESTDIR)$(PREFIX)/share/shadow6/application"
+	@install -m 0644 Application-Layer/shadow_protocols.py "$(DESTDIR)$(PREFIX)/share/shadow6/application/shadow_protocols.py"
+endif
+ifeq ($(BUILD_ASSISTANTS),1)
+	@install -m 0755 Security-Assistants/shadow6_security.py "$(DESTDIR)$(PREFIX)/bin/shadow6-security"
+	@install -m 0755 Infrastructure-Assistants/shadow6_infra.py "$(DESTDIR)$(PREFIX)/bin/shadow6-infra"
+	@install -d -m 0755 "$(DESTDIR)$(PREFIX)/share/shadow6/assistants"
+	@install -m 0644 Security-Assistants/shadow6_security.py "$(DESTDIR)$(PREFIX)/share/shadow6/assistants/shadow6_security.py"
+endif
+ifeq ($(BUILD_CONTROL),1)
+	@install -m 0755 Control-Center/shadow6_control.py "$(DESTDIR)$(PREFIX)/bin/shadow6-control"
+	@install -d -m 0755 "$(DESTDIR)$(PREFIX)/share/shadow6/modules"
+	@install -m 0644 Auto-Orchestrator/shadow6_auto.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/shadow6_auto.py"
+	@install -m 0644 Infrastructure-Assistants/shadow6_infra.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/shadow6_infra.py"
+	@install -m 0644 Plugin-System/shadow6_plugins.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/shadow6_plugins.py"
+	@install -m 0644 Crosed/crosedctl.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/crosedctl.py"
+	@install -m 0644 Slot-System/shadow6_slots.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/shadow6_slots.py"
+	@install -m 0644 Service-Init/shadow6_init.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/shadow6_init.py"
+	@install -m 0644 Package-Manager/shadow6_pkg.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/shadow6_pkg.py"
+	@install -m 0644 Public6/shadow6_public.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/shadow6_public.py"
+	@install -m 0644 Migration/shadow6_migrate.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/shadow6_migrate.py"
+	@install -m 0644 Online-Repository/shadow6_repo.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/shadow6_repo.py"
+	@install -m 0644 Gate/portmap.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/portmap.py"
+endif
+ifeq ($(BUILD_SLOTS),1)
+	@install -m 0755 Slot-System/shadow6_slots.py "$(DESTDIR)$(PREFIX)/bin/shadow6-slots"
+	@install -d -m 0755 "$(DESTDIR)$(PREFIX)/share/shadow6/slots"
+	@install -m 0644 Slot-System/bindings.example.json "$(DESTDIR)$(PREFIX)/share/shadow6/slots/bindings.example.json"
+endif
+ifeq ($(BUILD_PUBLIC6),1)
+	@install -m 0755 Public6/shadow6_public.py "$(DESTDIR)$(PREFIX)/bin/shadow6-public"
+	@install -d -m 0755 "$(DESTDIR)$(PREFIX)/share/shadow6/public6"
+	@install -m 0644 Public6/README.md "$(DESTDIR)$(PREFIX)/share/shadow6/public6/README.md"
+	@if test -f Core-Go/shadow6-go-public6; then install -m 0755 Core-Go/shadow6-go-public6 "$(DESTDIR)$(PREFIX)/bin/shadow6-go-public6"; fi
+	@if test -f Core-Rust/shadow6-rust-public6; then install -m 0755 Core-Rust/shadow6-rust-public6 "$(DESTDIR)$(PREFIX)/bin/shadow6-rust-public6"; fi
+endif
+ifeq ($(BUILD_COMPLIANCE),1)
+	@echo "Compliance changes require explicit manual execution; see 中国内地用户必须执行.sh"
+endif
+	@echo "Installed selected Shadow6 components under $(DESTDIR)$(PREFIX)"
+
+clean:
+	@rm -f Core-Go/shadow6-go Core-Go/shadow6-go-crosed Core-Go/shadow6-go-public6 Core-Rust/shadow6-rust Core-Rust/shadow6-rust-crosed Core-Rust/shadow6-rust-public6 C11Relay/bridge_relay C11Relay/c11relay_test Guard/shadow6-guard Gate/shadow6-gate
+	@find Service-Init Auto-Orchestrator Detector Plugin-System Package-Manager EasyBuild Android plugins integration Crosed Application-Layer Security-Assistants Infrastructure-Assistants Slot-System Control-Center Public6 -type d -name __pycache__ -prune -exec rm -rf {} +
+
+distclean: clean
+	@rm -f config.mk

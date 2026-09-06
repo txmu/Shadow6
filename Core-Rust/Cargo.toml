@@ -1,0 +1,44 @@
+[package]
+name = "shadow6-rust"
+version = "1.0.0"
+edition = "2021"
+
+[package.metadata.shadow6]
+supported-os-family = "unix"
+portability-note = "Requires a Unix/Unix-like target with POSIX sockets and interface-index APIs; Linux is not required."
+
+[features]
+default = []
+crosed = []
+crosed-level-2 = ["crosed"]
+crosed-level-3 = ["crosed"]
+crosed-level-4 = ["crosed"]
+crosed-level-5 = ["crosed"]
+app-transport = []
+qubes-isolation = []
+
+[dependencies]
+tokio = { version = "1.32", features = ["full"] }
+quinn = "0.11.11"
+rustls = { version = "0.23", features = ["ring"] }
+rustls-pki-types = "1.7"
+rcgen = "0.13"
+tokio-tungstenite = { version = "0.30", default-features = false, features = ["rustls-tls-native-roots", "connect", "handshake"] }
+futures-util = "0.3"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+socket2 = "0.6"
+ed25519-dalek = { version = "2.1", features = ["rand_core"] }
+rand = "0.8"
+sha2 = "0.10"
+hex = "0.4"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+base64 = "0.22"
+libc = "0.2"
+
+[profile.release]
+opt-level = 3          # Maximum performance optimization
+lto = "fat"            # Fat Link-Time Optimization for cross-crate inlining
+codegen-units = 1      # Maximize optimization at the cost of compile time
+panic = "abort"        # Disable unwinding for smaller binary and DoS resistance
+strip = "symbols"      # Strip debug symbols to prevent reverse engineering

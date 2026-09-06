@@ -1,0 +1,123 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+    printf '%s\n' \
+        'Usage: ./configure [OPTIONS]' \
+        'All buildable components are enabled by default.' \
+        '  --enable-all | --disable-all' \
+        '  --enable-core-go | --disable-core-go' \
+        '  --enable-core-rust | --disable-core-rust' \
+        '  --enable-relay | --disable-relay' \
+        '  --enable-guard | --disable-guard' \
+        '  --enable-auto | --disable-auto' \
+        '  --enable-detector | --disable-detector' \
+        '  --enable-plugins | --disable-plugins' \
+        '  --enable-crosed | --disable-crosed' \
+        '  --enable-app | --disable-app' \
+        '  --enable-assistants | --disable-assistants' \
+        '  --enable-control | --disable-control' \
+        '  --enable-slots | --disable-slots' \
+        '  --enable-public6 | --disable-public6' \
+        '  --enable-gate | --disable-gate' \
+        '  --enable-migration | --disable-migration' \
+        '  --crosed-level=0..5' \
+        '  --enable-app-transport | --disable-app-transport' \
+        '  --enable-qubes-isolation | --disable-qubes-isolation' \
+        '  --enable-compliance | --disable-compliance' \
+        '  -h, --help'
+}
+
+BUILD_GO=1
+BUILD_RUST=1
+BUILD_RELAY=1
+BUILD_GUARD=1
+BUILD_AUTO=1
+BUILD_DETECTOR=1
+BUILD_PLUGINS=1
+BUILD_CROSED=1
+BUILD_APP=1
+BUILD_ASSISTANTS=1
+BUILD_CONTROL=1
+BUILD_SLOTS=1
+BUILD_PUBLIC6=1
+BUILD_GATE=1
+BUILD_MIGRATION=1
+BUILD_COMPLIANCE=0
+CROSED_LEVEL=0
+APP_TRANSPORT=0
+QUBES_ISOLATION=0
+
+for argument in "$@"; do
+    case "$argument" in
+        --enable-all) BUILD_GO=1; BUILD_RUST=1; BUILD_RELAY=1; BUILD_GUARD=1; BUILD_AUTO=1; BUILD_DETECTOR=1; BUILD_PLUGINS=1; BUILD_CROSED=1; BUILD_APP=1; BUILD_ASSISTANTS=1; BUILD_CONTROL=1; BUILD_SLOTS=1; BUILD_PUBLIC6=1; BUILD_GATE=1; BUILD_MIGRATION=1 ;;
+        --disable-all) BUILD_GO=0; BUILD_RUST=0; BUILD_RELAY=0; BUILD_GUARD=0; BUILD_AUTO=0; BUILD_DETECTOR=0; BUILD_PLUGINS=0; BUILD_CROSED=0; BUILD_APP=0; BUILD_ASSISTANTS=0; BUILD_CONTROL=0; BUILD_SLOTS=0; BUILD_PUBLIC6=0; BUILD_GATE=0; BUILD_MIGRATION=0 ;;
+        --enable-core-go) BUILD_GO=1 ;;
+        --disable-core-go) BUILD_GO=0 ;;
+        --enable-core-rust) BUILD_RUST=1 ;;
+        --disable-core-rust) BUILD_RUST=0 ;;
+        --enable-relay) BUILD_RELAY=1 ;;
+        --disable-relay) BUILD_RELAY=0 ;;
+        --enable-guard) BUILD_GUARD=1 ;;
+        --disable-guard) BUILD_GUARD=0 ;;
+        --enable-auto) BUILD_AUTO=1 ;;
+        --disable-auto) BUILD_AUTO=0 ;;
+        --enable-detector) BUILD_DETECTOR=1 ;;
+        --disable-detector) BUILD_DETECTOR=0 ;;
+        --enable-plugins) BUILD_PLUGINS=1 ;;
+        --disable-plugins) BUILD_PLUGINS=0 ;;
+        --enable-crosed) BUILD_CROSED=1 ;;
+        --disable-crosed) BUILD_CROSED=0 ;;
+        --enable-app) BUILD_APP=1 ;;
+        --disable-app) BUILD_APP=0 ;;
+        --enable-assistants) BUILD_ASSISTANTS=1 ;;
+        --disable-assistants) BUILD_ASSISTANTS=0 ;;
+        --enable-control) BUILD_CONTROL=1 ;;
+        --disable-control) BUILD_CONTROL=0 ;;
+        --enable-slots) BUILD_SLOTS=1 ;;
+        --disable-slots) BUILD_SLOTS=0 ;;
+        --enable-public6) BUILD_PUBLIC6=1 ;;
+        --disable-public6) BUILD_PUBLIC6=0 ;;
+        --enable-gate) BUILD_GATE=1 ;;
+        --disable-gate) BUILD_GATE=0 ;;
+        --enable-migration) BUILD_MIGRATION=1 ;;
+        --disable-migration) BUILD_MIGRATION=0 ;;
+        --crosed-level=*) CROSED_LEVEL=${argument#*=}; case "$CROSED_LEVEL" in 0|1|2|3|4|5) ;; *) printf 'Invalid Crosed level: %s\n' "$CROSED_LEVEL" >&2; exit 2 ;; esac ;;
+        --enable-app-transport) APP_TRANSPORT=1 ;;
+        --disable-app-transport) APP_TRANSPORT=0 ;;
+        --enable-qubes-isolation) QUBES_ISOLATION=1 ;;
+        --disable-qubes-isolation) QUBES_ISOLATION=0 ;;
+        --enable-compliance) BUILD_COMPLIANCE=1 ;;
+        --disable-compliance) BUILD_COMPLIANCE=0 ;;
+        -h|--help) usage; exit 0 ;;
+        *) printf 'Unknown option: %s\n' "$argument" >&2; usage >&2; exit 2 ;;
+    esac
+done
+
+temporary="config.mk.tmp.$$"
+trap 'rm -f "$temporary"' EXIT
+{
+    printf 'BUILD_GO=%s\n' "$BUILD_GO"
+    printf 'BUILD_RUST=%s\n' "$BUILD_RUST"
+    printf 'BUILD_RELAY=%s\n' "$BUILD_RELAY"
+    printf 'BUILD_GUARD=%s\n' "$BUILD_GUARD"
+    printf 'BUILD_AUTO=%s\n' "$BUILD_AUTO"
+    printf 'BUILD_DETECTOR=%s\n' "$BUILD_DETECTOR"
+    printf 'BUILD_PLUGINS=%s\n' "$BUILD_PLUGINS"
+    printf 'BUILD_CROSED=%s\n' "$BUILD_CROSED"
+    printf 'BUILD_APP=%s\n' "$BUILD_APP"
+    printf 'BUILD_ASSISTANTS=%s\n' "$BUILD_ASSISTANTS"
+    printf 'BUILD_CONTROL=%s\n' "$BUILD_CONTROL"
+    printf 'BUILD_SLOTS=%s\n' "$BUILD_SLOTS"
+    printf 'BUILD_PUBLIC6=%s\n' "$BUILD_PUBLIC6"
+    printf 'BUILD_GATE=%s\n' "$BUILD_GATE"
+    printf 'BUILD_MIGRATION=%s\n' "$BUILD_MIGRATION"
+    printf 'BUILD_COMPLIANCE=%s\n' "$BUILD_COMPLIANCE"
+    printf 'CROSED_LEVEL=%s\n' "$CROSED_LEVEL"
+    printf 'APP_TRANSPORT=%s\n' "$APP_TRANSPORT"
+    printf 'QUBES_ISOLATION=%s\n' "$QUBES_ISOLATION"
+} > "$temporary"
+chmod 0644 "$temporary"
+mv -f "$temporary" config.mk
+trap - EXIT
+printf '%s\n' "Configuration complete. Run 'make', 'make test', and 'make audit'."

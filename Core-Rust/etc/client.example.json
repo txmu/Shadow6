@@ -1,0 +1,17 @@
+{
+  "role": "client",
+  "broker": null,
+  "agent": null,
+  "client": {
+    "id": "mac-1",
+    "broker_addrs": [
+      "wss://your-cdn.com/ws",
+      "vps_ip:4433"
+    ],
+    "broker_pubkey": "<BROKER_PUB_KEY>",
+    "private_key": "<HEX_PRIVATE_KEY>",
+    "target_agent": "nas-1",
+    "on_success": "ssh root@127.0.0.1 -p $LOCAL_TCP_PORT",
+    "allow_local_discovery": true
+  }
+}

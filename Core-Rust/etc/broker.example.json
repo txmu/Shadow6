@@ -1,0 +1,26 @@
+{
+  "role": "broker",
+  "broker": {
+    "listen_addr": "0.0.0.0:4433",
+    "private_key": "<HEX_PRIVATE_KEY>",
+    "agents": [
+      {
+        "id": "nas-1",
+        "pubkey": "<AGENT_PUB_KEY>"
+      }
+    ],
+    "clients": [
+      {
+        "id": "mac-1",
+        "pubkey": "<CLIENT_PUB_KEY>",
+        "allowed_agents": [
+          "nas-1"
+        ]
+      }
+    ],
+    "webhook_url": "",
+    "stealth_mode": true
+  },
+  "agent": null,
+  "client": null
+}

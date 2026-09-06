@@ -1,0 +1,8 @@
+-r requirements.txt
+--extra-index-url https://download.pytorch.org/whl/cpu
+joblib==1.5.3
+numpy==2.5.2
+pandas==3.0.5
+scapy==2.7.0
+scikit-learn==1.9.0
+torch==2.13.0+cpu

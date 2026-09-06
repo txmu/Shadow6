@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "id": "number-guess",
+  "name": "数字猜谜",
+  "version": "1.0.0",
+  "runtime": "python3",
+  "entrypoint": "main.py",
+  "capabilities": [
+    "game.local"
+  ],
+  "hooks": [],
+  "timeout_seconds": 3,
+  "max_output_bytes": 65536,
+  "sha256": "c0c16ae0de04d4d1ac7a935e206f3062d7901cb57adfc5305cff9359549f4b99",
+  "signer": "shadow6-release",
+  "signature": "0771e2440ee7793abe7d02b18009157ebbfca46392d4929c6045e4258f9b98982d3a97dadf4cc8b96100063d2768e31297edd180a8f8b69ca2b35cadcdfcc007"
+}

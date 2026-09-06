@@ -1,0 +1,11 @@
+{
+  "role": "client_guard",
+  "stealth_timing": {
+    "enabled": true,
+    "broker_wss_addr": "wss://broker.example:443",
+    "server_name": "broker.example",
+    "chaff_interval_ms": 30000,
+    "jitter_min_ms": 1000,
+    "jitter_max_ms": 5000
+  }
+}
