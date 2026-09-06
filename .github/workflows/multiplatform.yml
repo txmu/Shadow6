@@ -12,7 +12,7 @@ jobs:
       - uses: actions/setup-python@v5
         with: {python-version: '3.12'}
       - run: python -m venv .venv
-      - run: .venv/bin/pip install -r requirements.txt
+      - run: .venv/bin/pip install -r requirements.txt -r requirements-ml.txt
       - run: make build
       - run: make crosed-variants
       - run: make test
@@ -85,11 +85,14 @@ jobs:
     name: FreeBSD native tests
     steps:
       - uses: actions/checkout@v4
-      - uses: vmactions/freebsd@v1
+      - uses: cross-platform-actions/action@v0.29.0
         with:
-          usesh: true
-          prepare: pkg install -y go126
+          operating_system: freebsd
+          version: '14.2'
+          shell: bash
           run: |
+            sudo pkg update -f
+            sudo pkg install -y go126
             cd Core-Go
             go test ./...
             cd ../Guard
@@ -99,11 +102,13 @@ jobs:
     name: OpenBSD native tests
     steps:
       - uses: actions/checkout@v4
-      - uses: vmactions/openbsd@v1
+      - uses: cross-platform-actions/action@v0.29.0
         with:
-          usesh: true
-          prepare: pkg_add go
+          operating_system: openbsd
+          version: '7.6'
+          shell: bash
           run: |
+            sudo pkg_add go
             cd Core-Go
             go test ./...
             cd ../Guard
@@ -113,11 +118,13 @@ jobs:
     name: NetBSD native tests
     steps:
       - uses: actions/checkout@v4
-      - uses: vmactions/netbsd@v1
+      - uses: cross-platform-actions/action@v0.29.0
         with:
-          usesh: true
-          prepare: pkgin -y install go126
+          operating_system: netbsd
+          version: '10.1'
+          shell: bash
           run: |
+            sudo pkgin -y install go126
             cd Core-Go
             go test ./...
             cd ../Guard
@@ -138,7 +145,7 @@ jobs:
           targets: aarch64-linux-android,x86_64-linux-android
       - uses: android-actions/setup-android@v3
       - name: Install Android SDK tools
-        run: sdkmanager --install 'platforms;android-36' 'build-tools;36.0.0' 'ndk;28.2.13676358'
+        run: sdkmanager --install 'platforms;android-36' 'build-tools;36.0.0' 'ndk;27.3.13750724'
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.4.1'
@@ -146,7 +153,9 @@ jobs:
         env:
           SHADOW6_ANDROID_BUILD_JOBS: '16'
         run: |
-          python3 Android/build_android_cores.py --ndk "$ANDROID_NDK_ROOT/28.2.13676358"
+          ndk_dir="$(find "${ANDROID_SDK_ROOT:-$ANDROID_HOME}/ndk" -mindepth 1 -maxdepth 1 -type d -print -quit)"
+          test -n "$ndk_dir"
+          python3 Android/build_android_cores.py --ndk "$ndk_dir"
       - name: Build debug APK
         run: gradle --no-daemon --no-configuration-cache --max-workers=16 --console=plain -p Android assembleDebug
       - uses: actions/upload-artifact@v4
