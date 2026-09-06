@@ -229,7 +229,7 @@ jobs:
       - name: Install Zig
         uses: mlugg/setup-zig@v2
         with:
-          version: 0.15.1
+          version: 0.16.0
       - uses: android-actions/setup-android@v3
       - name: Install Android SDK tools
         run: sdkmanager --install 'platforms;android-36' 'build-tools;36.0.0' 'ndk;27.3.13750724'
