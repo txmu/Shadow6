@@ -4,6 +4,13 @@ pub const c = @cImport({
     // Zig slices and explicit lengths provide bounds at this FFI boundary.
     @cUndef("_FORTIFY_SOURCE");
     @cDefine("_FORTIFY_SOURCE", "0");
+    // Android Bionic annotates array parameters with Clang nullability
+    // tokens. translate-c treats those tokens as types and rejects valid
+    // declarations (notably pipe/socketpair/getopt). They carry no ABI
+    // information for this FFI, so erase them during translation.
+    @cDefine("_Nonnull", "");
+    @cDefine("_Nullable", "");
+    @cDefine("_Null_unspecified", "");
     @cInclude("sys/socket.h");
     @cInclude("sys/stat.h");
     @cInclude("sys/time.h");
