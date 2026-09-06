@@ -1,5 +1,8 @@
 const std = @import("std");
 pub const c = @cImport({
+    // Bionic's unsigned ioctl convenience overload cannot be represented by
+    // translate-c. Keep the canonical libc declaration using its opt-out.
+    @cDefine("BIONIC_IOCTL_NO_SIGNEDNESS_OVERLOAD", "1");
     // Fortified variadic C wrappers cannot be translated by translate-c.
     // Zig slices and explicit lengths provide bounds at this FFI boundary.
     @cUndef("_FORTIFY_SOURCE");
