@@ -25,6 +25,7 @@ if [[ -f "$apk_source" ]]; then
     apk_included=1
 fi
 tar --exclude="$project_name/.venv" \
+	--exclude="$project_name/.git" \
     --exclude="$project_name/.tools" \
     --exclude="$project_name/.android-toolchain" \
     --exclude="$project_name/.tmp" \
@@ -49,6 +50,7 @@ fi
 mkdir -p "$zip_stage"
 cd "$parent_dir"
 tar --exclude="$project_name/.venv" \
+	--exclude="$project_name/.git" \
     --exclude="$project_name/.tools" \
     --exclude="$project_name/.android-toolchain" \
     --exclude="$project_name/.tmp" \
