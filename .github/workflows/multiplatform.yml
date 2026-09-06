@@ -226,13 +226,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-linux-android,x86_64-linux-android
-      - name: Install Zig
-        uses: mlugg/setup-zig@v2
-        with:
-          version: 0.16.0
       - uses: android-actions/setup-android@v3
       - name: Install Android SDK tools
-        run: sdkmanager --install 'platforms;android-36' 'build-tools;36.0.0' 'ndk;27.3.13750724'
+        run: sdkmanager --install 'platforms;android-36' 'build-tools;36.0.0' 'ndk;28.2.13676358'
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.4.1'
@@ -240,7 +236,7 @@ jobs:
         env:
           SHADOW6_ANDROID_BUILD_JOBS: '16'
         run: |
-          ndk_dir="${ANDROID_SDK_ROOT:-$ANDROID_HOME}/ndk/27.3.13750724"
+          ndk_dir="${ANDROID_SDK_ROOT:-$ANDROID_HOME}/ndk/28.2.13676358"
           test -d "$ndk_dir"
           python3 Android/build_android_cores.py --ndk "$ndk_dir"
       - name: Build debug APK

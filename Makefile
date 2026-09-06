@@ -3,6 +3,9 @@
 BUILD_GO ?= 1
 BUILD_RUST ?= 1
 BUILD_ZIG ?= 0
+BUILD_ADA ?= 0
+ADA_CROSED_LEVEL ?= 0
+export ADA_CROSED_LEVEL
 BUILD_RELAY ?= 1
 BUILD_GUARD ?= 1
 BUILD_AUTO ?= 1
@@ -31,6 +34,29 @@ PYTHON ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python3)
 all: build
 
 .PHONY: core-zig test-zig
+
+.PHONY: core-ada test-ada prove-ada ada-crosed-variant
+core-ada:
+	@gprbuild -p -P Core-Ada/core_ada.gpr -j2
+	@install -m 0755 Core-Ada/obj/$(ADA_CROSED_LEVEL)/bin/shadow6-ada Core-Ada/shadow6-ada
+	@install -m 0755 Core-Ada/obj/$(ADA_CROSED_LEVEL)/bin/test_cells Core-Ada/test_cells
+
+prove-ada:
+	@gnatprove -P Core-Ada/proof.gpr -j2
+
+ada-crosed-variant:
+	@$(MAKE) core-ada ADA_CROSED_LEVEL=5
+	@install -m 0755 Core-Ada/shadow6-ada Core-Ada/shadow6-ada-crosed
+	@$(MAKE) core-ada ADA_CROSED_LEVEL=0
+
+test-ada: core-ada prove-ada ada-crosed-variant
+	@Core-Ada/test_cells
+	@$(PYTHON) Core-Ada/test_core.py
+
+ifeq ($(BUILD_ADA),1)
+build: core-ada
+test: test-ada
+endif
 
 core-zig:
 	@cd Core-Zig && zig build -j1 -Doptimize=ReleaseSafe
@@ -288,6 +314,9 @@ ifeq ($(BUILD_RUST),1)
 endif
 ifeq ($(BUILD_ZIG),1)
 	@install -m 0755 Core-Zig/shadow6-zig "$(DESTDIR)$(PREFIX)/bin/shadow6-zig"
+endif
+ifeq ($(BUILD_ADA),1)
+	@install -m 0755 Core-Ada/shadow6-ada "$(DESTDIR)$(PREFIX)/bin/shadow6-ada"
 endif
 ifeq ($(BUILD_RELAY),1)
 	@install -m 0755 C11Relay/bridge_relay "$(DESTDIR)$(PREFIX)/bin/shadow6-relay"

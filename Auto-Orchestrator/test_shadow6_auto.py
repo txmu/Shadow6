@@ -31,6 +31,22 @@ from shadow6_auto import (
 
 class TestShadow6Auto(unittest.TestCase):
 
+    def test_ada_rotation_binds_domains_and_cell_transport(self):
+        with tempfile.TemporaryDirectory(prefix="shadow6-ada-auto-") as directory:
+            topology = {"version": "1.0", "global": {"broker_scheme": "ws", "output_dir": directory}, "nodes": [
+                {"name": "broker", "type": "broker", "engines": ["shadow6-ada"], "listen_host": "127.0.0.1"},
+                {"name": "agent", "type": "agent", "engines": ["shadow6-ada"], "domain": "vault-vm"},
+                {"name": "client", "type": "client", "engines": ["shadow6-ada"], "domain": "work-vm", "allowed_agents": ["agent"]},
+            ]}
+            asyncio.run(execute_mtd_rotation(topology))
+            agent = json.loads(Path(directory, "agent.json").read_text())["agent"]
+            client = json.loads(Path(directory, "client.json").read_text())["client"]
+            self.assertEqual(agent["transport"], "cell-relay")
+            self.assertEqual(client["transport"], "cell-relay")
+            self.assertEqual(agent["client_domains"], {"client": "work-vm"})
+            self.assertEqual(client["target_domain"], "vault-vm")
+            self.assertEqual(agent["domain"], "vault-vm")
+
     def test_ed25519_keygen(self):
         pub, priv = generate_ed25519_keypair()
         self.assertEqual(len(pub), 64)   # 32 bytes hex

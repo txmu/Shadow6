@@ -64,15 +64,6 @@ def main() -> int:
         )
         subprocess.run(["cargo", "build", "--jobs", str(jobs), "--release", "--locked", "--target", rust_target], cwd=ROOT / "Core-Rust", env=cargo_env, check=True)
         shutil.copy2(ROOT / ".tmp/android-rust-target" / rust_target / "release/shadow6-rust", destination / "libshadow6_rust.so")
-        # Android launches these PIE executables as child processes; the .so
-        # suffix is the APK native-library packaging convention, not a JNI ABI.
-        zig_prefix = ROOT / ".tmp/android-zig" / abi
-        subprocess.run([
-            "zig", "build", f"-j{jobs}", f"-Dtarget={rust_target}",
-            f"-Dndk-sysroot={prebuilt / 'sysroot'}",
-            "-Doptimize=ReleaseSafe", "--prefix", str(zig_prefix),
-        ], cwd=ROOT / "Core-Zig", check=True)
-        shutil.copy2(zig_prefix / "bin/shadow6-zig", destination / "libshadow6_zig.so")
     return 0
 
 

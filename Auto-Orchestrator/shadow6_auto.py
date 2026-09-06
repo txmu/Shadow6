@@ -69,13 +69,14 @@ else:
     SERVICE_INIT_DIR = MODULE_DIR
 SAFE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 VALID_ROLES = {"broker", "agent", "client"}
-CORE_ENGINES = {"shadow6-go", "shadow6-rust", "shadow6-zig"}
-CORE_TRANSPORTS = {"shadow6-go": "kcp", "shadow6-rust": "quic", "shadow6-zig": "enet"}
+CORE_ENGINES = {"shadow6-go", "shadow6-rust", "shadow6-zig", "shadow6-ada"}
+CORE_TRANSPORTS = {"shadow6-go": "kcp", "shadow6-rust": "quic", "shadow6-zig": "enet", "shadow6-ada": "cell-relay"}
 OPTIONAL_COMPONENTS = {"shadow6-guard", "c11relay"}
 ENGINE_BINARIES = {
     "shadow6-go": (BINARY_DIR / "shadow6-go" if BINARY_DIR else PROJECT_ROOT / "Core-Go" / "shadow6-go"),
     "shadow6-rust": (BINARY_DIR / "shadow6-rust" if BINARY_DIR else PROJECT_ROOT / "Core-Rust" / "shadow6-rust"),
     "shadow6-zig": (BINARY_DIR / "shadow6-zig" if BINARY_DIR else PROJECT_ROOT / "Core-Zig" / "shadow6-zig"),
+    "shadow6-ada": (BINARY_DIR / "shadow6-ada" if BINARY_DIR else PROJECT_ROOT / "Core-Ada" / "shadow6-ada"),
     "shadow6-guard": (BINARY_DIR / "shadow6-guard" if BINARY_DIR else PROJECT_ROOT / "Guard" / "shadow6-guard"),
     "c11relay": (BINARY_DIR / "shadow6-relay" if BINARY_DIR else PROJECT_ROOT / "C11Relay" / "bridge_relay"),
 }
@@ -495,8 +496,10 @@ def validate_topology(topo: Any) -> dict:
     for index, node in enumerate(nodes):
         if not isinstance(node, dict):
             raise ValueError(f"node {index} must be a mapping")
-        if set(node) - {"name", "type", "engines", "target_port", "listen_port", "ssh_port", "ssh_host", "ssh_user", "ssh_pass", "known_hosts", "deploy_root", "init_system", "advertise_host", "listen_host", "auto_close_after", "allow_local_discovery", "allowed_agents", "target_agent", "on_success"}:
+        if set(node) - {"name", "type", "engines", "target_port", "listen_port", "ssh_port", "ssh_host", "ssh_user", "ssh_pass", "known_hosts", "deploy_root", "init_system", "advertise_host", "listen_host", "auto_close_after", "allow_local_discovery", "allowed_agents", "target_agent", "on_success", "domain"}:
             raise ValueError(f"node {index} contains unknown fields")
+        if "domain" in node and (not isinstance(node["domain"], str) or not re.fullmatch(r"[a-z][a-z0-9-]{0,31}", node["domain"])):
+            raise ValueError("domain must be a lowercase isolation label of 1..32 characters")
         for field in ("type", "ssh_host", "ssh_user", "ssh_pass", "known_hosts", "deploy_root", "init_system", "advertise_host", "listen_host", "target_agent", "on_success"):
             if field in node and (not isinstance(node[field], str) or len(node[field].encode("utf-8")) > 4096 or any(ord(c) < 32 for c in node[field])):
                 raise ValueError(f"invalid node {field}")
@@ -712,6 +715,19 @@ async def execute_mtd_rotation(topo: dict):
                 "allow_local_discovery": bool(node.get("allow_local_discovery", False)),
                 "transport": CORE_TRANSPORTS[core_engine],
             }
+
+        if core_engine == "shadow6-ada":
+            domains = {item["name"]: item.get("domain", "default") for item in topo["nodes"]}
+            config_data[node["type"]]["domain"] = domains[node["name"]]
+            if node["type"] == "broker":
+                for entry in agents_data + clients_data:
+                    entry["domain"] = domains[entry["id"]]
+            elif node["type"] == "agent":
+                allowed = {entry["id"] for entry in clients_data if node["name"] in entry["allowed_agents"]}
+                config_data["agent"]["client_pubkeys"] = {name: client_keys[name][0] for name in allowed}
+                config_data["agent"]["client_domains"] = {name: domains[name] for name in allowed}
+            else:
+                config_data["client"]["target_domain"] = domains[target_agent]
 
         filename = output_dir / f"{node['name']}.json"
         _write_secure_json(filename, config_data)

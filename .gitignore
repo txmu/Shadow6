@@ -18,6 +18,10 @@ Core-Rust/shadow6-rust
 Core-Zig/shadow6-zig
 Core-Zig/.zig-cache/
 Core-Zig/zig-out/
+Core-Ada/obj/
+Core-Ada/shadow6-ada
+Core-Ada/shadow6-ada-crosed
+Core-Ada/test_cells
 C11Relay/bridge_relay
 C11Relay/c11relay_test
 Guard/shadow6-guard

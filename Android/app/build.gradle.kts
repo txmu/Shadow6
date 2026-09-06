@@ -16,7 +16,6 @@ android {
         versionName = "1.2.0"
         buildConfigField("boolean", "INCLUDE_GO_CORE", enabled("shadow6.includeGoCore").toString())
         buildConfigField("boolean", "INCLUDE_RUST_CORE", enabled("shadow6.includeRustCore").toString())
-        buildConfigField("boolean", "INCLUDE_ZIG_CORE", enabled("shadow6.includeZigCore").toString())
         buildConfigField("boolean", "INCLUDE_GATE", enabled("shadow6.includeGate").toString())
         buildConfigField("boolean", "INCLUDE_CHAT", enabled("shadow6.includeChat").toString())
         buildConfigField("boolean", "INCLUDE_GAMES", enabled("shadow6.includeGames").toString())
@@ -24,7 +23,11 @@ android {
         buildConfigField("boolean", "INCLUDE_AI", enabled("shadow6.includeAI").toString())
     }
     buildFeatures { compose = true; buildConfig = true }
-    packaging { jniLibs.useLegacyPackaging = true }
+    packaging {
+        jniLibs.useLegacyPackaging = true
+        // Also exclude artifacts left by older incremental native builds.
+        jniLibs.excludes += "**/libshadow6_zig.so"
+    }
     androidResources {
         localeFilters += listOf("en", "zh-rCN")
     }

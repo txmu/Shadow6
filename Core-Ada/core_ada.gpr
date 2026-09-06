@@ -1,0 +1,22 @@
+project Core_Ada is
+   Level := external ("ADA_CROSED_LEVEL", "0");
+   for Languages use ("Ada", "C");
+   for Source_Dirs use ("src");
+   for Object_Dir use "obj/" & Level;
+   for Exec_Dir use "obj/" & Level & "/bin";
+   for Main use ("shadow6_ada.adb", "test_cells.adb");
+   package Builder is
+      for Executable ("shadow6_ada.adb") use "shadow6-ada";
+   end Builder;
+   package Compiler is
+      for Default_Switches ("Ada") use
+        ("-gnat2012", "-gnata", "-gnato", "-O2", "-fPIE", "-fstack-protector-strong");
+      for Default_Switches ("C") use
+        ("-std=c11", "-O2", "-Wall", "-Wextra", "-Werror", "-fPIE",
+         "-fstack-protector-strong", "-D_FORTIFY_SOURCE=2", "-DADA_CROSED_LEVEL=" & Level);
+   end Compiler;
+   package Linker is
+      for Default_Switches ("Ada") use
+        ("-pie", "-Wl,-z,relro,-z,now,-z,noexecstack", "-lssl", "-lcrypto", "-l:libsodium.so.23", "-l:libunistring.so.5");
+   end Linker;
+end Core_Ada;

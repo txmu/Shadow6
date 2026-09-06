@@ -1,0 +1,23 @@
+with Cells; with JSON; with Native;
+package Support with SPARK_Mode => Off is
+   Failure : exception;
+   subtype Key is Cells.Bytes (1 .. 32);
+   subtype Secret_Key is Cells.Bytes (1 .. 64);
+   procedure Check (OK : Boolean);
+   procedure Check (Code : Native.Int);
+   function Hex (B : Cells.Bytes) return String;
+   function Unhex (S : String; N : Positive) return Cells.Bytes;
+   function B64 (S : String) return String;
+   function Bytes_String (B : Cells.Bytes) return String;
+   function Digest (S : String) return Key;
+   procedure Load_Key (S : String; Pub : out Key; Secret : out Secret_Key);
+   function Sign (S : String; Secret : Secret_Key) return String;
+   function Verify (S, Signature : String; Pub : Key) return Boolean;
+   function Read_File (Path : String) return String;
+   function Num (N : Long_Long_Integer) return String;
+   function Field (D : JSON.Document; I : JSON.Index; Name : String) return String;
+   function Optional (D : JSON.Document; I : JSON.Index; Name : String; Default : String := "") return String;
+   function Identity (S : String) return Boolean;
+   function Domain (S : String) return Boolean;
+   function IP (H : Native.Int; Peer : Boolean := False) return String;
+end Support;
