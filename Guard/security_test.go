@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -83,9 +84,11 @@ func TestGuardStrictJSONSecretsAndSPAIPv6Config(t *testing.T) {
 	if _, err := readConfig(link); err == nil {
 		t.Fatal("symlink config accepted")
 	}
-	os.Chmod(path, 0700)
-	if _, err := readConfig(path); err == nil {
-		t.Fatal("executable secret config accepted")
+	if runtime.GOOS != "windows" {
+		os.Chmod(path, 0700)
+		if _, err := readConfig(path); err == nil {
+			t.Fatal("executable secret config accepted")
+		}
 	}
 }
 

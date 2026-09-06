@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -163,11 +164,13 @@ func TestConfigStrictPermissionsAndValidation(t *testing.T) {
 	if err := os.WriteFile(path, []byte(data), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := readConfig(path); err == nil {
-		t.Fatal("world-readable secret config accepted")
-	}
-	if err := os.Chmod(path, 0o600); err != nil {
-		t.Fatal(err)
+	if runtime.GOOS != "windows" {
+		if _, err := readConfig(path); err == nil {
+			t.Fatal("world-readable secret config accepted")
+		}
+		if err := os.Chmod(path, 0o600); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if _, err := readConfig(path); err != nil {
 		t.Fatal(err)

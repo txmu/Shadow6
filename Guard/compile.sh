@@ -8,7 +8,7 @@ fi
 temporary="shadow6-guard.tmp.$$"
 trap 'rm -f "$temporary"' EXIT
 build_args=(-buildvcs=false -o "$temporary" -trimpath -ldflags='-s -w -buildid=')
-[[ "$(go env GOOS)" != "openbsd" ]] && build_args+=(-buildmode=pie)
+[[ "$(go env GOOS)" != "openbsd" && "$(go env GOOS)" != "netbsd" ]] && build_args+=(-buildmode=pie)
 go build "${build_args[@]}" .
 mv -f "$temporary" shadow6-guard
 chmod 0755 shadow6-guard
