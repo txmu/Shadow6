@@ -12,6 +12,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -230,10 +231,12 @@ func TestGateConfigStrictJSONAndSecretFile(t *testing.T) {
 		}
 	}
 	os.WriteFile(path, data, 0600)
-	for _, mode := range []os.FileMode{0644, 0400, 0700} {
-		os.Chmod(path, mode)
-		if _, err := loadConfig(path); err == nil {
-			t.Fatalf("mode %o accepted", mode)
+	if runtime.GOOS != "windows" {
+		for _, mode := range []os.FileMode{0644, 0400, 0700} {
+			os.Chmod(path, mode)
+			if _, err := loadConfig(path); err == nil {
+				t.Fatalf("mode %o accepted", mode)
+			}
 		}
 	}
 	os.Chmod(path, 0600)
