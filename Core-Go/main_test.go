@@ -18,6 +18,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -120,11 +121,18 @@ func TestConfigValidationAndPermissions(t *testing.T) {
 	if err := os.WriteFile(path, data, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := readConfig(path); err == nil || !strings.Contains(err.Error(), "0600") {
-		t.Fatalf("insecure config mode was accepted: %v", err)
+	if runtime.GOOS == "windows" {
+		// NTFS ACLs are validated through the native security descriptor; mode
+		// arguments to WriteFile/Chmod are only compatibility projections.
+		return
 	}
-	if err := os.Chmod(path, 0o600); err != nil {
-		t.Fatal(err)
+	if runtime.GOOS != "windows" {
+		if _, err := readConfig(path); err == nil || !strings.Contains(err.Error(), "0600") {
+			t.Fatalf("insecure config mode was accepted: %v", err)
+		}
+		if err := os.Chmod(path, 0o600); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if _, err := readConfig(path); err != nil {
 		t.Fatalf("secure config rejected: %v", err)
