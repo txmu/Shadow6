@@ -40,6 +40,11 @@ def main() -> int:
         clang = prebuilt / "bin" / f"{rust_target}{api}-clang"
         if not clang.is_file() or clang.is_symlink():
             raise SystemExit(f"NDK compiler is unavailable: {clang}")
+        ldc = shutil.which("ldc2")
+        if ldc:
+            d_sources = [str(p) for p in (ROOT / "Core-D/src").glob("*.d")]
+            d_cmd = [ldc, "-betterC", "-O2", "-release", "-I", str(ROOT / "Core-D/src"), "-mtriple=" + ("aarch64-linux-android" if abi == "arm64-v8a" else "x86_64-linux-android"), "-of=" + str(destination / "libshadow6_d.so")] + d_sources + [str(ROOT / "Core-D/src/platform.c"), "-L-lcrypto", "-L-lssl", "-L-lsodium"]
+            subprocess.run(d_cmd, cwd=ROOT, env=dict(os.environ, CC=str(clang)), check=True)
         # Android's Go runtime uses the NDK linker even with no application
         # C bindings; keep the compiler fixed to the selected API/ABI.
         env = dict(
