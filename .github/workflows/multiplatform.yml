@@ -11,6 +11,19 @@ jobs:
         with: {go-version-file: Core-Go/go.mod}
       - run: make build
       - run: cd Core-Go && go test ./...
+      - run: make crosed-variants
+      - run: make package
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shadow6-linux-release
+          path: |
+            ../Shadow6.tar.gz
+            ../Shadow6.zip
+            Core-Go/shadow6-go
+            Core-Go/shadow6-go-crosed
+            Core-Rust/shadow6-rust
+            Core-Rust/shadow6-rust-crosed
+          if-no-files-found: error
   macos:
     runs-on: macos-latest
     steps:
@@ -18,6 +31,20 @@ jobs:
       - uses: actions/setup-go@v5
         with: {go-version-file: Core-Go/go.mod}
       - run: cd Core-Go && go test ./...
+      - shell: bash
+        run: |
+          cd Core-Go
+          bash ./compile.sh
+          CROSED_LEVEL=5 APP_TRANSPORT=1 QUBES_ISOLATION=1 bash ./compile.sh
+          mv shadow6-go shadow6-go-crosed
+          CROSED_LEVEL=0 APP_TRANSPORT=0 QUBES_ISOLATION=0 bash ./compile.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shadow6-macos-core-go
+          path: |
+            Core-Go/shadow6-go
+            Core-Go/shadow6-go-crosed
+          if-no-files-found: error
   windows:
     runs-on: windows-latest
     steps:
@@ -26,6 +53,20 @@ jobs:
         with: {go-version-file: Core-Go/go.mod}
       - shell: bash
         run: cd Core-Go && go test ./...
+      - shell: bash
+        run: |
+          cd Core-Go
+          bash ./compile.sh
+          CROSED_LEVEL=5 APP_TRANSPORT=1 QUBES_ISOLATION=1 bash ./compile.sh
+          mv shadow6-go shadow6-go-crosed
+          CROSED_LEVEL=0 APP_TRANSPORT=0 QUBES_ISOLATION=0 bash ./compile.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shadow6-windows-core-go
+          path: |
+            Core-Go/shadow6-go
+            Core-Go/shadow6-go-crosed
+          if-no-files-found: error
   freebsd:
     runs-on: ubuntu-latest
     name: FreeBSD native tests
@@ -35,6 +76,34 @@ jobs:
         with:
           usesh: true
           prepare: pkg install -y go126
+          run: |
+            cd Core-Go
+            go test ./...
+            cd ../Guard
+            go test ./...
+  openbsd:
+    runs-on: ubuntu-latest
+    name: OpenBSD native tests
+    steps:
+      - uses: actions/checkout@v4
+      - uses: vmactions/openbsd@v1
+        with:
+          usesh: true
+          prepare: pkg_add go
+          run: |
+            cd Core-Go
+            go test ./...
+            cd ../Guard
+            go test ./...
+  netbsd:
+    runs-on: ubuntu-latest
+    name: NetBSD native tests
+    steps:
+      - uses: actions/checkout@v4
+      - uses: vmactions/netbsd@v1
+        with:
+          usesh: true
+          prepare: pkgin -y install go126
           run: |
             cd Core-Go
             go test ./...
