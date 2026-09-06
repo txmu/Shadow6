@@ -7,10 +7,10 @@ if [[ "${SHADOW6_NATIVE:-0}" == 1 ]]; then
 fi
 link_flags=""
 case "$(uname -s)" in
-    Darwin) link_flags="" ;;
-    *) link_flags=" -C link-arg=-Wl,-z,relro,-z,now -C link-arg=-Wl,-z,noexecstack" ;;
+    Darwin) cpu_flag="" ;;
+    *) cpu_flag=" -C target-cpu=${cpu_target}"; link_flags=" -C link-arg=-Wl,-z,relro,-z,now -C link-arg=-Wl,-z,noexecstack" ;;
 esac
-export RUSTFLAGS="${RUSTFLAGS:-} -C target-cpu=${cpu_target}${link_flags}"
+export RUSTFLAGS="${RUSTFLAGS:-}${cpu_flag}${link_flags}"
 features=()
 case "${CROSED_LEVEL:-0}" in
     0) ;;
