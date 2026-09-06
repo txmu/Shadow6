@@ -9,16 +9,29 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with: {go-version-file: Core-Go/go.mod}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - run: python -m venv .venv
+      - run: .venv/bin/pip install -r requirements.txt
       - run: make build
-      - run: cd Core-Go && go test ./...
       - run: make crosed-variants
+      - run: make test
+      - run: make check
+      - run: make audit
+      - run: .venv/bin/python Security-Assistants/shadow6_security.py doctor
+      - run: .venv/bin/python Security-Assistants/shadow6_security.py sbom --output /tmp/shadow6-sbom.json
+      - run: .venv/bin/python Infrastructure-Assistants/shadow6_infra.py observe --output /tmp/shadow6-observation.json
       - run: make package
+      - run: tar -tzf ../Shadow6.tar.gz >/dev/null
+      - run: unzip -tq ../Shadow6.zip
       - uses: actions/upload-artifact@v4
         with:
           name: shadow6-linux-release
           path: |
             ../Shadow6.tar.gz
             ../Shadow6.zip
+            /tmp/shadow6-sbom.json
+            /tmp/shadow6-observation.json
             Core-Go/shadow6-go
             Core-Go/shadow6-go-crosed
             Core-Rust/shadow6-rust
@@ -109,3 +122,35 @@ jobs:
             go test ./...
             cd ../Guard
             go test ./...
+  android:
+    runs-on: ubuntu-latest
+    name: Android APK release
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: actions/setup-go@v5
+        with: {go-version-file: Core-Go/go.mod}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,x86_64-linux-android
+      - uses: android-actions/setup-android@v3
+      - name: Install Android SDK tools
+        run: sdkmanager --install 'platforms;android-36' 'build-tools;36.0.0' 'ndk;28.2.13676358'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.4.1'
+      - name: Build native cores
+        env:
+          SHADOW6_ANDROID_BUILD_JOBS: '16'
+        run: |
+          python3 Android/build_android_cores.py --ndk "$ANDROID_NDK_ROOT/28.2.13676358"
+      - name: Build debug APK
+        run: gradle --no-daemon --no-configuration-cache --max-workers=16 --console=plain -p Android assembleDebug
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shadow6-android-debug
+          path: Android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
