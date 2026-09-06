@@ -2,6 +2,7 @@
 
 BUILD_GO ?= 1
 BUILD_RUST ?= 1
+BUILD_ZIG ?= 0
 BUILD_RELAY ?= 1
 BUILD_GUARD ?= 1
 BUILD_AUTO ?= 1
@@ -28,6 +29,21 @@ PYTHON ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python3)
 .PHONY: all build core-go core-rust gate migration i18n crosed-variants public6 public6-variants public6-contract relay guard service-init auto detector plugins package-manager easybuild crosed app-layer assistants slots control-center android-preflight android-cores android-apk integration-test test check audit package install clean distclean
 
 all: build
+
+.PHONY: core-zig test-zig
+
+core-zig:
+	@cd Core-Zig && zig build -j1 -Doptimize=ReleaseSafe
+	@install -m 0755 Core-Zig/zig-out/bin/shadow6-zig Core-Zig/shadow6-zig
+
+test-zig: core-zig
+	@cd Core-Zig && zig build test -j1
+	@$(PYTHON) Core-Zig/test_core.py
+
+ifeq ($(BUILD_ZIG),1)
+build: core-zig
+test: test-zig
+endif
 
 build: core-go core-rust gate migration i18n cli online-repository relay guard service-init auto detector plugins package-manager easybuild crosed app-layer assistants slots control-center public6-contract
 
@@ -269,6 +285,9 @@ ifeq ($(BUILD_GO),1)
 endif
 ifeq ($(BUILD_RUST),1)
 	@install -m 0755 Core-Rust/shadow6-rust "$(DESTDIR)$(PREFIX)/bin/shadow6-rust"
+endif
+ifeq ($(BUILD_ZIG),1)
+	@install -m 0755 Core-Zig/shadow6-zig "$(DESTDIR)$(PREFIX)/bin/shadow6-zig"
 endif
 ifeq ($(BUILD_RELAY),1)
 	@install -m 0755 C11Relay/bridge_relay "$(DESTDIR)$(PREFIX)/bin/shadow6-relay"

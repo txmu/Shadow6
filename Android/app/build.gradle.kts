@@ -16,6 +16,7 @@ android {
         versionName = "1.2.0"
         buildConfigField("boolean", "INCLUDE_GO_CORE", enabled("shadow6.includeGoCore").toString())
         buildConfigField("boolean", "INCLUDE_RUST_CORE", enabled("shadow6.includeRustCore").toString())
+        buildConfigField("boolean", "INCLUDE_ZIG_CORE", enabled("shadow6.includeZigCore").toString())
         buildConfigField("boolean", "INCLUDE_GATE", enabled("shadow6.includeGate").toString())
         buildConfigField("boolean", "INCLUDE_CHAT", enabled("shadow6.includeChat").toString())
         buildConfigField("boolean", "INCLUDE_GAMES", enabled("shadow6.includeGames").toString())

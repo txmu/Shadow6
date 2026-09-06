@@ -70,7 +70,7 @@ data class CoreProfile(
                     .put("auto_close_after", autoCloseSeconds)
                     .put("allow_local_discovery", allowLocalDiscovery)
                     .put("client_pubkeys", strictKeyMap(JSONObject(StrictJson.objectValue(StrictJson.parse(clientPublicKeysJson.ifBlank { "{}" })))))
-                    .put("transport", if (engine == CoreEngine.GO) "kcp" else "quic")
+                    .put("transport", engine.transport)
                 rustTls(engine, section)
                 root.put("agent", section)
             }
@@ -86,7 +86,7 @@ data class CoreProfile(
                     .put("agent_pubkey", publicKey(agentPublicKey, "agent"))
                     .put("on_success", "")
                     .put("allow_local_discovery", allowLocalDiscovery)
-                    .put("transport", if (engine == CoreEngine.GO) "kcp" else "quic")
+                    .put("transport", engine.transport)
                 rustTls(engine, section)
                 root.put("client", section)
             }

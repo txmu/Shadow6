@@ -11,6 +11,7 @@ class AndroidProjectTests(unittest.TestCase):
     def test_dual_core_and_locales(self):
         gradle = (ROOT / "app/build.gradle.kts").read_text()
         self.assertIn("INCLUDE_GO_CORE", gradle); self.assertIn("INCLUDE_RUST_CORE", gradle)
+        self.assertIn("INCLUDE_ZIG_CORE", gradle)
         self.assertIn("INCLUDE_GATE", gradle)
         self.assertNotIn('id("org.jetbrains.kotlin.android")', gradle)
         english = (ROOT / "app/src/main/res/values/strings.xml").read_text()
@@ -34,6 +35,10 @@ class AndroidProjectTests(unittest.TestCase):
         self.assertIn('"--locked"', cross_build)
         self.assertIn("NDK must contain exactly one non-symlink", cross_build)
         self.assertIn("libshadow6_gate.so", cross_build)
+        self.assertIn("libshadow6_zig.so", cross_build)
+        self.assertIn("-Dndk-sysroot=", cross_build)
+        self.assertIn('ZIG("libshadow6_zig.so", "enet")', core)
+        self.assertIn('.put("transport", engine.transport)', config)
         gate = (ROOT / "app/src/main/java/org/shadow6/android/gate/GateRuntime.kt").read_text()
         self.assertIn("no Termux, Tailscale, or shell", gate)
         self.assertIn("Gate remains disabled until explicitly enabled", gate)

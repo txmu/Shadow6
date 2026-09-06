@@ -308,7 +308,7 @@ private fun OverviewScreen(runtime: CoreRuntime, status: CoreStatus, onStatusCha
     val context = LocalContext.current
     val preferences = remember { context.getSharedPreferences("core", Context.MODE_PRIVATE) }
     val gateRuntime = remember { GateController.runtime(context) }
-    val defaultEngine = if (BuildConfig.INCLUDE_GO_CORE) CoreEngine.GO else CoreEngine.RUST
+    val defaultEngine = CoreEngine.entries.firstOrNull { runtime.available(it) } ?: CoreEngine.GO
     var engine by remember { mutableStateOf(runCatching { CoreEngine.valueOf(preferences.getString("engine", defaultEngine.name)!!) }.getOrDefault(defaultEngine)) }
     var mode by remember { mutableStateOf(runCatching { AccessMode.valueOf(preferences.getString("mode", AccessMode.NON_ROOT.name)!!) }.getOrDefault(AccessMode.NON_ROOT)) }
     var role by remember { mutableStateOf(runCatching { CoreRole.valueOf(preferences.getString("role", CoreRole.BROKER.name)!!) }.getOrDefault(CoreRole.BROKER)) }
@@ -481,7 +481,7 @@ private fun OverviewScreen(runtime: CoreRuntime, status: CoreStatus, onStatusCha
                     ConfigField(targetAgent, { targetAgent = it.take(64) }, stringResource(R.string.target_agent), !status.running && !busy)
                     ConfigField(agentPublicKey, { agentPublicKey = it.filter(Char::isLetterOrDigit).take(64) }, stringResource(R.string.agent_public_key), !status.running && !busy)
                 }
-                Text("${stringResource(R.string.transport)}: ${if (engine == CoreEngine.GO) "KCP" else "QUIC"}", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("${stringResource(R.string.transport)}: ${engine.transport.uppercase(java.util.Locale.ROOT)}", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
 

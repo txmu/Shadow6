@@ -180,7 +180,7 @@ class TestShadow6Auto(unittest.TestCase):
             validate_topology(topology)
 
     def test_engine_specific_config_generation(self):
-        for engine, transport in (("shadow6-go", "kcp"), ("shadow6-rust", "quic")):
+        for engine, transport in (("shadow6-go", "kcp"), ("shadow6-rust", "quic"), ("shadow6-zig", "enet")):
             with self.subTest(engine=engine), tempfile.TemporaryDirectory() as directory:
                 topology = {
                     "version": "1.0",
@@ -196,7 +196,7 @@ class TestShadow6Auto(unittest.TestCase):
                 client = json.loads((Path(directory) / "client.json").read_text())
                 self.assertEqual(agent["agent"]["transport"], transport)
                 self.assertEqual(client["client"]["transport"], transport)
-                if engine == "shadow6-go":
+                if engine != "shadow6-rust":
                     self.assertNotIn("sni", agent["agent"])
                     self.assertNotIn("alpn", agent["agent"])
                 else:

@@ -78,11 +78,12 @@ def check_elf(audit: Audit, relative: str, *, static_go: bool = False) -> None:
 
 def source_files() -> list[Path]:
     roots = [ROOT / name for name in ("Core-Go", "Core-Rust", "Gate", "CLI", "Migration", "I18n", "Online-Repository", "C11Relay", "Guard", "Service-Init", "Auto-Orchestrator", "Detector", "Plugin-System", "plugins", "Package-Manager", "EasyBuild", "Android", "Crosed", "Application-Layer", "Security-Assistants", "Infrastructure-Assistants", "Slot-System", "Control-Center", "Public6", "integration")]
-    suffixes = {".go", ".rs", ".c", ".h", ".py", ".sh", ".kt", ".kts"}
+    roots.append(ROOT / "Core-Zig")
+    suffixes = {".go", ".rs", ".zig", ".c", ".h", ".py", ".sh", ".kt", ".kts"}
     result: list[Path] = [ROOT / "setup_test.sh", ROOT / "configure"]
     for base in roots:
         for directory, names, files in os.walk(base):
-            names[:] = [name for name in names if name not in {"target", "__pycache__", ".venv"}]
+            names[:] = [name for name in names if name not in {"target", "__pycache__", ".venv", ".zig-cache", "zig-out"}]
             for filename in files:
                 path = Path(directory) / filename
                 if path.suffix in suffixes:
@@ -238,6 +239,8 @@ def main() -> int:
     else:
         check_elf(audit, "Core-Go/shadow6-go", static_go=True)
         check_elf(audit, "Core-Rust/shadow6-rust")
+        if (ROOT / "Core-Zig/shadow6-zig").is_file():
+            check_elf(audit, "Core-Zig/shadow6-zig")
         check_elf(audit, "C11Relay/bridge_relay")
         check_elf(audit, "Guard/shadow6-guard", static_go=True)
         check_elf(audit, "Gate/shadow6-gate", static_go=True)

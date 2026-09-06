@@ -69,11 +69,13 @@ else:
     SERVICE_INIT_DIR = MODULE_DIR
 SAFE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 VALID_ROLES = {"broker", "agent", "client"}
-CORE_ENGINES = {"shadow6-go", "shadow6-rust"}
+CORE_ENGINES = {"shadow6-go", "shadow6-rust", "shadow6-zig"}
+CORE_TRANSPORTS = {"shadow6-go": "kcp", "shadow6-rust": "quic", "shadow6-zig": "enet"}
 OPTIONAL_COMPONENTS = {"shadow6-guard", "c11relay"}
 ENGINE_BINARIES = {
     "shadow6-go": (BINARY_DIR / "shadow6-go" if BINARY_DIR else PROJECT_ROOT / "Core-Go" / "shadow6-go"),
     "shadow6-rust": (BINARY_DIR / "shadow6-rust" if BINARY_DIR else PROJECT_ROOT / "Core-Rust" / "shadow6-rust"),
+    "shadow6-zig": (BINARY_DIR / "shadow6-zig" if BINARY_DIR else PROJECT_ROOT / "Core-Zig" / "shadow6-zig"),
     "shadow6-guard": (BINARY_DIR / "shadow6-guard" if BINARY_DIR else PROJECT_ROOT / "Guard" / "shadow6-guard"),
     "c11relay": (BINARY_DIR / "shadow6-relay" if BINARY_DIR else PROJECT_ROOT / "C11Relay" / "bridge_relay"),
 }
@@ -689,7 +691,7 @@ async def execute_mtd_rotation(topo: dict):
                     "transport": "quic",
                 })
             else:
-                config_data['agent']["transport"] = "kcp"
+                config_data['agent']["transport"] = CORE_TRANSPORTS[core_engine]
         elif node['type'] == 'client':
             _, priv = client_keys[node['name']]
             if has_c11_relay:
@@ -708,7 +710,7 @@ async def execute_mtd_rotation(topo: dict):
                 "agent_pubkey": agent_keys[target_agent][0],
                 "on_success": node.get("on_success", ""),
                 "allow_local_discovery": bool(node.get("allow_local_discovery", False)),
-                "transport": "quic" if core_engine == "shadow6-rust" else "kcp",
+                "transport": CORE_TRANSPORTS[core_engine],
             }
 
         filename = output_dir / f"{node['name']}.json"
@@ -747,7 +749,7 @@ def apply_topology(yaml_path: str):
     for n in topo.get('nodes', []):
         engines_found.update(n.get('engines', []))
     
-    if not ('shadow6-go' in engines_found or 'shadow6-rust' in engines_found):
+    if not (engines_found & CORE_ENGINES):
         console.print("[bold red]Error: Core engine missing. Aborting.[/bold red]")
         raise ValueError("topology does not select a core engine")
         

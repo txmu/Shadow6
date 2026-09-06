@@ -15,6 +15,9 @@ Auto-Orchestrator/generated/
 Auto-Orchestrator/generated-rust/
 Core-Go/shadow6-go
 Core-Rust/shadow6-rust
+Core-Zig/shadow6-zig
+Core-Zig/.zig-cache/
+Core-Zig/zig-out/
 C11Relay/bridge_relay
 C11Relay/c11relay_test
 Guard/shadow6-guard
