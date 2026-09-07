@@ -29,7 +29,7 @@ PREFIX ?= /usr/local
 DESTDIR ?=
 PYTHON ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python3)
 
-.PHONY: all build core-go core-rust gate migration i18n crosed-variants public6 public6-variants public6-contract relay guard service-init auto detector plugins package-manager easybuild crosed app-layer assistants slots control-center android-preflight android-cores android-apk integration-test test check audit package install clean distclean
+.PHONY: all build core-go core-rust gate migration i18n crosed-variants public6 public6-variants public6-contract relay guard service-init auto detector plugins package-manager easybuild crosed app-layer extension-system assistants slots control-center android-preflight android-cores android-apk integration-test test check audit package install clean distclean
 
 all: build
 
@@ -71,7 +71,7 @@ build: core-zig
 test: test-zig
 endif
 
-build: core-go core-rust gate migration i18n cli online-repository relay guard service-init auto detector plugins package-manager easybuild crosed app-layer assistants slots control-center public6-contract
+build: core-go core-rust gate migration i18n cli online-repository relay guard service-init auto detector plugins package-manager easybuild crosed app-layer extension-system assistants slots control-center public6-contract
 
 i18n:
 	@PYTHONPATH=I18n $(PYTHON) -m py_compile I18n/shadow6_i18n.py
@@ -197,6 +197,11 @@ ifeq ($(BUILD_APP),1)
 	@$(PYTHON) -m py_compile Application-Layer/shadow_protocols.py
 endif
 
+extension-system:
+ifeq ($(BUILD_CROSED)$(BUILD_APP)$(BUILD_PLUGINS)$(BUILD_SLOTS),1111)
+	@PYTHONPATH=Crosed:Application-Layer:Plugin-System:Slot-System:Security-Assistants $(PYTHON) -m py_compile Extension-System/shadow6_extensions.py
+endif
+
 assistants:
 ifeq ($(BUILD_ASSISTANTS),1)
 	@$(PYTHON) -m py_compile Security-Assistants/shadow6_security.py Infrastructure-Assistants/shadow6_infra.py
@@ -272,6 +277,9 @@ ifeq ($(BUILD_CONTROL),1)
 endif
 ifeq ($(BUILD_SLOTS),1)
 	@PYTHONPATH=Plugin-System:Security-Assistants:Slot-System $(PYTHON) -m unittest -v Slot-System/test_slots.py
+endif
+ifeq ($(BUILD_CROSED)$(BUILD_APP)$(BUILD_PLUGINS)$(BUILD_SLOTS),1111)
+	@PYTHONPATH=Extension-System:Crosed:Application-Layer:Plugin-System:Slot-System:Security-Assistants $(PYTHON) -m unittest -v Extension-System/test_extensions.py
 endif
 ifeq ($(BUILD_PUBLIC6),1)
 	@PYTHONPATH=Public6 $(PYTHON) -m unittest -v Public6/test_public6.py
@@ -388,6 +396,10 @@ ifeq ($(BUILD_CONTROL),1)
 	@install -m 0644 Migration/shadow6_migrate.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/shadow6_migrate.py"
 	@install -m 0644 Online-Repository/shadow6_repo.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/shadow6_repo.py"
 	@install -m 0644 Gate/portmap.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/portmap.py"
+endif
+ifeq ($(BUILD_CROSED)$(BUILD_APP)$(BUILD_PLUGINS)$(BUILD_SLOTS),1111)
+	@install -m 0755 Extension-System/shadow6_extensions.py "$(DESTDIR)$(PREFIX)/bin/shadow6-extensions"
+	@install -m 0644 Extension-System/shadow6_extensions.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/shadow6_extensions.py"
 endif
 ifeq ($(BUILD_SLOTS),1)
 	@install -m 0755 Slot-System/shadow6_slots.py "$(DESTDIR)$(PREFIX)/bin/shadow6-slots"

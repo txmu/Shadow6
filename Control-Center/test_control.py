@@ -90,6 +90,17 @@ class ControlCenterTests(unittest.TestCase):
                 self.assertEqual(result["error"]["code"], "PermissionError")
                 invoke.assert_not_called()
 
+    def test_extension_transport_accepts_only_explicit_crosed_core_and_fixed_plugin_trust(self):
+        root = Path(__file__).resolve().parents[1]
+        base = {"core": str(root / "Core-Go/shadow6-go"), "request": "/tmp/request",
+                "crosed_trust": "/tmp/crosed-trust", "bindings": "/tmp/bindings"}
+        with self.assertRaises(PermissionError):
+            control._transport_execution_policy("extensions.invoke", base)
+        changed = {**base, "core": str(root / "Core-Go/shadow6-go-crosed"),
+                   "plugin_trust": "/tmp/caller-controlled-trust"}
+        with self.assertRaises(PermissionError):
+            control._transport_execution_policy("extensions.invoke", changed)
+
     def test_schema_constraints_are_enforced_before_dispatch(self):
         for method, params in (
             ("crosed.features", {"cores": ["x"] * 17}),
@@ -147,6 +158,7 @@ class ControlCenterTests(unittest.TestCase):
             self.assertIn(system, document["init_systems"])
         self.assertTrue(document["transport"]["http"]["loopback_only"])
         self.assertIn("slots.invoke", document["methods"])
+        self.assertIn("extensions.invoke", document["methods"])
         for method in ("packages.list", "packages.verify", "packages.install", "packages.activate"):
             self.assertIn(method, document["methods"])
         for method in ("public6.profile", "public6.offer", "public6.negotiate"):

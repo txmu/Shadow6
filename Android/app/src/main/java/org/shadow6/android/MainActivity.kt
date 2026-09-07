@@ -418,7 +418,11 @@ private fun OverviewScreen(runtime: CoreRuntime, status: CoreStatus, onStatusCha
                     },
                     shape = SegmentedButtonDefaults.itemShape(index, engines.size),
                     enabled = !status.running && !busy,
-                ) { Text(if (value == CoreEngine.GO) stringResource(R.string.go_core) else stringResource(R.string.rust_core)) }
+                ) { Text(when (value) {
+                    CoreEngine.GO -> stringResource(R.string.go_core)
+                    CoreEngine.RUST -> stringResource(R.string.rust_core)
+                    CoreEngine.D -> "D Core"
+                }) }
             }
         }
 

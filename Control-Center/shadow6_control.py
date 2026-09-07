@@ -25,7 +25,7 @@ if not (ROOT / "Makefile").is_file():
 for directory in (
     ROOT / "Security-Assistants", ROOT / "Infrastructure-Assistants",
     ROOT / "Auto-Orchestrator", ROOT / "Plugin-System", ROOT / "Crosed",
-    ROOT / "Slot-System", ROOT / "Public6",
+    ROOT / "Slot-System", ROOT / "Extension-System", ROOT / "Application-Layer", ROOT / "Public6",
     ROOT / "Package-Manager",
     ROOT / "Migration",
     ROOT / "Online-Repository", ROOT / "Gate",
@@ -42,6 +42,7 @@ from shadow6_init import generate_init_script, normalize_init_system  # noqa: E4
 from shadow6_plugins import PluginRegistry  # noqa: E402
 from crosedctl import inspect_binary  # noqa: E402
 from shadow6_slots import catalog as slot_catalog, invoke as invoke_slot, load_bindings  # noqa: E402
+from shadow6_extensions import invoke as invoke_extension  # noqa: E402
 from shadow6_pkg import activate as package_activate, install_package, list_packages, verify_package  # noqa: E402
 from shadow6_public import negotiate as public6_negotiate, offer_from_feature_report, read_json as public6_read_json, read_offer as public6_read_offer, suite_profile as public6_profile  # noqa: E402
 from shadow6_migrate import export as migration_export, import_bundle as migration_import, plan as migration_plan  # noqa: E402
@@ -126,6 +127,7 @@ METHOD_SPECS: dict[str, dict[str, Any]] = {
     "slots.catalog": _method("Return the typed Slot catalog."),
     "slots.validate": _method("Validate signed Plugin Slot bindings.", {"root": _PATH, "plugin_root": _PATH, "trust_store": _PATH, "bindings": _PATH, "slot": _STRING, "payload": _OBJECT, "allow_privileged": _BOOL}, ("bindings",)),
     "slots.invoke": _method("Invoke one typed Slot through a signed isolated Plugin.", {"root": _PATH, "plugin_root": _PATH, "trust_store": _PATH, "bindings": _PATH, "slot": _STRING, "payload": _OBJECT, "allow_privileged": _BOOL}, ("bindings", "slot"), mutating=True),
+    "extensions.invoke": _method("Atomically authorize Crosed, validate an application frame, and invoke a signed isolated Plugin Slot.", {"root": _PATH, "core": _PATH, "request": _PATH, "crosed_trust": _PATH, "bindings": _PATH, "plugin_root": _PATH, "plugin_trust": _PATH, "allow_privileged": _BOOL}, ("core", "request", "crosed_trust", "bindings"), mutating=True),
     "runbook.plan": _method("Create a signed, short-lived plan for one fixed runbook.", {"root": _PATH, "action": {"type": "string", "enum": sorted(RUNBOOKS)}, "private_key": _PATH, "ttl": {"type": "integer", "minimum": 30, "maximum": 300}, "output": _PATH}, ("action", "private_key", "output"), mutating=True),
     "runbook.execute": _method("Verify and execute one signed fixed-command plan.", {"root": _PATH, "plan": _PATH, "public_key": _PATH, "state_dir": _PATH}, ("plan", "public_key", "state_dir"), mutating=True),
     "orchestrator.commands": _method("Describe every orchestrator CLI command and its bounded tool equivalent."),
@@ -161,7 +163,7 @@ def schema() -> dict[str, Any]:
         "components": [
             "core-go", "core-rust", "relay", "guard", "orchestrator", "detector",
             "plugins", "crosed", "application-layer", "security-assistants",
-            "infrastructure-assistants", "slots", "package-manager", "online-repository", "migration", "gate", "i18n", "unified-cli", "public6", "easybuild", "control-center",
+            "infrastructure-assistants", "slots", "extension-system", "package-manager", "online-repository", "migration", "gate", "i18n", "unified-cli", "public6", "easybuild", "control-center",
         ],
         "features": {
             "crosed_level": {"type": "integer", "minimum": 0, "maximum": 5, "default": 0},
@@ -231,11 +233,19 @@ def _transport_execution_policy(method: str, params: dict[str, Any]) -> None:
     root = ROOT.resolve()
     if "root" in params and _root(params) != root:
         raise PermissionError("transport root must be the configured Shadow6 repository")
+    if method == "extensions.invoke":
+        plugin_root = Path(params.get("plugin_root", root / "plugins")).expanduser().absolute()
+        plugin_trust = Path(params.get("plugin_trust", root / "Plugin-System" / "trusted_signers.json")).expanduser().absolute()
+        if plugin_root != root / "plugins" or plugin_trust != root / "Plugin-System" / "trusted_signers.json":
+            raise PermissionError("transport Plugin roots must be fixed Shadow6 components")
     cores = {root / directory / name for directory, family in (("Core-Go", "go"), ("Core-Rust", "rust"))
              for name in (f"shadow6-{family}", f"shadow6-{family}-crosed", f"shadow6-{family}-public6")}
+    cores.update({root / "Core-Ada" / "shadow6-ada", root / "Core-Ada" / "shadow6-ada-crosed"})
     candidates: list[tuple[Any, set[Path]]] = []
     if method == "crosed.features":
         candidates.extend((item, cores) for item in params.get("cores", []))
+    elif method == "extensions.invoke":
+        candidates.append((params.get("core"), {path for path in cores if path.name.endswith("-crosed")}))
     elif method == "config.validate" and params.get("kind") in {"core-go", "core-rust"} and "binary" in params:
         family = params["kind"].removeprefix("core-")
         candidates.append((params["binary"], {path for path in cores if path.name.startswith(f"shadow6-{family}")}))
@@ -485,6 +495,18 @@ def dispatch(method: str, raw_params: Any = None) -> Any:
         if method == "slots.validate":
             return {"valid": True, "bindings": load_bindings(bindings, registry)}
         return invoke_slot(str(params.get("slot", "")), params.get("payload", {}), bindings, registry, allow_privileged=params.get("allow_privileged") is True)
+    if method == "extensions.invoke":
+        _only(params, {"root", "core", "request", "crosed_trust", "bindings", "plugin_root", "plugin_trust", "allow_privileged"})
+        root = _root(params)
+        registry = PluginRegistry(
+            Path(params.get("plugin_root", root / "plugins")),
+            Path(params.get("plugin_trust", root / "Plugin-System" / "trusted_signers.json")),
+        )
+        return invoke_extension(
+            Path(params["core"]), Path(params["request"]), Path(params["crosed_trust"]),
+            Path(params["bindings"]), registry,
+            allow_privileged=params.get("allow_privileged") is True,
+        )
     if method == "runbook.plan":
         _only(params, {"root", "action", "private_key", "ttl", "output"})
         action = params.get("action")
