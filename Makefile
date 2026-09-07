@@ -2,6 +2,7 @@
 
 BUILD_GO ?= 1
 BUILD_RUST ?= 1
+BUILD_CPP ?= 1
 BUILD_ZIG ?= 0
 BUILD_ADA ?= 0
 ADA_CROSED_LEVEL ?= 0
@@ -29,7 +30,7 @@ PREFIX ?= /usr/local
 DESTDIR ?=
 PYTHON ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python3)
 
-.PHONY: all build core-go core-rust gate migration i18n crosed-variants public6 public6-variants public6-contract relay guard service-init auto detector plugins package-manager easybuild crosed app-layer extension-system assistants slots control-center android-preflight android-cores android-apk integration-test test check audit package install clean distclean
+.PHONY: all build core-go core-rust core-cpp gate migration i18n crosed-variants public6 public6-variants public6-contract relay guard service-init auto detector plugins package-manager easybuild crosed app-layer extension-system assistants slots control-center android-preflight android-cores android-apk integration-test test check audit package install clean distclean
 
 all: build
 
@@ -88,7 +89,7 @@ build: core-zig
 test: test-zig
 endif
 
-build: core-go core-rust gate migration i18n cli online-repository relay guard service-init auto detector plugins package-manager easybuild crosed app-layer extension-system assistants slots control-center public6-contract
+build: core-go core-rust core-cpp gate migration i18n cli online-repository relay guard service-init auto detector plugins package-manager easybuild crosed app-layer extension-system assistants slots control-center public6-contract
 
 i18n:
 	@PYTHONPATH=I18n $(PYTHON) -m py_compile I18n/shadow6_i18n.py
@@ -123,6 +124,12 @@ core-rust:
 ifeq ($(BUILD_RUST),1)
 	@echo "Building Core-Rust"
 	@cd Core-Rust && bash ./compile.sh
+endif
+
+core-cpp:
+ifeq ($(BUILD_CPP),1)
+	@echo "Building Core-Cpp"
+	@cd Core-Cpp && bash ./compile.sh
 endif
 
 crosed-variants:
@@ -252,6 +259,9 @@ endif
 ifeq ($(BUILD_RUST),1)
 	@cd Core-Rust && cargo test --all-targets -- --test-threads=1
 endif
+ifeq ($(BUILD_CPP),1)
+	@cd Core-Cpp && bash ./test.sh
+endif
 ifeq ($(BUILD_RELAY),1)
 	@cd C11Relay && bash ./test.sh
 endif
@@ -344,6 +354,9 @@ ifeq ($(BUILD_GO),1)
 endif
 ifeq ($(BUILD_RUST),1)
 	@install -m 0755 Core-Rust/shadow6-rust "$(DESTDIR)$(PREFIX)/bin/shadow6-rust"
+endif
+ifeq ($(BUILD_CPP),1)
+	@install -m 0755 Core-Cpp/shadow6-cpp "$(DESTDIR)$(PREFIX)/bin/shadow6-cpp"
 endif
 ifeq ($(BUILD_ZIG),1)
 	@install -m 0755 Core-Zig/shadow6-zig "$(DESTDIR)$(PREFIX)/bin/shadow6-zig"
@@ -440,7 +453,7 @@ endif
 	@echo "Installed selected Shadow6 components under $(DESTDIR)$(PREFIX)"
 
 clean:
-	@rm -f Core-Go/shadow6-go Core-Go/shadow6-go-crosed Core-Go/shadow6-go-public6 Core-Rust/shadow6-rust Core-Rust/shadow6-rust-crosed Core-Rust/shadow6-rust-public6 C11Relay/bridge_relay C11Relay/c11relay_test Guard/shadow6-guard Gate/shadow6-gate
+	@rm -f Core-Go/shadow6-go Core-Go/shadow6-go-crosed Core-Go/shadow6-go-public6 Core-Rust/shadow6-rust Core-Rust/shadow6-rust-crosed Core-Rust/shadow6-rust-public6 Core-Cpp/shadow6-cpp C11Relay/bridge_relay C11Relay/c11relay_test Guard/shadow6-guard Gate/shadow6-gate
 	@find Service-Init Auto-Orchestrator Detector Plugin-System Package-Manager EasyBuild Android plugins integration Crosed Application-Layer Security-Assistants Infrastructure-Assistants Slot-System Control-Center Public6 -type d -name __pycache__ -prune -exec rm -rf {} +
 
 distclean: clean

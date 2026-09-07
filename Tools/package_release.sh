@@ -85,6 +85,7 @@ tar --exclude="$project_name/.venv" \
     --exclude="$project_name/Core-Rust/shadow6-rust" \
     --exclude="$project_name/Core-Rust/shadow6-rust-crosed" \
     --exclude="$project_name/Core-Rust/shadow6-rust-public6" \
+    --exclude="$project_name/Core-Cpp/shadow6-cpp" \
     --exclude="$project_name/Guard/shadow6-guard" \
     --exclude="$project_name/Gate/shadow6-gate" \
     --exclude="$project_name/C11Relay/bridge_relay" \
