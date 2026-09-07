@@ -3,6 +3,7 @@
 import argparse
 import os
 import shutil
+import shlex
 import subprocess
 import tempfile
 from pathlib import Path
@@ -20,12 +21,51 @@ def build_jobs() -> int:
         raise SystemExit("SHADOW6_ANDROID_BUILD_JOBS must be between 1 and 16")
     return jobs
 
+
+def build_nim(abi, target, prebuilt, crypto, rtc, destination, jobs):
+    nim = shutil.which("nim")
+    if not nim:
+        raise SystemExit("nim is required for Android Core-Nim")
+    for prefix, names in (
+        (crypto, ("include/openssl/evp.h", "lib/libssl.a", "lib/libcrypto.a")),
+        (rtc, ("include/rtc/rtc.h", "lib/libdatachannel.a", "lib/libjuice.a", "lib/libusrsctp.a")),
+    ):
+        for name in names:
+            if not (prefix / name).is_file():
+                raise SystemExit(f"Missing Android {abi} dependency: {prefix / name}; run crypto/RTC builders first")
+    clang = prebuilt / "bin" / (target + "28-clang")
+    linker = prebuilt / "bin" / (target + "28-clang++")
+    if not clang.is_file() or not linker.is_file():
+        raise SystemExit(f"NDK C/C++ toolchain is unavailable for {abi}")
+    # Nim generates C, but libdatachannel needs the NDK C++ runtime at link time.
+    # CoreRuntime starts this as a process: it must be a PIE, not a JNI DSO.
+    command = [nim, "c", "--app:console", "--os:android",
+               "--cpu:" + ("arm64" if abi == "arm64-v8a" else "amd64"),
+               "--mm:arc", "--threads:on", "-d:release", "--checks:on", "--assertions:on",
+               "--stackTrace:on", "--lineTrace:on", "--parallelBuild:" + str(jobs),
+               "--cc:clang", "--clang.exe:" + str(clang), "--clang.linkerexe:" + str(linker),
+               "--passC:-fPIE", "--passC:-DRTC_STATIC", "--passC:-DRTC_ENABLE_MEDIA=0",
+               "--passC:-DRTC_ENABLE_WEBSOCKET=1"]
+    for prefix in (crypto, rtc):
+        command += ["--passC:-I" + shlex.quote(str(prefix / "include")),
+                    "--passL:-L" + shlex.quote(str(prefix / "lib"))]
+    command += ["--passL:-pie", "--passL:-static-libstdc++",
+                "--passL:-Wl,-z,relro,-z,now,-z,max-page-size=16384",
+                "--passL:-Wl,--start-group", "--passL:-ldatachannel", "--passL:-lusrsctp",
+                "--passL:-ljuice", "--passL:-lssl", "--passL:-lcrypto", "--passL:-Wl,--end-group",
+                "--passL:-pthread", "--passL:-ldl", "--passL:-lm", "--passL:-llog",
+                "--nimcache:" + str(ROOT / '.tmp/nim-android-cache' / abi),
+                "-o:" + str(destination / 'libshadow6_nim.so'),
+                str(ROOT / 'Core-Nim/src/shadow6_nim.nim')]
+    subprocess.run(command, cwd=ROOT, check=True)
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--ndk", type=Path, required=True)
     parser.add_argument("--abi", choices=TARGETS, action="append")
     parser.add_argument("--crypto-prefix", type=Path,
                         default=ROOT / ".tmp/android-crypto")
+    parser.add_argument("--rtc-prefix", type=Path, default=ROOT / ".tmp/android-rtc")
     parser.add_argument("--core-d-only", action="store_true",
                         help="Build only Core-D for targeted verification")
     args = parser.parse_args()
@@ -74,21 +114,8 @@ def main() -> int:
                            ["-ldl", "-pthread"], check=True)
         if args.core_d_only:
             continue
-        nim = shutil.which("nim")
-        if nim:
-            # Nim's C backend uses the selected NDK clang and emits the same
-            # JNI shared-library contract as the other bundled cores.
-            nim_cpu = "arm64" if abi == "arm64-v8a" else "amd64"
-            nim_cmd = [nim, "c", "--os:android", f"--cpu:{nim_cpu}", "--mm:arc",
-                       "--threads:on", "-d:release", "--checks:on", "--assertions:on",
-                       "--stackTrace:on", "--lineTrace:on", "--passC:-fPIC",
-                       f"--passC:--target={rust_target}{api}", f"--cc:clang",
-                       "--passL:-fPIC", "--passL:-shared", "--passL:-lcrypto",
-                       "--passL:-landroid", "--passL:-llog",
-                       f"--nimcache:{ROOT / '.tmp/nim-android-cache' / abi}",
-                       f"-o:{destination / 'libshadow6_nim.so'}",
-                       str(ROOT / "Core-Nim/src/shadow6_nim.nim")]
-            subprocess.run(nim_cmd, cwd=ROOT, env=dict(os.environ, PATH=str(prebuilt / "bin") + os.pathsep + os.environ.get("PATH", "")), check=True)
+        build_nim(abi, rust_target, prebuilt, crypto, args.rtc_prefix.resolve() / abi,
+                  destination, jobs)
         # Android's Go runtime uses the NDK linker even with no application
         # C bindings; keep the compiler fixed to the selected API/ABI.
         env = dict(

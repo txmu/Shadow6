@@ -254,6 +254,16 @@ jobs:
             --openssl-source "$RUNNER_TEMP/shadow6-openssl" \
             --sodium-source "$RUNNER_TEMP/shadow6-sodium" \
             --output "$GITHUB_WORKSPACE/.tmp/android-crypto"
+      - name: Build Android libdatachannel
+        env:
+          SHADOW6_ANDROID_BUILD_JOBS: '16'
+        run: |
+          git clone https://github.com/paullouisageneau/libdatachannel.git "$RUNNER_TEMP/shadow6-rtc"
+          git -C "$RUNNER_TEMP/shadow6-rtc" checkout --detach 9e6a13abbb6846c003d817d0387b6706466e2b03
+          git -C "$RUNNER_TEMP/shadow6-rtc" submodule update --init --recursive --depth 1
+          python3 Android/build_android_rtc.py \
+            --ndk "${ANDROID_SDK_ROOT:-$ANDROID_HOME}/ndk/28.2.13676358" \
+            --source "$RUNNER_TEMP/shadow6-rtc"
       - name: Build Android core executables
         env:
           SHADOW6_ANDROID_BUILD_JOBS: '16'

@@ -43,9 +43,25 @@ output directory. Both builders accept `--abi` for one architecture and respect
 `SHADOW6_ANDROID_BUILD_JOBS`. Core-D is a PIE executable packaged as
 `libshadow6_d.so` and launched by the existing process-based runtime, with crypto
 archives linked statically. Device execution and Android certificate trust
-store behavior still require device testing. Nim additionally requires an
-Android build of libdatachannel and its dependencies; the crypto setup alone
-does not provision that independent dependency tree.
+store behavior still require device testing.
+
+Core-Nim also needs libdatachannel, libjuice and usrsctp for each Android ABI.
+CI provisions libdatachannel commit `9e6a13abbb6846c003d817d0387b6706466e2b03`
+and its pinned submodules before building the cores. Locally, use an existing
+checkout with initialized submodules after building crypto:
+
+```sh
+.venv/bin/python Android/build_android_rtc.py --ndk "$ANDROID_NDK" \
+  --source /absolute/path/to/libdatachannel
+.venv/bin/python Android/build_android_cores.py --ndk "$ANDROID_NDK"
+```
+
+The RTC builder uses CMake and performs no downloads. WebRTC data channels and
+WebSockets are enabled; unused audio/video media support is disabled. It installs
+static libraries under `.tmp/android-rtc/<abi>`; `--rtc-prefix` selects another
+root in the core builder. Nim uses the ABI-specific NDK clang for C compilation
+and clang++ for linking with static libc++, producing a PIE executable named
+`libshadow6_nim.so` for the existing Android UI/runtime.
 
 External AI accepts only credential-free HTTPS base URLs, stores the API key
 with Android Keystore AES-GCM, bounds requests/responses and tool-call rounds,
@@ -57,8 +73,8 @@ never automatically approves remote actions.
 
 The smallest practical headless setup is JDK 17, Android SDK command-line
 tools, Platform 36, Build Tools 36, one side-by-side NDK, Gradle/AGP's resolved
-dependency cache, Go, Rust, and the Rust Android targets. CMake and LLDB are not
-needed by this project's current core cross-build script. `platform-tools` is
+dependency cache, Go, Rust, LDC, Nim, CMake, and the Rust Android targets.
+LLDB is not needed. `platform-tools` is
 optional when only producing an APK and required for installing/testing it on
 a physical device. No emulator is required.
 
