@@ -238,7 +238,23 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.4.1'
-      - name: Build native cores
+      - name: Build Android OpenSSL and libsodium
+        # Crypto sources are pinned and fetched only in the explicit CI setup.
+        # Local verification uses already-provisioned sources without downloads.
+        env:
+          SHADOW6_ANDROID_BUILD_JOBS: '16'
+        run: |
+          git clone https://github.com/openssl/openssl.git "$RUNNER_TEMP/shadow6-openssl"
+          git -C "$RUNNER_TEMP/shadow6-openssl" checkout --detach f4dc4d58b48d346a8270183f89acf826d459b0ca
+          git clone https://github.com/jedisct1/libsodium.git "$RUNNER_TEMP/shadow6-sodium"
+          git -C "$RUNNER_TEMP/shadow6-sodium" checkout --detach 9511c982fb1d046470a8b42aa36556cdb7da15de
+          (cd "$RUNNER_TEMP/shadow6-sodium" && autoreconf -fi)
+          python3 Android/build_android_crypto.py \
+            --ndk "${ANDROID_SDK_ROOT:-$ANDROID_HOME}/ndk/28.2.13676358" \
+            --openssl-source "$RUNNER_TEMP/shadow6-openssl" \
+            --sodium-source "$RUNNER_TEMP/shadow6-sodium" \
+            --output "$GITHUB_WORKSPACE/.tmp/android-crypto"
+      - name: Build Android core executables
         env:
           SHADOW6_ANDROID_BUILD_JOBS: '16'
         run: |

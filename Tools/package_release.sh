@@ -27,8 +27,8 @@ fi
 tar --exclude="$project_name/.venv" \
 	--exclude="$project_name/.git" \
     --exclude="$project_name/.tools" \
-    --exclude="$project_name/.android-toolchain" \
-    --exclude="$project_name/.tmp" \
+    --exclude='*/.android-toolchain' \
+    --exclude='*/.tmp' \
     --exclude="$project_name/.runtime" \
     --exclude="$project_name/Shadow6.tar.gz" \
     --exclude="$project_name/Shadow6.zip" \
@@ -57,8 +57,8 @@ cd "$parent_dir"
 tar --exclude="$project_name/.venv" \
 	--exclude="$project_name/.git" \
     --exclude="$project_name/.tools" \
-    --exclude="$project_name/.android-toolchain" \
-    --exclude="$project_name/.tmp" \
+    --exclude='*/.android-toolchain' \
+    --exclude='*/.tmp' \
     --exclude="$project_name/.runtime" \
     --exclude="$project_name/Shadow6.tar.gz" \
     --exclude="$project_name/Shadow6.zip" \

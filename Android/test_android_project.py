@@ -8,6 +8,47 @@ import check_build_resources
 
 ROOT = Path(__file__).resolve().parent
 class AndroidProjectTests(unittest.TestCase):
+    def test_d_android_link_contract(self):
+        for abi, (_, target) in build_android_cores.TARGETS.items():
+            with self.subTest(abi=abi), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                ndk = root / 'ndk'
+                compiler = ndk / 'toolchains/llvm/prebuilt/linux-x86_64/bin' / (target + '28-clang')
+                compiler.parent.mkdir(parents=True)
+                compiler.touch()
+                crypto = root / 'crypto' / abi
+                for filename in ('include/openssl/ssl.h', 'lib/libssl.a', 'lib/libcrypto.a', 'lib/libsodium.a'):
+                    path = crypto / filename
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.touch()
+                with mock.patch.object(build_android_cores, 'ROOT', root), \
+                     mock.patch('sys.argv', ['build', '--ndk', str(ndk), '--abi', abi,
+                                            '--crypto-prefix', str(root / 'crypto'), '--core-d-only']), \
+                     mock.patch.object(build_android_cores.shutil, 'which', return_value='/usr/bin/ldc2'), \
+                     mock.patch.object(build_android_cores.subprocess, 'run') as run:
+                    self.assertEqual(build_android_cores.main(), 0)
+                commands = [call.args[0] for call in run.call_args_list]
+                self.assertEqual(len(commands), 4)
+                self.assertIn(str(root / 'Core-D/src/launcher.c'), commands[1])
+                self.assertIn('-c', commands[2])
+                self.assertIn('-mtriple=' + target, commands[2])
+                link = commands[-1]
+                self.assertEqual(link[0], str(compiler))
+                self.assertIn('-pie', link)
+                self.assertNotIn('-shared', link)
+                self.assertIn(str(crypto / 'lib/libssl.a'), link)
+                self.assertIn(str(crypto / 'lib/libcrypto.a'), link)
+                self.assertIn(str(crypto / 'lib/libsodium.a'), link)
+                self.assertTrue(all(call.kwargs['check'] for call in run.call_args_list))
+
+    def test_d_android_ui_is_enabled(self):
+        gradle = (ROOT / 'app/build.gradle.kts').read_text()
+        self.assertIn('enabled("shadow6.includeDCore", true)', gradle)
+        runtime = (ROOT / 'app/src/main/java/org/shadow6/android/core/CoreRuntime.kt').read_text()
+        self.assertIn('D("libshadow6_d.so", "rle-udp")', runtime)
+        activity = (ROOT / 'app/src/main/java/org/shadow6/android/MainActivity.kt').read_text()
+        self.assertIn('CoreEngine.D -> "D Core"', activity)
+
     def test_dual_core_and_locales(self):
         gradle = (ROOT / "app/build.gradle.kts").read_text()
         self.assertIn("INCLUDE_GO_CORE", gradle); self.assertIn("INCLUDE_RUST_CORE", gradle)

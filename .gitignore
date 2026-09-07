@@ -1,6 +1,7 @@
 .venv/
 .tmp/
 .tools/
+.android-toolchain/
 **/__pycache__/
 Android/.gradle/
 Android/build/

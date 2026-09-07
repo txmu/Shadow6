@@ -4,6 +4,7 @@ import argparse
 import os
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -23,6 +24,10 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--ndk", type=Path, required=True)
     parser.add_argument("--abi", choices=TARGETS, action="append")
+    parser.add_argument("--crypto-prefix", type=Path,
+                        default=ROOT / ".tmp/android-crypto")
+    parser.add_argument("--core-d-only", action="store_true",
+                        help="Build only Core-D for targeted verification")
     args = parser.parse_args()
     jobs = build_jobs()
     ndk = args.ndk.resolve(strict=True)
@@ -40,11 +45,35 @@ def main() -> int:
         clang = prebuilt / "bin" / f"{rust_target}{api}-clang"
         if not clang.is_file() or clang.is_symlink():
             raise SystemExit(f"NDK compiler is unavailable: {clang}")
+        crypto = args.crypto_prefix.resolve() / abi
         ldc = shutil.which("ldc2")
-        if ldc:
-            d_sources = [str(p) for p in (ROOT / "Core-D/src").glob("*.d")]
-            d_cmd = [ldc, "-betterC", "-O2", "-release", "-I", str(ROOT / "Core-D/src"), "-mtriple=" + ("aarch64-linux-android" if abi == "arm64-v8a" else "x86_64-linux-android"), "-of=" + str(destination / "libshadow6_d.so")] + d_sources + [str(ROOT / "Core-D/src/platform.c"), "-L-lcrypto", "-L-lssl", "-L-lsodium"]
-            subprocess.run(d_cmd, cwd=ROOT, env=dict(os.environ, CC=str(clang)), check=True)
+        if not ldc:
+            raise SystemExit("ldc2 is required for Android Core-D")
+        for required in ("include/openssl/ssl.h", "lib/libssl.a", "lib/libcrypto.a", "lib/libsodium.a"):
+            if not (crypto / required).is_file():
+                raise SystemExit(f"Missing Android {abi} dependency: {crypto / required}; run Android/build_android_crypto.py first")
+        # Android launches these .so-named files as executables, not JNI libraries.
+        # Compile C with NDK clang; LDC only emits the BetterC object.
+        with tempfile.TemporaryDirectory(prefix="shadow6-d-android-") as temporary:
+            work = Path(temporary)
+            objects = []
+            for name in ("platform", "launcher"):
+                obj = work / (name + ".o")
+                subprocess.run([str(clang), "-O2", "-fPIE", "-I" + str(crypto / "include"),
+                                "-c", str(ROOT / "Core-D/src" / (name + ".c")),
+                                "-o", str(obj)], check=True)
+                objects.append(str(obj))
+            dobj = work / "core.o"
+            subprocess.run([ldc, "-betterC", "-O2", "-release", "-c", "-singleobj",
+                            "-relocation-model=pic", "-mtriple=" + rust_target,
+                            "-I=" + str(ROOT / "Core-D/src"), "-of=" + str(dobj)] +
+                           [str(p) for p in sorted((ROOT / "Core-D/src").glob("*.d"))], check=True)
+            subprocess.run([str(clang), "-pie", "-Wl,-z,max-page-size=16384",
+                            "-o", str(destination / "libshadow6_d.so"), str(dobj)] + objects +
+                           [str(crypto / "lib" / name) for name in ("libssl.a", "libcrypto.a", "libsodium.a")] +
+                           ["-ldl", "-pthread"], check=True)
+        if args.core_d_only:
+            continue
         nim = shutil.which("nim")
         if nim:
             # Nim's C backend uses the selected NDK clang and emits the same

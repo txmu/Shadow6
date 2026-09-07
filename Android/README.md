@@ -24,6 +24,29 @@ Android Studio or a compatible JDK 17/Gradle installation to build the APK.
 The repository intentionally does not include downloaded SDKs, NDKs, Gradle
 caches, signing keys, or prebuilt binaries for the wrong ABI.
 
+Core-D is enabled by default in the Android UI. Its OpenSSL and libsodium
+dependencies must be built for each Android ABI; host development packages
+cannot be used. CI provisions pinned OpenSSL 3.5.8 and libsodium 1.0.20 sources.
+For local builds, supply existing, unconfigured source trees (libsodium needs
+its generated `configure` script), then run:
+
+```sh
+.venv/bin/python Android/build_android_crypto.py --ndk "$ANDROID_NDK" \
+  --openssl-source /absolute/path/to/openssl \
+  --sodium-source /absolute/path/to/libsodium --output .tmp/android-crypto
+.venv/bin/python Android/build_android_cores.py --ndk "$ANDROID_NDK" --core-d-only
+```
+
+The crypto builder performs no downloads. `--core-d-only` verifies D separately;
+omit it to build all cores. `--crypto-prefix` selects a different dependency
+output directory. Both builders accept `--abi` for one architecture and respect
+`SHADOW6_ANDROID_BUILD_JOBS`. Core-D is a PIE executable packaged as
+`libshadow6_d.so` and launched by the existing process-based runtime, with crypto
+archives linked statically. Device execution and Android certificate trust
+store behavior still require device testing. Nim additionally requires an
+Android build of libdatachannel and its dependencies; the crypto setup alone
+does not provision that independent dependency tree.
+
 External AI accepts only credential-free HTTPS base URLs, stores the API key
 with Android Keystore AES-GCM, bounds requests/responses and tool-call rounds,
 maintains Responses API context, and exposes four fixed read-only Android tools.
