@@ -24,6 +24,10 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "Crosed"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "modules"))
+from feature_contract import CORE_PATHS, validate_feature_report
+
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
@@ -364,14 +368,10 @@ def feature_report(binary: Path, root: Path) -> dict[str, Any]:
 
 
 def _validate_feature_report(report: dict[str, Any]) -> None:
-    boolean_fields = {"crosed_compiled", "app_transport", "qubes_isolation", "gate_compiled", "gate_enabled_by_default", "utf8"}
-    required = boolean_fields | {"core", "version", "crosed_max_level", "crosed_capabilities"}
-    if (not isinstance(report, dict) or set(report) != required or
-            any(type(report[field]) is not bool for field in boolean_fields) or
-            type(report["crosed_max_level"]) is not int or not 0 <= report["crosed_max_level"] <= 5 or
-            any(not isinstance(report[field], str) or not SAFE_TOKEN.fullmatch(report[field]) for field in ("core", "version"))):
-        raise SecurityError("invalid Core feature report schema")
-    _token_list(report["crosed_capabilities"], "Core capabilities")
+    try:
+        validate_feature_report(report)
+    except ValueError as exc:
+        raise SecurityError(str(exc)) from exc
 
 
 def doctor(root: Path) -> dict[str, Any]:
@@ -412,6 +412,22 @@ def doctor(root: Path) -> dict[str, Any]:
             for item in variant_reports
         ) and all(variant_reports[0].get(field) == variant_reports[1].get(field) for field in fields)
         record("privileged-variant-contract", complete, "matching L5 variants" if complete else "variant missing or incomplete")
+
+    for core, relative in CORE_PATHS.items():
+        if core in {"shadow6-go", "shadow6-rust"}:
+            continue
+        for suffix in ("", "-crosed", "-public6"):
+            path = root / (relative + suffix)
+            if not path.exists() and not path.is_symlink():
+                continue
+            try:
+                report = feature_report(path, root)
+                validate_feature_report(report, core)
+                if not suffix and (report["crosed_max_level"] or report["app_transport"] or report["qubes_isolation"]):
+                    raise ValueError("default Core has optional privileged features")
+                record(f"feature-report:{relative}{suffix}", True, "valid family-specific contract")
+            except (OSError, ValueError, SecurityError, subprocess.TimeoutExpired) as exc:
+                record(f"feature-report:{relative}{suffix}", False, str(exc))
 
     try:
         _, manifests = _plugin_inventory(root, verify_signatures=True)

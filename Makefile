@@ -33,6 +33,23 @@ PYTHON ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python3)
 
 all: build
 
+NIM ?= nim
+NIM_CROSED_LEVEL ?= 0
+NIM_FLAGS ?=
+.PHONY: core-nim nim-crosed-variant test-nim
+core-nim:
+	@$(NIM) c --mm:arc --threads:on -d:release --checks:on --assertions:on --stackTrace:on --lineTrace:on --nimcache:Core-Nim/obj/$(NIM_CROSED_LEVEL) -d:CrosedLevel=$(NIM_CROSED_LEVEL) --passC:-fPIE --passL:-pie --passL:-Wl,-z,relro,-z,now $(NIM_FLAGS) -o:Core-Nim/shadow6-nim Core-Nim/src/shadow6_nim.nim
+	@chmod 0755 Core-Nim/shadow6-nim
+
+nim-crosed-variant:
+	@$(MAKE) core-nim NIM_CROSED_LEVEL=5
+	@install -m 0755 Core-Nim/shadow6-nim Core-Nim/shadow6-nim-crosed
+	@$(MAKE) core-nim NIM_CROSED_LEVEL=0
+
+test-nim:
+	@$(NIM) c -r --mm:arc --nimcache:Core-Nim/obj/test --path:Core-Nim/src -o:Core-Nim/test_protocol Core-Nim/tests/test_protocol.nim
+	@$(PYTHON) Core-Nim/test_core.py
+
 .PHONY: core-zig test-zig
 
 .PHONY: core-ada test-ada prove-ada ada-crosed-variant
@@ -268,6 +285,7 @@ ifeq ($(BUILD_APP),1)
 endif
 ifeq ($(BUILD_CROSED),1)
 	@$(PYTHON) -m unittest -v Crosed/test_crosed.py
+	@PYTHONPATH=Crosed $(PYTHON) -m unittest -v Crosed/test_feature_contract.py
 endif
 ifeq ($(BUILD_ASSISTANTS),1)
 	@$(PYTHON) -m unittest -v Security-Assistants/test_security.py Infrastructure-Assistants/test_infra.py
@@ -372,6 +390,9 @@ endif
 ifeq ($(BUILD_CROSED),1)
 	@install -m 0755 Crosed/crosedctl.py "$(DESTDIR)$(PREFIX)/bin/crosedctl"
 endif
+	@install -d -m 0755 "$(DESTDIR)$(PREFIX)/share/shadow6/modules"
+	@install -m 0644 Crosed/feature_contract.py "$(DESTDIR)$(PREFIX)/bin/feature_contract.py"
+	@install -m 0644 Crosed/feature_contract.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/feature_contract.py"
 ifeq ($(BUILD_APP),1)
 	@install -d -m 0755 "$(DESTDIR)$(PREFIX)/share/shadow6/application"
 	@install -m 0644 Application-Layer/shadow_protocols.py "$(DESTDIR)$(PREFIX)/share/shadow6/application/shadow_protocols.py"

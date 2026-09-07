@@ -69,10 +69,11 @@ else:
     SERVICE_INIT_DIR = MODULE_DIR
 SAFE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 VALID_ROLES = {"broker", "agent", "client"}
-CORE_ENGINES = {"shadow6-go", "shadow6-rust", "shadow6-zig", "shadow6-ada", "shadow6-d"}
-CORE_TRANSPORTS = {"shadow6-go": "kcp", "shadow6-rust": "quic", "shadow6-zig": "enet", "shadow6-ada": "cell-relay", "shadow6-d": "rle-udp"}
+CORE_ENGINES = {"shadow6-go", "shadow6-rust", "shadow6-zig", "shadow6-ada", "shadow6-d", "shadow6-nim"}
+CORE_TRANSPORTS = {"shadow6-go": "kcp", "shadow6-rust": "quic", "shadow6-zig": "enet", "shadow6-ada": "cell-relay", "shadow6-d": "rle-udp", "shadow6-nim": "webrtc"}
 OPTIONAL_COMPONENTS = {"shadow6-guard", "c11relay"}
 ENGINE_BINARIES = {
+    "shadow6-nim": (BINARY_DIR / "shadow6-nim" if BINARY_DIR else PROJECT_ROOT / "Core-Nim" / "shadow6-nim"),
     "shadow6-go": (BINARY_DIR / "shadow6-go" if BINARY_DIR else PROJECT_ROOT / "Core-Go" / "shadow6-go"),
     "shadow6-rust": (BINARY_DIR / "shadow6-rust" if BINARY_DIR else PROJECT_ROOT / "Core-Rust" / "shadow6-rust"),
     "shadow6-d": (BINARY_DIR / "shadow6-d" if BINARY_DIR else PROJECT_ROOT / "Core-D" / "shadow6-d"),

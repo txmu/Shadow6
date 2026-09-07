@@ -240,7 +240,9 @@ def _transport_execution_policy(method: str, params: dict[str, Any]) -> None:
             raise PermissionError("transport Plugin roots must be fixed Shadow6 components")
     cores = {root / directory / name for directory, family in (("Core-Go", "go"), ("Core-Rust", "rust"))
              for name in (f"shadow6-{family}", f"shadow6-{family}-crosed", f"shadow6-{family}-public6")}
-    cores.update({root / "Core-Ada" / "shadow6-ada", root / "Core-Ada" / "shadow6-ada-crosed"})
+    from feature_contract import CORE_PATHS
+    cores.update(root / (relative + suffix) for relative in CORE_PATHS.values()
+                 for suffix in ("", "-crosed"))
     candidates: list[tuple[Any, set[Path]]] = []
     if method == "crosed.features":
         candidates.extend((item, cores) for item in params.get("cores", []))

@@ -13,6 +13,8 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parent
+sys.path.insert(0, str(ROOT / "Crosed"))
+from feature_contract import CORE_PATHS, validate_feature_report
 
 
 class Audit:
@@ -161,6 +163,34 @@ def check_plugins(audit: Audit) -> None:
 
 
 def check_core_feature_contract(audit: Audit) -> None:
+    # Validate each family independently; parity is a Go/Rust requirement,
+    # not a requirement to pretend that every transport has identical features.
+    for core, relative in CORE_PATHS.items():
+        for suffix in ("", "-crosed", "-public6"):
+            path = ROOT / (relative + suffix)
+            if not path.exists() and not path.is_symlink():
+                if not suffix and core not in {"shadow6-go", "shadow6-rust"}:
+                    audit.skip(f"{relative}: optional Core not built")
+                continue
+            try:
+                if path.is_symlink() or not path.is_file() or path.stat().st_mode & 0o022:
+                    raise ValueError("unsafe Core binary")
+                completed = run(str(path), "--feature-report")
+                if completed.returncode or len(completed.stdout) > 16384:
+                    raise ValueError("feature report command failed or exceeded bound")
+                def unique(pairs):
+                    result = {}
+                    for key, value in pairs:
+                        if key in result: raise ValueError("duplicate field")
+                        result[key] = value
+                    return result
+                report = json.loads(completed.stdout, object_pairs_hook=unique)
+                validate_feature_report(report, core)
+                if not suffix and (report["crosed_max_level"] or report["app_transport"] or report["qubes_isolation"]):
+                    raise ValueError("default Core must be least privileged")
+                audit.pass_(f"{relative}{suffix}: valid feature contract")
+            except (OSError, ValueError, subprocess.TimeoutExpired) as exc:
+                audit.fail(f"{relative}{suffix}: {exc}")
     reports = []
     for relative in ("Core-Go/shadow6-go", "Core-Rust/shadow6-rust"):
         result = run(str(ROOT / relative), "--feature-report")

@@ -45,6 +45,21 @@ def main() -> int:
             d_sources = [str(p) for p in (ROOT / "Core-D/src").glob("*.d")]
             d_cmd = [ldc, "-betterC", "-O2", "-release", "-I", str(ROOT / "Core-D/src"), "-mtriple=" + ("aarch64-linux-android" if abi == "arm64-v8a" else "x86_64-linux-android"), "-of=" + str(destination / "libshadow6_d.so")] + d_sources + [str(ROOT / "Core-D/src/platform.c"), "-L-lcrypto", "-L-lssl", "-L-lsodium"]
             subprocess.run(d_cmd, cwd=ROOT, env=dict(os.environ, CC=str(clang)), check=True)
+        nim = shutil.which("nim")
+        if nim:
+            # Nim's C backend uses the selected NDK clang and emits the same
+            # JNI shared-library contract as the other bundled cores.
+            nim_cpu = "arm64" if abi == "arm64-v8a" else "amd64"
+            nim_cmd = [nim, "c", "--os:android", f"--cpu:{nim_cpu}", "--mm:arc",
+                       "--threads:on", "-d:release", "--checks:on", "--assertions:on",
+                       "--stackTrace:on", "--lineTrace:on", "--passC:-fPIC",
+                       f"--passC:--target={rust_target}{api}", f"--cc:clang",
+                       "--passL:-fPIC", "--passL:-shared", "--passL:-lcrypto",
+                       "--passL:-landroid", "--passL:-llog",
+                       f"--nimcache:{ROOT / '.tmp/nim-android-cache' / abi}",
+                       f"-o:{destination / 'libshadow6_nim.so'}",
+                       str(ROOT / "Core-Nim/src/shadow6_nim.nim")]
+            subprocess.run(nim_cmd, cwd=ROOT, env=dict(os.environ, PATH=str(prebuilt / "bin") + os.pathsep + os.environ.get("PATH", "")), check=True)
         # Android's Go runtime uses the NDK linker even with no application
         # C bindings; keep the compiler fixed to the selected API/ABI.
         env = dict(

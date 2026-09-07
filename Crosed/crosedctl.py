@@ -14,6 +14,7 @@ import tempfile
 import time
 from pathlib import Path
 from typing import Any
+from feature_contract import validate_feature_report
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -228,10 +229,11 @@ def inspect_binary(path: Path) -> dict[str, Any]:
     completed = subprocess.run([str(resolved), "--feature-report"], capture_output=True, text=True, timeout=5, check=False)
     if completed.returncode != 0:
         raise CrosedError(f"Core feature query failed: {completed.stderr.strip()}")
-    report = json.loads(completed.stdout)
-    required = {"core", "version", "crosed_compiled", "crosed_max_level", "app_transport", "qubes_isolation", "gate_compiled", "gate_enabled_by_default", "utf8", "crosed_capabilities"}
-    if set(report) != required:
-        raise CrosedError("Core returned an invalid feature report")
+    report = strict_json(completed.stdout.encode(), 16384)
+    try:
+        validate_feature_report(report)
+    except ValueError as exc:
+        raise CrosedError(str(exc)) from exc
     return report
 
 

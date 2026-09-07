@@ -17,6 +17,7 @@ android {
         buildConfigField("boolean", "INCLUDE_GO_CORE", enabled("shadow6.includeGoCore").toString())
         buildConfigField("boolean", "INCLUDE_RUST_CORE", enabled("shadow6.includeRustCore").toString())
         buildConfigField("boolean", "INCLUDE_D_CORE", enabled("shadow6.includeDCore", true).toString())
+        buildConfigField("boolean", "INCLUDE_NIM_CORE", enabled("shadow6.includeNimCore", true).toString())
         buildConfigField("boolean", "INCLUDE_GATE", enabled("shadow6.includeGate").toString())
         buildConfigField("boolean", "INCLUDE_CHAT", enabled("shadow6.includeChat").toString())
         buildConfigField("boolean", "INCLUDE_GAMES", enabled("shadow6.includeGames").toString())

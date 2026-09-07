@@ -13,6 +13,9 @@ import unicodedata
 from pathlib import Path
 from typing import Any
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "Crosed"))
+from feature_contract import TRANSPORTS, validate_feature_report
+
 
 MAX_DOCUMENT = 1_048_576
 MAX_GROUPS = 128
@@ -22,7 +25,7 @@ MAX_DEPTH = 16
 MAX_INTEGER = (1 << 53) - 1
 IDENTIFIER = re.compile(r"^[a-z][a-z0-9.-]{1,63}$")
 VERSION = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]{1,32})?$")
-CORE_FAMILIES = {"shadow6-go", "shadow6-rust"}
+CORE_FAMILIES = set(TRANSPORTS)
 OFFER_FIELDS = {"schema_version", "suite", "core", "applications", "dimensions", "extensions"}
 
 
@@ -214,12 +217,10 @@ def negotiate(local_document: Any, peer_document: Any) -> dict[str, Any]:
 
 
 def offer_from_feature_report(report: Any) -> dict[str, Any]:
-    required = {
-        "core", "version", "crosed_compiled", "crosed_max_level", "app_transport",
-        "qubes_isolation", "gate_compiled", "gate_enabled_by_default", "utf8", "crosed_capabilities",
-    }
-    if not isinstance(report, dict) or set(report) != required:
-        raise Public6Error("Core feature report has an incompatible schema")
+    try:
+        validate_feature_report(report)
+    except ValueError as exc:
+        raise Public6Error(str(exc)) from exc
     if (
         not isinstance(report["core"], str)
         or report["core"] not in CORE_FAMILIES

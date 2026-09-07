@@ -33,7 +33,7 @@ package body Crosed is
       return "{""core"":""shadow6-ada"",""version"":""1.1.0"",""crosed_compiled"":" & On &
         ",""crosed_max_level"":" & Num (Long_Long_Integer (L)) & ",""app_transport"":" &
         (if L >= 3 then "true" else "false") & ",""qubes_isolation"":" & On &
-        ",""utf8"":true,""transport"":""cell-relay"",""cell_size"":512,""crosed_capabilities"": [" & Caps_Text (Caps) & "]}";
+        ",""gate_compiled"":false,""gate_enabled_by_default"":false,""utf8"":true,""transport"":""cell-relay"",""cell_size"":512,""crosed_capabilities"": [" & Caps_Text (Caps) & "]}";
    end Features;
    function Read_Caps (D : JSON.Document; I : JSON.Index) return Domain_Policy.Cap_Set is
       C : JSON.Index := D.Items (I).Child; R : Domain_Policy.Cap_Set := (others => False); Found : Boolean;

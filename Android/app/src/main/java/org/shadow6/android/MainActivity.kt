@@ -422,6 +422,7 @@ private fun OverviewScreen(runtime: CoreRuntime, status: CoreStatus, onStatusCha
                     CoreEngine.GO -> stringResource(R.string.go_core)
                     CoreEngine.RUST -> stringResource(R.string.rust_core)
                     CoreEngine.D -> "D Core"
+                    CoreEngine.NIM -> "Nim Core"
                 }) }
             }
         }
@@ -864,7 +865,9 @@ private fun executeMobileTool(context: Context, name: String, arguments: org.jso
                 .put("listen_port", prefs.getInt("port", 4433)).put("identity", prefs.getString("identity", "android-1"))
                 .put("local_discovery", prefs.getBoolean("local_discovery", false)).put("secrets", "redacted")
         }
-        "shadow6_modules" -> org.json.JSONObject().put("go_core", BuildConfig.INCLUDE_GO_CORE).put("rust_core", BuildConfig.INCLUDE_RUST_CORE)
+        "shadow6_modules" -> org.json.JSONObject().put("go_core", BuildConfig.INCLUDE_GO_CORE)
+            .put("rust_core", BuildConfig.INCLUDE_RUST_CORE).put("d_core", BuildConfig.INCLUDE_D_CORE)
+            .put("nim_core", BuildConfig.INCLUDE_NIM_CORE)
             .put("shadow_chat", BuildConfig.INCLUDE_CHAT).put("packages", BuildConfig.INCLUDE_PACKAGES).put("games", BuildConfig.INCLUDE_GAMES)
             .put("ai", BuildConfig.INCLUDE_AI).put("mcp", true)
         else -> throw IllegalArgumentException("Unknown or mutating tool")

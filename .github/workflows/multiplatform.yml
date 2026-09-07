@@ -226,6 +226,12 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-linux-android,x86_64-linux-android
+      - uses: jiro4989/setup-nim-action@v2
+        with:
+          nim-version: '2.2.10'
+      - uses: dlang-community/setup-dlang@v2
+        with:
+          compiler: ldc-1.40.0
       - uses: android-actions/setup-android@v3
       - name: Install Android SDK tools
         run: sdkmanager --install 'platforms;android-36' 'build-tools;36.0.0' 'ndk;28.2.13676358'
@@ -239,6 +245,11 @@ jobs:
           ndk_dir="${ANDROID_SDK_ROOT:-$ANDROID_HOME}/ndk/28.2.13676358"
           test -d "$ndk_dir"
           python3 Android/build_android_cores.py --ndk "$ndk_dir"
+          for abi in arm64-v8a x86_64; do
+            for core in go rust d nim gate; do
+              test -s "Android/app/src/main/jniLibs/$abi/libshadow6_${core}.so"
+            done
+          done
       - name: Build debug APK
         run: gradle --no-daemon --no-configuration-cache --max-workers=16 --console=plain -Dorg.gradle.jvmargs='-Xms256m -Xmx2g -XX:MaxMetaspaceSize=768m -XX:ReservedCodeCacheSize=128m -XX:ActiveProcessorCount=8' -p Android assembleDebug
       - uses: actions/upload-artifact@v4

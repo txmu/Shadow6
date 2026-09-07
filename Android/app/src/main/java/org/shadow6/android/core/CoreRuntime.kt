@@ -9,7 +9,8 @@ import org.shadow6.android.security.writePrivateConfig
 import java.util.concurrent.TimeUnit
 
 enum class CoreEngine(val assetName: String, val transport: String) {
-    GO("libshadow6_go.so", "kcp"), RUST("libshadow6_rust.so", "quic"), D("libshadow6_d.so", "rle-udp")
+    GO("libshadow6_go.so", "kcp"), RUST("libshadow6_rust.so", "quic"),
+    D("libshadow6_d.so", "rle-udp"), NIM("libshadow6_nim.so", "webrtc")
 }
 enum class AccessMode { NON_ROOT, ROOT }
 
@@ -43,6 +44,7 @@ class CoreRuntime(private val context: Context) {
         CoreEngine.GO -> BuildConfig.INCLUDE_GO_CORE
         CoreEngine.RUST -> BuildConfig.INCLUDE_RUST_CORE
         CoreEngine.D -> BuildConfig.INCLUDE_D_CORE && File(context.applicationInfo.nativeLibraryDir, engine.assetName).isFile
+        CoreEngine.NIM -> BuildConfig.INCLUDE_NIM_CORE
     }) && File(context.applicationInfo.nativeLibraryDir, engine.assetName).let { file ->
         file.isFile && !Files.isSymbolicLink(file.toPath())
     }
