@@ -21,9 +21,49 @@ jobs:
           key: linux-${{ runner.os }}-${{ hashFiles('**/go.sum', '**/Cargo.lock') }}
       - uses: actions/setup-python@v5
         with: {python-version: '3.12'}
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: goto-bus-stop/setup-zig@v2
+        with: {version: '0.16.0'}
+      - uses: jiro4989/setup-nim-action@v2
+        with: {nim-version: '2.2.10'}
+      - uses: dlang-community/setup-dlang@v2
+        with: {compiler: ldc-1.40.0}
+      - name: Install Linux native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential pkg-config libssl-dev libsodium-dev libunistring-dev \
+            gnat gprbuild ldc shellcheck unzip
       - run: python -m venv .venv
       - run: .venv/bin/pip install -r requirements.txt -r requirements-ml.txt
-      - run: make build
+      - name: Configure the complete Linux component matrix
+        run: ./configure --enable-all
+      - name: Build every Linux core and component
+        run: |
+          make build BUILD_ZIG=1 BUILD_ADA=1 BUILD_CPP=1
+          make core-nim
+          make core-d
+          if command -v hare >/dev/null 2>&1; then make core-hare; fi
+          test -x Core-Go/shadow6-go
+          test -x Core-Rust/shadow6-rust
+          test -x Core-Cpp/shadow6-cpp
+          test -x Core-Zig/shadow6-zig
+          test -x Core-Ada/shadow6-ada
+          test -x Core-Nim/shadow6-nim
+          test -x Core-D/shadow6-d
+          test -x Gate/shadow6-gate
+          test -x Guard/shadow6-guard
+          test -x C11Relay/bridge_relay
+          make test-zig BUILD_ZIG=1
+          Core-Ada/test_cells
+          .venv/bin/python Core-Ada/test_core.py
+          make test-nim
+          make test-hare
+      - name: Verify native dependencies and hardening
+        run: |
+          readelf -d Core-Cpp/shadow6-cpp | grep -E 'libssl|libcrypto|libstdc\\+\\+'
+          readelf -W -l Core-Cpp/shadow6-cpp | grep -E 'GNU_STACK.*RW|GNU_RELRO'
+          shellcheck configure Core-Cpp/*.sh C11Relay/*.sh Guard/*.sh Tools/*.sh
       - run: make crosed-variants
       - run: make test
       - run: make check
@@ -31,14 +71,27 @@ jobs:
       - run: .venv/bin/python Security-Assistants/shadow6_security.py doctor
       - run: .venv/bin/python Security-Assistants/shadow6_security.py sbom --output /tmp/shadow6-sbom.json
       - run: .venv/bin/python Infrastructure-Assistants/shadow6_infra.py observe --output /tmp/shadow6-observation.json
+      - name: Validate staged installation and component catalogs
+        run: |
+          stage_dir="$(mktemp -d /tmp/shadow6-install.XXXXXX)"
+          trap 'rm -rf -- "$stage_dir"' EXIT
+          make install DESTDIR="$stage_dir" PREFIX=/usr/local
+          "$stage_dir/usr/local/bin/shadow6-plugins" list
+          "$stage_dir/usr/local/bin/shadow6-security" list >/dev/null
+          "$stage_dir/usr/local/bin/shadow6-control" schema >/tmp/shadow6-staged-schema.json
+          "$stage_dir/usr/local/bin/shadow6-slots" catalog >/tmp/shadow6-staged-slots.json
       - run: make package
       - run: |
           mkdir -p ci-artifacts/linux
           cp ../Shadow6.tar.gz ../Shadow6.zip ci-artifacts/linux/
           cp /tmp/shadow6-sbom.json /tmp/shadow6-observation.json ci-artifacts/linux/
-          cp Core-Go/shadow6-go Core-Go/shadow6-go-crosed Core-Rust/shadow6-rust Core-Rust/shadow6-rust-crosed ci-artifacts/linux/
+          cp Core-Go/shadow6-go Core-Go/shadow6-go-crosed Core-Rust/shadow6-rust Core-Rust/shadow6-rust-crosed \
+             Core-Cpp/shadow6-cpp Core-Zig/shadow6-zig Core-Ada/shadow6-ada Core-Nim/shadow6-nim Core-D/shadow6-d \
+             ci-artifacts/linux/
           tar -tzf ci-artifacts/linux/Shadow6.tar.gz >/dev/null
           unzip -tq ci-artifacts/linux/Shadow6.zip
+          test "$(tar -tzf ci-artifacts/linux/Shadow6.tar.gz | grep -c 'Core-Cpp/shadow6-cpp$')" -eq 1
+          unzip -Z1 ci-artifacts/linux/Shadow6.zip | awk 'NF && $0 !~ /\\/$/ && $0 !~ /\\.txt$/ {bad=1} END {exit bad}'
       - uses: actions/upload-artifact@v4
         with:
           name: shadow6-linux-release
