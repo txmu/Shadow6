@@ -15,7 +15,7 @@ for optional in -Wtrampolines -fstack-clash-protection -fcf-protection=full -ftr
     flags+=("$optional")
   fi
 done
-"$CXX" "${flags[@]}" -o "$out" src/main.cpp
+"$CXX" "${flags[@]}" -pthread -o "$out" src/main.cpp -lssl -lcrypto
 mv -f "$out" shadow6-cpp
 chmod 0755 shadow6-cpp
 printf '%s\n' '[+] Built Core-Cpp: shadow6-cpp'

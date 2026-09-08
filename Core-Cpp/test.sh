@@ -1,14 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
-
 test -x ./shadow6-cpp
-report=$(./shadow6-cpp --feature-report)
-case "$report" in
-  *'"core":"shadow6-cpp"'*'"crosed_max_level":0'*'"utf8":true'*) ;;
-  *) echo "unexpected C++ feature report" >&2; exit 1 ;;
-esac
-config=$(mktemp)
-trap 'rm -f "$config"' EXIT
-printf '%s\n' '{"role":"agent","agent":{"transport":"sctp","target_port":22}}' > "$config"
-./shadow6-cpp --check-config "$config" >/dev/null
-printf '%s\n' '[+] Core-Cpp contract tests passed'
+work=$(mktemp -d /tmp/shadow6-cpp-tests.XXXXXX)
+trap 'rm -rf -- "$work"' EXIT
+: "${CXX:=c++}"
+flags=(-std=c++20 -O1 -g -fno-exceptions -fno-rtti -Wall -Wextra -pthread)
+if [[ ${SHADOW6_CPP_SANITIZE:-0} == 1 ]]; then
+    flags+=('-fsanitize=address,undefined' -fno-omit-frame-pointer)
+    "$CXX" "${flags[@]}" src/main.cpp -lssl -lcrypto -o "$work/shadow6-cpp"
+    export SHADOW6_CPP_BINARY="$work/shadow6-cpp"
+fi
+"$CXX" "${flags[@]}" tests.cpp -lssl -lcrypto -o "$work/probe"
+"$work/probe"
+export SHADOW6_CPP_PROBE="$work/probe"
+python=python3
+[[ ! -x ../.venv/bin/python ]] || python=../.venv/bin/python
+"$python" test_core.py

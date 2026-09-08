@@ -55,7 +55,7 @@ MAX_REQUEST = 65_536
 MAX_RESPONSE = 1_048_576
 SAFE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 BUILD_FLAGS = (
-    "build_go", "build_rust", "build_relay", "build_guard", "build_auto",
+    "build_go", "build_rust", "build_cpp", "build_relay", "build_guard", "build_auto",
     "build_detector", "build_plugins", "build_crosed", "build_app",
     "build_assistants", "build_control", "build_compliance",
     "build_slots", "build_public6", "build_gate", "build_migration",
@@ -161,7 +161,7 @@ def schema() -> dict[str, Any]:
         "control_version": VERSION,
         "encoding": "UTF-8",
         "components": [
-            "core-go", "core-rust", "relay", "guard", "orchestrator", "detector",
+            "core-go", "core-rust", "core-cpp", "relay", "guard", "orchestrator", "detector",
             "plugins", "crosed", "application-layer", "security-assistants",
             "infrastructure-assistants", "slots", "extension-system", "package-manager", "online-repository", "migration", "gate", "i18n", "unified-cli", "public6", "easybuild", "control-center",
         ],
@@ -172,7 +172,7 @@ def schema() -> dict[str, Any]:
             **{flag: {"type": "boolean", "default": flag != "build_compliance"} for flag in BUILD_FLAGS},
         },
         "init_systems": ["systemd", "openrc", "runit", "sysv", "rc.d", "procd", "launchd", "guix"],
-        "config_kinds": ["core-go", "core-rust", "topology", "security-policy", "plugin", "package", "slots", "public6-offer"],
+        "config_kinds": ["core-go", "core-rust", "core-cpp", "topology", "security-policy", "plugin", "package", "slots", "public6-offer"],
         "methods": METHOD_SPECS,
         "transport": {
             "jsonl": {"max_request_bytes": MAX_REQUEST, "mutations_default": False},
@@ -238,7 +238,7 @@ def _transport_execution_policy(method: str, params: dict[str, Any]) -> None:
         plugin_trust = Path(params.get("plugin_trust", root / "Plugin-System" / "trusted_signers.json")).expanduser().absolute()
         if plugin_root != root / "plugins" or plugin_trust != root / "Plugin-System" / "trusted_signers.json":
             raise PermissionError("transport Plugin roots must be fixed Shadow6 components")
-    cores = {root / directory / name for directory, family in (("Core-Go", "go"), ("Core-Rust", "rust"))
+    cores = {root / directory / name for directory, family in (("Core-Go", "go"), ("Core-Rust", "rust"), ("Core-Cpp", "cpp"))
              for name in (f"shadow6-{family}", f"shadow6-{family}-crosed", f"shadow6-{family}-public6")}
     from feature_contract import CORE_PATHS
     cores.update(root / (relative + suffix) for relative in CORE_PATHS.values()
@@ -248,7 +248,7 @@ def _transport_execution_policy(method: str, params: dict[str, Any]) -> None:
         candidates.extend((item, cores) for item in params.get("cores", []))
     elif method == "extensions.invoke":
         candidates.append((params.get("core"), {path for path in cores if path.name.endswith("-crosed")}))
-    elif method == "config.validate" and params.get("kind") in {"core-go", "core-rust"} and "binary" in params:
+    elif method == "config.validate" and params.get("kind") in {"core-go", "core-rust", "core-cpp"} and "binary" in params:
         family = params["kind"].removeprefix("core-")
         candidates.append((params["binary"], {path for path in cores if path.name.startswith(f"shadow6-{family}")}))
     elif method in {"gate.features", "gate.validate", "gate.current_port"} and "binary" in params:
@@ -343,8 +343,10 @@ def dispatch(method: str, raw_params: Any = None) -> Any:
             value = load_topology_file(str(path))
         elif kind == "security-policy":
             value = evaluate_policy(root, path)
-        elif kind in {"core-go", "core-rust"}:
-            default = root / ("Core-Go/shadow6-go" if kind == "core-go" else "Core-Rust/shadow6-rust")
+        elif kind in {"core-go", "core-rust", "core-cpp"}:
+            defaults = {"core-go": "Core-Go/shadow6-go", "core-rust": "Core-Rust/shadow6-rust",
+                        "core-cpp": "Core-Cpp/shadow6-cpp"}
+            default = root / defaults[kind]
             binary = Path(params.get("binary", default)).resolve(strict=True)
             completed = bounded_run([str(binary), "--config", str(path.absolute()), "--check-config"], cwd=root, timeout=10)
             if completed.returncode:
@@ -480,7 +482,7 @@ def dispatch(method: str, raw_params: Any = None) -> Any:
             _only(params,{"root","output","private_key","signer"});return repository_build(Path(params["root"]).resolve(strict=True),Path(params["output"]),Path(params["private_key"]),str(params["signer"]))
         raise ValueError("unsupported repository method")
     if method=="process.catalog":
-        _only(params,{"root"});root=_root(params);paths={"go":"Core-Go/shadow6-go","rust":"Core-Rust/shadow6-rust","gate":"Gate/shadow6-gate","control":"Control-Center/shadow6_control.py","migrate":"Migration/shadow6_migrate.py","repo":"Online-Repository/shadow6_repo.py"};return {"components":[{"name":name,"available":(root/path).is_file()} for name,path in paths.items()]}
+        _only(params,{"root"});root=_root(params);paths={"go":"Core-Go/shadow6-go","rust":"Core-Rust/shadow6-rust","cpp":"Core-Cpp/shadow6-cpp","gate":"Gate/shadow6-gate","control":"Control-Center/shadow6_control.py","migrate":"Migration/shadow6_migrate.py","repo":"Online-Repository/shadow6_repo.py"};return {"components":[{"name":name,"available":(root/path).is_file()} for name,path in paths.items()]}
     if method=="result.validate":
         _only(params,{"result"});result=params.get("result")
         if not isinstance(result,dict) or set(result)-{"id","ok","result","error"} or not isinstance(result.get("ok"),bool):raise ValueError("invalid result envelope")

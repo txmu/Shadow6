@@ -153,6 +153,7 @@ class ControlCenterTests(unittest.TestCase):
         document = schema()
         self.assertEqual(document["api_version"], API_VERSION)
         self.assertIn("control-center", document["components"])
+        self.assertIn("core-cpp", document["components"])
         self.assertEqual(document["features"]["crosed_level"]["maximum"], 5)
         for system in ("rc.d", "procd", "launchd", "guix"):
             self.assertIn(system, document["init_systems"])
@@ -164,6 +165,7 @@ class ControlCenterTests(unittest.TestCase):
         for method in ("public6.profile", "public6.offer", "public6.negotiate"):
             self.assertIn(method, document["methods"])
         self.assertIn("public6-offer", document["config_kinds"])
+        self.assertIn("core-cpp", document["config_kinds"])
 
     def test_build_configuration_is_complete_and_strict(self):
         config = render_build_config({
@@ -171,6 +173,7 @@ class ControlCenterTests(unittest.TestCase):
             "build_control": True,
         }).decode()
         self.assertIn("BUILD_PLUGINS=1\n", config)
+        self.assertIn("BUILD_CPP=1\n", config)
         self.assertIn("BUILD_CONTROL=1\n", config)
         self.assertIn("CROSED_LEVEL=5\n", config)
         self.assertIn("APP_TRANSPORT=1\n", config)
