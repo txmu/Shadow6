@@ -252,7 +252,7 @@ endif
 
 test:
 	@$(PYTHON) -m unittest -v test_compliance.py
-	@PYTHONPATH=Tools $(PYTHON) -m unittest -v Tools/test_package_release.py
+	@PYTHONPATH=Tools $(PYTHON) -m unittest discover -s Tools -p 'test_*.py' -v
 ifeq ($(BUILD_GO),1)
 	@cd Core-Go && go test -buildvcs=false -race -count=1 ./...
 endif

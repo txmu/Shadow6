@@ -1862,7 +1862,7 @@ fn read_secure_config(path: &Path) -> Result<String, String> {
     if before.file_type().is_symlink() || !before.is_file() {
         return Err("configuration must be a regular, non-symlink file".into());
     }
-    if before.permissions().mode() & 0o077 != 0 {
+    if before.permissions().mode() & 0o7777 != 0o600 {
         return Err("configuration contains private keys and must have mode 0600".into());
     }
     if before.uid() != effective_user_id() {
@@ -1874,7 +1874,7 @@ fn read_secure_config(path: &Path) -> Result<String, String> {
 
     let file = fs::OpenOptions::new()
         .read(true)
-        .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
+        .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW | libc::O_NONBLOCK)
         .open(path)
         .map_err(|error| format!("cannot open config securely: {error}"))?;
     let opened = file
@@ -1882,7 +1882,7 @@ fn read_secure_config(path: &Path) -> Result<String, String> {
         .map_err(|error| format!("cannot inspect opened config: {error}"))?;
     if !opened.is_file()
         || (opened.dev(), opened.ino()) != (before.dev(), before.ino())
-        || opened.permissions().mode() & 0o077 != 0
+        || opened.permissions().mode() & 0o7777 != 0o600
         || opened.uid() != effective_user_id()
     {
         return Err(
@@ -3423,13 +3423,26 @@ mod tests {
         write_owner_only(&config, b"{}").unwrap();
         assert_eq!(read_secure_config(&config).unwrap(), "{}");
 
-        fs::set_permissions(&config, fs::Permissions::from_mode(0o644)).unwrap();
-        assert!(read_secure_config(&config).is_err());
+        for mode in [0o400, 0o700, 0o644, 0o660, 0o4600, 0o2600] {
+            fs::set_permissions(&config, fs::Permissions::from_mode(mode)).unwrap();
+            assert!(
+                read_secure_config(&config).is_err(),
+                "accepted mode {mode:o}"
+            );
+        }
         fs::set_permissions(&config, fs::Permissions::from_mode(0o600)).unwrap();
 
         let link = directory.join("config-link.json");
         symlink(&config, &link).unwrap();
         assert!(read_secure_config(&link).is_err());
+
+        assert!(read_secure_config(&directory).is_err());
+        fs::write(&config, vec![b' '; 1024 * 1024 + 1]).unwrap();
+        assert!(read_secure_config(&config)
+            .unwrap_err()
+            .contains("size limit"));
+        fs::write(&config, [0xff]).unwrap();
+        assert!(read_secure_config(&config).unwrap_err().contains("UTF-8"));
 
         fs::remove_file(link).unwrap();
         fs::remove_file(config).unwrap();

@@ -13,6 +13,8 @@ import (
 // native security descriptor and require the current token SID as owner.
 func secureConfigFile(info os.FileInfo) bool { return info.Mode().IsRegular() }
 
+func openConfigFile(path string) (*os.File, error) { return os.Open(path) }
+
 func secureConfigPath(path string) bool {
 	sd, err := windows.GetNamedSecurityInfo(path, windows.SE_FILE_OBJECT,
 		windows.OWNER_SECURITY_INFORMATION|windows.DACL_SECURITY_INFORMATION)

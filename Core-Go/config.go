@@ -341,7 +341,7 @@ func readConfig(path string) (*Config, error) {
 	if !secureConfigFile(info) || !secureConfigPath(path) {
 		return nil, errors.New("configuration has unsafe ownership or permissions; Unix files must have mode 0600")
 	}
-	file, err := os.Open(path)
+	file, err := openConfigFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("cannot read config: %w", err)
 	}

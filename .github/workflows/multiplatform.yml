@@ -1,4 +1,6 @@
 name: multiplatform
+permissions:
+  contents: read
 on:
   push:
   pull_request:
@@ -185,32 +187,44 @@ jobs:
   netbsd:
     runs-on: ubuntu-latest
     name: NetBSD native tests
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - uses: cross-platform-actions/action@v0.29.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: Core-Go/go.mod
+          check-latest: true
+          cache: false
+      - name: Prepare verified NetBSD Go toolchain
+        timeout-minutes: 5
+        run: python3 Tools/prepare_netbsd_go.py "$(go env GOVERSION)" .tmp/netbsd-go
+      # v1.4.0 disables AMX on NetBSD guests and fixes VM startup error handling.
+      # https://github.com/cross-platform-actions/action/issues/158
+      - name: Boot and test NetBSD
+        uses: cross-platform-actions/action@24ef01df165c76df1ed2b9f9e9212e78dc2fc963 # v1.4.0
+        timeout-minutes: 20
         with:
           operating_system: netbsd
           version: '10.1'
+          cpu_count: 2
+          memory: 4G
           shell: bash
-          run: |
-            if ! command -v go >/dev/null 2>&1; then
-              mkdir -p "$HOME/.local"
-              ftp -o /tmp/go.tar.gz https://go.dev/dl/go1.23.5.netbsd-amd64.tar.gz
-              tar -xzf /tmp/go.tar.gz -C "$HOME/.local"
-              export PATH="$HOME/.local/go/bin:$PATH"
-            fi
-            go version
-            cd Core-Go
-            go test ./...
-            bash ./compile.sh
-            CROSED_LEVEL=5 APP_TRANSPORT=1 QUBES_ISOLATION=1 bash ./compile.sh
-            mv shadow6-go shadow6-go-crosed
-            cd ../Guard
-            go test ./...
+          run: bash Tools/test_netbsd.sh
+      - name: NetBSD boot diagnostics
+        if: failure()
+        run: |
+          lscpu
+          if test -f /tmp/cross-platform-actions.log; then
+            tail -n 200 /tmp/cross-platform-actions.log
+          fi
       - uses: actions/upload-artifact@v4
         with:
           name: shadow6-netbsd-release
-          path: Core-Go/shadow6-go*
+          path: |
+            Core-Go/shadow6-go
+            Core-Go/shadow6-go-crosed
           if-no-files-found: error
   android:
     runs-on: ubuntu-latest

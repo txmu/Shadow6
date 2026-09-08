@@ -55,3 +55,27 @@ func TestSecurityCrosedPortablePayload(t *testing.T) {
 		t.Errorf("Crosed canonical signature input differs from portable JSON: %q", got)
 	}
 }
+
+func FuzzStrictConfigJSON(f *testing.F) {
+	for _, input := range []string{`{"role":"broker"}`, `{"role":"a","role":"b"}`,
+		`{"role":"\ud800"}`, `{"agent":{"client_pubkeys":{"x":"y"}}}`, `null`, `[]`, `{} {}`} {
+		f.Add([]byte(input))
+	}
+	f.Fuzz(func(t *testing.T, input []byte) {
+		var config Config
+		if decodeStrict(input, &config) != nil {
+			return
+		}
+		if !json.Valid(input) {
+			t.Fatal("accepted invalid JSON")
+		}
+		encoded, err := json.Marshal(config)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var roundtrip Config
+		if err := decodeStrict(encoded, &roundtrip); err != nil {
+			t.Fatalf("accepted configuration cannot be decoded after encoding: %v", err)
+		}
+	})
+}

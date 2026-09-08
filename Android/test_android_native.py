@@ -1,4 +1,6 @@
 import tempfile
+import shlex
+import subprocess
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -20,7 +22,22 @@ class NimAndroidBuildTests(unittest.TestCase):
                     path.touch()
                 with mock.patch.object(cores.shutil, 'which', return_value='/nim'), \
                      mock.patch.object(cores.subprocess, 'run') as run:
+                    compat_paths = []
+
+                    def inspect_archive(command, **kwargs):
+                        for argument in command:
+                            if argument.startswith('--passL:-L'):
+                                archive = Path(shlex.split(argument[len('--passL:-L'):])[0]) / 'libpthread.a'
+                                if archive.is_file():
+                                    self.assertEqual(archive.read_bytes(), b'!<arch>\n')
+                                    compat_paths.append(archive.parent)
+                        self.assertIn('--threads:on', command)
+                        self.assertIn('--passL:-pthread', command)
+
+                    run.side_effect = inspect_archive
                     cores.build_nim(abi, target, tools, crypto, rtc, root, 2)
+                    self.assertEqual(len(compat_paths), 1)
+                    self.assertFalse(compat_paths[-1].exists())
                     command = run.call_args.args[0]
                     for prefix in (crypto, rtc):
                         self.assertIn('--passC:-I' + str(prefix / 'include'), command)
@@ -33,6 +50,16 @@ class NimAndroidBuildTests(unittest.TestCase):
                     for lib in ('datachannel', 'usrsctp', 'juice', 'ssl', 'crypto'):
                         self.assertIn('--passL:-l' + lib, command)
                     self.assertTrue(run.call_args.kwargs['check'])
+
+                    def fail_link(command, **kwargs):
+                        inspect_archive(command, **kwargs)
+                        raise subprocess.CalledProcessError(1, command)
+
+                    run.side_effect = fail_link
+                    with self.assertRaises(subprocess.CalledProcessError):
+                        cores.build_nim(abi, target, tools, crypto, rtc, root, 2)
+                    self.assertEqual(len(compat_paths), 2)
+                    self.assertFalse(compat_paths[-1].exists())
                     run.reset_mock()
                     (rtc / 'include/rtc/rtc.h').unlink()
                     with self.assertRaisesRegex(SystemExit, 'rtc/rtc.h'):

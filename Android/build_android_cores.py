@@ -55,7 +55,7 @@ def build_nim(abi, target, prebuilt, crypto, rtc, destination, jobs):
     # name; the actual pthread symbols continue to resolve from libc.
     pthread_compat = tempfile.TemporaryDirectory(prefix="shadow6-android-pthread-")
     (Path(pthread_compat.name) / "libpthread.a").write_bytes(b"!<arch>\n")
-    command += ["--passL:-L" + pthread_compat.name,
+    command += ["--passL:-L" + shlex.quote(pthread_compat.name),
                 "--passL:-pie", "--passL:-static-libstdc++",
                 "--passL:-Wl,-z,relro,-z,now,-z,max-page-size=16384",
                 "--passL:-Wl,--start-group", "--passL:-ldatachannel", "--passL:-lusrsctp",
