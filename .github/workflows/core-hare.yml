@@ -1,0 +1,13 @@
+name: core-hare
+on:
+  push:
+  pull_request:
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y hare harec qbe libsodium-dev
+      - run: python3 Core-Hare/tests/test_contract.py
+      - run: cd Core-Hare && hare build -l sodium -o shadow6-hare src/main.ha
+      - run: Core-Hare/shadow6-hare --feature-report

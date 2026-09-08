@@ -4,6 +4,7 @@ BUILD_GO ?= 1
 BUILD_RUST ?= 1
 BUILD_CPP ?= 1
 BUILD_ZIG ?= 0
+BUILD_HARE ?= 1
 BUILD_ADA ?= 0
 ADA_CROSED_LEVEL ?= 0
 export ADA_CROSED_LEVEL
@@ -30,7 +31,7 @@ PREFIX ?= /usr/local
 DESTDIR ?=
 PYTHON ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python3)
 
-.PHONY: all build core-go core-rust core-cpp gate migration i18n crosed-variants public6 public6-variants public6-contract relay guard service-init auto detector plugins package-manager easybuild crosed app-layer extension-system assistants slots control-center android-preflight android-cores android-apk integration-test test check audit package install clean distclean
+.PHONY: all build core-go core-rust core-cpp core-hare test-hare gate migration i18n crosed-variants public6 public6-variants public6-contract relay guard service-init auto detector plugins package-manager easybuild crosed app-layer extension-system assistants slots control-center android-preflight android-cores android-apk integration-test test check audit package install clean distclean
 
 all: build
 
@@ -89,7 +90,13 @@ build: core-zig
 test: test-zig
 endif
 
-build: core-go core-rust core-cpp gate migration i18n cli online-repository relay guard service-init auto detector plugins package-manager easybuild crosed app-layer extension-system assistants slots control-center public6-contract
+build: core-go core-rust core-cpp core-hare gate migration i18n cli online-repository relay guard service-init auto detector plugins package-manager easybuild crosed app-layer extension-system assistants slots control-center public6-contract
+
+core-hare:
+	@if command -v hare >/dev/null 2>&1; then cd Core-Hare && hare build -l sodium -o shadow6-hare src/main.ha; chmod 0755 shadow6-hare; else echo "hare unavailable; Core-Hare source contract present"; fi
+
+test-hare:
+	@$(PYTHON) Core-Hare/tests/test_contract.py
 
 i18n:
 	@PYTHONPATH=I18n $(PYTHON) -m py_compile I18n/shadow6_i18n.py
@@ -253,6 +260,9 @@ endif
 test:
 	@$(PYTHON) -m unittest -v test_compliance.py
 	@PYTHONPATH=Tools $(PYTHON) -m unittest discover -s Tools -p 'test_*.py' -v
+ifeq ($(BUILD_HARE),1)
+	@$(MAKE) test-hare
+endif
 ifeq ($(BUILD_GO),1)
 	@cd Core-Go && go test -buildvcs=false -race -count=1 ./...
 endif
@@ -349,6 +359,9 @@ package:
 
 install: build
 	@install -d "$(DESTDIR)$(PREFIX)/bin"
+ifeq ($(BUILD_HARE),1)
+	@install -m 0755 Core-Hare/shadow6-hare "$(DESTDIR)$(PREFIX)/bin/shadow6-hare"
+endif
 ifeq ($(BUILD_GO),1)
 	@install -m 0755 Core-Go/shadow6-go "$(DESTDIR)$(PREFIX)/bin/shadow6-go"
 endif
@@ -453,7 +466,7 @@ endif
 	@echo "Installed selected Shadow6 components under $(DESTDIR)$(PREFIX)"
 
 clean:
-	@rm -f Core-Go/shadow6-go Core-Go/shadow6-go-crosed Core-Go/shadow6-go-public6 Core-Rust/shadow6-rust Core-Rust/shadow6-rust-crosed Core-Rust/shadow6-rust-public6 Core-Cpp/shadow6-cpp C11Relay/bridge_relay C11Relay/c11relay_test Guard/shadow6-guard Gate/shadow6-gate
+	@rm -f Core-Hare/shadow6-hare Core-Go/shadow6-go Core-Go/shadow6-go-crosed Core-Go/shadow6-go-public6 Core-Rust/shadow6-rust Core-Rust/shadow6-rust-crosed Core-Rust/shadow6-rust-public6 Core-Cpp/shadow6-cpp C11Relay/bridge_relay C11Relay/c11relay_test Guard/shadow6-guard Gate/shadow6-gate
 	@find Service-Init Auto-Orchestrator Detector Plugin-System Package-Manager EasyBuild Android plugins integration Crosed Application-Layer Security-Assistants Infrastructure-Assistants Slot-System Control-Center Public6 -type d -name __pycache__ -prune -exec rm -rf {} +
 
 distclean: clean
