@@ -183,7 +183,7 @@ inline void client_session(const Config &cfg, TlsContext &broker_tls, TlsContext
   if (!ws.send(request) || !ws.receive(reply, 5) || !schema(reply, {{"version", Json::Integer}, {"type", Json::String}, {"endpoint", Json::String}, {"ticket", Json::Object}, {"signature", Json::String}}) || reply.at("type").text != "grant") return;
   Endpoint agent;
   if (!endpoint(reply.at("endpoint").text, agent) || reply.at("ticket").at("agent_key").text != cfg.agent_key) return;
-  Fd remote = connect_socket(agent, IPPROTO_SCTP); if (!remote) return;
+  Fd remote = connect_socket(agent, sctp_protocol); if (!remote) return;
   Channel encrypted(agent_tls, remote.value); if (!encrypted.handshake(false)) return;
   Json proof = Json::obj(); proof.object["version"] = Json(std::int64_t{1}); proof.object["ticket"] = reply.at("ticket"); proof.object["signature"] = reply.at("signature");
   std::string response; Json ack;
@@ -192,7 +192,7 @@ inline void client_session(const Config &cfg, TlsContext &broker_tls, TlsContext
   (void)tunnel(encrypted, local);
 }
 inline int run(const Config &cfg) {
-  Fd listener = listen_socket(cfg.listen, cfg.role == "agent" ? IPPROTO_SCTP : IPPROTO_TCP);
+  Fd listener = listen_socket(cfg.listen, cfg.role == "agent" ? sctp_protocol : IPPROTO_TCP);
   if (!listener) { std::fprintf(stderr, "shadow6-cpp: cannot bind %s listener: %s\n", cfg.role.c_str(), std::strerror(errno)); return 1; }
   auto local = socket_endpoint(listener.value);
   std::set<std::string> pins;

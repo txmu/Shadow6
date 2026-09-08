@@ -1,5 +1,16 @@
 #pragma once
+#if defined(__OpenBSD__) || defined(__NetBSD__) || defined(__FreeBSD__)
+#ifndef _BSD_SOURCE
+#define _BSD_SOURCE 1
+#endif
+#endif
 #include "json.hpp"
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#if defined(__OpenBSD__)
+#include <netinet6/in6.h>
+#endif
 #include <arpa/inet.h>
 #include <array>
 #include <cerrno>
@@ -13,6 +24,9 @@
 #include <unistd.h>
 
 namespace shadow6 {
+// IANA SCTP protocol number; some Unix headers omit the symbolic constant.
+// Requesting this protocol still fails closed if the kernel lacks SCTP.
+inline constexpr int sctp_protocol = 132;
 template<class T, void (*Free)(T *)> using Owned = std::unique_ptr<T, decltype(Free)>;
 using Key = Owned<EVP_PKEY, EVP_PKEY_free>;
 inline std::string hex(const unsigned char *p, std::size_t n) {
@@ -71,6 +85,9 @@ inline bool endpoint(std::string_view s, Endpoint &out, bool allow_zero = false)
   auto *v4 = reinterpret_cast<sockaddr_in *>(&out.address);
   if (inet_pton(AF_INET, host.c_str(), &v4->sin_addr) == 1) {
     v4->sin_family = AF_INET; v4->sin_port = htons(static_cast<std::uint16_t>(port)); out.size = sizeof(*v4);
+#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
+    v4->sin_len = sizeof(*v4);
+#endif
     out.loopback = (ntohl(v4->sin_addr.s_addr) >> 24) == 127;
     if ((ntohl(v4->sin_addr.s_addr) >> 28) >= 14) return false;
     return true;
@@ -78,6 +95,9 @@ inline bool endpoint(std::string_view s, Endpoint &out, bool allow_zero = false)
   auto *v6 = reinterpret_cast<sockaddr_in6 *>(&out.address);
   if (!s.starts_with('[') || inet_pton(AF_INET6, host.c_str(), &v6->sin6_addr) != 1 || IN6_IS_ADDR_MULTICAST(&v6->sin6_addr) || IN6_IS_ADDR_V4MAPPED(&v6->sin6_addr)) return false;
   v6->sin6_family = AF_INET6; v6->sin6_port = htons(static_cast<std::uint16_t>(port)); out.size = sizeof(*v6);
+#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
+  v6->sin6_len = sizeof(*v6);
+#endif
   out.loopback = IN6_IS_ADDR_LOOPBACK(&v6->sin6_addr); return true;
 }
 

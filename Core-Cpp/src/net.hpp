@@ -108,7 +108,11 @@ public:
     if (!ok) { ctx_.reset(); return; }
     SSL_CTX_set_verify(ctx_.get(), SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT, nullptr);
     SSL_CTX_set_cert_verify_callback(ctx_.get(), verify_pinned, this);
-    SSL_CTX_set_options(ctx_.get(), SSL_OP_NO_TICKET | SSL_OP_NO_RENEGOTIATION);
+    long options = SSL_OP_NO_TICKET;
+#ifdef SSL_OP_NO_RENEGOTIATION
+    options |= SSL_OP_NO_RENEGOTIATION;
+#endif
+    SSL_CTX_set_options(ctx_.get(), options);
     SSL_CTX_set_session_cache_mode(ctx_.get(), SSL_SESS_CACHE_OFF);
     SSL_CTX_set_num_tickets(ctx_.get(), 0);
     SSL_CTX_set_max_early_data(ctx_.get(), 0);
@@ -136,7 +140,13 @@ public:
   int fd() const { return SSL_get_fd(ssl_.get()); }
   bool pending() const { return SSL_pending(ssl_.get()) > 0; }
   std::string peer_key() const {
-    Owned<X509, X509_free> cert(SSL_get1_peer_certificate(ssl_.get()), X509_free);
+    X509 *peer = nullptr;
+#if defined(OPENSSL_VERSION_NUMBER) && OPENSSL_VERSION_NUMBER >= 0x30000000L
+    peer = SSL_get1_peer_certificate(ssl_.get());
+#else
+    peer = SSL_get_peer_certificate(ssl_.get());
+#endif
+    Owned<X509, X509_free> cert(peer, X509_free);
     Key key(cert ? X509_get_pubkey(cert.get()) : nullptr, EVP_PKEY_free); return public_hex(key.get());
   }
   bool read(void *data, std::size_t length, Deadline until) {

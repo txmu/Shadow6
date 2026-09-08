@@ -1,6 +1,7 @@
 """Real loopback WSS/SCTP tests; no other Shadow6 core is started."""
 import concurrent.futures
 import copy
+import errno
 import json
 import os
 from pathlib import Path
@@ -64,19 +65,33 @@ class CoreTests(unittest.TestCase):
             if not selector.select(timeout=12):
                 self.fail(role + " did not become ready")
             line = process.stdout.readline()
-        self.assertTrue(line, role + " exited before readiness")
+        if not line:
+            _, diagnostic = process.communicate(timeout=5)
+            self.fail(f"{role} exited before readiness ({process.returncode}): {diagnostic[-4096:]}")
         event = json.loads(line)
         self.assertEqual(event["type"], "ready")
         self.assertEqual(event["role"], role)
         return event["listen_addr"]
 
-    def setup_stack(self, allow=True):
+    def setup_broker(self, allow=True):
         self.cfg["broker"]["broker"]["listen_addr"] = "127.0.0.1:0"
         if not allow:
             self.cfg["broker"]["broker"]["clients"][0]["allowed_agents"] = []
         address = self.start("broker")
         self.cfg["agent"]["agent"]["broker_addr"] = address
         self.cfg["client"]["client"]["broker_addr"] = address
+        return address
+
+    def setup_stack(self, allow=True):
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM, 132) as probe:
+                probe.bind(("127.0.0.1", 0))
+                probe.listen(1)
+        except OSError as error:
+            if error.errno in (errno.EPROTONOSUPPORT, errno.EAFNOSUPPORT,
+                               errno.EPROTOTYPE, errno.EOPNOTSUPP, errno.EPERM):
+                self.skipTest(f"kernel SCTP unavailable: {error}")
+        self.setup_broker(allow)
         self.cfg["agent"]["agent"]["listen_addr"] = "127.0.0.1:0"
         self.cfg["client"]["client"]["listen_addr"] = "127.0.0.1:0"
         echo = socketserver.ThreadingTCPServer(("127.0.0.1", 0), Echo)
@@ -101,6 +116,15 @@ class CoreTests(unittest.TestCase):
             return bytes(output)
 
     def test_three_process_sctp_forwarding_and_half_close(self):
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM, 132) as probe:
+                probe.bind(("127.0.0.1", 0))
+                probe.listen(1)
+        except OSError as error:
+            if error.errno in (errno.EPROTONOSUPPORT, errno.EAFNOSUPPORT,
+                               errno.EPROTOTYPE, errno.EOPNOTSUPP, errno.EPERM):
+                self.skipTest(f"kernel SCTP unavailable: {error}")
+            raise
         address = self.setup_stack()
         payload = bytes(range(256)) * 1024
         self.assertEqual(self.exchange(address, payload), payload + b"after-fin")
@@ -109,13 +133,13 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(results, [b"concurrentafter-fin"] * 3)
 
     def test_control_rejects_bad_schema_version_and_mask(self):
-        self.setup_stack()
+        self.setup_broker()
         for case in ("unknown", "version", "unmasked"):
             with self.subTest(case=case):
                 subprocess.run([str(PROBE), "--probe", str(self.write("client")), case], check=True, timeout=10, capture_output=True)
 
     def test_broker_acl_denial(self):
-        self.setup_stack(allow=False)
+        self.setup_broker(allow=False)
         subprocess.run([str(PROBE), "--probe", str(self.write("client")), "denied"], check=True, timeout=10, capture_output=True)
 
     def test_wrong_broker_pin_and_unknown_client_fail_tls(self):

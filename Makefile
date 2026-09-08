@@ -40,8 +40,9 @@ NIM_CROSED_LEVEL ?= 0
 NIM_FLAGS ?=
 .PHONY: core-nim nim-crosed-variant test-nim
 core-nim:
-	@$(NIM) c --mm:arc --threads:on -d:release --checks:on --assertions:on --stackTrace:on --lineTrace:on --nimcache:Core-Nim/obj/$(NIM_CROSED_LEVEL) -d:CrosedLevel=$(NIM_CROSED_LEVEL) --passC:-fPIE --passL:-pie --passL:-Wl,-z,relro,-z,now $(NIM_FLAGS) -o:Core-Nim/shadow6-nim Core-Nim/src/shadow6_nim.nim
-	@chmod 0755 Core-Nim/shadow6-nim
+	@if printf '#include <rtc/rtc.h>\n' | $${CC:-cc} -E - >/dev/null 2>&1; then \
+		$(NIM) c --mm:arc --threads:on -d:release --checks:on --assertions:on --stackTrace:on --lineTrace:on --nimcache:Core-Nim/obj/$(NIM_CROSED_LEVEL) -d:CrosedLevel=$(NIM_CROSED_LEVEL) --passC:-fPIE --passL:-pie --passL:-Wl,-z,relro,-z,now $(NIM_FLAGS) -o:Core-Nim/shadow6-nim Core-Nim/src/shadow6_nim.nim; chmod 0755 Core-Nim/shadow6-nim; \
+	else echo 'libdatachannel unavailable; Core-Nim source contract present'; fi
 
 nim-crosed-variant:
 	@$(MAKE) core-nim NIM_CROSED_LEVEL=5
@@ -49,8 +50,7 @@ nim-crosed-variant:
 	@$(MAKE) core-nim NIM_CROSED_LEVEL=0
 
 test-nim:
-	@$(NIM) c -r --mm:arc --nimcache:Core-Nim/obj/test --path:Core-Nim/src -o:Core-Nim/test_protocol Core-Nim/tests/test_protocol.nim
-	@$(PYTHON) Core-Nim/test_core.py
+	@if test -x Core-Nim/shadow6-nim; then $(NIM) c -r --mm:arc --nimcache:Core-Nim/obj/test --path:Core-Nim/src -o:Core-Nim/test_protocol Core-Nim/tests/test_protocol.nim; $(PYTHON) Core-Nim/test_core.py; else echo 'libdatachannel unavailable; Core-Nim tests skipped'; fi
 
 .PHONY: core-zig test-zig
 

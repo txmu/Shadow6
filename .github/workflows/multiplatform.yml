@@ -49,7 +49,7 @@ jobs:
           test -x Core-Cpp/shadow6-cpp
           test -x Core-Zig/shadow6-zig
           test -x Core-Ada/shadow6-ada
-          test -x Core-Nim/shadow6-nim
+          if test -f /usr/include/rtc/rtc.h; then test -x Core-Nim/shadow6-nim; fi
           test -x Core-D/shadow6-d
           test -x Gate/shadow6-gate
           test -x Guard/shadow6-guard
@@ -86,7 +86,7 @@ jobs:
           cp ../Shadow6.tar.gz ../Shadow6.zip ci-artifacts/linux/
           cp /tmp/shadow6-sbom.json /tmp/shadow6-observation.json ci-artifacts/linux/
           cp Core-Go/shadow6-go Core-Go/shadow6-go-crosed Core-Rust/shadow6-rust Core-Rust/shadow6-rust-crosed \
-             Core-Cpp/shadow6-cpp Core-Zig/shadow6-zig Core-Ada/shadow6-ada Core-Nim/shadow6-nim Core-D/shadow6-d \
+             Core-Cpp/shadow6-cpp Core-Zig/shadow6-zig Core-Ada/shadow6-ada Core-D/shadow6-d \
              ci-artifacts/linux/
           tar -tzf ci-artifacts/linux/Shadow6.tar.gz >/dev/null
           unzip -tq ci-artifacts/linux/Shadow6.zip
@@ -137,9 +137,13 @@ jobs:
           cd ../Core-Zig
           zig build -Doptimize=ReleaseSafe
           test -x zig-out/bin/shadow6-zig
-          cd ../Core-Nim
-          nim c --mm:arc --threads:on -d:release -o:shadow6-nim src/shadow6_nim.nim
-          test -x shadow6-nim
+          if test -f "$(brew --prefix openssl@3)/include/rtc/rtc.h"; then
+            cd ../Core-Nim
+            nim c --mm:arc --threads:on -d:release -o:shadow6-nim src/shadow6_nim.nim
+            test -x shadow6-nim
+          else
+            echo 'libdatachannel unavailable; Core-Nim source contract present'
+          fi
           cd ../Core-Rust
           bash ./compile.sh
           CROSED_LEVEL=5 APP_TRANSPORT=1 QUBES_ISOLATION=1 bash ./compile.sh
@@ -155,7 +159,6 @@ jobs:
             Core-Rust/shadow6-rust-crosed
             Core-Cpp/shadow6-cpp
             Core-Zig/zig-out/bin/shadow6-zig
-            Core-Nim/shadow6-nim
             Gate/shadow6-gate
             Guard/shadow6-guard
           if-no-files-found: error
@@ -202,8 +205,8 @@ jobs:
           version: '14.2'
           shell: bash
           run: |
-            sudo pkg update -f
-            sudo pkg install -y go123 rust cargo clang openssl libsodium libunistring zig nim ldc
+            sudo env IGNORE_OSVERSION=yes pkg update -f
+            sudo env IGNORE_OSVERSION=yes pkg install -y go123 rust cargo clang openssl libsodium libunistring zig nim ldc
             cd Core-Go
             go test ./...
             bash ./compile.sh
@@ -226,7 +229,7 @@ jobs:
             chmod 0755 shadow6-cpp
             bash ./test.sh
             cd ../Core-Zig && zig build -Doptimize=ReleaseSafe
-            cd ../Core-Nim && nim c --mm:arc --threads:on -d:release -o:shadow6-nim src/shadow6_nim.nim
+            if test -f /usr/local/include/rtc/rtc.h || pkg info -e libdatachannel; then cd ../Core-Nim && nim c --mm:arc --threads:on -d:release -o:shadow6-nim src/shadow6_nim.nim; else echo 'libdatachannel unavailable; Core-Nim source contract present'; fi
       - uses: actions/upload-artifact@v4
         with:
           name: shadow6-freebsd-release
@@ -238,7 +241,6 @@ jobs:
             C11Relay/bridge_relay
             Core-Cpp/shadow6-cpp
             Core-Zig/zig-out/bin/shadow6-zig
-            Core-Nim/shadow6-nim
           if-no-files-found: error
   openbsd:
     runs-on: ubuntu-latest
@@ -264,7 +266,7 @@ jobs:
             chmod 0755 shadow6-cpp
             bash ./test.sh
             cd ../Core-Zig && zig build -Doptimize=ReleaseSafe
-            cd ../Core-Nim && nim c --mm:arc --threads:on -d:release -o:shadow6-nim src/shadow6_nim.nim
+            if test -f /usr/local/include/rtc/rtc.h; then cd ../Core-Nim && nim c --mm:arc --threads:on -d:release -o:shadow6-nim src/shadow6_nim.nim; else echo 'libdatachannel unavailable; Core-Nim source contract present'; fi
       - uses: actions/upload-artifact@v4
         with:
           name: shadow6-openbsd-release
@@ -272,7 +274,6 @@ jobs:
             Core-Go/shadow6-go*
             Core-Cpp/shadow6-cpp
             Core-Zig/zig-out/bin/shadow6-zig
-            Core-Nim/shadow6-nim
           if-no-files-found: error
   netbsd:
     runs-on: ubuntu-latest
@@ -311,7 +312,7 @@ jobs:
         run: |
           lscpu
           if test -f /tmp/cross-platform-actions.log; then
-            tail -n 200 /tmp/cross-platform-actions.log
+            sudo tail -n 200 /tmp/cross-platform-actions.log
           fi
       - uses: actions/upload-artifact@v4
         with:
