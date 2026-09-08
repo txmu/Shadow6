@@ -49,7 +49,14 @@ def build_nim(abi, target, prebuilt, crypto, rtc, destination, jobs):
     for prefix in (crypto, rtc):
         command += ["--passC:-I" + shlex.quote(str(prefix / "include")),
                     "--passL:-L" + shlex.quote(str(prefix / "lib"))]
-    command += ["--passL:-pie", "--passL:-static-libstdc++",
+    # Android exposes pthreads through libc and intentionally has no separate
+    # libpthread. Nim's --threads:on target configuration still appends
+    # -lpthread, so provide a temporary empty archive to satisfy that legacy
+    # name; the actual pthread symbols continue to resolve from libc.
+    pthread_compat = tempfile.TemporaryDirectory(prefix="shadow6-android-pthread-")
+    (Path(pthread_compat.name) / "libpthread.a").write_bytes(b"!<arch>\n")
+    command += ["--passL:-L" + pthread_compat.name,
+                "--passL:-pie", "--passL:-static-libstdc++",
                 "--passL:-Wl,-z,relro,-z,now,-z,max-page-size=16384",
                 "--passL:-Wl,--start-group", "--passL:-ldatachannel", "--passL:-lusrsctp",
                 "--passL:-ljuice", "--passL:-lssl", "--passL:-lcrypto", "--passL:-Wl,--end-group",
@@ -57,7 +64,10 @@ def build_nim(abi, target, prebuilt, crypto, rtc, destination, jobs):
                 "--nimcache:" + str(ROOT / '.tmp/nim-android-cache' / abi),
                 "-o:" + str(destination / 'libshadow6_nim.so'),
                 str(ROOT / 'Core-Nim/src/shadow6_nim.nim')]
-    subprocess.run(command, cwd=ROOT, check=True)
+    try:
+        subprocess.run(command, cwd=ROOT, check=True)
+    finally:
+        pthread_compat.cleanup()
 
 def main() -> int:
     parser = argparse.ArgumentParser()
