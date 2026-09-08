@@ -113,10 +113,12 @@ jobs:
             ~/.cargo/git
           key: macos-${{ hashFiles('**/go.sum', '**/Cargo.lock') }}
       - uses: dtolnay/rust-toolchain@stable
+      - name: Install macOS native core dependencies
+        run: brew install openssl@3 libsodium libunistring zig nim ldc
       - run: |
           cd Core-Go && go test ./...
-          cd ../Gate && go test ./...
-          cd ../Guard && go test ./...
+          cd ../Gate && go test ./... && go build -trimpath -o shadow6-gate .
+          cd ../Guard && go test ./... && bash ./compile.sh
       - shell: bash
         run: |
           cd Core-Go
@@ -124,6 +126,20 @@ jobs:
           CROSED_LEVEL=5 APP_TRANSPORT=1 QUBES_ISOLATION=1 bash ./compile.sh
           mv shadow6-go shadow6-go-crosed
           CROSED_LEVEL=0 APP_TRANSPORT=0 QUBES_ISOLATION=0 bash ./compile.sh
+          cd ../Gate && go build -trimpath -o shadow6-gate .
+          cd ../Guard && bash ./compile.sh
+          cd ../Core-Cpp
+          brew_prefix="$(brew --prefix openssl@3)"
+          c++ -std=c++20 -O2 -fno-exceptions -fno-rtti -Wall -Wextra -pthread \
+            -I"$brew_prefix/include" -L"$brew_prefix/lib" src/main.cpp -lssl -lcrypto -o shadow6-cpp
+          chmod 0755 shadow6-cpp
+          CPPFLAGS="-I$brew_prefix/include" LDFLAGS="-L$brew_prefix/lib" bash ./test.sh
+          cd ../Core-Zig
+          zig build -Doptimize=ReleaseSafe
+          test -x zig-out/bin/shadow6-zig
+          cd ../Core-Nim
+          nim c --mm:arc --threads:on -d:release -o:shadow6-nim src/shadow6_nim.nim
+          test -x shadow6-nim
           cd ../Core-Rust
           bash ./compile.sh
           CROSED_LEVEL=5 APP_TRANSPORT=1 QUBES_ISOLATION=1 bash ./compile.sh
@@ -137,6 +153,9 @@ jobs:
             Core-Go/shadow6-go-crosed
             Core-Rust/shadow6-rust
             Core-Rust/shadow6-rust-crosed
+            Core-Cpp/shadow6-cpp
+            Core-Zig/zig-out/bin/shadow6-zig
+            Core-Nim/shadow6-nim
             Gate/shadow6-gate
             Guard/shadow6-guard
           if-no-files-found: error
@@ -154,16 +173,15 @@ jobs:
           key: windows-${{ hashFiles('**/go.sum') }}
       - shell: bash
         run: |
-          cd Core-Go && go test ./...
-          cd ../Gate && go test ./...
-          cd ../Guard && go test ./...
-      - shell: bash
-        run: |
+          echo 'Windows native matrix: Go, Gate and Guard. POSIX-only C++/Rust/Zig/Nim/D/Ada cores are intentionally excluded on native Windows.'
           cd Core-Go
+          go test ./...
           bash ./compile.sh
           CROSED_LEVEL=5 APP_TRANSPORT=1 QUBES_ISOLATION=1 bash ./compile.sh
           mv shadow6-go shadow6-go-crosed
           CROSED_LEVEL=0 APP_TRANSPORT=0 QUBES_ISOLATION=0 bash ./compile.sh
+          cd ../Gate && go test ./... && go build -trimpath -o shadow6-gate .
+          cd ../Guard && go test ./... && bash ./compile.sh
       - uses: actions/upload-artifact@v4
         with:
           name: shadow6-windows-core-go
@@ -184,8 +202,8 @@ jobs:
           version: '14.2'
           shell: bash
           run: |
-            command -v go || (sudo pkg update -f || true; sudo pkg install -y go123 || sudo pkg install -y go)
-            sudo pkg install -y rust cargo || true
+            sudo pkg update -f
+            sudo pkg install -y go123 rust cargo clang openssl libsodium libunistring zig nim ldc
             cd Core-Go
             go test ./...
             bash ./compile.sh
@@ -203,6 +221,12 @@ jobs:
             go build -trimpath -o shadow6-gate .
             cd ../C11Relay
             bash ./compile.sh
+            cd ../Core-Cpp
+            c++ -std=c++20 -O2 -fno-exceptions -fno-rtti -Wall -Wextra -pthread src/main.cpp -lssl -lcrypto -o shadow6-cpp
+            chmod 0755 shadow6-cpp
+            bash ./test.sh
+            cd ../Core-Zig && zig build -Doptimize=ReleaseSafe
+            cd ../Core-Nim && nim c --mm:arc --threads:on -d:release -o:shadow6-nim src/shadow6_nim.nim
       - uses: actions/upload-artifact@v4
         with:
           name: shadow6-freebsd-release
@@ -212,6 +236,9 @@ jobs:
             Guard/shadow6-guard*
             Gate/shadow6-gate
             C11Relay/bridge_relay
+            Core-Cpp/shadow6-cpp
+            Core-Zig/zig-out/bin/shadow6-zig
+            Core-Nim/shadow6-nim
           if-no-files-found: error
   openbsd:
     runs-on: ubuntu-latest
@@ -224,7 +251,7 @@ jobs:
           version: '7.6'
           shell: bash
           run: |
-            command -v go || sudo pkg_add go
+            sudo pkg_add go rust clang openssl libsodium zig nim ldc
             cd Core-Go
             go test ./...
             bash ./compile.sh
@@ -232,10 +259,20 @@ jobs:
             mv shadow6-go shadow6-go-crosed
             cd ../Guard
             go test ./...
+            cd ../Core-Cpp
+            c++ -std=c++20 -O2 -fno-exceptions -fno-rtti -Wall -Wextra -pthread src/main.cpp -lssl -lcrypto -o shadow6-cpp
+            chmod 0755 shadow6-cpp
+            bash ./test.sh
+            cd ../Core-Zig && zig build -Doptimize=ReleaseSafe
+            cd ../Core-Nim && nim c --mm:arc --threads:on -d:release -o:shadow6-nim src/shadow6_nim.nim
       - uses: actions/upload-artifact@v4
         with:
           name: shadow6-openbsd-release
-          path: Core-Go/shadow6-go*
+          path: |
+            Core-Go/shadow6-go*
+            Core-Cpp/shadow6-cpp
+            Core-Zig/zig-out/bin/shadow6-zig
+            Core-Nim/shadow6-nim
           if-no-files-found: error
   netbsd:
     runs-on: ubuntu-latest
@@ -264,7 +301,11 @@ jobs:
           cpu_count: 2
           memory: 4G
           shell: bash
-          run: bash Tools/test_netbsd.sh
+          run: |
+            bash Tools/test_netbsd.sh
+            test -x Core-Go/shadow6-go
+            test -x Core-Go/shadow6-go-crosed
+            if test -x Core-Cpp/shadow6-cpp; then test -x Core-Cpp/shadow6-cpp; fi
       - name: NetBSD boot diagnostics
         if: failure()
         run: |

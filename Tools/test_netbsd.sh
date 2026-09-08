@@ -21,3 +21,20 @@ done
     ./shadow6-go --feature-report
     ./shadow6-go-crosed --feature-report
 )
+
+# Build every additional core whose native toolchain is provisioned by the
+# NetBSD image; unsupported optional toolchains remain an explicit boundary.
+if command -v c++ >/dev/null 2>&1 && test -f /usr/include/openssl/ssl.h; then
+    (
+        cd Core-Cpp
+        c++ -std=c++20 -O2 -fno-exceptions -fno-rtti -Wall -Wextra -pthread src/main.cpp -lssl -lcrypto -o shadow6-cpp
+        chmod 0755 shadow6-cpp
+        bash ./test.sh
+    )
+fi
+if command -v zig >/dev/null 2>&1; then
+    (cd Core-Zig && zig build -Doptimize=ReleaseSafe)
+fi
+if command -v nim >/dev/null 2>&1 && test -f /usr/include/openssl/evp.h; then
+    (cd Core-Nim && nim c --mm:arc --threads:on -d:release -o:shadow6-nim src/shadow6_nim.nim)
+fi
