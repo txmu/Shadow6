@@ -212,12 +212,14 @@ jobs:
         with:
           operating_system: freebsd
           version: '14.4'
-          shell: bash
-          run: |
+      - name: Test FreeBSD components
+        shell: cpa.sh {0}
+        run: |
             sudo pkg update -f
             # rust includes Cargo; the base system supplies Clang.
             sudo pkg install -y go rust python3 openssl libsodium libunistring zig nim ldc
-            command -v go cargo c++ python3
+            export PYTHON="$(command -v python3 || command -v python3.12)"
+            command -v go cargo c++ "$PYTHON"
             cd Core-Go
             go test ./...
             bash ./compile.sh
@@ -263,10 +265,11 @@ jobs:
         with:
           operating_system: openbsd
           version: '7.6'
-          shell: bash
-          run: |
-            sudo pkg_add go rust python%3.12 openssl libsodium zig nim ldc
-            export PYTHON=python3.12
+      - name: Test OpenBSD components
+        shell: cpa.sh {0}
+        run: |
+            sudo pkg_add go rust python%3.11 libsodium zig nim
+            export PYTHON="$(command -v python3.11 || command -v python3)"
             command -v go cargo c++ "$PYTHON"
             cd Core-Go
             go test ./...
