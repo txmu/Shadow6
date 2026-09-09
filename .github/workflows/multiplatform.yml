@@ -7,6 +7,8 @@ on:
 jobs:
   linux:
     runs-on: ubuntu-latest
+    env:
+      BUILD_HARE: '1'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -34,6 +36,11 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             build-essential pkg-config libssl-dev libsodium-dev libunistring-dev \
             gnat gprbuild ldc shellcheck unzip
+      - name: Provision pinned Hare toolchain
+        timeout-minutes: 15
+        run: |
+          bash Tools/bootstrap_hare_linux.sh "$GITHUB_WORKSPACE/.tools/hare-ci"
+          echo "$GITHUB_WORKSPACE/.tools/hare-ci/bin" >> "$GITHUB_PATH"
       - run: python -m venv .venv
       - run: .venv/bin/pip install -r requirements.txt -r requirements-ml.txt
       - name: Configure the complete Linux component matrix
@@ -43,7 +50,7 @@ jobs:
           make build BUILD_ZIG=1 BUILD_ADA=1 BUILD_CPP=1
           make core-nim
           make core-d
-          if command -v hare >/dev/null 2>&1; then make core-hare; fi
+          test -x Core-Hare/shadow6-hare
           test -x Core-Go/shadow6-go
           test -x Core-Rust/shadow6-rust
           test -x Core-Cpp/shadow6-cpp
@@ -77,6 +84,7 @@ jobs:
           stage_dir="$(mktemp -d /tmp/shadow6-install.XXXXXX)"
           trap 'rm -rf -- "$stage_dir"' EXIT
           make install DESTDIR="$stage_dir" PREFIX=/usr/local
+          "$stage_dir/usr/local/bin/shadow6-hare" --feature-report
           "$stage_dir/usr/local/bin/shadow6-plugins" list
           "$stage_dir/usr/local/bin/shadow6-security" list >/dev/null
           "$stage_dir/usr/local/bin/shadow6-control" schema >/tmp/shadow6-staged-schema.json
@@ -87,11 +95,12 @@ jobs:
           cp ../Shadow6.tar.gz ../Shadow6.zip ci-artifacts/linux/
           cp /tmp/shadow6-sbom.json /tmp/shadow6-observation.json ci-artifacts/linux/
           cp Core-Go/shadow6-go Core-Go/shadow6-go-crosed Core-Rust/shadow6-rust Core-Rust/shadow6-rust-crosed \
-             Core-Cpp/shadow6-cpp Core-Zig/shadow6-zig Core-Ada/shadow6-ada Core-D/shadow6-d \
+             Core-Cpp/shadow6-cpp Core-Zig/shadow6-zig Core-Ada/shadow6-ada Core-D/shadow6-d Core-Hare/shadow6-hare \
              ci-artifacts/linux/
           tar -tzf ci-artifacts/linux/Shadow6.tar.gz >/dev/null
           unzip -tq ci-artifacts/linux/Shadow6.zip
           test "$(tar -tzf ci-artifacts/linux/Shadow6.tar.gz | grep -c 'Core-Cpp/shadow6-cpp$')" -eq 1
+          test "$(tar -tzf ci-artifacts/linux/Shadow6.tar.gz | grep -c 'Core-Hare/shadow6-hare$')" -eq 1
           unzip -Z1 ci-artifacts/linux/Shadow6.zip | awk 'NF && $0 !~ /\/$/ && $0 !~ /\.txt$/ {bad=1} END {exit bad}'
       - uses: actions/upload-artifact@v4
         with:
@@ -250,7 +259,7 @@ jobs:
     name: OpenBSD native tests
     steps:
       - uses: actions/checkout@v4
-      - uses: cross-platform-actions/action@v0.29.0
+      - uses: cross-platform-actions/action@24ef01df165c76df1ed2b9f9e9212e78dc2fc963 # v1.4.0, Node 24
         with:
           operating_system: openbsd
           version: '7.6'

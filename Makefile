@@ -4,7 +4,7 @@ BUILD_GO ?= 1
 BUILD_RUST ?= 1
 BUILD_CPP ?= 1
 BUILD_ZIG ?= 0
-BUILD_HARE ?= 1
+BUILD_HARE ?= $(if $(shell command -v hare 2>/dev/null),1,0)
 BUILD_ADA ?= 0
 ADA_CROSED_LEVEL ?= 0
 export ADA_CROSED_LEVEL
@@ -93,10 +93,15 @@ endif
 build: core-go core-rust core-cpp core-hare gate migration i18n cli online-repository relay guard service-init auto detector plugins package-manager easybuild crosed app-layer extension-system assistants slots control-center public6-contract
 
 core-hare:
-	@if command -v hare >/dev/null 2>&1; then cd Core-Hare && hare build -l sodium -o shadow6-hare src/main.ha; chmod 0755 shadow6-hare; else echo "hare unavailable; Core-Hare source contract present"; fi
+ifeq ($(BUILD_HARE),1)
+	@command -v hare >/dev/null || { echo 'BUILD_HARE=1 requires the Hare toolchain' >&2; exit 1; }
+	@cd Core-Hare && hare build -l sodium -o shadow6-hare src/main.ha && chmod 0755 shadow6-hare
+else
+	@echo 'Core-Hare disabled; set BUILD_HARE=1 with the Hare toolchain installed to enable it'
+endif
 
-test-hare:
-	@$(PYTHON) Core-Hare/tests/test_contract.py
+test-hare: core-hare
+	@$(PYTHON) Core-Hare/tests/test_contract.py $(if $(filter 1,$(BUILD_HARE)),--binary Core-Hare/shadow6-hare,)
 
 i18n:
 	@PYTHONPATH=I18n $(PYTHON) -m py_compile I18n/shadow6_i18n.py
@@ -438,6 +443,7 @@ ifeq ($(BUILD_CONTROL),1)
 	@install -m 0644 Plugin-System/shadow6_plugins.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/shadow6_plugins.py"
 	@install -m 0644 Crosed/crosedctl.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/crosedctl.py"
 	@install -m 0644 Slot-System/shadow6_slots.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/shadow6_slots.py"
+	@install -m 0644 Application-Layer/shadow_protocols.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/shadow_protocols.py"
 	@install -m 0644 Service-Init/shadow6_init.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/shadow6_init.py"
 	@install -m 0644 Package-Manager/shadow6_pkg.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/shadow6_pkg.py"
 	@install -m 0644 Public6/shadow6_public.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/shadow6_public.py"

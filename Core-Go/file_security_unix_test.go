@@ -17,17 +17,52 @@ func TestSecureConfigExactMode(t *testing.T) {
 	if err := os.WriteFile(path, []byte(`{}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	for _, mode := range []os.FileMode{0o600, 0o400, 0o700, 0o644, 0o660, 0o600 | os.ModeSetuid, 0o600 | os.ModeSetgid} {
+	for _, mode := range []os.FileMode{0o600, 0o400, 0o700, 0o644, 0o660} {
 		if err := os.Chmod(path, mode); err != nil {
-			t.Fatal(err)
+			t.Fatalf("chmod mode %v: %v", mode, err)
 		}
 		info, err := os.Stat(path)
 		if err != nil {
 			t.Fatal(err)
 		}
+		if info.Mode() != mode {
+			t.Fatalf("requested mode %v, filesystem returned %v", mode, info.Mode())
+		}
 		if got := secureConfigFile(info); got != (mode == 0o600) {
 			t.Errorf("mode %v: secure=%v", mode, got)
 		}
+	}
+}
+
+type configModeInfo struct {
+	os.FileInfo
+	mode os.FileMode
+}
+
+func (info configModeInfo) Mode() os.FileMode { return info.mode }
+
+func TestSecureConfigRejectsSpecialModes(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	if err := os.WriteFile(path, []byte(`{}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !secureConfigFile(info) {
+		t.Fatal("owned regular 0600 baseline must be accepted")
+	}
+	// Kernels may refuse or clear special bits for unprivileged callers,
+	// notably setgid on FreeBSD when the inherited group is not a membership.
+	// Exercise the real predicate on metadata without requiring chmod privilege.
+	for _, bits := range []os.FileMode{os.ModeSetuid, os.ModeSetgid, os.ModeSticky,
+		os.ModeSetuid | os.ModeSetgid | os.ModeSticky} {
+		t.Run(bits.String(), func(t *testing.T) {
+			if secureConfigFile(configModeInfo{FileInfo: info, mode: 0o600 | bits}) {
+				t.Fatalf("special mode %v must be rejected", bits)
+			}
+		})
 	}
 }
 
