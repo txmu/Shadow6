@@ -8,7 +8,11 @@ fi
 temporary="shadow6-guard.tmp.$$"
 trap 'rm -f "$temporary"' EXIT
 build_args=(-buildvcs=false -o "$temporary" -trimpath -ldflags='-s -w -buildid=')
-[[ "$(go env GOOS)" != "openbsd" && "$(go env GOOS)" != "netbsd" ]] && build_args+=(-buildmode=pie)
+# Keep pure-Go BSD builds in the default mode; FreeBSD PIE needs CGO linking.
+case "$(go env GOOS)" in
+    freebsd|openbsd|netbsd) ;;
+    *) build_args+=(-buildmode=pie) ;;
+esac
 go build "${build_args[@]}" .
 mv -f "$temporary" shadow6-guard
 chmod 0755 shadow6-guard

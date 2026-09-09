@@ -81,6 +81,8 @@ jobs:
       - run: .venv/bin/python Infrastructure-Assistants/shadow6_infra.py observe --output /tmp/shadow6-observation.json
       - name: Validate staged installation and component catalogs
         run: |
+          # Installed Python entrypoints use /usr/bin/env python3.
+          source .venv/bin/activate
           stage_dir="$(mktemp -d /tmp/shadow6-install.XXXXXX)"
           trap 'rm -rf -- "$stage_dir"' EXIT
           make install DESTDIR="$stage_dir" PREFIX=/usr/local

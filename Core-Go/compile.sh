@@ -17,7 +17,11 @@ esac
 [[ "${APP_TRANSPORT:-0}" == 1 ]] && tags+=(app_transport)
 [[ "${QUBES_ISOLATION:-0}" == 1 ]] && tags+=(qubes_isolation)
 build_args=(-buildvcs=false -o "$temporary" -trimpath -ldflags='-s -w -buildid=')
-[[ "$(go env GOOS)" != "openbsd" && "$(go env GOOS)" != "netbsd" ]] && build_args+=(-buildmode=pie)
+# Keep pure-Go BSD builds in the default mode; FreeBSD PIE needs CGO linking.
+case "$(go env GOOS)" in
+    freebsd|openbsd|netbsd) ;;
+    *) build_args+=(-buildmode=pie) ;;
+esac
 if ((${#tags[@]})); then
     joined_tags=$(IFS=,; printf '%s' "${tags[*]}")
     build_args+=(-tags "$joined_tags")
