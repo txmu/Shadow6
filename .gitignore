@@ -19,6 +19,7 @@ Core-Rust/shadow6-rust
 Core-Zig/shadow6-zig
 Core-Zig/.zig-cache/
 Core-Zig/zig-out/
+Core-Hare/shadow6-hare
 Core-Ada/obj/
 Core-Ada/shadow6-ada
 Core-Ada/shadow6-ada-crosed

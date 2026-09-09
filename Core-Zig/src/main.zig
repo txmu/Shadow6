@@ -3,7 +3,7 @@ const cfg = @import("config.zig");
 const p = @import("platform.zig");
 pub const features = .{ .core = "shadow6-zig", .version = "1.1.0", .crosed_compiled = false, .crosed_max_level = @as(u8, 0), .app_transport = false, .qubes_isolation = false, .gate_compiled = true, .gate_enabled_by_default = false, .utf8 = true, .crosed_capabilities = [0][]const u8{} };
 fn run(init: std.process.Init) !void {
-    _ = p.c.signal(p.c.SIGPIPE, p.c.SIG_IGN);
+    if (p.shadow6_ignore_sigpipe() != 0) return error.SignalSetupFailed;
     var arena = std.heap.ArenaAllocator.init(init.gpa);
     defer arena.deinit();
     const a = arena.allocator();
@@ -122,6 +122,7 @@ pub fn main(init: std.process.Init) void {
     };
 }
 test {
+    _ = @import("platform.zig");
     _ = @import("config.zig");
     _ = @import("enet.zig");
     _ = @import("hook.zig");

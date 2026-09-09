@@ -18,6 +18,7 @@ pub fn build(b: *std.Build) void {
         module.addSystemIncludePath(.{ .cwd_relative = b.fmt("{s}/usr/include/{s}", .{ sysroot, triple }) });
     }
     b.installArtifact(exe);
+    module.addCSourceFile(.{ .file = b.path("src/signals.c"), .flags = &.{ "-Wall", "-Wextra", "-Werror" } });
     const tests = b.addTest(.{ .root_module = module });
     const run = b.addRunArtifact(tests);
     b.step("test", "Run protocol, configuration and allocation tests").dependOn(&run.step);

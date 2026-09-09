@@ -66,7 +66,7 @@ class NetBSDToolchainTests(unittest.TestCase):
 
 
 class NetBSDRunnerTests(unittest.TestCase):
-    def run_guest_script(self, fail_component=""):
+    def run_guest_script(self, fail_component="", python=sys.executable):
         """Exercise the real shell/build scripts with a local stand-in compiler."""
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -75,6 +75,16 @@ class NetBSDRunnerTests(unittest.TestCase):
             shutil.copy2(ROOT / "Core-Go/compile.sh", root / "Core-Go/compile.sh")
             tools = root / "fake-bin"
             tools.mkdir()
+            # Optional host toolchains must not leak into this Go runner test.
+            # Native C++/Zig/Nim behavior is covered by their own suites.
+            for component in ("Core-Cpp", "Core-Zig", "Core-Nim"):
+                (root / component).mkdir()
+            for script in ("compile.sh", "test.sh"):
+                (root / "Core-Cpp" / script).write_text("#!/bin/sh\nexit 0\n")
+            for name in ("zig", "nim"):
+                tool = tools / name
+                tool.write_text("#!/bin/sh\nexit 0\n")
+                tool.chmod(0o700)
             (tools / "uname").write_text("#!/bin/sh\nprintf '%s\\n' NetBSD\n")
             (tools / "uname").chmod(0o700)
             compiler = root / "go"
@@ -100,11 +110,12 @@ if args[0] == "build":
                 tar.add(compiler, arcname="go/bin/go")
             log = root / "go.log"
             env = dict(os.environ, PATH=str(tools) + os.pathsep + os.environ["PATH"],
+                       PYTHON=python,
                        SHADOW6_TEST_GO_LOG=str(log), SHADOW6_TEST_FAIL=fail_component)
             result = subprocess.run(["bash", str(ROOT / "Tools/test_netbsd.sh")],
                                     cwd=root, env=env, capture_output=True, text=True, timeout=15)
             import json
-            calls = [json.loads(line) for line in log.read_text().splitlines()]
+            calls = [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
             outputs = {p.name: p.read_text() for p in (root / "Core-Go").glob("shadow6-go*")}
             return result, calls, outputs
 
@@ -125,6 +136,13 @@ if args[0] == "build":
         self.assertFalse(outputs)
         self.assertFalse(any(call[1][0] == "build" for call in calls))
         self.assertFalse(any(call[0] == "Gate" for call in calls))
+
+    def test_missing_python_fails_before_any_build(self):
+        result, calls, outputs = self.run_guest_script(python="/nonexistent/shadow6-test-python")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("shadow6-test-python", result.stderr)
+        self.assertFalse(calls)
+        self.assertFalse(outputs)
 
 
 if __name__ == "__main__":

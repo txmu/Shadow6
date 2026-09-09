@@ -15,6 +15,12 @@ fi
 "$CXX" "${flags[@]}" "${cppflags[@]}" tests.cpp "${ldflags[@]}" -lssl -lcrypto -o "$work/probe"
 "$work/probe"
 export SHADOW6_CPP_PROBE="$work/probe"
-python=python3
-[[ ! -x ../.venv/bin/python ]] || python=../.venv/bin/python
+python=${PYTHON:-python3}
+if [[ -z ${PYTHON:-} && -x ../.venv/bin/python ]]; then
+    python=../.venv/bin/python
+fi
+command -v "$python" >/dev/null 2>&1 || {
+    echo 'Python 3 is required for Core-Cpp tests; set PYTHON to its executable.' >&2
+    exit 1
+}
 "$python" test_core.py

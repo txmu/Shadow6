@@ -1,4 +1,22 @@
 const std = @import("std");
+pub extern "c" fn shadow6_ignore_sigpipe() c_int;
+
+test "numeric addresses preserve native IPv4 and IPv6 socket layouts" {
+    const v4 = try address("127.0.0.1", 4433);
+    const v6 = try address("::1", 4433);
+    try std.testing.expect(v4.loopback());
+    try std.testing.expect(v6.loopback());
+    try std.testing.expectEqual(@as(u16, 4433), v4.port());
+    try std.testing.expectEqual(@as(u16, 4433), v6.port());
+    if (@hasField(c.sockaddr_in, "sin_len")) {
+        const native: *const c.sockaddr_in = @ptrCast(&v4.storage);
+        try std.testing.expectEqual(@sizeOf(c.sockaddr_in), native.sin_len);
+    }
+    if (@hasField(c.sockaddr_in6, "sin6_len")) {
+        const native: *const c.sockaddr_in6 = @ptrCast(&v6.storage);
+        try std.testing.expectEqual(@sizeOf(c.sockaddr_in6), native.sin6_len);
+    }
+}
 pub const c = @cImport({
     // Bionic's unsigned ioctl convenience overload cannot be represented by
     // translate-c. Keep the canonical libc declaration using its opt-out.
@@ -99,6 +117,7 @@ pub fn address(host: []const u8, port: u16) !Address {
     const v4: *c.sockaddr_in = @ptrCast(&out.storage);
     if (c.inet_pton(c.AF_INET, &text, &v4.sin_addr) == 1) {
         v4.sin_family = c.AF_INET;
+        if (@hasField(c.sockaddr_in, "sin_len")) v4.sin_len = @sizeOf(c.sockaddr_in);
         v4.sin_port = std.mem.nativeToBig(u16, port);
         out.len = @sizeOf(c.sockaddr_in);
         return out;
@@ -106,6 +125,7 @@ pub fn address(host: []const u8, port: u16) !Address {
     const v6: *c.sockaddr_in6 = @ptrCast(&out.storage);
     if (c.inet_pton(c.AF_INET6, &text, &v6.sin6_addr) == 1) {
         v6.sin6_family = c.AF_INET6;
+        if (@hasField(c.sockaddr_in6, "sin6_len")) v6.sin6_len = @sizeOf(c.sockaddr_in6);
         v6.sin6_port = std.mem.nativeToBig(u16, port);
         out.len = @sizeOf(c.sockaddr_in6);
         return out;

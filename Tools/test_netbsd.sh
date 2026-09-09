@@ -3,6 +3,9 @@ set -euo pipefail
 
 # The host provisions the exact setup-go version and verifies its SHA-256.
 test "$(uname -s)" = NetBSD
+: "${PYTHON:=/usr/pkg/bin/python3.11}"
+export PYTHON
+"$PYTHON" --version
 toolchain_dir=$(mktemp -d /tmp/shadow6-netbsd-go.XXXXXX)
 trap 'rm -rf -- "$toolchain_dir"' EXIT
 tar -xzf .tmp/netbsd-go/go.tar.gz -C "$toolchain_dir"
@@ -27,13 +30,12 @@ done
 if command -v c++ >/dev/null 2>&1 && test -f /usr/include/openssl/ssl.h; then
     (
         cd Core-Cpp
-        c++ -std=c++20 -O2 -fno-exceptions -fno-rtti -Wall -Wextra -pthread src/main.cpp -lssl -lcrypto -o shadow6-cpp
-        chmod 0755 shadow6-cpp
+        bash ./compile.sh
         bash ./test.sh
     )
 fi
 if command -v zig >/dev/null 2>&1; then
-    (cd Core-Zig && zig build -Doptimize=ReleaseSafe)
+    (cd Core-Zig && zig build -Doptimize=ReleaseSafe && zig build test -Doptimize=ReleaseSafe)
 fi
 if command -v nim >/dev/null 2>&1 && test -f /usr/include/openssl/evp.h; then
     (cd Core-Nim && nim c --mm:arc --threads:on -d:release -o:shadow6-nim src/shadow6_nim.nim)

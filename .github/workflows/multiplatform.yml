@@ -55,6 +55,7 @@ jobs:
           test -x Guard/shadow6-guard
           test -x C11Relay/bridge_relay
           make test-zig BUILD_ZIG=1
+          make ada-crosed-variant
           Core-Ada/test_cells
           .venv/bin/python Core-Ada/test_core.py
           make test-nim
@@ -91,7 +92,7 @@ jobs:
           tar -tzf ci-artifacts/linux/Shadow6.tar.gz >/dev/null
           unzip -tq ci-artifacts/linux/Shadow6.zip
           test "$(tar -tzf ci-artifacts/linux/Shadow6.tar.gz | grep -c 'Core-Cpp/shadow6-cpp$')" -eq 1
-          unzip -Z1 ci-artifacts/linux/Shadow6.zip | awk 'NF && $0 !~ /\\/$/ && $0 !~ /\\.txt$/ {bad=1} END {exit bad}'
+          unzip -Z1 ci-artifacts/linux/Shadow6.zip | awk 'NF && $0 !~ /\/$/ && $0 !~ /\.txt$/ {bad=1} END {exit bad}'
       - uses: actions/upload-artifact@v4
         with:
           name: shadow6-linux-release
@@ -130,12 +131,11 @@ jobs:
           cd ../Guard && bash ./compile.sh
           cd ../Core-Cpp
           brew_prefix="$(brew --prefix openssl@3)"
-          c++ -std=c++20 -O2 -fno-exceptions -fno-rtti -Wall -Wextra -pthread \
-            -I"$brew_prefix/include" -L"$brew_prefix/lib" src/main.cpp -lssl -lcrypto -o shadow6-cpp
-          chmod 0755 shadow6-cpp
+          CPPFLAGS="-I$brew_prefix/include" LDFLAGS="-L$brew_prefix/lib" bash ./compile.sh
           CPPFLAGS="-I$brew_prefix/include" LDFLAGS="-L$brew_prefix/lib" bash ./test.sh
           cd ../Core-Zig
           zig build -Doptimize=ReleaseSafe
+          zig build test -Doptimize=ReleaseSafe
           test -x zig-out/bin/shadow6-zig
           if test -f "$(brew --prefix openssl@3)/include/rtc/rtc.h"; then
             cd ../Core-Nim
@@ -199,23 +199,27 @@ jobs:
     name: FreeBSD native tests
     steps:
       - uses: actions/checkout@v4
-      - uses: cross-platform-actions/action@v0.29.0
+      - uses: cross-platform-actions/action@24ef01df165c76df1ed2b9f9e9212e78dc2fc963 # v1.4.0
         with:
           operating_system: freebsd
-          version: '14.2'
+          version: '14.4'
           shell: bash
           run: |
-            sudo env IGNORE_OSVERSION=yes pkg update -f
-            sudo env IGNORE_OSVERSION=yes pkg install -y go123 rust cargo clang openssl libsodium libunistring zig nim ldc
+            sudo pkg update -f
+            # rust includes Cargo; the base system supplies Clang.
+            sudo pkg install -y go rust python3 openssl libsodium libunistring zig nim ldc
+            command -v go cargo c++ python3
             cd Core-Go
             go test ./...
             bash ./compile.sh
             CROSED_LEVEL=5 APP_TRANSPORT=1 QUBES_ISOLATION=1 bash ./compile.sh
             mv shadow6-go shadow6-go-crosed
+            CROSED_LEVEL=0 APP_TRANSPORT=0 QUBES_ISOLATION=0 bash ./compile.sh
             cd ../Core-Rust
             bash ./compile.sh
             CROSED_LEVEL=5 APP_TRANSPORT=1 QUBES_ISOLATION=1 bash ./compile.sh
             mv shadow6-rust shadow6-rust-crosed
+            CROSED_LEVEL=0 APP_TRANSPORT=0 QUBES_ISOLATION=0 bash ./compile.sh
             cd ../Guard
             go test ./...
             bash ./compile.sh
@@ -225,10 +229,9 @@ jobs:
             cd ../C11Relay
             bash ./compile.sh
             cd ../Core-Cpp
-            c++ -std=c++20 -O2 -fno-exceptions -fno-rtti -Wall -Wextra -pthread src/main.cpp -lssl -lcrypto -o shadow6-cpp
-            chmod 0755 shadow6-cpp
+            bash ./compile.sh
             bash ./test.sh
-            cd ../Core-Zig && zig build -Doptimize=ReleaseSafe
+            cd ../Core-Zig && zig build -Doptimize=ReleaseSafe && zig build test -Doptimize=ReleaseSafe
             if test -f /usr/local/include/rtc/rtc.h || pkg info -e libdatachannel; then cd ../Core-Nim && nim c --mm:arc --threads:on -d:release -o:shadow6-nim src/shadow6_nim.nim; else echo 'libdatachannel unavailable; Core-Nim source contract present'; fi
       - uses: actions/upload-artifact@v4
         with:
@@ -253,19 +256,21 @@ jobs:
           version: '7.6'
           shell: bash
           run: |
-            sudo pkg_add go rust clang openssl libsodium zig nim ldc
+            sudo pkg_add go rust python%3.12 openssl libsodium zig nim ldc
+            export PYTHON=python3.12
+            command -v go cargo c++ "$PYTHON"
             cd Core-Go
             go test ./...
             bash ./compile.sh
             CROSED_LEVEL=5 APP_TRANSPORT=1 QUBES_ISOLATION=1 bash ./compile.sh
             mv shadow6-go shadow6-go-crosed
+            CROSED_LEVEL=0 APP_TRANSPORT=0 QUBES_ISOLATION=0 bash ./compile.sh
             cd ../Guard
             go test ./...
             cd ../Core-Cpp
-            c++ -std=c++20 -O2 -fno-exceptions -fno-rtti -Wall -Wextra -pthread src/main.cpp -lssl -lcrypto -o shadow6-cpp
-            chmod 0755 shadow6-cpp
+            bash ./compile.sh
             bash ./test.sh
-            cd ../Core-Zig && zig build -Doptimize=ReleaseSafe
+            cd ../Core-Zig && zig build -Doptimize=ReleaseSafe && zig build test -Doptimize=ReleaseSafe
             if test -f /usr/local/include/rtc/rtc.h; then cd ../Core-Nim && nim c --mm:arc --threads:on -d:release -o:shadow6-nim src/shadow6_nim.nim; else echo 'libdatachannel unavailable; Core-Nim source contract present'; fi
       - uses: actions/upload-artifact@v4
         with:
@@ -301,12 +306,14 @@ jobs:
           version: '10.1'
           cpu_count: 2
           memory: 4G
-          shell: bash
-          run: |
-            bash Tools/test_netbsd.sh
-            test -x Core-Go/shadow6-go
-            test -x Core-Go/shadow6-go-crosed
-            if test -x Core-Cpp/shadow6-cpp; then test -x Core-Cpp/shadow6-cpp; fi
+      - name: Test NetBSD components
+        shell: cpa.sh {0}
+        run: |
+          sudo pkgin -y install python311
+          export PYTHON=/usr/pkg/bin/python3.11
+          bash Tools/test_netbsd.sh
+          test -x Core-Go/shadow6-go
+          test -x Core-Go/shadow6-go-crosed
       - name: NetBSD boot diagnostics
         if: failure()
         run: |

@@ -8,9 +8,6 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
-#if defined(__OpenBSD__)
-#include <netinet6/in6.h>
-#endif
 #include <arpa/inet.h>
 #include <array>
 #include <cerrno>

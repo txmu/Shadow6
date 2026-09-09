@@ -173,6 +173,7 @@ core-d:
 	@$(CC) -O2 -fPIC -c Core-D/src/platform.c -o Core-D/obj/platform.o
 	@$(CC) -O2 -fPIC -c Core-D/src/launcher.c -o Core-D/obj/launcher.o
 	@ldc2 -betterC -O2 -release -I Core-D/src -of=Core-D/shadow6-d Core-D/src/main.d Core-D/src/bounded.d Core-D/src/json.d Core-D/src/native.d Core-D/src/packet.d Core-D/src/config.d Core-D/src/websocket.d Core-D/obj/platform.o Core-D/obj/launcher.o -L-lcrypto -L-lssl -L-lsodium
+	@chmod 0755 Core-D/shadow6-d
 
 guard:
 ifeq ($(BUILD_GUARD),1)
