@@ -1,0 +1,3 @@
+name = "shadow6_gleam"
+version = "1.0.0"
+target = "erlang"

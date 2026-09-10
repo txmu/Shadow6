@@ -2,6 +2,7 @@
 
 BUILD_GO ?= 1
 BUILD_RUST ?= 1
+BUILD_GLEAM ?= $(if $(wildcard .tools/gleam/bin/gleam),1,0)
 BUILD_CPP ?= 1
 BUILD_ZIG ?= 0
 BUILD_HARE ?= $(if $(shell command -v hare 2>/dev/null),1,0)
@@ -31,7 +32,7 @@ PREFIX ?= /usr/local
 DESTDIR ?=
 PYTHON ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python3)
 
-.PHONY: all build core-go core-rust core-cpp core-hare test-hare gate migration i18n crosed-variants public6 public6-variants public6-contract relay guard service-init auto detector plugins package-manager easybuild crosed app-layer extension-system assistants slots control-center android-preflight android-cores android-apk integration-test test check audit package install clean distclean
+.PHONY: all build core-go core-rust core-gleam test-gleam core-cpp core-hare test-hare gate migration i18n crosed-variants public6 public6-variants public6-contract relay guard service-init auto detector plugins package-manager easybuild crosed app-layer extension-system assistants slots control-center android-preflight android-cores android-apk integration-test test check audit package install clean distclean
 
 all: build
 
@@ -90,7 +91,7 @@ build: core-zig
 test: test-zig
 endif
 
-build: core-go core-rust core-cpp core-hare gate migration i18n cli online-repository relay guard service-init auto detector plugins package-manager easybuild crosed app-layer extension-system assistants slots control-center public6-contract
+build: core-go core-rust core-gleam core-cpp core-hare gate migration i18n cli online-repository relay guard service-init auto detector plugins package-manager easybuild crosed app-layer extension-system assistants slots control-center public6-contract
 
 core-hare:
 ifeq ($(BUILD_HARE),1)
@@ -138,6 +139,25 @@ ifeq ($(BUILD_RUST),1)
 	@cd Core-Rust && bash ./compile.sh
 endif
 
+core-gleam:
+ifeq ($(BUILD_GLEAM),1)
+	@echo "Building Core-Gleam"
+	@cd Core-Gleam && bash ./compile.sh
+else
+	@echo 'Core-Gleam disabled; provision .tools/gleam to enable it'
+endif
+
+test-gleam: core-gleam
+ifeq ($(BUILD_GLEAM),1)
+	@cd Core-Gleam && PATH="$(abspath .tools/gleam/bin):$(abspath .tools/gleam/otp/bin):$$PATH" gleam test --target erlang
+	@$(PYTHON) Core-Gleam/test_contract.py Core-Gleam/shadow6-gleam
+	@$(PYTHON) Core-Gleam/test_control.py Core-Gleam/shadow6-gleam
+endif
+
+ifeq ($(BUILD_GLEAM),1)
+test: test-gleam
+endif
+
 core-cpp:
 ifeq ($(BUILD_CPP),1)
 	@echo "Building Core-Cpp"
@@ -145,10 +165,11 @@ ifeq ($(BUILD_CPP),1)
 endif
 
 crosed-variants:
-	@$(MAKE) core-go core-rust CROSED_LEVEL=5 APP_TRANSPORT=1 QUBES_ISOLATION=$(CROSED_VARIANT_QUBES)
+	@$(MAKE) core-go core-rust core-gleam CROSED_LEVEL=5 APP_TRANSPORT=1 QUBES_ISOLATION=$(CROSED_VARIANT_QUBES)
 	@install -m 0755 Core-Go/shadow6-go Core-Go/shadow6-go-crosed
 	@install -m 0755 Core-Rust/shadow6-rust Core-Rust/shadow6-rust-crosed
-	@$(MAKE) core-go core-rust CROSED_LEVEL=0 APP_TRANSPORT=0 QUBES_ISOLATION=0
+	@if test "$(BUILD_GLEAM)" = 1; then install -m 0755 Core-Gleam/shadow6-gleam Core-Gleam/shadow6-gleam-crosed; fi
+	@$(MAKE) core-go core-rust core-gleam CROSED_LEVEL=0 APP_TRANSPORT=0 QUBES_ISOLATION=0
 
 public6: public6-contract
 	@$(MAKE) build BUILD_GO=1 BUILD_RUST=1 BUILD_CPP=1 BUILD_RELAY=1 BUILD_GUARD=1 BUILD_AUTO=1 BUILD_DETECTOR=1 BUILD_PLUGINS=1 BUILD_CROSED=1 BUILD_APP=1 BUILD_ASSISTANTS=1 BUILD_CONTROL=1 BUILD_SLOTS=1 BUILD_PUBLIC6=1 BUILD_COMPLIANCE=0 CROSED_LEVEL=0 APP_TRANSPORT=0 QUBES_ISOLATION=0
@@ -374,6 +395,9 @@ endif
 ifeq ($(BUILD_RUST),1)
 	@install -m 0755 Core-Rust/shadow6-rust "$(DESTDIR)$(PREFIX)/bin/shadow6-rust"
 endif
+ifeq ($(BUILD_GLEAM),1)
+	@install -m 0755 Core-Gleam/shadow6-gleam "$(DESTDIR)$(PREFIX)/bin/shadow6-gleam"
+endif
 ifeq ($(BUILD_CPP),1)
 	@install -m 0755 Core-Cpp/shadow6-cpp "$(DESTDIR)$(PREFIX)/bin/shadow6-cpp"
 endif
@@ -473,7 +497,8 @@ endif
 	@echo "Installed selected Shadow6 components under $(DESTDIR)$(PREFIX)"
 
 clean:
-	@rm -f Core-Hare/shadow6-hare Core-Go/shadow6-go Core-Go/shadow6-go-crosed Core-Go/shadow6-go-public6 Core-Rust/shadow6-rust Core-Rust/shadow6-rust-crosed Core-Rust/shadow6-rust-public6 Core-Cpp/shadow6-cpp C11Relay/bridge_relay C11Relay/c11relay_test Guard/shadow6-guard Gate/shadow6-gate
+	@rm -f Core-Hare/shadow6-hare Core-Go/shadow6-go Core-Go/shadow6-go-crosed Core-Go/shadow6-go-public6 Core-Rust/shadow6-rust Core-Rust/shadow6-rust-crosed Core-Rust/shadow6-rust-public6 Core-Gleam/shadow6-gleam Core-Gleam/shadow6-gleam-crosed Core-Cpp/shadow6-cpp C11Relay/bridge_relay C11Relay/c11relay_test Guard/shadow6-guard Gate/shadow6-gate
+	@$(MAKE) -C Core-Gleam clean
 	@find Service-Init Auto-Orchestrator Detector Plugin-System Package-Manager EasyBuild Android plugins integration Crosed Application-Layer Security-Assistants Infrastructure-Assistants Slot-System Control-Center Public6 -type d -name __pycache__ -prune -exec rm -rf {} +
 
 distclean: clean

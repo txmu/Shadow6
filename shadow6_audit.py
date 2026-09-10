@@ -78,10 +78,23 @@ def check_elf(audit: Audit, relative: str, *, static_go: bool = False) -> None:
             audit.fail(f"{relative}: local build path is embedded")
 
 
+def check_gleam_invariants(audit: Audit) -> None:
+    build = (ROOT / "Core-Gleam" / "compile.sh").read_text(encoding="utf-8")
+    forbidden = (ROOT / "Core-Gleam" / "shadow6-gleam").read_bytes()
+    if "--disable-jit" in build and "-static-pie" in build:
+        audit.pass_("Core-Gleam: static ERTS build explicitly disables JIT")
+    else:
+        audit.fail("Core-Gleam: no-JIT static ERTS flags are incomplete")
+    if all(marker not in forbidden for marker in (b"BeamAsm", b"beam_jit", b"burrito")):
+        audit.pass_("Core-Gleam: final ELF contains no JIT or extractor marker")
+    else:
+        audit.fail("Core-Gleam: final ELF contains a JIT or extractor marker")
+
+
 def source_files() -> list[Path]:
-    roots = [ROOT / name for name in ("Core-Go", "Core-Rust", "Gate", "CLI", "Migration", "I18n", "Online-Repository", "C11Relay", "Guard", "Service-Init", "Auto-Orchestrator", "Detector", "Plugin-System", "plugins", "Package-Manager", "EasyBuild", "Android", "Crosed", "Application-Layer", "Security-Assistants", "Infrastructure-Assistants", "Slot-System", "Control-Center", "Public6", "integration")]
+    roots = [ROOT / name for name in ("Core-Go", "Core-Rust", "Core-Gleam", "Gate", "CLI", "Migration", "I18n", "Online-Repository", "C11Relay", "Guard", "Service-Init", "Auto-Orchestrator", "Detector", "Plugin-System", "plugins", "Package-Manager", "EasyBuild", "Android", "Crosed", "Application-Layer", "Security-Assistants", "Infrastructure-Assistants", "Slot-System", "Control-Center", "Public6", "integration")]
     roots.append(ROOT / "Core-Zig")
-    suffixes = {".go", ".rs", ".zig", ".c", ".h", ".py", ".sh", ".kt", ".kts"}
+    suffixes = {".go", ".rs", ".erl", ".gleam", ".zig", ".c", ".h", ".py", ".sh", ".kt", ".kts"}
     result: list[Path] = [ROOT / "setup_test.sh", ROOT / "configure"]
     for base in roots:
         for directory, names, files in os.walk(base):
@@ -98,6 +111,8 @@ def check_sources(audit: Audit) -> None:
     required = [
         ROOT / "Core-Go" / "main.go",
         ROOT / "Core-Rust" / "src" / "main.rs",
+        ROOT / "Core-Gleam" / "src" / "shadow6_gleam.gleam",
+        ROOT / "Core-Gleam" / "c_src" / "main.c",
         ROOT / "C11Relay" / "c11relay.c",
         ROOT / "Guard" / "main.go",
         ROOT / "Gate" / "main.go",
@@ -269,6 +284,9 @@ def main() -> int:
     else:
         check_elf(audit, "Core-Go/shadow6-go", static_go=True)
         check_elf(audit, "Core-Rust/shadow6-rust")
+        if (ROOT / "Core-Gleam/shadow6-gleam").is_file():
+            check_elf(audit, "Core-Gleam/shadow6-gleam", static_go=True)
+            check_gleam_invariants(audit)
         if (ROOT / "Core-Zig/shadow6-zig").is_file():
             check_elf(audit, "Core-Zig/shadow6-zig")
         check_elf(audit, "C11Relay/bridge_relay")
@@ -278,6 +296,8 @@ def main() -> int:
             check_elf(audit, "Core-Go/shadow6-go-crosed", static_go=True)
         if (ROOT / "Core-Rust/shadow6-rust-crosed").is_file():
             check_elf(audit, "Core-Rust/shadow6-rust-crosed")
+        if (ROOT / "Core-Gleam/shadow6-gleam-crosed").is_file():
+            check_elf(audit, "Core-Gleam/shadow6-gleam-crosed", static_go=True)
         if (ROOT / "Core-Go/shadow6-go-public6").is_file():
             check_elf(audit, "Core-Go/shadow6-go-public6", static_go=True)
         if (ROOT / "Core-Rust/shadow6-rust-public6").is_file():

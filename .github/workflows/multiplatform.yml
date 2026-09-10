@@ -5,6 +5,57 @@ on:
   push:
   pull_request:
 jobs:
+  linux-gleam:
+    name: Core-Gleam (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-24.04
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - name: Install static BEAM prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential musl-tools curl perl m4 autoconf
+      - name: Provision pinned no-JIT Gleam toolchain
+        run: |
+          Core-Gleam/tools/fetch_toolchain.sh
+          Core-Gleam/tools/build_toolchain.sh
+          Core-Gleam/tools/verify_toolchain.sh
+      - name: Build and test default Core-Gleam
+        run: make test-gleam BUILD_GLEAM=1 PYTHON=python3
+      - name: Build and verify L5 Core-Gleam
+        run: |
+          make core-gleam BUILD_GLEAM=1 CROSED_LEVEL=5 APP_TRANSPORT=1 QUBES_ISOLATION=1
+          install -m 0755 Core-Gleam/shadow6-gleam Core-Gleam/shadow6-gleam-crosed
+          make core-gleam BUILD_GLEAM=1 CROSED_LEVEL=0 APP_TRANSPORT=0 QUBES_ISOLATION=0
+          python3 - <<'PY'
+          import json, subprocess
+          for path, level in (("Core-Gleam/shadow6-gleam", 0), ("Core-Gleam/shadow6-gleam-crosed", 5)):
+              report=json.loads(subprocess.check_output([path,"--feature-report"],text=True))
+              assert report["crosed_max_level"] == level
+          PY
+      - name: Verify immutable static PIE
+        run: |
+          readelf -W -h Core-Gleam/shadow6-gleam | grep -Eq 'Type: +DYN'
+          readelf -W -l Core-Gleam/shadow6-gleam | grep -E 'GNU_STACK.*RW|GNU_RELRO'
+          readelf -W -d Core-Gleam/shadow6-gleam | grep -q BIND_NOW
+          ! readelf -W -d Core-Gleam/shadow6-gleam | grep -q NEEDED
+          ldd Core-Gleam/shadow6-gleam 2>&1 | grep -Eq 'statically linked|not a dynamic executable'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shadow6-gleam-${{ matrix.arch }}
+          path: |
+            Core-Gleam/shadow6-gleam
+            Core-Gleam/shadow6-gleam-crosed
+          if-no-files-found: error
   linux:
     runs-on: ubuntu-latest
     env:

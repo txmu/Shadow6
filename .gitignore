@@ -16,6 +16,11 @@ Auto-Orchestrator/generated/
 Auto-Orchestrator/generated-rust/
 Core-Go/shadow6-go
 Core-Rust/shadow6-rust
+Core-Gleam/build/
+Core-Gleam/obj/
+Core-Gleam/erl_crash.dump
+Core-Gleam/shadow6-gleam
+Core-Gleam/shadow6-gleam-crosed
 Core-Zig/shadow6-zig
 Core-Zig/.zig-cache/
 Core-Zig/zig-out/
