@@ -332,9 +332,9 @@ jobs:
             sudo pkg_add go rust python%3.11 libsodium zig nim openssl-3.3.2p0v0
             export PYTHON="$(command -v python3.11 || command -v python3)"
             for tool in go cargo c++ "$PYTHON"; do command -v "$tool" || exit 1; done
-            export CPPFLAGS='-I/usr/local/include/eopenssl'
-            export LDFLAGS='-L/usr/local/lib/eopenssl -Wl,-rpath,/usr/local/lib/eopenssl'
-            test -f /usr/local/include/eopenssl/openssl/ssl.h
+            export CPPFLAGS='-I/usr/local/include/eopenssl33'
+            export LDFLAGS='-L/usr/local/lib/eopenssl33 -Wl,-rpath,/usr/local/lib/eopenssl33'
+            test -f /usr/local/include/eopenssl33/openssl/ssl.h
             cd Core-Go
             go test ./...
             bash ./compile.sh
