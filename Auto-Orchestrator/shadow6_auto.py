@@ -465,6 +465,10 @@ def load_topology_file(yaml_path: str) -> dict:
 def selected_core_engine(node: Dict[str, Any]) -> str:
     engines = node.get("engines", [])
     selected = [engine for engine in engines if engine in CORE_ENGINES]
+    # A broker may expose an explicitly declared Zig bridge in addition to
+    # the primary Go/Rust core. Agents and clients remain single-core.
+    if node.get("type") == "broker" and len(selected) == 2 and "shadow6-zig" in selected:
+        selected = [engine for engine in selected if engine != "shadow6-zig"]
     if len(selected) != 1:
         raise ValueError(f"node {node.get('name', '<unknown>')} must select exactly one core engine")
     return selected[0]

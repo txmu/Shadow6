@@ -172,6 +172,17 @@ class TestShadow6Auto(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "same core engine"):
             validate_topology(topology)
 
+    def test_broker_may_attach_zig_bridge_to_uniform_rust_stack(self):
+        topology = {
+            "version": "1.0", "global": {"broker_scheme": "ws"},
+            "nodes": [
+                {"name": "broker", "type": "broker", "advertise_host": "127.0.0.1", "engines": ["shadow6-rust", "shadow6-zig"]},
+                {"name": "agent", "type": "agent", "engines": ["shadow6-rust"]},
+                {"name": "client", "type": "client", "engines": ["shadow6-rust"], "allowed_agents": ["agent"]},
+            ],
+        }
+        self.assertEqual(validate_topology(topology), topology)
+
     def test_loopback_staging_deployment_is_tightly_scoped(self):
         topology = {
             "version": "1.0",

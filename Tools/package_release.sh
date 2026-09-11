@@ -45,6 +45,7 @@ tar --exclude="$project_name/.venv" \
     --exclude="$project_name/Android/build" \
     --exclude="$project_name/Android/app/build" \
     --exclude='*/__pycache__' \
+    --exclude='*/erl_crash.dump' \
     --exclude="$project_name/Auto-Orchestrator/generated" \
     --exclude="$project_name/Auto-Orchestrator/generated-rust" \
     -czpf "$tar_tmp" "$project_name"
@@ -84,6 +85,7 @@ tar --exclude="$project_name/.venv" \
     --exclude="$project_name/Android/app/src/main/jniLibs" \
     --exclude="$project_name/Android/dist" \
     --exclude='*/__pycache__' \
+    --exclude='*/erl_crash.dump' \
     --exclude="$project_name/Auto-Orchestrator/generated" \
     --exclude="$project_name/Auto-Orchestrator/generated-rust" \
     --exclude="$project_name/Core-Go/shadow6-go" \

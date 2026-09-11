@@ -199,7 +199,10 @@ inline int run(const Config &cfg) {
   for (const auto &[id, p] : cfg.clients) { (void)id; pins.insert(p.key); }
   if (cfg.role == "broker") for (const auto &[id, p] : cfg.agents) { (void)id; pins.insert(p.key); }
   TlsContext server(cfg.secret, pins), broker(cfg.secret, {cfg.broker_key}), agent(cfg.secret, {cfg.agent_key});
-  if (!server.get() || !broker.get() || !agent.get()) return 1;
+  if (!server.get() || (cfg.role == "client" && !broker.get()) || (cfg.role == "client" && !agent.get()) || (cfg.role == "agent" && !broker.get())) {
+    std::fprintf(stderr, "shadow6-cpp: TLS context initialization failed for role %s\n", cfg.role.c_str());
+    return 1;
+  }
   if (cfg.role == "broker") {
     Broker state(cfg); ready("broker", local);
     serve(listener.value, [&](int fd) { state.handle(server, fd); });
