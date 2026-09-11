@@ -299,8 +299,7 @@ jobs:
             cd ../Gate
             go test ./...
             go build -trimpath -o shadow6-gate .
-            cd ../C11Relay
-            bash ./compile.sh
+            # C11Relay uses Linux epoll and is covered by the Linux job.
             cd ../Core-Cpp
             bash ./compile.sh
             bash ./test.sh
@@ -330,7 +329,7 @@ jobs:
       - name: Test OpenBSD components
         shell: cpa.sh {0}
         run: |
-            sudo pkg_add go rust python%3.11 libsodium zig nim openssl
+            sudo pkg_add go rust python%3.11 libsodium zig nim openssl-3.3.2p0v0
             export PYTHON="$(command -v python3.11 || command -v python3)"
             for tool in go cargo c++ "$PYTHON"; do command -v "$tool" || exit 1; done
             export CPPFLAGS='-I/usr/local/include/eopenssl'

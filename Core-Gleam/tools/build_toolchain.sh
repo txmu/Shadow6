@@ -56,7 +56,9 @@ if [[ ! -f "$prefix/musl/lib/libcrypto.a" ]]; then
             aarch64) target=linux-aarch64 ;;
             *) exit 2 ;;
         esac
-        CC=musl-gcc ./Configure "$target" no-shared no-tests no-module \
+        # Only libcrypto/libssl are embedded. Building the unused CLI can pull
+        # glibc's aarch64 libgcc into a musl link through LSE initialization.
+        CC=musl-gcc ./Configure "$target" no-shared no-tests no-module no-apps \
             --prefix="$prefix/musl" --libdir=lib -O2 -fPIE \
             "-I$prefix/kernel-headers"
         make -j1
