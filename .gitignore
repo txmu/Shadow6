@@ -25,6 +25,8 @@ Core-Zig/shadow6-zig
 Core-Zig/.zig-cache/
 Core-Zig/zig-out/
 Core-Hare/shadow6-hare
+Core-Carp/shadow6-carp
+Core-Carp/build/
 Core-Ada/obj/
 Core-Ada/shadow6-ada
 Core-Ada/shadow6-ada-crosed

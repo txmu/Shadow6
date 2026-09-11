@@ -32,7 +32,7 @@ PREFIX ?= /usr/local
 DESTDIR ?=
 PYTHON ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python3)
 
-.PHONY: all build core-go core-rust core-gleam test-gleam core-cpp core-hare test-hare gate migration i18n crosed-variants public6 public6-variants public6-contract relay guard service-init auto detector plugins package-manager easybuild crosed app-layer extension-system assistants slots control-center android-preflight android-cores android-apk integration-test test check audit package install clean distclean
+.PHONY: all build core-go core-rust core-gleam test-gleam core-cpp core-hare test-hare core-carp test-carp gate migration i18n crosed-variants public6 public6-variants public6-contract relay guard service-init auto detector plugins package-manager easybuild crosed app-layer extension-system assistants slots control-center android-preflight android-cores android-apk integration-test test check audit package install clean distclean
 
 all: build
 
@@ -91,18 +91,28 @@ build: core-zig
 test: test-zig
 endif
 
-build: core-go core-rust core-gleam core-cpp core-hare gate migration i18n cli online-repository relay guard service-init auto detector plugins package-manager easybuild crosed app-layer extension-system assistants slots control-center public6-contract
+build: core-go core-rust core-gleam core-cpp core-hare core-carp gate migration i18n cli online-repository relay guard service-init auto detector plugins package-manager easybuild crosed app-layer extension-system assistants slots control-center public6-contract
 
 core-hare:
 ifeq ($(BUILD_HARE),1)
 	@command -v hare >/dev/null || { echo 'BUILD_HARE=1 requires the Hare toolchain' >&2; exit 1; }
-	@cd Core-Hare && hare build -l sodium -o shadow6-hare src/main.ha && chmod 0755 shadow6-hare
+	@cd Core-Hare && hare build -l sodium -o shadow6-hare src && chmod 0755 shadow6-hare
 else
 	@echo 'Core-Hare disabled; set BUILD_HARE=1 with the Hare toolchain installed to enable it'
 endif
 
 test-hare: core-hare
 	@$(PYTHON) Core-Hare/tests/test_contract.py $(if $(filter 1,$(BUILD_HARE)),--binary Core-Hare/shadow6-hare,)
+ifeq ($(BUILD_HARE),1)
+	@$(PYTHON) Core-Hare/tests/test_runtime.py
+endif
+
+core-carp:
+	@if test -x .tools/carp-v0.5.5-x86_64-linux/bin/carp || test -n "$(CARP)"; then bash Core-Carp/compile.sh; else echo 'Core-Carp disabled: provision Carp 0.5.5 explicitly'; fi
+
+test-carp:
+	@bash Core-Carp/compile.sh
+	@$(PYTHON) Core-Carp/tests/test_core.py
 
 i18n:
 	@PYTHONPATH=I18n $(PYTHON) -m py_compile I18n/shadow6_i18n.py
@@ -386,6 +396,7 @@ package:
 
 install: build
 	@install -d "$(DESTDIR)$(PREFIX)/bin"
+	@if test -x Core-Carp/shadow6-carp; then install -m 0755 Core-Carp/shadow6-carp "$(DESTDIR)$(PREFIX)/bin/shadow6-carp"; fi
 ifeq ($(BUILD_HARE),1)
 	@install -m 0755 Core-Hare/shadow6-hare "$(DESTDIR)$(PREFIX)/bin/shadow6-hare"
 endif

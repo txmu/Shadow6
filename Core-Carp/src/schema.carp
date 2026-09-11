@@ -1,0 +1,17 @@
+(defndynamic states [wire i]
+  (if (= i (String.length wire)) ""
+    (String.concat ["case " (str i) ":switch(p[i]){case '"
+      (String.slice wire i (+ i 1)) "':state=" (str (+ i 1))
+      ";break;default:return false;}break;" (states wire (+ i 1))])))
+
+;; A finite const schema; no runtime JSON interpretation and no runtime evaluator.
+(defmacro compile-schema [path]
+  (let [schema (read-file path) wire "{\"op\":\"forward\",\"version\":1}"]
+    (if (not (= schema "{\"const\":{\"op\":\"forward\",\"version\":1}}\n"))
+      (error "Unsupported api_schema.json: expected forward-v1 const schema")
+      (write-file "build/schema.h" (String.concat ["#include <stdbool.h>\nstatic bool schema_accept(const char *p,int n){int state=0;for(int i=0;i<n;i++){switch(state){"
+          (states wire 0) "default:return false;}}return state=="
+          (str (String.length wire)) ";}\n"])))))
+(compile-schema "api_schema.json")
+(system-include "schema.h")
+(register schema-accept (Fn [(Ptr CChar) Int] Bool) "schema_accept")

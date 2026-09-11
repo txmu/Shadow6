@@ -28,7 +28,7 @@ struct Json {
 };
 
 inline bool ascii(std::string_view s) {
-  for (unsigned char c : s) if (c < 32 || c > 126) return false;
+  for (char raw : s) { auto c = static_cast<unsigned char>(raw); if (c < 32 || c > 126) return false; }
   return true;
 }
 inline bool utf8(std::string_view s) {
@@ -145,7 +145,8 @@ public:
 inline std::string quote(std::string_view s) {
   std::string out = "\"";
   const char *hex = "0123456789abcdef";
-  for (unsigned char c : s) {
+  for (char raw : s) {
+    auto c = static_cast<unsigned char>(raw);
     if (c == '"' || c == '\\') { out += '\\'; out += static_cast<char>(c); }
     else if (c < 32) { out += "\\u00"; out += hex[c >> 4]; out += hex[c & 15]; }
     else out += static_cast<char>(c);

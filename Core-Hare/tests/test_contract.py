@@ -35,7 +35,10 @@ if __name__ == "__main__":
         assert not report["app_transport"] and not report["qubes_isolation"]
         with tempfile.TemporaryDirectory(prefix="shadow6-hare-test-") as directory:
             path = Path(directory) / "config.json"
-            path.write_text('{"role":"broker"}')
+            valid = json.dumps({"role":"agent", "private_key":"01" * 32,
+                                "peer_public_key":"02" * 32, "listen_port":18443,
+                                "target_port":18445})
+            path.write_text(valid)
             path.chmod(0o600)
             def check(expected):
                 result = subprocess.run([binary, "--check-config", str(path)],
@@ -48,7 +51,7 @@ if __name__ == "__main__":
             path.write_text('{"unknown":true}')
             check(False)
             target = Path(directory) / "target.json"
-            path.write_text('{"role":"broker"}')
+            path.write_text(valid)
             path.rename(target)
             path.symlink_to(target)
             check(False)

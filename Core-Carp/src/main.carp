@@ -1,0 +1,21 @@
+(Project.config "title" "shadow6-carp")
+(Project.config "compiler" "cc")
+(Project.config "output-directory" "build")
+(Project.config "cflag" "-I src -I build -O2 -Wno-unused-function -fstack-protector-strong -D_FORTIFY_SOURCE=2")
+(Project.config "libflag" "-lsodium")
+(load "src/schema.carp")
+(system-include "runtime.h")
+(register-type Packet "struct packet")
+(register receive (Fn [] Packet) "packet_receive")
+(register peel (Fn [(Ref Packet)] Int) "packet_peel")
+(register command (Fn [(Ref Packet)] (Ptr CChar)) "packet_command")
+(register finish (Fn [(Ref Packet) Bool] Int) "packet_finish")
+(register continue (Fn [] Bool) "packet_continue")
+(defn process []
+  (let [packet (receive)]
+    (if (= (peel &packet) 0)
+      (finish &packet (schema-accept (command &packet) 28))
+      2)))
+(defn main []
+  (let [result (process)]
+    (do (while (continue) (set! result (process))) result)))

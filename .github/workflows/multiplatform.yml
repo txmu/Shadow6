@@ -30,7 +30,16 @@ jobs:
           Core-Gleam/tools/build_toolchain.sh
           Core-Gleam/tools/verify_toolchain.sh
       - name: Build and test default Core-Gleam
-        run: make test-gleam BUILD_GLEAM=1 PYTHON=python3
+        run: |
+          python3 -m pip install 'cryptography>=43,<47'
+          make test-gleam BUILD_GLEAM=1 PYTHON=python3
+      - name: Preserve toolchain failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gleam-toolchain-logs-${{ matrix.arch }}
+          path: .tools/gleam/logs/*.log
+          if-no-files-found: ignore
       - name: Build and verify L5 Core-Gleam
         run: |
           make core-gleam BUILD_GLEAM=1 CROSED_LEVEL=5 APP_TRANSPORT=1 QUBES_ISOLATION=1
@@ -272,7 +281,7 @@ jobs:
             # rust includes Cargo; the base system supplies Clang.
             sudo pkg install -y go rust python3 openssl libsodium libunistring zig nim ldc
             export PYTHON="$(command -v python3 || command -v python3.12)"
-            command -v go cargo c++ "$PYTHON"
+            for tool in go cargo c++ "$PYTHON"; do command -v "$tool" || exit 1; done
             cd Core-Go
             go test ./...
             bash ./compile.sh
@@ -321,9 +330,12 @@ jobs:
       - name: Test OpenBSD components
         shell: cpa.sh {0}
         run: |
-            sudo pkg_add go rust python%3.11 libsodium zig nim
+            sudo pkg_add go rust python%3.11 libsodium zig nim openssl
             export PYTHON="$(command -v python3.11 || command -v python3)"
-            command -v go cargo c++ "$PYTHON"
+            for tool in go cargo c++ "$PYTHON"; do command -v "$tool" || exit 1; done
+            export CPPFLAGS='-I/usr/local/include/eopenssl'
+            export LDFLAGS='-L/usr/local/lib/eopenssl -Wl,-rpath,/usr/local/lib/eopenssl'
+            test -f /usr/local/include/eopenssl/openssl/ssl.h
             cd Core-Go
             go test ./...
             bash ./compile.sh

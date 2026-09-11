@@ -241,7 +241,7 @@ public:
     if (!channel_.read(head.data(), head.size(), until) || head[0] != 0x81 || ((head[1] & 128U) != 0) != server_) return false;
     std::size_t n = head[1] & 127U;
     if (n == 127) return false;
-    if (n == 126) { if (!channel_.read(head.data(), head.size(), until)) return false; n = (head[0] << 8) | head[1]; if (n < 126) return false; }
+    if (n == 126) { if (!channel_.read(head.data(), head.size(), until)) return false; n = (static_cast<std::size_t>(head[0]) << 8) | head[1]; if (n < 126) return false; }
     if (n == 0 || n > 16384) return false;
     std::array<unsigned char, 4> key{};
     if (server_ && !channel_.read(key.data(), key.size(), until)) return false;

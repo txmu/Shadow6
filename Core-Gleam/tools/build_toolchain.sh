@@ -5,6 +5,19 @@ root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd -P)
 prefix="$root/.tools/gleam"
 export ERL_FLAGS='+S 1:1 +SDcpu 1 +SDio 1'
 mkdir -p "$prefix/logs" "$prefix/musl"
+report_failure() {
+    local status=$? log
+    if (( status != 0 )); then
+        for log in "$prefix"/logs/*.log; do
+            if [[ -f "$log" ]]; then
+                printf '\nBuild log: %s\n' "$log"
+                tail -n 80 "$log"
+            fi
+        done
+    fi
+    exit "$status"
+}
+trap report_failure EXIT
 # Expose only kernel UAPI headers; never mix glibc headers into musl builds.
 mkdir -p "$prefix/kernel-headers"
 for headers in linux asm-generic; do
