@@ -34,29 +34,20 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          modules=(
-            Shadow6/Types
-            Shadow6/Security
-            Shadow6/Crypto
-            Shadow6/Protocol
-            Shadow6/Features
-            Main
+          sources=(
+            Core-Idris/src/Shadow6/Types.idr
+            Core-Idris/src/Shadow6/Security/Context.idr
+            Core-Idris/src/Shadow6/Security/Policy.idr
+            Core-Idris/src/Shadow6/Security.idr
+            Core-Idris/src/Shadow6/Crypto.idr
+            Core-Idris/src/Shadow6/Protocol.idr
+            Core-Idris/src/Shadow6/Features.idr
+            Core-Idris/src/Main.idr
           )
-          for module in "${modules[@]}"; do
-            source="Core-Idris/src/${module}.idr"
+          for source in "${sources[@]}"; do
             echo "::group::Checking $source"
             "$IDRIS2" --check "$source" --source-dir Core-Idris/src \
               --build-dir "$RUNNER_TEMP/idris-check" -p contrib -p network
-            echo "::endgroup::"
-          done
-      - name: Check Security submodules sequentially
-        shell: bash
-        run: |
-          set -euo pipefail
-          for source in Core-Idris/src/Shadow6/Security/Context.idr Core-Idris/src/Shadow6/Security/Policy.idr; do
-            echo "::group::Checking $source"
-            "$IDRIS2" --check "$source" --source-dir Core-Idris/src \
-              --build-dir "$RUNNER_TEMP/idris-security-check" -p contrib -p network
             echo "::endgroup::"
           done
       - name: Build and test Core-Idris
