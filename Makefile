@@ -514,3 +514,62 @@ clean:
 
 distclean: clean
 	@rm -f config.mk
+
+# Core-Idris build configuration
+IDRIS2 ?= $(if $(wildcard $(CURDIR)/.tools/idris2/bin/idris2),$(CURDIR)/.tools/idris2/bin/idris2,idris2)
+BUILD_IDRIS ?= $(shell command -v $(IDRIS2) 2>/dev/null && echo 1 || echo 0)
+IDRIS_CROSED_LEVEL ?= 0
+IDRIS_APP_TRANSPORT ?= 0
+IDRIS_QUBES_ISOLATION ?= 0
+export IDRIS_CROSED_LEVEL IDRIS_APP_TRANSPORT IDRIS_QUBES_ISOLATION
+
+.PHONY: core-idris test-idris idris-crosed-variant
+
+core-idris:
+ifeq ($(BUILD_IDRIS),1)
+	@echo "Building Core-Idris with Crosed level $(IDRIS_CROSED_LEVEL)..."
+	@cd Core-Idris && $(IDRIS2) --build shadow6-idris.ipkg
+	@if [ -f Core-Idris/build/exec/shadow6-idris ]; then \
+		install -m 0755 Core-Idris/build/exec/shadow6-idris Core-Idris/shadow6-idris; \
+		echo "✓ Core-Idris built successfully"; \
+	else \
+		echo "Warning: Idris2 build completed but binary not found at expected location"; \
+	fi
+else
+	@echo "ERROR: Idris2 not found; install Idris2 or set IDRIS2=/path/to/idris2" >&2
+	@exit 1
+endif
+
+idris-crosed-variant:
+ifeq ($(BUILD_IDRIS),1)
+	@echo "Building Core-Idris Crosed L5 variant..."
+	@$(MAKE) core-idris IDRIS_CROSED_LEVEL=5 IDRIS_APP_TRANSPORT=1 IDRIS_QUBES_ISOLATION=1
+	@if [ -f Core-Idris/shadow6-idris ]; then \
+		install -m 0755 Core-Idris/shadow6-idris Core-Idris/shadow6-idris-crosed; \
+		echo "✓ Crosed variant saved"; \
+	fi
+	@echo "Rebuilding default L0 variant..."
+	@$(MAKE) core-idris IDRIS_CROSED_LEVEL=0 IDRIS_APP_TRANSPORT=0 IDRIS_QUBES_ISOLATION=0
+else
+	@echo "ERROR: Idris2 not found; cannot build Crosed variant" >&2
+	@exit 1
+endif
+
+test-idris: core-idris
+ifeq ($(BUILD_IDRIS),1)
+	@if [ -x Core-Idris/shadow6-idris ]; then \
+		echo "Testing Core-Idris feature contract..."; \
+		$(PYTHON) Core-Idris/test_core.py; \
+	else \
+		echo "Core-Idris binary not found; tests skipped"; \
+	fi
+else
+	@echo "ERROR: Idris2 not found; cannot run Idris tests" >&2
+	@exit 1
+endif
+
+ifeq ($(BUILD_IDRIS),1)
+build: core-idris
+test: test-idris
+crosed-variants: idris-crosed-variant
+endif

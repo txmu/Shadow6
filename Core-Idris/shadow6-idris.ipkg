@@ -1,0 +1,32 @@
+package shadow6-idris
+
+version = 1.1.0
+authors = "Shadow6 Project"
+license = "Proprietary"
+
+sourcedir = "src"
+builddir = "obj"
+
+depends = base >= 0.6.0
+        , contrib
+        , network
+
+modules = Shadow6.Types
+        , Shadow6.Security
+        , Shadow6.Crypto
+        , Shadow6.Protocol
+        , Shadow6.Features
+        , Main
+
+main = Main
+executable = shadow6-idris
+
+-- Compiler options
+opts = "--cg c -O2"
+
+-- Link with libsodium
+libs = sodium
+
+-- C source files for FFI
+prebuild = "cd ffi && gcc -c -fPIC -O2 -fstack-protector-strong sodium_ffi.c -o sodium_ffi.o"
+postbuild = "gcc -O2 -fstack-protector-strong -fPIE -D_FORTIFY_SOURCE=2 -Wl,-z,relro,-z,now -Wl,-z,noexecstack build/exec/*.o ffi/sodium_ffi.o -lsodium -lpthread -lidris2_support -o build/exec/shadow6-idris"
