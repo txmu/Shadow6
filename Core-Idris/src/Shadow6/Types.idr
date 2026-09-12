@@ -57,7 +57,7 @@ levelToNat L5 = 5
 public export
 data LevelGTE : (current : CrosedLevel) -> (required : CrosedLevel) -> Type where
   LGTE : {current : CrosedLevel} -> {required : CrosedLevel} ->
-         {auto prf : levelToNat current >= levelToNat required = True} ->
+         {prf : levelToNat current >= levelToNat required = True} ->
          LevelGTE current required
 
 -- | Bounded byte vector with compile-time length constraint
@@ -141,7 +141,7 @@ capabilityLevel CoreHook = L5
 public export
 data CapabilityGrant : (cap : Capability) -> (level : CrosedLevel) -> Type where
   Grant : {cap : Capability} -> {level : CrosedLevel} ->
-          {auto prf : LevelGTE level (capabilityLevel cap)} ->
+          {prf : LevelGTE level (capabilityLevel cap)} ->
           CapabilityGrant cap level
 
 -- | Ed25519 public key (32 bytes)

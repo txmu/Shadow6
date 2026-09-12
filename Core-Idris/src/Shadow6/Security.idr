@@ -56,7 +56,7 @@ validateSecureFile path = do
 -- | Socket operations require level >= 3
 export
 createSocket : {level : CrosedLevel} ->
-               {auto prf : LevelGTE level L3} ->
+               {prf : LevelGTE level L3} ->
                SecurityContext level ->
                IO (Result String (SecurityContext level, Int))
 createSocket ctx = do
@@ -72,7 +72,7 @@ createSocket ctx = do
 -- | Bind socket to address (requires L3+)
 export
 bindSocket : {level : CrosedLevel} ->
-             {auto prf : LevelGTE level L3} ->
+             {prf : LevelGTE level L3} ->
              SecurityContext level ->
              Int ->
              String ->
@@ -89,7 +89,7 @@ bindSocket ctx fd addr port = do
 -- | Listen on socket (requires L3+)
 export
 listenSocket : {level : CrosedLevel} ->
-               {auto prf : LevelGTE level L3} ->
+               {prf : LevelGTE level L3} ->
                SecurityContext level ->
                Int ->
                Nat ->
@@ -115,7 +115,7 @@ closeSocket ctx fd = do
 -- | Core lifecycle operations require L5
 export
 shutdownCore : {level : CrosedLevel} ->
-               {auto prf : LevelGTE level L5} ->
+               {prf : LevelGTE level L5} ->
                SecurityContext level ->
                IO ()
 shutdownCore ctx = do
