@@ -47,7 +47,7 @@ MODE_0644 = 0o644
 public export
 validateSecureFile : String -> IO (Result String SecureFileDescriptor)
 validateSecureFile path = do
-  Right () <- openFile path Read
+  Right _ <- openFile path Read
     | Left err => pure (Err ("Cannot open file: " ++ show err))
   pure (Ok (MkSecureFile path True True True MODE_0600))
 
@@ -87,7 +87,7 @@ defaultDomainPolicies = [
 public export
 validateStrictJSON : String -> Result String ()
 validateStrictJSON json =
-  if isInfixOf "$$" json || isInfixOf "__proto__" json then Err "JSON contains suspicious patterns"
+  if isInfixOf (unpack "$$") (unpack json) || isInfixOf (unpack "__proto__") (unpack json) then Err "JSON contains suspicious patterns"
   else if length json > 1048576 then Err "JSON too large" else Ok ()
 
 public export
