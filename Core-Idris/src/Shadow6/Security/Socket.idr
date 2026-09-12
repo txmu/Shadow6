@@ -19,4 +19,6 @@ listenSocket ctx fd backlog = if backlog > 128 then pure (Err "Backlog too large
 
 public export
 closeSocket : {level : CrosedLevel} -> SecurityContext level -> Int -> IO (SecurityContext level)
-closeSocket ctx fd = pure (record { activeConnections = pred ctx.activeConnections } ctx)
+closeSocket ctx fd =
+  let remaining = if ctx.activeConnections == 0 then 0 else minus ctx.activeConnections 1
+  in pure (record { activeConnections = remaining } ctx)
