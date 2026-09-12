@@ -24,9 +24,6 @@ executable = shadow6-idris
 -- Compiler options
 opts = "--cg c -O2"
 
--- Link with libsodium
-libs = sodium
-
 -- C source files for FFI
 prebuild = "cd ffi && gcc -c -fPIC -O2 -fstack-protector-strong sodium_ffi.c -o sodium_ffi.o"
-postbuild = "gcc -O2 -fstack-protector-strong -fPIE -D_FORTIFY_SOURCE=2 -Wl,-z,relro,-z,now -Wl,-z,noexecstack build/exec/*.o ffi/sodium_ffi.o -lsodium -lpthread -lidris2_support -o build/exec/shadow6-idris"
+postbuild = "if [ \"$(uname -s)\" = Darwin ]; then gcc -O2 -fstack-protector-strong -fPIE -D_FORTIFY_SOURCE=2 build/exec/*.o ffi/sodium_ffi.o -lsodium -lpthread -lidris2_support -o build/exec/shadow6-idris; else gcc -O2 -fstack-protector-strong -fPIE -D_FORTIFY_SOURCE=2 -Wl,-z,relro,-z,now -Wl,-z,noexecstack build/exec/*.o ffi/sodium_ffi.o -lsodium -lpthread -lidris2_support -o build/exec/shadow6-idris; fi"
