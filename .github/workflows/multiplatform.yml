@@ -26,9 +26,10 @@ jobs:
           work="$(mktemp -d)"
           git clone --depth 1 --branch v0.8.0 https://github.com/idris-lang/Idris2.git "$work/Idris2"
           # Resolve the platform-specific Chez Scheme executable.
-          scheme="$(command -v chezscheme)"
           if [[ "$RUNNER_OS" == "macOS" ]]; then
             scheme="$(brew --prefix chezscheme)/bin/chez"
+          else
+            scheme="$(command -v chezscheme)"
           fi
           test -n "$scheme" && test -x "$scheme"
           make -C "$work/Idris2" bootstrap SCHEME="$scheme"
