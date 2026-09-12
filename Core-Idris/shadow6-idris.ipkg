@@ -22,7 +22,7 @@ main = Main
 executable = shadow6-idris
 
 -- Compiler options
-opts = "--cg c -O2"
+opts = "--cg refc -O2"
 
 -- C source files for FFI
 prebuild = "cd ffi && gcc -c -fPIC -O2 -fstack-protector-strong sodium_ffi.c -o sodium_ffi.o"

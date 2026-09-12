@@ -14,6 +14,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+      - uses: Homebrew/actions/setup-homebrew@49d03f1bf5d455a413dfbdf99e6718054a4cd975
       - name: Install Core-Idris prerequisites (Ubuntu)
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends build-essential chezscheme libsodium-dev pkg-config
@@ -23,16 +24,8 @@ jobs:
       - name: Install Idris2 binary package
         shell: bash
         run: |
-          if [[ "$RUNNER_OS" == "macOS" ]]; then
-            brew install idris2
-            idris2="$(brew --prefix idris2)/bin/idris2"
-          else
-            root="$RUNNER_TEMP/idris2-bottle"
-            mkdir -p "$root"
-            curl -fsSL 'https://ghcr.io/v2/homebrew/core/idris2/blobs/sha256:2a3bf7dd15efa67287b47b5ee5f7befc999d6bc18ccf0c2b045b448260db2c02' \
-              | tar -xzf - -C "$root"
-            idris2="$(find "$root" -path '*/bin/idris2' -print -quit)"
-          fi
+          brew install idris2
+          idris2="$(brew --prefix idris2)/bin/idris2"
           test -x "$idris2"
           echo "$(dirname "$idris2")" >> "$GITHUB_PATH"
           echo "IDRIS2=$idris2" >> "$GITHUB_ENV"
