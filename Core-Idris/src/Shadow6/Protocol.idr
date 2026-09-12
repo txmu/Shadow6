@@ -181,10 +181,10 @@ parseTimingPacket : Integer ->
 parseTimingPacket timestamp window bytes =
   case validateTimingChannel timestamp window of
     Nothing => Err ("Timestamp " ++ show timestamp ++ " outside valid timing window")
-    Just proof => 
+    Just timingProof =>
       case parseFrame bytes of
         Err e => Err ("Frame parse error: " ++ e)
-        Ok frame => Ok (MkTimingPacket timestamp window proof frame)
+        Ok frame => Ok (MkTimingPacket timestamp window timingProof frame)
 
 -- | AEAD connection state
 public export
