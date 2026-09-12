@@ -48,12 +48,12 @@ prim__setByte : Buffer -> Int -> Bits8 -> PrimIO ()
 -- Convert Vect to Buffer
 vectToBuffer : {n : Nat} -> Vect n Bits8 -> IO Buffer
 vectToBuffer {n} vec = do
-  Just buf <- newBuffer (cast n)
-    | Nothing => believe_me (newBuffer 1 >>= \mb => case mb of
-                               Just b => pure b
-                               Nothing => believe_me (pure !(newBuffer 1)))
-  copyToBuffer buf 0 (toList vec)
-  pure buf
+  result <- newBuffer (cast n)
+  case result of
+    Nothing => pure (believe_me ())
+    Just buf => do
+      copyToBuffer buf 0 (toList vec)
+      pure buf
   where
     copyToBuffer : Buffer -> Int -> List Bits8 -> IO ()
     copyToBuffer buf idx [] = pure ()
@@ -206,7 +206,7 @@ decryptAES256GCM key nonce ciphertext = do
       nonceBuf <- vectToBuffer nonce
       ctBuf <- vectToBuffer ciphertext
       
-      let ptLen = ctLen - 16
+      let ptLen = minus ctLen 16
       Just ptBuf <- newBuffer (cast ptLen)
         | Nothing => pure (Err "Failed to allocate plaintext buffer")
       
