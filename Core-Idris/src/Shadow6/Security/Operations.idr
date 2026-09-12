@@ -1,5 +1,5 @@
 module Shadow6.Security.Operations
 
-import public Shadow6.Security.Socket
-import public Shadow6.Security.Lifecycle
-import public Shadow6.Security.Allocation
+-- Operations is retained as a compatibility module.  The concrete operation
+-- modules are re-exported by Shadow6.Security, avoiding a second large import
+-- graph when CI checks this module independently.
