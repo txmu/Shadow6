@@ -94,7 +94,8 @@ record TimestampProof where
   timestampMicros : Integer
   window : TimingWindow
   -- Proof that timestamp mod modulus == slotId
-  valid : (cast timestampMicros `mod` cast window.modulus = cast (finToNat window.slotId))
+  valid : (timestampMicros `mod` the Integer (cast window.modulus) =
+           the Integer (cast (finToNat window.slotId)))
 
 -- | Safe index into bounded buffer - prevents out-of-bounds access
 public export
