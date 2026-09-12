@@ -517,7 +517,7 @@ distclean: clean
 
 # Core-Idris build configuration
 IDRIS2 ?= $(if $(wildcard $(CURDIR)/.tools/idris2/bin/idris2),$(CURDIR)/.tools/idris2/bin/idris2,idris2)
-BUILD_IDRIS ?= $(shell command -v $(IDRIS2) 2>/dev/null && echo 1 || echo 0)
+BUILD_IDRIS ?= $(shell if test -x "$(IDRIS2)" || command -v "$(IDRIS2)" >/dev/null 2>&1; then echo 1; else echo 0; fi)
 IDRIS_CROSED_LEVEL ?= 0
 IDRIS_APP_TRANSPORT ?= 0
 IDRIS_QUBES_ISOLATION ?= 0
