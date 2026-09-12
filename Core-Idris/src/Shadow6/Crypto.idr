@@ -129,7 +129,7 @@ validateTimingChannel timestamp window =
                  then (modResult >= lowerBound || modResult <= (upperBound - modulus))
                  else (modResult >= lowerBound && modResult <= upperBound)
   in if inWindow
-     then Just (MkTimestampProof timestamp window (believe_me Refl))
+     then Just (MkTimestampProof timestamp window (believe_me ()))
      else Nothing
 
 -- | Parse network frame
