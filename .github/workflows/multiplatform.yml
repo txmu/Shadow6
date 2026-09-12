@@ -49,6 +49,16 @@ jobs:
               --build-dir "$RUNNER_TEMP/idris-check" -p contrib -p network
             echo "::endgroup::"
           done
+      - name: Check Security submodules sequentially
+        shell: bash
+        run: |
+          set -euo pipefail
+          for source in Core-Idris/src/Shadow6/Security/Context.idr Core-Idris/src/Shadow6/Security/Policy.idr; do
+            echo "::group::Checking $source"
+            "$IDRIS2" --check "$source" --source-dir Core-Idris/src \
+              --build-dir "$RUNNER_TEMP/idris-security-check" -p contrib -p network
+            echo "::endgroup::"
+          done
       - name: Build and test Core-Idris
         run: make test-idris PYTHON=python3
       - name: Build and test Crosed variant
