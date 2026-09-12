@@ -198,18 +198,17 @@ record AEADConnection where
 -- | Construct 12-byte nonce from prefix + counter
 natToNonceBytes : Nat -> Vect 8 Bits8
 natToNonceBytes value =
-  [ cast (value .&. 0xff)
-  , cast ((value `shiftR` 8) .&. 0xff)
-  , cast ((value `shiftR` 16) .&. 0xff)
-  , cast ((value `shiftR` 24) .&. 0xff)
-  , cast ((value `shiftR` 32) .&. 0xff)
-  , cast ((value `shiftR` 40) .&. 0xff)
-  , cast ((value `shiftR` 48) .&. 0xff)
-  , cast ((value `shiftR` 56) .&. 0xff)
-  ]
+  cast (value .&. 0xff) ::
+  cast ((value `shiftR` 8) .&. 0xff) ::
+  cast ((value `shiftR` 16) .&. 0xff) ::
+  cast ((value `shiftR` 24) .&. 0xff) ::
+  cast ((value `shiftR` 32) .&. 0xff) ::
+  cast ((value `shiftR` 40) .&. 0xff) ::
+  cast ((value `shiftR` 48) .&. 0xff) ::
+  [cast ((value `shiftR` 56) .&. 0xff)]
 
-constructNonce : Vect 4 Bits8 -> Nat -> Vect 12 Bits8
-constructNonce prefix counter = prefix ++ natToNonceBytes counter
+makeNonce : Vect 4 Bits8 -> Nat -> Vect 12 Bits8
+makeNonce prefix counter = prefix ++ natToNonceBytes counter
 
 -- | Send encrypted frame through AEAD connection
 export
@@ -223,7 +222,7 @@ aeadSend conn plaintext = do
     else if conn.sendCounter >= 18446744073709551615
     then pure (Err "AEAD nonce counter exhausted")
     else do
-      let nonce = constructNonce conn.noncePrefix conn.sendCounter
+      let nonce = makeNonce conn.noncePrefix conn.sendCounter
       
       result <- encryptAES256GCM conn.key nonce plaintext
       
@@ -243,7 +242,7 @@ aeadRecv conn ciphertext = do
   if ctLen < 16
     then pure (Err "Ciphertext too short")
     else do
-      let nonce = constructNonce conn.noncePrefix conn.recvCounter
+      let nonce = makeNonce conn.noncePrefix conn.recvCounter
       
       result <- decryptAES256GCM conn.key nonce ciphertext
       
