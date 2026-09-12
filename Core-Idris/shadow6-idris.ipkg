@@ -22,8 +22,4 @@ main = Main
 executable = shadow6-idris
 
 -- Compiler options
-opts = "--cg refc -O2"
-
--- C source files for FFI
-prebuild = "cd ffi && gcc -c -fPIC -O2 -fstack-protector-strong $(pkg-config --cflags libsodium) sodium_ffi.c -o sodium_ffi.o"
-postbuild = "if [ \"$(uname -s)\" = Darwin ]; then gcc -O2 -fstack-protector-strong -fPIE -D_FORTIFY_SOURCE=2 build/exec/*.o ffi/sodium_ffi.o $(pkg-config --libs libsodium) -lpthread -lidris2_support -o build/exec/shadow6-idris; else gcc -O2 -fstack-protector-strong -fPIE -D_FORTIFY_SOURCE=2 -Wl,-z,relro,-z,now -Wl,-z,noexecstack build/exec/*.o ffi/sodium_ffi.o $(pkg-config --libs libsodium) -lpthread -lidris2_support -o build/exec/shadow6-idris; fi"
+opts = "--cg chez"
