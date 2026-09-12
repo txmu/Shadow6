@@ -9,6 +9,7 @@ jobs:
     name: Core-Idris (${{ matrix.os }})
     strategy:
       fail-fast: false
+      max-parallel: 1
       matrix:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
@@ -29,6 +30,25 @@ jobs:
           test -x "$idris2"
           echo "$(dirname "$idris2")" >> "$GITHUB_PATH"
           echo "IDRIS2=$idris2" >> "$GITHUB_ENV"
+      - name: Check Idris modules sequentially
+        shell: bash
+        run: |
+          set -euo pipefail
+          modules=(
+            Shadow6/Types
+            Shadow6/Security
+            Shadow6/Crypto
+            Shadow6/Protocol
+            Shadow6/Features
+            Main
+          )
+          for module in "${modules[@]}"; do
+            source="Core-Idris/src/${module}.idr"
+            echo "::group::Checking $source"
+            "$IDRIS2" --check "$source" --source-dir Core-Idris/src \
+              --build-dir "$RUNNER_TEMP/idris-check" -p contrib -p network
+            echo "::endgroup::"
+          done
       - name: Build and test Core-Idris
         run: make test-idris PYTHON=python3
       - name: Build and test Crosed variant
