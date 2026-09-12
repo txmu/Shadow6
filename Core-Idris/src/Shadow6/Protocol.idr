@@ -169,7 +169,7 @@ record TimingChannelPacket where
   constructor MkTimingPacket
   timestamp : Integer
   window : TimingWindow
-  proof : TimestampProof
+  timingProof : TimestampProof
   payload : NetworkFrame
 
 -- | Parse timing-channel UDP packet
