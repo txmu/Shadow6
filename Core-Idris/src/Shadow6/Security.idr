@@ -170,7 +170,7 @@ freeMemory : {level : CrosedLevel} ->
              IO (SecurityContext level)
 freeMemory ctx n = do
   let newTotal = if ctx.allocatedMemory >= n 
-                 then ctx.allocatedMemory - n 
+                 then minus ctx.allocatedMemory n
                  else 0
   pure (record { allocatedMemory = newTotal } ctx)
 

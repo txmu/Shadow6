@@ -33,5 +33,5 @@ checkAllocationBound size bounds = size <= bounds.maxMemoryBytes
 public export
 freeMemory : {level : CrosedLevel} -> SecurityContext level -> Nat -> IO (SecurityContext level)
 freeMemory ctx n =
-  let newTotal = if ctx.allocatedMemory >= n then ctx.allocatedMemory - n else 0
+  let newTotal = if ctx.allocatedMemory >= n then minus ctx.allocatedMemory n else 0
   in pure (record { allocatedMemory = newTotal } ctx)
