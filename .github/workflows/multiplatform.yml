@@ -38,6 +38,7 @@ jobs:
             Core-Idris/src/Shadow6/Types.idr
             Core-Idris/src/Shadow6/Security/Context.idr
             Core-Idris/src/Shadow6/Security/Policy.idr
+            Core-Idris/src/Shadow6/Security/Operations.idr
             Core-Idris/src/Shadow6/Security.idr
             Core-Idris/src/Shadow6/Crypto.idr
             Core-Idris/src/Shadow6/Protocol.idr
