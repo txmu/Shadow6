@@ -25,9 +25,13 @@ jobs:
         run: |
           work="$(mktemp -d)"
           git clone --depth 1 --branch v0.8.0 https://github.com/idris-lang/Idris2.git "$work/Idris2"
-          make -C "$work/Idris2" bootstrap SCHEME=chezscheme
+          # Homebrew exposes Chez Scheme as `scheme`; Ubuntu uses `chezscheme`.
+          scheme=chezscheme
+          if [[ "$RUNNER_OS" == "macOS" ]]; then scheme=scheme; fi
+          make -C "$work/Idris2" bootstrap SCHEME="$scheme"
           make -C "$work/Idris2" install PREFIX="$RUNNER_TEMP/idris2"
           echo "$RUNNER_TEMP/idris2/bin" >> "$GITHUB_PATH"
+          echo "IDRIS2=$RUNNER_TEMP/idris2/bin/idris2" >> "$GITHUB_ENV"
       - name: Build and test Core-Idris
         run: make test-idris PYTHON=python3
       - name: Build and test Crosed variant
