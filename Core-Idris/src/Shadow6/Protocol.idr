@@ -225,7 +225,7 @@ aeadSend conn plaintext = do
       case result of
         Err e => pure (Err e)
         Ok (n ** ciphertext) => 
-          let newConn = record { sendCounter = S conn.sendCounter } conn
+          let newConn = { sendCounter := S conn.sendCounter } conn
           in pure (Ok (newConn, n ** ciphertext))
 
 -- | Receive and decrypt AEAD frame
@@ -245,7 +245,7 @@ aeadRecv conn ciphertext = do
       case result of
         Err e => pure (Err e)
         Ok (n ** plaintext) =>
-          let newConn = record { recvCounter = S conn.recvCounter } conn
+          let newConn = { recvCounter := S conn.recvCounter } conn
           in pure (Ok (newConn, n ** plaintext))
 
 -- | Create new AEAD connection with random nonce prefix

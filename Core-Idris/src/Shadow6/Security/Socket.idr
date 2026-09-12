@@ -7,7 +7,7 @@ import Shadow6.Security.Context
 
 public export
 createSocket : {level : CrosedLevel} -> {prf : LevelGTE level L3} -> SecurityContext level -> IO (Result String (SecurityContext level, Int))
-createSocket ctx = if ctx.activeConnections >= 512 then pure (Err "Maximum connections reached (512)") else pure (Ok (record { activeConnections = S ctx.activeConnections } ctx, 3))
+createSocket ctx = if ctx.activeConnections >= 512 then pure (Err "Maximum connections reached (512)") else pure (Ok ({ activeConnections := S ctx.activeConnections } ctx, 3))
 
 public export
 bindSocket : {level : CrosedLevel} -> {prf : LevelGTE level L3} -> SecurityContext level -> Int -> String -> Bits16 -> IO (Result String ())
@@ -21,4 +21,4 @@ public export
 closeSocket : {level : CrosedLevel} -> SecurityContext level -> Int -> IO (SecurityContext level)
 closeSocket ctx fd =
   let remaining = if ctx.activeConnections == 0 then 0 else minus ctx.activeConnections 1
-  in pure (record { activeConnections = remaining } ctx)
+  in pure ({ activeConnections := remaining } ctx)

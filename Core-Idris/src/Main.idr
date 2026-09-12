@@ -102,10 +102,8 @@ processCrosedRequest state req trust = do
       -- Validate request
       result <- validateCrosedRequest req trust
       
-      let newState = record { 
-            nonceTracker = newTracker,
-            totalRequests = S state.totalRequests 
-          } state
+      let newState = { nonceTracker := newTracker,
+                       totalRequests := S state.totalRequests } state
       
       pure (newState, result)
 

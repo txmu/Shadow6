@@ -34,4 +34,4 @@ public export
 freeMemory : {level : CrosedLevel} -> SecurityContext level -> Nat -> IO (SecurityContext level)
 freeMemory ctx n =
   let newTotal = if ctx.allocatedMemory >= n then minus ctx.allocatedMemory n else 0
-  in pure (record { allocatedMemory = newTotal } ctx)
+  in pure ({ allocatedMemory := newTotal } ctx)

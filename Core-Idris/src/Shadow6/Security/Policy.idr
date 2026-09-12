@@ -111,7 +111,7 @@ public export
 checkNonce : NonceTracker -> Vect 16 Bits8 -> (NonceTracker, Bool)
 checkNonce tracker nonce =
   if nonce `elem` tracker.seenNonces then (tracker, False)
-  else (record { seenNonces = take tracker.maxSize (nonce :: tracker.seenNonces) } tracker, True)
+  else ({ seenNonces := take tracker.maxSize (nonce :: tracker.seenNonces) } tracker, True)
 
 public export
 newNonceTracker : Nat -> NonceTracker
