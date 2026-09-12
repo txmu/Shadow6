@@ -25,9 +25,12 @@ jobs:
         run: |
           work="$(mktemp -d)"
           git clone --depth 1 --branch v0.8.0 https://github.com/idris-lang/Idris2.git "$work/Idris2"
-          # Homebrew exposes Chez Scheme as `scheme`; Ubuntu uses `chezscheme`.
+          # Resolve the platform-specific Chez Scheme executable.
           scheme=chezscheme
-          if [[ "$RUNNER_OS" == "macOS" ]]; then scheme=scheme; fi
+          if [[ "$RUNNER_OS" == "macOS" ]]; then
+            scheme="$(brew --prefix chezscheme)/bin/chez"
+          fi
+          test -n "$scheme" && test -x "$scheme"
           make -C "$work/Idris2" bootstrap SCHEME="$scheme"
           make -C "$work/Idris2" install PREFIX="$RUNNER_TEMP/idris2"
           echo "$RUNNER_TEMP/idris2/bin" >> "$GITHUB_PATH"
