@@ -15,7 +15,7 @@ CORE_PATHS = {
 MAX_REPORT = 131072
 
 def _capabilities(report: dict) -> set[str]:
-    value = report.get("capabilities", [])
+    value = report.get("crosed_capabilities", [])
     if not isinstance(value, list) or not all(isinstance(x, str) for x in value):
         raise ValueError("feature report capabilities must be a string list")
     return set(value)
