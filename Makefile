@@ -531,9 +531,11 @@ ifeq ($(BUILD_IDRIS),1)
 	@cd Core-Idris && $(IDRIS2) --build shadow6-idris.ipkg
 	@if [ -f Core-Idris/obj/exec/shadow6-idris ]; then \
 		install -m 0755 Core-Idris/obj/exec/shadow6-idris Core-Idris/shadow6-idris; \
+		if [ -d Core-Idris/obj/exec/shadow6-idris_app ]; then cp -a Core-Idris/obj/exec/shadow6-idris_app Core-Idris/; fi; \
 		echo "✓ Core-Idris built successfully"; \
 	elif [ -f Core-Idris/build/exec/shadow6-idris ]; then \
 		install -m 0755 Core-Idris/build/exec/shadow6-idris Core-Idris/shadow6-idris; \
+		if [ -d Core-Idris/build/exec/shadow6-idris_app ]; then cp -a Core-Idris/build/exec/shadow6-idris_app Core-Idris/; fi; \
 		echo "✓ Core-Idris built successfully"; \
 	else \
 		echo "Warning: Idris2 build completed but binary not found at expected location"; \

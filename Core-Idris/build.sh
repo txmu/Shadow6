@@ -83,8 +83,10 @@ fi
 # Install binary
 if [ -f "obj/exec/shadow6-idris" ]; then
   install -m 0755 obj/exec/shadow6-idris shadow6-idris
+  if [ -d "obj/exec/shadow6-idris_app" ]; then cp -a obj/exec/shadow6-idris_app .; fi
 elif [ -f "build/exec/shadow6-idris" ]; then
   install -m 0755 build/exec/shadow6-idris shadow6-idris
+  if [ -d "build/exec/shadow6-idris_app" ]; then cp -a build/exec/shadow6-idris_app .; fi
 elif [ -f "shadow6-idris" ]; then
   chmod 0755 shadow6-idris
 else
