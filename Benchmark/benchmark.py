@@ -64,6 +64,12 @@ def main() -> int:
     except (OSError, ValueError, json.JSONDecodeError) as exc: ap.error(str(exc))
     payload = json.dumps(result, sort_keys=True, ensure_ascii=True)
     if ns.output == "-": print(payload)
-    else: Path(ns.output).write_text(payload + "\n", encoding="utf-8")
+    else:
+        Path(ns.output).write_text(payload + "\n", encoding="utf-8")
+        report = Path(ns.output).with_suffix(".md")
+        lines = ["# Shadow6 Benchmark Report", "", "真实原生进程实测结果；`unavailable`/`failed` 未被转换为成功。", "", "| Core | Role | Repeat | Status | Seconds | CPU s | Peak RSS KiB |", "|---|---|---:|---|---:|---:|---:|"]
+        for row in result["results"]:
+            lines.append("| {core} | {role} | {repeat} | {status} | {elapsed:.6f} | {cpu:.6f} | {rss} |".format(core=row["core"], role=row.get("role", "-"), repeat=row.get("repeat", "-"), status=row["status"], elapsed=row.get("elapsed_seconds", 0), cpu=row.get("user_seconds", 0)+row.get("system_seconds", 0), rss=row.get("max_rss_kib", "-")))
+        report.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return 0
 if __name__ == "__main__": raise SystemExit(main())

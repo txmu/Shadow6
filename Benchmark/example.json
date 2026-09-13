@@ -1,1 +1,1 @@
-{"cores":["go","rust","cpp"],"roles":["feature-report","version"],"repeats":3}
+{"cores":["go","rust","zig","ada","d","nim","cpp","pony","hare","carp","gleam","idris"],"roles":["feature-report","loopback"],"repeats":3}

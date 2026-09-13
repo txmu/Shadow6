@@ -37,15 +37,7 @@ idris2 --version
 brew install idris2 libsodium
 ```
 
-## Alternative: Use Mock Build
-
-For CI/testing without Idris 2, use the mock build:
-
-```bash
-cd Core-Idris
-./create-mock-binary.sh
-./shadow6-idris --feature-report
-```
-
-This creates a shell script wrapper that emits the correct feature report
-for contract validation.
+CI and release verification must use a real Idris 2 compiler and the native
+`shadow6-idris` executable. If Idris 2 is unavailable, the build is reported
+as unavailable and the job fails; a generated wrapper is not an acceptable
+substitute for feature or transport validation.

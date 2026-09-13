@@ -16,6 +16,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: {python-version: '3.12'}
+      - name: Reject production mock and placeholder paths
+        run: |
+          ! rg -n -i 'create-mock|mock build|mock binary|placeholder implementation' Core-* CLI Control-Center Benchmark --glob '!test_*' --glob '!tests/**'
       - name: Run bounded benchmark
         run: |
           python3 Benchmark/benchmark.py --config Benchmark/example.json --role "${{ matrix.role }}" --output "benchmark-${{ matrix.role }}.json"
