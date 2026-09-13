@@ -22,6 +22,14 @@ jobs:
       - name: Install Core-Idris prerequisites (macOS)
         if: runner.os == 'macOS'
         run: brew install libsodium pkg-config
+      - name: Configure Core-Idris FFI library path
+        shell: bash
+        run: |
+          ffi_dir="$GITHUB_WORKSPACE/Core-Idris/ffi"
+          echo "LD_LIBRARY_PATH=$ffi_dir:${LD_LIBRARY_PATH:-}" >> "$GITHUB_ENV"
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            echo "DYLD_LIBRARY_PATH=$ffi_dir:$(brew --prefix libsodium)/lib:${DYLD_LIBRARY_PATH:-}" >> "$GITHUB_ENV"
+          fi
       - name: Install Idris2 binary package
         shell: bash
         run: |

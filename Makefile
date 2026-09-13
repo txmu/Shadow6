@@ -528,6 +528,9 @@ export IDRIS_CROSED_LEVEL IDRIS_APP_TRANSPORT IDRIS_QUBES_ISOLATION
 core-idris:
 ifeq ($(BUILD_IDRIS),1)
 	@echo "Building Core-Idris with Crosed level $(IDRIS_CROSED_LEVEL)..."
+	@$(CC) -shared -fPIC -O2 -fstack-protector-strong $$(pkg-config --cflags libsodium) \
+		Core-Idris/ffi/sodium_ffi.c -o Core-Idris/ffi/libsodium_ffi.so \
+		$$(pkg-config --libs libsodium)
 	@cd Core-Idris && $(IDRIS2) --build shadow6-idris.ipkg
 	@if [ -f Core-Idris/obj/exec/shadow6-idris ]; then \
 		install -m 0755 Core-Idris/obj/exec/shadow6-idris Core-Idris/shadow6-idris; \
@@ -564,7 +567,7 @@ test-idris: core-idris
 ifeq ($(BUILD_IDRIS),1)
 	@if [ -x Core-Idris/shadow6-idris ]; then \
 		echo "Testing Core-Idris feature contract..."; \
-		$(PYTHON) Core-Idris/test_core.py; \
+		LD_LIBRARY_PATH="$(CURDIR)/Core-Idris/ffi:$${LD_LIBRARY_PATH:-}" $(PYTHON) Core-Idris/test_core.py; \
 	else \
 		echo "Core-Idris binary not found; tests skipped"; \
 	fi
