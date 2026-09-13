@@ -3,7 +3,10 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
     const module = b.createModule(.{ .root_source_file = b.path("src/main.zig"), .target = target, .optimize = optimize, .link_libc = true });
-    const exe = b.addExecutable(.{ .name = "shadow6-zig", .root_module = module });
+    const exe = if (comptime @hasField(std.Build.ExecutableOptions, "root_module"))
+        b.addExecutable(.{ .name = "shadow6-zig", .root_module = module })
+    else
+        b.addExecutable(.{ .name = "shadow6-zig", .root_source_file = b.path("src/main.zig"), .target = target, .optimize = optimize });
     exe.pie = true;
     if (target.result.abi == .android) {
         const sysroot = b.option([]const u8, "ndk-sysroot", "Absolute NDK LLVM sysroot (Android only)") orelse @panic("Android requires -Dndk-sysroot=/absolute/path/to/NDK/sysroot");
@@ -19,7 +22,10 @@ pub fn build(b: *std.Build) void {
     }
     b.installArtifact(exe);
     module.addCSourceFile(.{ .file = b.path("src/signals.c"), .flags = &.{ "-Wall", "-Wextra", "-Werror" } });
-    const tests = b.addTest(.{ .root_module = module });
+    const tests = if (comptime @hasField(std.Build.TestOptions, "root_module"))
+        b.addTest(.{ .root_module = module })
+    else
+        b.addTest(.{ .root_source_file = b.path("src/main.zig"), .target = target, .optimize = optimize });
     const run = b.addRunArtifact(tests);
     b.step("test", "Run protocol, configuration and allocation tests").dependOn(&run.step);
 }

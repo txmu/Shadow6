@@ -7,7 +7,7 @@ try: import resource
 except ModuleNotFoundError: resource=None
 ROOT=Path(__file__).resolve().parents[1]
 CORE_PATHS={"go":"Core-Go/shadow6-go","rust":"Core-Rust/shadow6-rust","zig":"Core-Zig/shadow6-zig","ada":"Core-Ada/shadow6-ada","d":"Core-D/shadow6-d","nim":"Core-Nim/shadow6-nim","cpp":"Core-Cpp/shadow6-cpp","pony":"Core-Pony/shadow6-pony","hare":"Core-Hare/shadow6-hare","carp":"Core-Carp/shadow6-carp","gleam":"Core-Gleam/shadow6-gleam","idris":"Core-Idris/shadow6-idris"}
-FALLBACK={"zig":"Core-Zig/zig-out/bin/shadow6-zig"}; ROLES={"feature-report":["--feature-report"],"version":["--version"],"network-chain":[]}; NETWORK={"go","rust"}
+FALLBACK={"zig":"Core-Zig/zig-out/bin/shadow6-zig"}; ROLES={"feature-report":["--feature-report"],"version":["--version"],"network-chain":[]}
 def binary(p):
  try: m=p.read_bytes()[:4]
  except OSError:return False
@@ -36,6 +36,7 @@ def _load_config(path):
  if not isinstance(d["repeats"],int) or not 1<=d["repeats"]<=1000:raise ValueError("repeats must be 1..1000")
  if not isinstance(d["cores"],list) or not all(x in CORE_PATHS for x in d["cores"]):raise ValueError("unknown core")
  if not isinstance(d["roles"],list) or not all(x in ROLES for x in d["roles"]):raise ValueError("unknown role")
+ if d["network"].get("concurrency") != 1:raise ValueError("network concurrency must be 1")
  return d
 def run(c):
  rows=[]
@@ -45,7 +46,6 @@ def run(c):
   if not exe.is_file() or not os.access(exe,os.X_OK) or not binary(exe):rows.append({"core":core,"measurement":"process-start","status":"unavailable","path":str(exe),"reason":"missing, non-executable, or foreign-host binary"});continue
   for role in c["roles"]:
    for repeat in range(1,c["repeats"]+1):
-    if role=="network-chain" and core not in NETWORK:rows.append({"core":core,"measurement":"network-chain","repeat":repeat,"status":"not_applicable","reason":"no standardized client-proxy-target adapter"});continue
     if role=="network-chain":
      runner=os.environ.get("PYTHON") or (str(ROOT/".venv/bin/python") if (ROOT/".venv/bin/python").is_file() else sys.executable);cmd=[runner,str(ROOT/"integration/stack_test.py"),"--engine","shadow6-"+core,"--benchmark",*sum((["--"+k.replace("_","-"),str(v)] for k,v in c["network"].items()),[])]; timeout=240;kind="network-chain"
     else:cmd=[str(exe),*ROLES[role],*c["args"].get(core,[]),*c["args"].get(role,[])];timeout=120;kind="process-start"
@@ -55,12 +55,12 @@ def run(c):
     rows.append(row)
  return {"schema":"shadow6.benchmark.v2","config":c,"results":rows}
 def write(result,base):
- base=Path(base);base.with_suffix(".json").write_text(json.dumps(result,sort_keys=True,indent=2)+"\n")
+ base=Path(base);base.with_suffix(".json").write_text(json.dumps(result,sort_keys=True,indent=2)+"\n",encoding="utf-8")
  lines=["Shadow6 Benchmark schema=shadow6.benchmark.v2","core\tmeasurement\trepeat\tstatus\telapsed_seconds\tpeak_rss_kib\tthroughput_bps\tlatency_p95_seconds\tsuccess_rate"]
  for r in result["results"]:
   n=r.get("network",{});rss=r.get("process",{}).get("peak_rss_kib",{}).get("value","-");lines.append(f"{r['core']}\t{r['measurement']}\t{r.get('repeat','-')}\t{r['status']}\t{r.get('elapsed_seconds',0):.6f}\t{rss}\t{n.get('throughput_bps','-')}\t{n.get('latency_p95_seconds','-')}\t{n.get('success_rate','-')}")
- base.with_suffix(".txt").write_text("\n".join(lines)+"\n")
- base.with_suffix(".md").write_text("# Shadow6 Benchmark Report\n\nNetwork rows are real client → proxy → target results; process-start values are not network rankings.\n\n```\n"+"\n".join(lines)+"\n```\n")
+ base.with_suffix(".txt").write_text("\n".join(lines)+"\n",encoding="utf-8")
+ base.with_suffix(".md").write_text("# Shadow6 Benchmark Report\n\nNetwork rows are real client -> proxy -> target results; process-start values are not network rankings.\n\n```\n"+"\n".join(lines)+"\n```\n",encoding="utf-8")
 def main():
  p=argparse.ArgumentParser();p.add_argument("--config");p.add_argument("--core",action="append",choices=sorted(CORE_PATHS));p.add_argument("--role",choices=sorted(ROLES));p.add_argument("--repeats",type=int);p.add_argument("--output",default="benchmark");p.add_argument("--format",action="append") ;a=p.parse_args();c=_load_config(a.config)
  if a.core:c["cores"]=a.core

@@ -350,7 +350,9 @@ jobs:
           key: macos-${{ hashFiles('**/go.sum', '**/Cargo.lock') }}
       - uses: dtolnay/rust-toolchain@stable
       - name: Install macOS native core dependencies
-        run: brew install openssl@3 libsodium libunistring zig nim ldc
+        run: |
+          brew install openssl@3 libsodium libunistring zig nim ldc libdatachannel
+          python3 -m pip install -r requirements.txt
       - run: |
           cd Core-Go && go test ./...
           cd ../Gate && go test ./... && go build -trimpath -o shadow6-gate .
@@ -433,10 +435,6 @@ jobs:
           CROSED_LEVEL=0 APP_TRANSPORT=0 QUBES_ISOLATION=0 bash ./compile.sh
           cd ../Gate && go test ./... && go build -trimpath -o shadow6-gate .
           cd ../Guard && go test ./... && bash ./compile.sh
-      - name: Run final Windows benchmark after every build and test
-        shell: bash
-        run: |
-          python Benchmark/benchmark.py --core go --role network-chain --repeats 3 --output benchmark-windows.json
       - name: Dump Windows environment and benchmark diagnostics
         if: always()
         shell: bash
@@ -450,7 +448,6 @@ jobs:
             Core-Go/shadow6-go*
             Gate/shadow6-gate*
             Guard/shadow6-guard*
-            benchmark-windows.*
           if-no-files-found: error
   freebsd:
     runs-on: ubuntu-latest

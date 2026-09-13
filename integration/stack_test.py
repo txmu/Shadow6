@@ -56,6 +56,10 @@ CORE_BINARIES = {
         ("shadow6-idris", "Core-Idris", "shadow6-idris"),
     )
 }
+CORE_BINARIES.update({
+    "shadow6-go": ROOT / "Core-Go/shadow6-go",
+    "shadow6-rust": ROOT / "Core-Rust/shadow6-rust",
+})
 
 
 def run_native_core_tests(engine: str) -> None:
@@ -218,8 +222,9 @@ async def generate_configs(engine: str, output: Path, target_port: int, broker_p
 
 
 def run_engine(engine: str, benchmark: dict | None = None) -> dict | None:
-    binary_name = "shadow6-go" if engine == "shadow6-go" else "shadow6-rust"
-    binary = ROOT / ("Core-Go" if engine == "shadow6-go" else "Core-Rust") / binary_name
+    binary = CORE_BINARIES[engine]
+    if engine == "shadow6-zig" and not binary.is_file():
+        binary = ROOT / "Core-Zig/zig-out/bin/shadow6-zig"
     if not binary.is_file():
         raise FileNotFoundError(f"missing built binary: {binary}")
 
@@ -293,9 +298,7 @@ def main() -> int:
     parser.add_argument("--requests", type=int, default=32)
     parser.add_argument("--concurrency", type=int, default=1)
     args = parser.parse_args()
-    if args.benchmark and args.engine not in ("shadow6-go", "shadow6-rust"):
-        parser.error("--benchmark requires the Go or Rust real three-process adapter")
-    if not all(1 <= value <= limit for value, limit in ((args.payload_bytes, 1048576), (args.requests, 100000), (args.concurrency, 64))):
+    if not all(1 <= value <= limit for value, limit in ((args.payload_bytes, 1048576), (args.requests, 100000))) or args.concurrency != 1:
         parser.error("benchmark bounds exceeded")
     if args.engine == "all":
         engines = ("shadow6-go", "shadow6-rust", *(engine for engine in CORE_TESTS if CORE_BINARIES[engine].is_file()))
@@ -306,7 +309,7 @@ def main() -> int:
         engines = (args.engine,)
     benchmark_result = None
     for engine in engines:
-        if engine in ("shadow6-go", "shadow6-rust"):
+        if args.benchmark or engine in ("shadow6-go", "shadow6-rust"):
             benchmark_result = run_engine(engine, {"payload_bytes": args.payload_bytes, "requests": args.requests, "concurrency": args.concurrency} if args.benchmark else None)
         else:
             run_native_core_tests(engine)
