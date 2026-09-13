@@ -140,11 +140,11 @@ actor Runtime
     if application then _app.ack() else _network.ack() end
 
   fun ref _plaintext(data: Array[U8] iso, from: NetAddress val) ? =>
-    if (_stage != 3) or (data.size() > 1172) then return end
     match _local
     | let local: NetAddress val => if from != local then return end
     | None => _local = from
     end
+    if (_stage != 3) or (data.size() > 1172) then return end
     if _tx >= 1000000 then _close(); return end
     let token = _token as OCapToken
     let frame = Frame.empty()

@@ -69,7 +69,11 @@ class NetworkTests(unittest.TestCase):
                     data, address = target.recvfrom(2048)
                     self.assertEqual(data, payload)
                     target.sendto(data, address)
-                    self.assertEqual(local.recvfrom(2048)[0], payload)
+                    try:
+                        echoed = local.recvfrom(2048)[0]
+                    except TimeoutError as exc:
+                        raise AssertionError(f"Pony application response timeout payload={len(payload)}") from exc
+                    self.assertEqual(echoed, payload)
         finally:
             for process in processes:
                 process.terminate()
