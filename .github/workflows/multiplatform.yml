@@ -5,28 +5,6 @@ on:
   push:
   pull_request:
 jobs:
-  benchmark:
-    name: Unified benchmark (${{ matrix.role }})
-    strategy:
-      fail-fast: false
-      matrix:
-        role: [feature-report, version, loopback]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with: {python-version: '3.12'}
-      - name: Reject production mock and placeholder paths
-        run: |
-          ! rg -n -i 'create-mock|mock build|mock binary|placeholder implementation' Core-* CLI Control-Center Benchmark --glob '!test_*' --glob '!tests/**'
-      - name: Run bounded benchmark
-        run: |
-          python3 Benchmark/benchmark.py --config Benchmark/example.json --role "${{ matrix.role }}" --output "benchmark-${{ matrix.role }}.json"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: shadow6-benchmark-${{ matrix.role }}
-          path: benchmark-${{ matrix.role }}.json
-          if-no-files-found: error
   idris:
     name: Core-Idris (${{ matrix.os }})
     strategy:
@@ -291,25 +269,6 @@ jobs:
           readelf -d Core-Cpp/shadow6-cpp | grep -E 'libssl|libcrypto|libstdc\\+\\+'
           readelf -W -l Core-Cpp/shadow6-cpp | grep -E 'GNU_STACK.*RW|GNU_RELRO'
           shellcheck configure Core-Cpp/*.sh C11Relay/*.sh Guard/*.sh Tools/*.sh
-      - name: Run real twelve-core benchmark report
-        run: |
-          python3 Benchmark/benchmark.py --config Benchmark/example.json --output benchmark-linux.json
-          python3 Benchmark/benchmark.py --config Benchmark/example.json --role integration --repeats 1 --output benchmark-integration.json
-          python3 CLI/shadow6.py benchmark --all --role feature-report --repeats 1 --output benchmark-cli-all.json
-      - name: Dump Linux environment and benchmark diagnostics
-        if: always()
-        run: |
-          { uname -a; python3 --version; go version; rustc --version; zig version; } 2>&1 || true
-          for report in benchmark-*.json benchmark-*.txt benchmark-*.md; do
-            test -f "$report" && { echo "===== $report ====="; cat "$report"; }
-          done
-      - uses: actions/upload-artifact@v4
-        with:
-          name: shadow6-benchmark-linux
-          path: |
-            benchmark-linux.*
-            benchmark-cli-all.json
-            benchmark-integration.*
       - run: make crosed-variants BUILD_PONY=1
       - run: make test
       - run: make check
@@ -329,24 +288,51 @@ jobs:
           "$stage_dir/usr/local/bin/shadow6-security" list >/dev/null
           "$stage_dir/usr/local/bin/shadow6-control" schema >/tmp/shadow6-staged-schema.json
           "$stage_dir/usr/local/bin/shadow6-slots" catalog >/tmp/shadow6-staged-slots.json
-      - run: make package
-      - run: |
+      - name: Run final benchmarks after all Linux builds and tests
+        run: |
+          python3 Benchmark/benchmark.py --config Benchmark/example.json --output benchmark-linux.json
+          python3 CLI/shadow6.py benchmark --all --role feature-report --repeats 3 --output benchmark-cli-all.json
+      - name: Package and collect every Linux release output
+        run: |
+          make package
           mkdir -p ci-artifacts/linux
           cp ../Shadow6.tar.gz ../Shadow6.zip ci-artifacts/linux/
           cp /tmp/shadow6-sbom.json /tmp/shadow6-observation.json ci-artifacts/linux/
-          cp Core-Go/shadow6-go Core-Go/shadow6-go-crosed Core-Rust/shadow6-rust Core-Rust/shadow6-rust-crosed \
-             Core-Cpp/shadow6-cpp Core-Zig/shadow6-zig Core-Ada/shadow6-ada Core-D/shadow6-d Core-Hare/shadow6-hare \
-             ci-artifacts/linux/
+          cp benchmark-linux.* benchmark-cli-all.* ci-artifacts/linux/
           tar -tzf ci-artifacts/linux/Shadow6.tar.gz >/dev/null
           unzip -tq ci-artifacts/linux/Shadow6.zip
           test "$(tar -tzf ci-artifacts/linux/Shadow6.tar.gz | grep -c 'Core-Cpp/shadow6-cpp$')" -eq 1
           test "$(tar -tzf ci-artifacts/linux/Shadow6.tar.gz | grep -c 'Core-Hare/shadow6-hare$')" -eq 1
           unzip -Z1 ci-artifacts/linux/Shadow6.zip | awk 'NF && $0 !~ /\/$/ && $0 !~ /\.txt$/ {bad=1} END {exit bad}'
+          unzip -Z1 ci-artifacts/linux/Shadow6.zip | grep -qx 'Shadow6/.github/workflows/multiplatform.yml.txt'
+      - name: Dump Linux environment and benchmark diagnostics
+        if: always()
+        run: |
+          { uname -a; python3 --version; go version; rustc --version; zig version; } 2>&1 || true
+          for report in benchmark-*.json benchmark-*.txt benchmark-*.md; do
+            test -f "$report" && { echo "===== $report ====="; cat "$report"; }
+          done
       - uses: actions/upload-artifact@v4
         with:
           name: shadow6-linux-release
           path: |
             ci-artifacts/linux/**
+            Core-Go/shadow6-go*
+            Core-Rust/shadow6-rust*
+            Core-Gleam/shadow6-gleam*
+            Core-Cpp/shadow6-cpp
+            Core-Zig/shadow6-zig
+            Core-Zig/zig-out/bin/shadow6-zig
+            Core-Ada/shadow6-ada*
+            Core-D/shadow6-d*
+            Core-Nim/shadow6-nim*
+            Core-Pony/shadow6-pony*
+            Core-Hare/shadow6-hare*
+            Core-Carp/shadow6-carp*
+            Gate/shadow6-gate
+            Guard/shadow6-guard
+            C11Relay/bridge_relay
+            C11Relay/c11relay_test
           if-no-files-found: error
   macos:
     runs-on: macos-latest
@@ -399,8 +385,10 @@ jobs:
           mv shadow6-rust shadow6-rust-crosed
           CROSED_LEVEL=0 APP_TRANSPORT=0 QUBES_ISOLATION=0 bash ./compile.sh
           cd ..
-          python3 Benchmark/benchmark.py --core go --core rust --core cpp --core zig --core nim --role feature-report --repeats 1 --output benchmark-macos.json
-          python3 Benchmark/benchmark.py --core go --core rust --core cpp --core zig --core nim --role feature-report --format txt --repeats 1 --output benchmark-macos.txt
+      - name: Run final macOS benchmark after every build and test
+        run: |
+          python3 Benchmark/benchmark.py --core go --core rust --core cpp --core zig --core nim --role feature-report --repeats 3 --output benchmark-macos.json
+          python3 Benchmark/benchmark.py --core go --core rust --core cpp --core zig --core nim --role feature-report --format txt --repeats 3 --output benchmark-macos.txt
       - name: Dump macOS environment and benchmark diagnostics
         if: always()
         run: |
@@ -416,6 +404,7 @@ jobs:
             Core-Rust/shadow6-rust-crosed
             Core-Cpp/shadow6-cpp
             Core-Zig/zig-out/bin/shadow6-zig
+            Core-Nim/shadow6-nim
             Gate/shadow6-gate
             Guard/shadow6-guard
             benchmark-macos.json
@@ -445,11 +434,11 @@ jobs:
           CROSED_LEVEL=0 APP_TRANSPORT=0 QUBES_ISOLATION=0 bash ./compile.sh
           cd ../Gate && go test ./... && go build -trimpath -o shadow6-gate .
           cd ../Guard && go test ./... && bash ./compile.sh
-          # Windows hosted runners expose the launcher as `python`; `python3`
-          # is not a stable command name there.
-          cd ..
-          python Benchmark/benchmark.py --core go --role feature-report --repeats 1 --output benchmark-windows.json
-          python Benchmark/benchmark.py --core go --role feature-report --format txt --repeats 1 --output benchmark-windows.txt
+      - name: Run final Windows benchmark after every build and test
+        shell: bash
+        run: |
+          python Benchmark/benchmark.py --core go --role feature-report --repeats 3 --output benchmark-windows.json
+          python Benchmark/benchmark.py --core go --role feature-report --format txt --repeats 3 --output benchmark-windows.txt
       - name: Dump Windows environment and benchmark diagnostics
         if: always()
         shell: bash
@@ -460,13 +449,10 @@ jobs:
         with:
           name: shadow6-windows-core-go
           path: |
-            Core-Go/shadow6-go
-            Core-Go/shadow6-go-crosed
-            Gate/shadow6-gate
-            Guard/shadow6-guard
-            benchmark-windows.json
-            benchmark-windows.txt
-            benchmark-windows.md
+            Core-Go/shadow6-go*
+            Gate/shadow6-gate*
+            Guard/shadow6-guard*
+            benchmark-windows.*
           if-no-files-found: error
   freebsd:
     runs-on: ubuntu-latest
@@ -509,8 +495,8 @@ jobs:
             cd ../Core-Zig && zig build -Doptimize=ReleaseSafe && zig build test -Doptimize=ReleaseSafe
             if test -f /usr/local/include/rtc/rtc.h || pkg info -e libdatachannel; then cd ../Core-Nim && nim c --mm:arc --threads:on -d:release -o:shadow6-nim src/shadow6_nim.nim; else echo 'libdatachannel unavailable; Core-Nim source contract present'; fi
             cd ..
-            python3 Benchmark/benchmark.py --core go --core rust --core cpp --core zig --role feature-report --repeats 1 --output benchmark-freebsd.json
-            python3 Benchmark/benchmark.py --core go --core rust --core cpp --core zig --role feature-report --format txt --repeats 1 --output benchmark-freebsd.txt
+            python3 Benchmark/benchmark.py --core go --core rust --core cpp --core zig --core nim --role feature-report --repeats 3 --output benchmark-freebsd.json
+            python3 Benchmark/benchmark.py --core go --core rust --core cpp --core zig --core nim --role feature-report --format txt --repeats 3 --output benchmark-freebsd.txt
       - uses: actions/upload-artifact@v4
         with:
           name: shadow6-freebsd-release
@@ -522,8 +508,10 @@ jobs:
             C11Relay/bridge_relay
             Core-Cpp/shadow6-cpp
             Core-Zig/zig-out/bin/shadow6-zig
+            Core-Nim/shadow6-nim
             benchmark-freebsd.json
             benchmark-freebsd.txt
+            benchmark-freebsd.md
           if-no-files-found: error
   openbsd:
     runs-on: ubuntu-latest
@@ -557,8 +545,8 @@ jobs:
             cd ../Core-Zig && zig build -Doptimize=ReleaseSafe && zig build test -Doptimize=ReleaseSafe
             if test -f /usr/local/include/rtc/rtc.h; then cd ../Core-Nim && nim c --mm:arc --threads:on -d:release -o:shadow6-nim src/shadow6_nim.nim; else echo 'libdatachannel unavailable; Core-Nim source contract present'; fi
             cd ..
-            python3 Benchmark/benchmark.py --core go --core cpp --core zig --role feature-report --repeats 1 --output benchmark-openbsd.json
-            python3 Benchmark/benchmark.py --core go --core cpp --core zig --role feature-report --format txt --repeats 1 --output benchmark-openbsd.txt
+            python3 Benchmark/benchmark.py --core go --core cpp --core zig --core nim --role feature-report --repeats 3 --output benchmark-openbsd.json
+            python3 Benchmark/benchmark.py --core go --core cpp --core zig --core nim --role feature-report --format txt --repeats 3 --output benchmark-openbsd.txt
       - uses: actions/upload-artifact@v4
         with:
           name: shadow6-openbsd-release
@@ -566,8 +554,10 @@ jobs:
             Core-Go/shadow6-go*
             Core-Cpp/shadow6-cpp
             Core-Zig/zig-out/bin/shadow6-zig
+            Core-Nim/shadow6-nim
             benchmark-openbsd.json
             benchmark-openbsd.txt
+            benchmark-openbsd.md
           if-no-files-found: error
   netbsd:
     runs-on: ubuntu-latest

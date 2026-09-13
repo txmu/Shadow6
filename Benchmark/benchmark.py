@@ -23,19 +23,34 @@ CORE_PATHS = {
     "hare": "Core-Hare/shadow6-hare", "carp": "Core-Carp/shadow6-carp",
     "gleam": "Core-Gleam/shadow6-gleam", "idris": "Core-Idris/shadow6-idris",
 }
+CORE_FALLBACK_PATHS = {"zig": "Core-Zig/zig-out/bin/shadow6-zig"}
 ROLES = {"feature-report": ["--feature-report"], "version": ["--version"], "loopback": ["--loopback-test"], "integration": []}
 
 
 def _child_usage():
-    """Return cumulative child CPU time and peak RSS where the host supports it."""
+    """Return bounded cumulative child resource counters when supported."""
     if _resource is None:
-        return None, None, None
+        return None
     usage = _resource.getrusage(_resource.RUSAGE_CHILDREN)
     # Linux reports KiB; macOS reports bytes. Normalize to KiB for the schema.
     rss = usage.ru_maxrss
     if os.name == "posix" and __import__("sys").platform == "darwin":
         rss /= 1024
-    return usage.ru_utime, usage.ru_stime, max(0, int(rss))
+    return {
+        "user_seconds": usage.ru_utime,
+        "system_seconds": usage.ru_stime,
+        "max_rss_kib": max(0, int(rss)),
+        "context_switches": usage.ru_nvcsw + usage.ru_nivcsw,
+        # ru_inblock/ru_oublock are OS block-I/O operation counts, not bytes.
+        "io_read_operations": usage.ru_inblock,
+        "io_write_operations": usage.ru_oublock,
+    }
+
+
+def _usage_delta(before, after, key):
+    if before is None or after is None:
+        return None
+    return max(0, after[key] - before[key])
 
 
 def _host_binary(path: Path) -> bool:
@@ -67,6 +82,9 @@ def run(config: dict) -> dict:
     rows = []
     for core in config["cores"]:
         exe = (ROOT / CORE_PATHS[core]).resolve()
+        fallback = CORE_FALLBACK_PATHS.get(core)
+        if fallback and (not exe.is_file() or not os.access(exe, os.X_OK) or not _host_binary(exe)):
+            exe = (ROOT / fallback).resolve()
         if not exe.is_file() or not os.access(exe, os.X_OK) or not _host_binary(exe):
             rows.append({"core": core, "status": "unavailable", "path": str(exe), "reason": "missing, non-executable, or foreign-host binary"}); continue
         # A native executable with unresolved shared libraries is unavailable on
@@ -83,11 +101,11 @@ def run(config: dict) -> dict:
             else:
                 command = [str(exe), *ROLES[role], *extra]
             for repeat in range(config["repeats"]):
-                before_user, before_system, _ = _child_usage()
+                before_usage = _child_usage()
                 start = time.perf_counter_ns()
                 p = subprocess.run(command, cwd=ROOT, capture_output=True, text=True, timeout=240 if role == "integration" else 120, check=False)
                 elapsed = (time.perf_counter_ns() - start) / 1e9
-                after_user, after_system, after_rss = _child_usage()
+                after_usage = _child_usage()
                 native = None
                 try:
                     native = json.loads(p.stdout) if p.stdout.strip().startswith("{") else None
@@ -97,8 +115,10 @@ def run(config: dict) -> dict:
                            "packets_per_second": None, "latency_avg_seconds": None, "latency_p50_seconds": None,
                            "latency_p95_seconds": None, "latency_p99_seconds": None, "latency_min_seconds": None,
                            "latency_max_seconds": None, "loss_rate": None, "retransmissions": None,
-                           "concurrency": None, "duration_seconds": elapsed, "context_switches": None,
-                           "io_read_bytes": None, "io_write_bytes": None}
+                           "concurrency": None, "duration_seconds": elapsed,
+                           "context_switches": _usage_delta(before_usage, after_usage, "context_switches"),
+                           "io_read_operations": _usage_delta(before_usage, after_usage, "io_read_operations"),
+                           "io_write_operations": _usage_delta(before_usage, after_usage, "io_write_operations")}
                 metric_scope = "network" if role in {"loopback", "integration"} else "process"
                 metric_note = None if role in {"loopback", "integration"} else "role does not exercise a data-plane network"
                 # Native integration tests may emit a metrics object without
@@ -109,7 +129,7 @@ def run(config: dict) -> dict:
                         for key in metrics:
                             if key in candidate and (candidate[key] is None or isinstance(candidate[key], (int, float))):
                                 metrics[key] = candidate[key]
-                rows.append({"core": core, "role": role, "repeat": repeat + 1, "status": "ok" if p.returncode == 0 else "failed", "returncode": p.returncode, "elapsed_seconds": elapsed, "user_seconds": None if after_user is None or before_user is None else after_user-before_user, "system_seconds": None if after_system is None or before_system is None else after_system-before_system, "max_rss_kib": after_rss, "native": native, "metrics": metrics, "metric_scope": metric_scope, "metric_note": metric_note, "stderr": p.stderr[-2048:]})
+                rows.append({"core": core, "role": role, "repeat": repeat + 1, "status": "ok" if p.returncode == 0 else "failed", "returncode": p.returncode, "elapsed_seconds": elapsed, "user_seconds": _usage_delta(before_usage, after_usage, "user_seconds"), "system_seconds": _usage_delta(before_usage, after_usage, "system_seconds"), "max_rss_kib": None if after_usage is None else after_usage["max_rss_kib"], "native": native, "metrics": metrics, "metric_scope": metric_scope, "metric_note": metric_note, "stderr": p.stderr[-2048:]})
     return {"schema": "shadow6.benchmark.v1", "config": config, "results": rows}
 
 def main() -> int:

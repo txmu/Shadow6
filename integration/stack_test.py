@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import os
 import re
 import signal
 import socket
@@ -49,8 +50,19 @@ def run_native_core_tests(engine: str) -> None:
     if missing:
         raise FileNotFoundError(f"{engine}: missing real integration test: {', '.join(missing)}")
     for test in tests:
-        command = [sys.executable, str(test)]
-        result = subprocess.run(command, cwd=ROOT, text=True, capture_output=True, timeout=180, check=False)
+        # Core-Cpp's Python suite requires a freshly compiled native protocol
+        # probe.  test.sh owns both the probe's temporary lifetime and its
+        # SHADOW6_CPP_PROBE environment variable, so it must be the entrypoint.
+        if engine == "shadow6-cpp":
+            command = ["bash", "./test.sh"]
+            cwd = test.parent
+            environment = dict(os.environ)
+            environment["PYTHON"] = str(Path(sys.executable).resolve())
+        else:
+            command = [sys.executable, str(test)]
+            cwd = ROOT
+            environment = None
+        result = subprocess.run(command, cwd=cwd, env=environment, text=True, capture_output=True, timeout=180, check=False)
         if result.returncode:
             raise RuntimeError(f"{engine} real integration failed ({test}): {result.stdout[-2000:]} {result.stderr[-2000:]}")
         print(f"[PASS] {engine} native integration: {test.relative_to(ROOT)}")
