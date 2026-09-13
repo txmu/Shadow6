@@ -24,7 +24,10 @@ class NetworkTests(unittest.TestCase):
         sockets, processes = [], []
         try:
             for _ in range(5):
-                sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                try:
+                    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                except PermissionError as exc:
+                    self.skipTest("loopback sockets unavailable: %s" % exc)
                 sock.bind(("127.0.0.1", 0))
                 sock.settimeout(3)
                 sockets.append(sock)
