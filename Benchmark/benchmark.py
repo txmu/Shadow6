@@ -1,163 +1,73 @@
 #!/usr/bin/env python3
-"""Bounded, fixed-command benchmark runner for Shadow6 cores.
-
-Configuration is JSON and commands are assembled from validated argument lists;
-shell interpretation is deliberately never used.
-"""
+"""Fixed-command benchmark runner; process and network measurements differ."""
 from __future__ import annotations
-import argparse, json, os, subprocess, time
-import sys
+import argparse,json,os,subprocess,sys,tempfile,time
 from pathlib import Path
-
-try:
-    import resource as _resource
-except ModuleNotFoundError:  # Windows does not ship Python's POSIX resource module.
-    _resource = None
-
-ROOT = Path(__file__).resolve().parents[1]
-CORE_PATHS = {
-    "go": "Core-Go/shadow6-go", "rust": "Core-Rust/shadow6-rust",
-    "zig": "Core-Zig/shadow6-zig", "ada": "Core-Ada/shadow6-ada",
-    "d": "Core-D/shadow6-d", "nim": "Core-Nim/shadow6-nim",
-    "cpp": "Core-Cpp/shadow6-cpp", "pony": "Core-Pony/shadow6-pony",
-    "hare": "Core-Hare/shadow6-hare", "carp": "Core-Carp/shadow6-carp",
-    "gleam": "Core-Gleam/shadow6-gleam", "idris": "Core-Idris/shadow6-idris",
-}
-CORE_FALLBACK_PATHS = {"zig": "Core-Zig/zig-out/bin/shadow6-zig"}
-ROLES = {"feature-report": ["--feature-report"], "version": ["--version"], "loopback": ["--loopback-test"], "integration": []}
-
-
-def _child_usage():
-    """Return bounded cumulative child resource counters when supported."""
-    if _resource is None:
-        return None
-    usage = _resource.getrusage(_resource.RUSAGE_CHILDREN)
-    # Linux reports KiB; macOS reports bytes. Normalize to KiB for the schema.
-    rss = usage.ru_maxrss
-    if os.name == "posix" and __import__("sys").platform == "darwin":
-        rss /= 1024
-    return {
-        "user_seconds": usage.ru_utime,
-        "system_seconds": usage.ru_stime,
-        "max_rss_kib": max(0, int(rss)),
-        "context_switches": usage.ru_nvcsw + usage.ru_nivcsw,
-        # ru_inblock/ru_oublock are OS block-I/O operation counts, not bytes.
-        "io_read_operations": usage.ru_inblock,
-        "io_write_operations": usage.ru_oublock,
-    }
-
-
-def _usage_delta(before, after, key):
-    if before is None or after is None:
-        return None
-    return max(0, after[key] - before[key])
-
-
-def _host_binary(path: Path) -> bool:
-    """Reject stale binaries from another OS before subprocess can raise Exec format error."""
-    try:
-        magic = path.read_bytes()[:4]
-    except OSError:
-        return False
-    if sys.platform == "win32":
-        return magic[:2] == b"MZ"
-    if sys.platform == "darwin":
-        return magic in (b"\xfe\xed\xfa\xce", b"\xce\xfa\xed\xfe", b"\xfe\xed\xfa\xcf", b"\xcf\xfa\xed\xfe", b"\xca\xfe\xba\xbe")
-    return magic == b"\x7fELF"
-
-def _load_config(path: str | None) -> dict:
-    if not path: return {"cores": list(CORE_PATHS), "roles": ["feature-report"], "repeats": 1, "args": {}}
-    data = json.loads(Path(path).read_text(encoding="utf-8"))
-    if not isinstance(data, dict) or set(data) - {"cores", "roles", "repeats", "args"}: raise ValueError("unknown benchmark fields")
-    repeats = data.get("repeats", 1)
-    if not isinstance(repeats, int) or not 1 <= repeats <= 1000: raise ValueError("repeats must be 1..1000")
-    cores = data.get("cores", list(CORE_PATHS)); roles = data.get("roles", ["feature-report"])
-    if not isinstance(cores, list) or not all(isinstance(x, str) and x in CORE_PATHS for x in cores): raise ValueError("unknown core")
-    if not isinstance(roles, list) or not all(isinstance(x, str) and x in ROLES for x in roles): raise ValueError("unknown role")
-    args = data.get("args", {})
-    if not isinstance(args, dict) or any(not isinstance(k, str) or not isinstance(v, list) or not all(isinstance(a, str) for a in v) for k,v in args.items()): raise ValueError("args must map core/role to string arrays")
-    return {"cores": cores, "roles": roles, "repeats": repeats, "args": args}
-
-def run(config: dict) -> dict:
-    rows = []
-    for core in config["cores"]:
-        exe = (ROOT / CORE_PATHS[core]).resolve()
-        fallback = CORE_FALLBACK_PATHS.get(core)
-        if fallback and (not exe.is_file() or not os.access(exe, os.X_OK) or not _host_binary(exe)):
-            exe = (ROOT / fallback).resolve()
-        if not exe.is_file() or not os.access(exe, os.X_OK) or not _host_binary(exe):
-            rows.append({"core": core, "status": "unavailable", "path": str(exe), "reason": "missing, non-executable, or foreign-host binary"}); continue
-        # A native executable with unresolved shared libraries is unavailable on
-        # this host; keep that distinct from an executed test failure.
-        if core == "nim":
-            deps = subprocess.run(["/usr/bin/ldd", str(exe)], capture_output=True, text=True, check=False)
-            if "not found" in deps.stdout:
-                rows.append({"core": core, "status": "unavailable", "path": str(exe), "reason": "native dependency missing"}); continue
-        for role in config["roles"]:
-            extra = config["args"].get(core, []) + config["args"].get(role, [])
-            if role == "integration":
-                runner = os.environ.get("PYTHON") or (str(ROOT / ".venv/bin/python") if (ROOT / ".venv/bin/python").is_file() else "python3")
-                command = [runner, str(ROOT / "integration/stack_test.py"), "--engine", "shadow6-" + core]
-            else:
-                command = [str(exe), *ROLES[role], *extra]
-            for repeat in range(config["repeats"]):
-                before_usage = _child_usage()
-                start = time.perf_counter_ns()
-                p = subprocess.run(command, cwd=ROOT, capture_output=True, text=True, timeout=240 if role == "integration" else 120, check=False)
-                elapsed = (time.perf_counter_ns() - start) / 1e9
-                after_usage = _child_usage()
-                native = None
-                try:
-                    native = json.loads(p.stdout) if p.stdout.strip().startswith("{") else None
-                except json.JSONDecodeError: pass
-                metrics = {"payload_bytes": None, "messages": None, "bytes_sent": None, "bytes_received": None,
-                           "packets_sent": None, "packets_received": None, "throughput_bps": None,
-                           "packets_per_second": None, "latency_avg_seconds": None, "latency_p50_seconds": None,
-                           "latency_p95_seconds": None, "latency_p99_seconds": None, "latency_min_seconds": None,
-                           "latency_max_seconds": None, "loss_rate": None, "retransmissions": None,
-                           "concurrency": None, "duration_seconds": elapsed,
-                           "context_switches": _usage_delta(before_usage, after_usage, "context_switches"),
-                           "io_read_operations": _usage_delta(before_usage, after_usage, "io_read_operations"),
-                           "io_write_operations": _usage_delta(before_usage, after_usage, "io_write_operations")}
-                metric_scope = "network" if role in {"loopback", "integration"} else "process"
-                metric_note = None if role in {"loopback", "integration"} else "role does not exercise a data-plane network"
-                # Native integration tests may emit a metrics object without
-                # changing the wire protocol; preserve only known numeric fields.
-                if isinstance(native, dict):
-                    candidate = native.get("metrics", native)
-                    if isinstance(candidate, dict):
-                        for key in metrics:
-                            if key in candidate and (candidate[key] is None or isinstance(candidate[key], (int, float))):
-                                metrics[key] = candidate[key]
-                rows.append({"core": core, "role": role, "repeat": repeat + 1, "status": "ok" if p.returncode == 0 else "failed", "returncode": p.returncode, "elapsed_seconds": elapsed, "user_seconds": _usage_delta(before_usage, after_usage, "user_seconds"), "system_seconds": _usage_delta(before_usage, after_usage, "system_seconds"), "max_rss_kib": None if after_usage is None else after_usage["max_rss_kib"], "native": native, "metrics": metrics, "metric_scope": metric_scope, "metric_note": metric_note, "stderr": p.stderr[-2048:]})
-    return {"schema": "shadow6.benchmark.v1", "config": config, "results": rows}
-
-def main() -> int:
-    ap = argparse.ArgumentParser(); ap.add_argument("--config"); ap.add_argument("--core", action="append", choices=sorted(CORE_PATHS), help="core to benchmark; may be repeated"); ap.add_argument("--role", choices=sorted(ROLES)); ap.add_argument("--repeats", type=int); ap.add_argument("--output", default="-"); ap.add_argument("--format", choices=("json", "txt"), default="json")
-    ns = ap.parse_args()
-    try:
-        config = _load_config(ns.config)
-        if ns.core: config["cores"] = ns.core
-        if ns.role: config["roles"] = [ns.role]
-        if ns.repeats is not None:
-            if not 1 <= ns.repeats <= 1000: raise ValueError("repeats must be 1..1000")
-            config["repeats"] = ns.repeats
-        result = run(config)
-    except (OSError, ValueError, json.JSONDecodeError) as exc: ap.error(str(exc))
-    payload = json.dumps(result, sort_keys=True, ensure_ascii=True)
-    text_payload = "Shadow6 Benchmark schema=shadow6.benchmark.v1\n" + "core\trole\trepeat\tstatus\telapsed_seconds\tcpu_seconds\tmax_rss_kib\tthroughput_bps\tlatency_p95_seconds\tloss_rate\treturncode\n"
-    def _number(value):
-        return "-" if value is None else value
-    text_payload += "\n".join("{c}\t{r}\t{n}\t{s}\t{e:.6f}\t{u}\t{m}\t{t}\t{l}\t{o}\t{x}".format(c=row["core"], r=row.get("role", "-"), n=row.get("repeat", "-"), s=row["status"], e=row.get("elapsed_seconds", 0), u=_number(None if row.get("user_seconds") is None or row.get("system_seconds") is None else row["user_seconds"] + row["system_seconds"]), m=row.get("max_rss_kib", "-"), t=row.get("metrics", {}).get("throughput_bps", "-"), l=row.get("metrics", {}).get("latency_p95_seconds", "-"), o=row.get("metrics", {}).get("loss_rate", "-"), x=row.get("returncode", "-")) for row in result["results"]) + "\n"
-    output_payload = payload if ns.format == "json" else text_payload
-    if ns.output == "-": print(output_payload, end="" if output_payload.endswith("\n") else "\n")
-    else:
-        Path(ns.output).write_text(output_payload + ("" if output_payload.endswith("\n") else "\n"), encoding="utf-8")
-        report = Path(ns.output).with_suffix(".md")
-        lines = ["# Shadow6 Benchmark Report", "", "真实原生进程实测结果；`unavailable`/`failed` 未被转换为成功。", "", "| Core | Role | Repeat | Status | Seconds | CPU s | Peak RSS KiB |", "|---|---|---:|---|---:|---:|---:|"]
-        for row in result["results"]:
-            cpu = None if row.get("user_seconds") is None or row.get("system_seconds") is None else row["user_seconds"] + row["system_seconds"]
-            lines.append("| {core} | {role} | {repeat} | {status} | {elapsed:.6f} | {cpu} | {rss} |".format(core=row["core"], role=row.get("role", "-"), repeat=row.get("repeat", "-"), status=row["status"], elapsed=row.get("elapsed_seconds", 0), cpu="-" if cpu is None else f"{cpu:.6f}", rss=row.get("max_rss_kib", "-")))
-        report.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    return 0
-if __name__ == "__main__": raise SystemExit(main())
+try: import resource
+except ModuleNotFoundError: resource=None
+ROOT=Path(__file__).resolve().parents[1]
+CORE_PATHS={"go":"Core-Go/shadow6-go","rust":"Core-Rust/shadow6-rust","zig":"Core-Zig/shadow6-zig","ada":"Core-Ada/shadow6-ada","d":"Core-D/shadow6-d","nim":"Core-Nim/shadow6-nim","cpp":"Core-Cpp/shadow6-cpp","pony":"Core-Pony/shadow6-pony","hare":"Core-Hare/shadow6-hare","carp":"Core-Carp/shadow6-carp","gleam":"Core-Gleam/shadow6-gleam","idris":"Core-Idris/shadow6-idris"}
+FALLBACK={"zig":"Core-Zig/zig-out/bin/shadow6-zig"}; ROLES={"feature-report":["--feature-report"],"version":["--version"],"network-chain":[]}; NETWORK={"go","rust"}
+def binary(p):
+ try: m=p.read_bytes()[:4]
+ except OSError:return False
+ return (sys.platform=="win32" and m[:2]==b"MZ") or (sys.platform=="darwin" and m in (b"\xfe\xed\xfa\xce",b"\xce\xfa\xed\xfe",b"\xfe\xed\xfa\xcf",b"\xcf\xfa\xed\xfe",b"\xca\xfe\xba\xbe")) or (os.name=="posix" and sys.platform!="darwin" and m==b"\x7fELF")
+def metrics(u,reason=None):
+ fields=("user_seconds","system_seconds","peak_rss_kib","context_switches","io_read_operations","io_write_operations")
+ if u is None:return {k:{"value":None,"state":"collection_failed","reason":reason or "collector unavailable"} for k in fields}
+ rss=u.ru_maxrss/(1024 if sys.platform=="darwin" else 1); values={"user_seconds":u.ru_utime,"system_seconds":u.ru_stime,"peak_rss_kib":int(rss),"context_switches":u.ru_nvcsw+u.ru_nivcsw,"io_read_operations":u.ru_inblock,"io_write_operations":u.ru_oublock}
+ return {k:{"value":max(0,v),"state":"valid"} for k,v in values.items()}
+def execute(command,timeout):
+ with tempfile.TemporaryFile() as out,tempfile.TemporaryFile() as err:
+  p=subprocess.Popen(command,cwd=ROOT,stdout=out,stderr=err)
+  try:
+   if os.name=="posix" and hasattr(os,"wait4"):
+    _,s,u=os.wait4(p.pid,0);p.returncode=os.waitstatus_to_exitcode(s);data=metrics(u)
+   else:
+    p.wait(timeout);data=metrics(None,"Windows process counters require the native collector")
+  except subprocess.TimeoutExpired:p.kill();p.wait();p.returncode=124;data=metrics(None,"timed out")
+  out.seek(0);err.seek(0);return p.returncode,out.read().decode("utf-8","replace"),err.read().decode("utf-8","replace"),data
+def _load_config(path):
+ d={"cores":list(CORE_PATHS),"roles":["feature-report","network-chain"],"repeats":1,"args":{},"network":{"payload_bytes":4,"requests":32,"concurrency":1}}
+ if path:
+  x=json.loads(Path(path).read_text());
+  if not isinstance(x,dict) or set(x)-set(d):raise ValueError("unknown benchmark fields")
+  d.update(x)
+ if not isinstance(d["repeats"],int) or not 1<=d["repeats"]<=1000:raise ValueError("repeats must be 1..1000")
+ if not isinstance(d["cores"],list) or not all(x in CORE_PATHS for x in d["cores"]):raise ValueError("unknown core")
+ if not isinstance(d["roles"],list) or not all(x in ROLES for x in d["roles"]):raise ValueError("unknown role")
+ return d
+def run(c):
+ rows=[]
+ for core in c["cores"]:
+  exe=(ROOT/CORE_PATHS[core]).resolve()
+  if not exe.is_file() or not os.access(exe,os.X_OK) or not binary(exe):exe=(ROOT/FALLBACK.get(core,CORE_PATHS[core])).resolve()
+  if not exe.is_file() or not os.access(exe,os.X_OK) or not binary(exe):rows.append({"core":core,"measurement":"process-start","status":"unavailable","path":str(exe),"reason":"missing, non-executable, or foreign-host binary"});continue
+  for role in c["roles"]:
+   for repeat in range(1,c["repeats"]+1):
+    if role=="network-chain" and core not in NETWORK:rows.append({"core":core,"measurement":"network-chain","repeat":repeat,"status":"not_applicable","reason":"no standardized client-proxy-target adapter"});continue
+    if role=="network-chain":
+     runner=os.environ.get("PYTHON") or (str(ROOT/".venv/bin/python") if (ROOT/".venv/bin/python").is_file() else sys.executable);cmd=[runner,str(ROOT/"integration/stack_test.py"),"--engine","shadow6-"+core,"--benchmark",*sum((["--"+k.replace("_","-"),str(v)] for k,v in c["network"].items()),[])]; timeout=240;kind="network-chain"
+    else:cmd=[str(exe),*ROLES[role],*c["args"].get(core,[]),*c["args"].get(role,[])];timeout=120;kind="process-start"
+    started=time.perf_counter();code,out,err,process=execute(cmd,timeout);row={"core":core,"measurement":kind,"role":role,"repeat":repeat,"status":"ok" if code==0 else "failed","returncode":code,"elapsed_seconds":time.perf_counter()-started,"process":process,"stderr":err[-2048:]}
+    try:row["network" if kind=="network-chain" else "native"]=json.loads(out.splitlines()[-1] if kind=="network-chain" else out)
+    except json.JSONDecodeError:pass
+    rows.append(row)
+ return {"schema":"shadow6.benchmark.v2","config":c,"results":rows}
+def write(result,base):
+ base=Path(base);base.with_suffix(".json").write_text(json.dumps(result,sort_keys=True,indent=2)+"\n")
+ lines=["Shadow6 Benchmark schema=shadow6.benchmark.v2","core\tmeasurement\trepeat\tstatus\telapsed_seconds\tpeak_rss_kib\tthroughput_bps\tlatency_p95_seconds\tsuccess_rate"]
+ for r in result["results"]:
+  n=r.get("network",{});rss=r.get("process",{}).get("peak_rss_kib",{}).get("value","-");lines.append(f"{r['core']}\t{r['measurement']}\t{r.get('repeat','-')}\t{r['status']}\t{r.get('elapsed_seconds',0):.6f}\t{rss}\t{n.get('throughput_bps','-')}\t{n.get('latency_p95_seconds','-')}\t{n.get('success_rate','-')}")
+ base.with_suffix(".txt").write_text("\n".join(lines)+"\n")
+ base.with_suffix(".md").write_text("# Shadow6 Benchmark Report\n\nNetwork rows are real client → proxy → target results; process-start values are not network rankings.\n\n```\n"+"\n".join(lines)+"\n```\n")
+def main():
+ p=argparse.ArgumentParser();p.add_argument("--config");p.add_argument("--core",action="append",choices=sorted(CORE_PATHS));p.add_argument("--role",choices=sorted(ROLES));p.add_argument("--repeats",type=int);p.add_argument("--output",default="benchmark");p.add_argument("--format",action="append") ;a=p.parse_args();c=_load_config(a.config)
+ if a.core:c["cores"]=a.core
+ if a.role:c["roles"]=[a.role]
+ if a.repeats is not None:c["repeats"]=a.repeats
+ r=run(c)
+ if a.output=="-":print(json.dumps(r,sort_keys=True,indent=2))
+ else:write(r,a.output)
+ return 0 if all(x["status"] in {"ok","not_applicable"} for x in r["results"]) else 1
+if __name__=="__main__":raise SystemExit(main())

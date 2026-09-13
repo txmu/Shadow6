@@ -1,1 +1,1 @@
-{"cores":["go","rust","zig","ada","d","nim","cpp","pony","hare","carp","gleam","idris"],"roles":["feature-report","loopback"],"repeats":3}
+{"cores":["go","rust","zig","ada","d","nim","cpp","pony","hare","carp","gleam","idris"],"roles":["feature-report","network-chain"],"repeats":3,"network":{"payload_bytes":4,"requests":32,"concurrency":1}}

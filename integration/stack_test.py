@@ -9,6 +9,7 @@ processes carry traffic to a local TCP echo target.
 from __future__ import annotations
 
 import argparse
+import json
 import asyncio
 import os
 import re
@@ -116,9 +117,12 @@ class EchoTarget:
                     except socket.timeout:
                         continue
                     with connection:
-                        connection.settimeout(3)
-                        if connection.recv(4) == b"ping":
-                            connection.sendall(b"pong")
+                        connection.settimeout(10)
+                        while not self.stop.is_set():
+                            data = connection.recv(65536)
+                            if not data:
+                                break
+                            connection.sendall(data)
         except OSError as exc:
             if not self.stop.is_set():
                 self.error = exc
@@ -213,7 +217,7 @@ async def generate_configs(engine: str, output: Path, target_port: int, broker_p
     await execute_mtd_rotation(topology)
 
 
-def run_engine(engine: str) -> None:
+def run_engine(engine: str, benchmark: dict | None = None) -> dict | None:
     binary_name = "shadow6-go" if engine == "shadow6-go" else "shadow6-rust"
     binary = ROOT / ("Core-Go" if engine == "shadow6-go" else "Core-Rust") / binary_name
     if not binary.is_file():
@@ -250,8 +254,18 @@ def run_engine(engine: str) -> None:
             proxy_port = wait_for_proxy(client, log_paths["client"], time.monotonic() + 20)
             with socket.create_connection(("127.0.0.1", proxy_port), timeout=5) as connection:
                 connection.sendall(b"ping")
-                if connection.recv(4) != b"pong":
+                if connection.recv(4) != b"ping":
                     raise AssertionError(f"{engine}: target response mismatch")
+                if benchmark:
+                    payload = b"x" * benchmark["payload_bytes"]
+                    latencies = []; started = time.perf_counter()
+                    for _ in range(benchmark["requests"]):
+                        request_started = time.perf_counter(); connection.sendall(payload)
+                        received = connection.recv(len(payload))
+                        if received != payload: raise AssertionError(f"{engine}: benchmark response mismatch")
+                        latencies.append(time.perf_counter() - request_started)
+                    duration = time.perf_counter() - started; ordered = sorted(latencies)
+                    result = {"schema":"shadow6.network-chain.v1","payload_bytes":len(payload),"requests":len(latencies),"concurrency":1,"bytes_sent":len(payload)*len(latencies),"bytes_received":len(payload)*len(latencies),"duration_seconds":duration,"throughput_bps":len(payload)*len(latencies)*8/duration,"latency_p95_seconds":ordered[min(len(ordered)-1,int(len(ordered)*.95))],"latency_avg_seconds":sum(latencies)/len(latencies),"success_rate":1.0}
             print(f"[PASS] {engine} orchestrator -> broker -> agent -> client data path")
             success = True
         finally:
@@ -268,12 +282,21 @@ def run_engine(engine: str) -> None:
             target.close()
             if target.error:
                 raise target.error
+    return result if benchmark else None
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--engine", choices=("shadow6-go", "shadow6-rust", *CORE_TESTS, "all"), default="all")
+    parser.add_argument("--benchmark", action="store_true")
+    parser.add_argument("--payload-bytes", type=int, default=16384)
+    parser.add_argument("--requests", type=int, default=32)
+    parser.add_argument("--concurrency", type=int, default=1)
     args = parser.parse_args()
+    if args.benchmark and args.engine not in ("shadow6-go", "shadow6-rust"):
+        parser.error("--benchmark requires the Go or Rust real three-process adapter")
+    if not all(1 <= value <= limit for value, limit in ((args.payload_bytes, 1048576), (args.requests, 100000), (args.concurrency, 64))):
+        parser.error("benchmark bounds exceeded")
     if args.engine == "all":
         engines = ("shadow6-go", "shadow6-rust", *(engine for engine in CORE_TESTS if CORE_BINARIES[engine].is_file()))
         skipped = [engine for engine in CORE_TESTS if not CORE_BINARIES[engine].is_file()]
@@ -281,11 +304,14 @@ def main() -> int:
             print(f"[SKIP] {engine} native integration: binary was not built")
     else:
         engines = (args.engine,)
+    benchmark_result = None
     for engine in engines:
         if engine in ("shadow6-go", "shadow6-rust"):
-            run_engine(engine)
+            benchmark_result = run_engine(engine, {"payload_bytes": args.payload_bytes, "requests": args.requests, "concurrency": args.concurrency} if args.benchmark else None)
         else:
             run_native_core_tests(engine)
+    if benchmark_result:
+        print(json.dumps(benchmark_result, sort_keys=True))
     return 0
 
 

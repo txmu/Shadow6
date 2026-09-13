@@ -161,47 +161,6 @@ jobs:
             Core-Gleam/shadow6-gleam
             Core-Gleam/shadow6-gleam-crosed
           if-no-files-found: error
-  linux-fast:
-    name: Linux fast core/integration gate
-    runs-on: ubuntu-latest
-    timeout-minutes: 8
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with: {go-version-file: Core-Go/go.mod}
-      - uses: actions/setup-python@v5
-        with: {python-version: '3.12'}
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Install minimal native dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends build-essential pkg-config libssl-dev libsodium-dev
-          python -m venv .venv
-          .venv/bin/pip install -r requirements.txt
-      - name: Compile focused Linux cores
-        run: |
-          ./configure --disable-all --enable-core-go --enable-core-rust --enable-core-cpp --enable-auto
-          make core-go core-rust core-cpp
-      - name: Run focused unit and real integration tests
-        run: |
-          (cd Core-Cpp && PYTHON="$GITHUB_WORKSPACE/.venv/bin/python" bash ./test.sh)
-          .venv/bin/python integration/stack_test.py --engine shadow6-go
-          .venv/bin/python integration/stack_test.py --engine shadow6-rust
-          .venv/bin/python integration/stack_test.py --engine shadow6-cpp
-          PYTHONPATH=Benchmark .venv/bin/python -m unittest -v Benchmark/test_benchmark.py
-      - name: Run focused benchmark last
-        run: |
-          .venv/bin/python Benchmark/benchmark.py --core go --core rust --core cpp --role feature-report --repeats 1 --output benchmark-linux-fast.json
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: shadow6-linux-fast
-          path: |
-            Core-Go/shadow6-go
-            Core-Rust/shadow6-rust
-            Core-Cpp/shadow6-cpp
-            benchmark-linux-fast.*
-          if-no-files-found: warn
   linux:
     runs-on: ubuntu-latest
     env:
@@ -428,8 +387,7 @@ jobs:
           cd ..
       - name: Run final macOS benchmark after every build and test
         run: |
-          python3 Benchmark/benchmark.py --core go --core rust --core cpp --core zig --core nim --role feature-report --repeats 3 --output benchmark-macos.json
-          python3 Benchmark/benchmark.py --core go --core rust --core cpp --core zig --core nim --role feature-report --format txt --repeats 3 --output benchmark-macos.txt
+          python3 Benchmark/benchmark.py --core go --core rust --core cpp --core zig --core nim --role network-chain --repeats 3 --output benchmark-macos.json
       - name: Dump macOS environment and benchmark diagnostics
         if: always()
         run: |
@@ -478,8 +436,7 @@ jobs:
       - name: Run final Windows benchmark after every build and test
         shell: bash
         run: |
-          python Benchmark/benchmark.py --core go --role feature-report --repeats 3 --output benchmark-windows.json
-          python Benchmark/benchmark.py --core go --role feature-report --format txt --repeats 3 --output benchmark-windows.txt
+          python Benchmark/benchmark.py --core go --role network-chain --repeats 3 --output benchmark-windows.json
       - name: Dump Windows environment and benchmark diagnostics
         if: always()
         shell: bash
@@ -536,8 +493,7 @@ jobs:
             cd ../Core-Zig && zig build -Doptimize=ReleaseSafe && zig build test -Doptimize=ReleaseSafe
             if test -f /usr/local/include/rtc/rtc.h || pkg info -e libdatachannel; then cd ../Core-Nim && nim c --mm:arc --threads:on -d:release -o:shadow6-nim src/shadow6_nim.nim; else echo 'libdatachannel unavailable; Core-Nim source contract present'; fi
             cd ..
-            python3 Benchmark/benchmark.py --core go --core rust --core cpp --core zig --core nim --role feature-report --repeats 3 --output benchmark-freebsd.json
-            python3 Benchmark/benchmark.py --core go --core rust --core cpp --core zig --core nim --role feature-report --format txt --repeats 3 --output benchmark-freebsd.txt
+            python3 Benchmark/benchmark.py --core go --core rust --core cpp --core zig --core nim --role network-chain --repeats 3 --output benchmark-freebsd.json
       - uses: actions/upload-artifact@v4
         with:
           name: shadow6-freebsd-release
@@ -586,8 +542,7 @@ jobs:
             cd ../Core-Zig && zig build -Doptimize=ReleaseSafe && zig build test -Doptimize=ReleaseSafe
             if test -f /usr/local/include/rtc/rtc.h; then cd ../Core-Nim && nim c --mm:arc --threads:on -d:release -o:shadow6-nim src/shadow6_nim.nim; else echo 'libdatachannel unavailable; Core-Nim source contract present'; fi
             cd ..
-            python3 Benchmark/benchmark.py --core go --core cpp --core zig --core nim --role feature-report --repeats 3 --output benchmark-openbsd.json
-            python3 Benchmark/benchmark.py --core go --core cpp --core zig --core nim --role feature-report --format txt --repeats 3 --output benchmark-openbsd.txt
+            python3 Benchmark/benchmark.py --core go --core cpp --core zig --core nim --role network-chain --repeats 3 --output benchmark-openbsd.json
       - uses: actions/upload-artifact@v4
         with:
           name: shadow6-openbsd-release
