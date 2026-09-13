@@ -274,8 +274,11 @@ loopbackExchange input = do
     | Nothing => pure (Err "loopback response allocation failed")
   rc <- primIO $ prim__loopback_exchange (prim__bufferData inBuf) (cast n)
         (prim__bufferData outBuf) (cast n)
-  if rc == cast n then Ok <$> bufferToVect outBuf n
-  else pure (Err ("loopback exchange failed: " ++ show rc))
+  if rc == cast n
+    then do
+      bytes <- bufferToVect outBuf n
+      pure (Ok bytes)
+    else pure (Err ("loopback exchange failed: " ++ show rc))
 
 export
 secureLoopbackTest : IO (Result String ())
