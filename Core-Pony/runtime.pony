@@ -212,6 +212,10 @@ actor Runtime
     match _local
     | let local: NetAddress val => _app.send(plaintext, local)
     end
+    // ACK is emitted only after authenticated payload acceptance and local
+    // delivery, so a peer never acknowledges data the application rejected.
+    let ack = Frame.empty()
+    try _network.send(token.seal(consume ack, sequence, 3)?, _peer) end
 
   fun _same(a: Array[U8] iso, b: Array[U8] box): Bool =>
     if a.size() != b.size() then return false end

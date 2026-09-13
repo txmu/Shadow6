@@ -14,6 +14,9 @@ CROSED = (ROOT / "crosed.pony").read_text()
 assert "class val CrosedGrant" in CROSED
 assert "signed and (build_level == 5)" in CROSED
 assert "level(grant.capability) <= grant.request_level" in CROSED
+RUNTIME = (ROOT / "runtime.pony").read_text()
+assert "kind == 3" in RUNTIME and "_last_wire" in RUNTIME and "_last_sent" in RUNTIME
+assert "token.seal(consume ack, sequence, 3)" in RUNTIME
 
 if "--binary" in sys.argv:
     p = subprocess.run([str(ROOT / "shadow6-pony"), "--feature-report"], check=True, capture_output=True, text=True)
