@@ -279,6 +279,7 @@ jobs:
         run: |
           readelf -d Core-Cpp/shadow6-cpp | grep -E 'libssl|libcrypto|libstdc\\+\\+'
           readelf -W -l Core-Cpp/shadow6-cpp | grep -E 'GNU_STACK.*RW|GNU_RELRO'
+          shellcheck configure Core-Cpp/*.sh C11Relay/*.sh Guard/*.sh Tools/*.sh
       - name: Run real twelve-core benchmark report
         run: |
           python3 Benchmark/benchmark.py --config Benchmark/example.json --output benchmark-linux.json
@@ -286,7 +287,6 @@ jobs:
         with:
           name: shadow6-benchmark-linux
           path: benchmark-linux.*
-          shellcheck configure Core-Cpp/*.sh C11Relay/*.sh Guard/*.sh Tools/*.sh
       - run: make crosed-variants BUILD_PONY=1
       - run: make test
       - run: make check
