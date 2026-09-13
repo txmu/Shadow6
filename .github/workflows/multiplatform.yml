@@ -5,6 +5,25 @@ on:
   push:
   pull_request:
 jobs:
+  benchmark:
+    name: Unified benchmark (${{ matrix.role }})
+    strategy:
+      fail-fast: false
+      matrix:
+        role: [feature-report, version, loopback]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - name: Run bounded benchmark
+        run: |
+          python3 Benchmark/benchmark.py --config Benchmark/example.json --role "${{ matrix.role }}" --output "benchmark-${{ matrix.role }}.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shadow6-benchmark-${{ matrix.role }}
+          path: benchmark-${{ matrix.role }}.json
+          if-no-files-found: error
   idris:
     name: Core-Idris (${{ matrix.os }})
     strategy:
@@ -209,6 +228,13 @@ jobs:
           test -x .tools/ponyc-0.72.0/bin/ponyc
           echo "$GITHUB_WORKSPACE/.tools/ponyc-0.72.0/bin" >> "$GITHUB_PATH"
       - run: python -m venv .venv
+      - name: Provision fixed Carp release
+        run: |
+          curl --fail --location --proto '=https' --tlsv1.2 --max-time 120 \
+            https://github.com/carp-lang/Carp/releases/download/v0.5.5/carp-v0.5.5-x86_64-linux.zip \
+            --output "$RUNNER_TEMP/carp.zip"
+          unzip -q "$RUNNER_TEMP/carp.zip" -d .tools
+          test -x .tools/carp-v0.5.5-x86_64-linux/bin/carp
       - run: .venv/bin/pip install -r requirements.txt -r requirements-ml.txt
       - name: Configure the complete Linux component matrix
         run: ./configure --enable-all
@@ -233,6 +259,7 @@ jobs:
           Core-Ada/test_cells
           .venv/bin/python Core-Ada/test_core.py
           make test-nim
+          make test-d
           make test-hare
       - name: Verify native dependencies and hardening
         run: |

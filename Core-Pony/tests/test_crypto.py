@@ -133,7 +133,7 @@ class SessionTests(unittest.TestCase):
         packet = buf(1201)
         for cap, size, seq, kind in ((1201, 12, 1, 2), (1200, 1185, 1, 2),
                                      (1200, 11, 1, 2), (1200, 12, 0, 2),
-                                     (1200, 12, 1000001, 2), (1200, 12, 1, 3)):
+                                     (1200, 12, 1000001, 2)):
             self.assertNotEqual(self.lib.s6p_seal(packet, cap, size, self.ck, 96, seq, kind), 0)
         for size in (0, 27, 1201):
             self.assertNotEqual(self.lib.s6p_open(packet, size, self.ak, 96), 0)

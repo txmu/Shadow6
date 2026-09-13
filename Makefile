@@ -8,6 +8,7 @@ BUILD_PONY ?= $(if $(or $(wildcard .tools/ponyc-0.72.0/bin/ponyc),$(shell comman
 BUILD_ZIG ?= 0
 BUILD_HARE ?= $(if $(shell command -v hare 2>/dev/null),1,0)
 BUILD_ADA ?= 0
+BUILD_CARP ?= $(if $(or $(wildcard .tools/carp-v0.5.5-x86_64-linux/bin/carp),$(CARP)),1,0)
 ADA_CROSED_LEVEL ?= 0
 export ADA_CROSED_LEVEL
 BUILD_RELAY ?= 1
@@ -33,9 +34,15 @@ PREFIX ?= /usr/local
 DESTDIR ?=
 PYTHON ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python3)
 
-.PHONY: all build core-go core-rust core-gleam test-gleam core-cpp core-hare test-hare core-carp test-carp core-pony test-pony pony-crosed-variant gate migration i18n crosed-variants public6 public6-variants public6-contract relay guard service-init auto detector plugins package-manager easybuild crosed app-layer extension-system assistants slots control-center android-preflight android-cores android-apk integration-test test check audit package install clean distclean
+.PHONY: all build benchmark benchmark-test core-go core-rust core-gleam test-gleam core-cpp core-hare test-hare core-carp test-carp core-pony test-pony pony-crosed-variant gate migration i18n crosed-variants public6 public6-variants public6-contract relay guard service-init auto detector plugins package-manager easybuild crosed app-layer extension-system assistants slots control-center android-preflight android-cores android-apk integration-test test check audit package install clean distclean
 
 all: build
+
+benchmark:
+	@$(PYTHON) Benchmark/benchmark.py --config Benchmark/example.json --output benchmark.json
+
+benchmark-test:
+	@PYTHONPATH=Benchmark $(PYTHON) -m unittest Benchmark/test_benchmark.py
 
 NIM ?= nim
 NIM_CROSED_LEVEL ?= 0
@@ -103,6 +110,7 @@ core-pony:
 	@$(CXX) -std=c++20 -Wall -Wextra -Werror -O2 -fPIC -fstack-protector-strong -c Core-Pony/crypto/config.cpp -o Core-Pony/obj/config.o
 	@ar rcs Core-Pony/obj/libs6p.a Core-Pony/obj/session.o Core-Pony/obj/config.o
 	@$(PONYC) --pic -p Core-Pony/obj $(if $(filter 5,$(PONY_CROSED_LEVEL)),-D crosed_l5,) -D openssl_3.0.x -b shadow6-pony -o Core-Pony Core-Pony
+	@chmod 0755 Core-Pony/shadow6-pony
 pony-crosed-variant:
 	@$(MAKE) core-pony PONY_CROSED_LEVEL=5
 	@install -m 0755 Core-Pony/shadow6-pony Core-Pony/shadow6-pony-crosed
@@ -111,6 +119,11 @@ test-pony: core-pony
 	@$(PYTHON) Core-Pony/tests/test_core.py --binary Core-Pony/shadow6-pony
 	@$(PYTHON) Core-Pony/tests/test_network.py
 	@$(PYTHON) Core-Pony/tests/test_crypto.py
+
+ifeq ($(BUILD_PONY),1)
+build: core-pony
+test: test-pony
+endif
 
 core-hare:
 ifeq ($(BUILD_HARE),1)
@@ -132,6 +145,10 @@ core-carp:
 test-carp:
 	@bash Core-Carp/compile.sh
 	@$(PYTHON) Core-Carp/tests/test_core.py
+
+ifeq ($(BUILD_CARP),1)
+test: test-carp
+endif
 
 i18n:
 	@PYTHONPATH=I18n $(PYTHON) -m py_compile I18n/shadow6_i18n.py
@@ -230,6 +247,10 @@ core-d:
 	@$(CC) -O2 -fPIC -c Core-D/src/launcher.c -o Core-D/obj/launcher.o
 	@ldc2 -betterC -O2 -release -I Core-D/src -of=Core-D/shadow6-d Core-D/src/main.d Core-D/src/bounded.d Core-D/src/json.d Core-D/src/native.d Core-D/src/packet.d Core-D/src/config.d Core-D/src/websocket.d Core-D/obj/platform.o Core-D/obj/launcher.o -L-lcrypto -L-lssl -L-lsodium
 	@chmod 0755 Core-D/shadow6-d
+
+.PHONY: test-d
+test-d: core-d
+	@$(PYTHON) Core-D/test_core.py
 
 guard:
 ifeq ($(BUILD_GUARD),1)
@@ -340,7 +361,7 @@ ifeq ($(BUILD_GATE),1)
 endif
 	@PYTHONPATH=Migration $(PYTHON) -m unittest -v Migration/test_migrate.py
 	@PYTHONPATH=I18n $(PYTHON) -m unittest -v I18n/test_i18n.py
-	@PYTHONPATH=CLI $(PYTHON) -m unittest -v CLI/test_shadow6_cli.py
+	@PYTHONPATH=CLI $(PYTHON) -m unittest discover -v -s CLI
 	@PYTHONPATH=Online-Repository $(PYTHON) -m unittest -v Online-Repository/test_repo.py
 	@PYTHONPATH=Service-Init $(PYTHON) -m unittest discover -s Service-Init -v
 ifeq ($(BUILD_AUTO),1)
@@ -450,6 +471,13 @@ ifeq ($(BUILD_GATE),1)
 endif
 	@install -m 0755 Migration/shadow6_migrate.py "$(DESTDIR)$(PREFIX)/bin/shadow6-migrate"
 	@install -m 0755 CLI/shadow6.py "$(DESTDIR)$(PREFIX)/bin/shadow6"
+	@install -m 0644 CLI/shadow6_vcore.py CLI/vcore_adapters.py "$(DESTDIR)$(PREFIX)/bin/"
+	@install -d -m 0755 "$(DESTDIR)$(PREFIX)/share/shadow6/modules"
+	@install -m 0644 CLI/shadow6_vcore.py CLI/vcore_adapters.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/"
+	@for name in d nim pony hare carp; do \
+		case "$$name" in d) directory=D;; nim) directory=Nim;; pony) directory=Pony;; hare) directory=Hare;; carp) directory=Carp;; esac; \
+		if test -x "Core-$$directory/shadow6-$$name"; then install -m 0755 "Core-$$directory/shadow6-$$name" "$(DESTDIR)$(PREFIX)/bin/"; fi; \
+	done
 	@install -m 0755 Online-Repository/shadow6_repo.py "$(DESTDIR)$(PREFIX)/bin/shadow6-repo"
 	@install -m 0755 Gate/portmap.py "$(DESTDIR)$(PREFIX)/bin/shadow6-portmap"
 	@install -d -m 0755 "$(DESTDIR)$(PREFIX)/share/shadow6/i18n"
