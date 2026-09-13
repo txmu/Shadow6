@@ -196,7 +196,6 @@ record AEADConnection where
   recvCounter : Nat
 
 -- | Send encrypted frame through AEAD connection
-export
 aeadSend : AEADConnection ->
            {ptLen : Nat} ->
            Vect ptLen Bits8 ->
@@ -218,7 +217,6 @@ aeadSend conn plaintext = do
           in pure (Ok (newConn, n ** ciphertext))
 
 -- | Receive and decrypt AEAD frame
-export
 aeadRecv : AEADConnection ->
            {ctLen : Nat} ->
            Vect ctLen Bits8 ->
@@ -238,7 +236,6 @@ aeadRecv conn ciphertext = do
           in pure (Ok (newConn, n ** plaintext))
 
 -- | Create new AEAD connection with random nonce prefix
-export
 newAEADConnection : AES256Key -> IO AEADConnection
 newAEADConnection key = do
   -- Generate random 4-byte prefix
