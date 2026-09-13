@@ -25,6 +25,36 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "Auto-Orchestrator"))
 from shadow6_auto import execute_mtd_rotation  # noqa: E402
 
+# Each entry invokes the core's existing real loopback/network tests.  The
+# harness never substitutes a synthetic wire protocol for a missing core test.
+CORE_TESTS = {
+    "shadow6-zig": [ROOT / "Core-Zig/test_core.py"],
+    "shadow6-ada": [ROOT / "Core-Ada/test_core.py"],
+    "shadow6-d": [ROOT / "Core-D/test_core.py"],
+    "shadow6-nim": [ROOT / "Core-Nim/test_core.py"],
+    "shadow6-cpp": [ROOT / "Core-Cpp/test_core.py"],
+    "shadow6-pony": [ROOT / "Core-Pony/tests/test_network.py"],
+    "shadow6-hare": [ROOT / "Core-Hare/tests/test_runtime.py"],
+    "shadow6-carp": [ROOT / "Core-Carp/tests/test_core.py"],
+    "shadow6-gleam": [ROOT / "Core-Gleam/test_control.py"],
+    "shadow6-idris": [ROOT / "Core-Idris/test_core.py"],
+}
+
+
+def run_native_core_tests(engine: str) -> None:
+    tests = CORE_TESTS.get(engine)
+    if not tests:
+        return
+    missing = [str(path) for path in tests if not path.is_file()]
+    if missing:
+        raise FileNotFoundError(f"{engine}: missing real integration test: {', '.join(missing)}")
+    for test in tests:
+        command = [sys.executable, str(test)]
+        result = subprocess.run(command, cwd=ROOT, text=True, capture_output=True, timeout=180, check=False)
+        if result.returncode:
+            raise RuntimeError(f"{engine} real integration failed ({test}): {result.stdout[-2000:]} {result.stderr[-2000:]}")
+        print(f"[PASS] {engine} native integration: {test.relative_to(ROOT)}")
+
 
 class EchoTarget:
     def __init__(self) -> None:
@@ -209,9 +239,12 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--engine", choices=("shadow6-go", "shadow6-rust", "all"), default="all")
     args = parser.parse_args()
-    engines = ("shadow6-go", "shadow6-rust") if args.engine == "all" else (args.engine,)
+    engines = ("shadow6-go", "shadow6-rust", *CORE_TESTS) if args.engine == "all" else (args.engine,)
     for engine in engines:
-        run_engine(engine)
+        if engine in ("shadow6-go", "shadow6-rust"):
+            run_engine(engine)
+        else:
+            run_native_core_tests(engine)
     return 0
 
 
