@@ -3,6 +3,7 @@ module Shadow6.Types
 import Data.Vect
 import Data.Fin
 import Data.Nat
+import Data.Bits
 
 %default total
 
