@@ -32,6 +32,7 @@ for directory in (
     ROOT / "Migration",
     ROOT / "Online-Repository", ROOT / "Gate",
     ROOT / "Service-Init",
+    ROOT / "CLI",
     HERE.parent / "share" / "shadow6" / "modules",
     HERE.parent / "share" / "shadow6" / "assistants",
 ):
