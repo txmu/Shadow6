@@ -242,7 +242,8 @@ jobs:
       - name: Build pinned native libdatachannel for Core-Nim
         run: |
           set -euo pipefail
-          git clone --depth 1 https://github.com/paullouisageneau/libdatachannel.git "$RUNNER_TEMP/shadow6-rtc-linux"
+          git clone https://github.com/paullouisageneau/libdatachannel.git "$RUNNER_TEMP/shadow6-rtc-linux"
+          git -C "$RUNNER_TEMP/shadow6-rtc-linux" fetch --no-tags origin 9e6a13abbb6846c003d817d0387b6706466e2b03
           git -C "$RUNNER_TEMP/shadow6-rtc-linux" checkout --detach 9e6a13abbb6846c003d817d0387b6706466e2b03
           git -C "$RUNNER_TEMP/shadow6-rtc-linux" submodule update --init --recursive --depth 1
           cmake -S "$RUNNER_TEMP/shadow6-rtc-linux" -B "$RUNNER_TEMP/shadow6-rtc-linux-build" -DCMAKE_BUILD_TYPE=Release -DNO_TESTS=ON -DNO_EXAMPLES=ON -DNO_MEDIA=ON -DNO_WEBSOCKET=OFF -DBUILD_SHARED_LIBS=ON
