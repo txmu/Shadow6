@@ -22,6 +22,8 @@ actor SocketActor is (UDPSocketActor & UDPLifecycleEventReceiver)
       _busy = true
       _runtime.received(consume data, from, _application)
     end
+    // Keep the actor's receive gate open. The runtime may need to process a
+    // retransmission/ACK while an application datagram is being delivered.
     YieldReading
 
   be ack() => _busy = false
@@ -144,7 +146,6 @@ actor Runtime
     | None => _local = from
     end
     if _tx >= 1000000 then _close(); return end
-    _tx = _tx + 1
     let token = _token as OCapToken
     let frame = Frame.empty()
     let bytes: Array[U8] val = consume data

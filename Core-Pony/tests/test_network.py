@@ -29,7 +29,10 @@ class NetworkTests(unittest.TestCase):
                 except PermissionError as exc:
                     self.skipTest("loopback sockets unavailable: %s" % exc)
                 sock.bind(("127.0.0.1", 0))
-                sock.settimeout(3)
+                # CI runners can pause the Pony scheduler during the encrypted
+                # UDP round trip; allow retransmission timers to fire without
+                # changing the protocol or accepting a missing response.
+                sock.settimeout(8)
                 sockets.append(sock)
             a, c, app, target_port, _ = [s.getsockname()[1] for s in sockets]
             for sock in sockets[:3]:
