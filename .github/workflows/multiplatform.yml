@@ -294,6 +294,7 @@ jobs:
       - name: Run real twelve-core benchmark report
         run: |
           python3 Benchmark/benchmark.py --config Benchmark/example.json --output benchmark-linux.json
+          python3 Benchmark/benchmark.py --config Benchmark/example.json --role integration --repeats 1 --output benchmark-integration.json
           python3 CLI/shadow6.py benchmark --all --role feature-report --repeats 1 --output benchmark-cli-all.json
       - uses: actions/upload-artifact@v4
         with:
@@ -301,6 +302,7 @@ jobs:
           path: |
             benchmark-linux.*
             benchmark-cli-all.json
+            benchmark-integration.*
       - run: make crosed-variants BUILD_PONY=1
       - run: make test
       - run: make check
