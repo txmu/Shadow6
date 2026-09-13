@@ -266,6 +266,7 @@ jobs:
         run: |
           make build BUILD_ZIG=1 BUILD_ADA=1 BUILD_CPP=1 BUILD_PONY=1
           make core-nim
+          make nim-crosed-variant
           make core-d
           test -x Core-Hare/shadow6-hare
           test -x Core-Go/shadow6-go
