@@ -5,8 +5,13 @@ Configuration is JSON and commands are assembled from validated argument lists;
 shell interpretation is deliberately never used.
 """
 from __future__ import annotations
-import argparse, json, os, resource, subprocess, time
+import argparse, json, os, subprocess, time
 from pathlib import Path
+
+try:
+    import resource as _resource
+except ModuleNotFoundError:  # Windows does not ship Python's POSIX resource module.
+    _resource = None
 
 ROOT = Path(__file__).resolve().parents[1]
 CORE_PATHS = {
@@ -18,6 +23,18 @@ CORE_PATHS = {
     "gleam": "Core-Gleam/shadow6-gleam", "idris": "Core-Idris/shadow6-idris",
 }
 ROLES = {"feature-report": ["--feature-report"], "version": ["--version"], "loopback": ["--loopback-test"], "integration": []}
+
+
+def _child_usage():
+    """Return cumulative child CPU time and peak RSS where the host supports it."""
+    if _resource is None:
+        return None, None, None
+    usage = _resource.getrusage(_resource.RUSAGE_CHILDREN)
+    # Linux reports KiB; macOS reports bytes. Normalize to KiB for the schema.
+    rss = usage.ru_maxrss
+    if os.name == "posix" and __import__("sys").platform == "darwin":
+        rss /= 1024
+    return usage.ru_utime, usage.ru_stime, max(0, int(rss))
 
 def _load_config(path: str | None) -> dict:
     if not path: return {"cores": list(CORE_PATHS), "roles": ["feature-report"], "repeats": 1, "args": {}}
@@ -52,11 +69,11 @@ def run(config: dict) -> dict:
             else:
                 command = [str(exe), *ROLES[role], *extra]
             for repeat in range(config["repeats"]):
-                before = resource.getrusage(resource.RUSAGE_CHILDREN)
+                before_user, before_system, _ = _child_usage()
                 start = time.perf_counter_ns()
                 p = subprocess.run(command, cwd=ROOT, capture_output=True, text=True, timeout=240 if role == "integration" else 120, check=False)
                 elapsed = (time.perf_counter_ns() - start) / 1e9
-                after = resource.getrusage(resource.RUSAGE_CHILDREN)
+                after_user, after_system, after_rss = _child_usage()
                 native = None
                 try:
                     native = json.loads(p.stdout) if p.stdout.strip().startswith("{") else None
@@ -76,7 +93,7 @@ def run(config: dict) -> dict:
                         for key in metrics:
                             if key in candidate and (candidate[key] is None or isinstance(candidate[key], (int, float))):
                                 metrics[key] = candidate[key]
-                rows.append({"core": core, "role": role, "repeat": repeat + 1, "status": "ok" if p.returncode == 0 else "failed", "returncode": p.returncode, "elapsed_seconds": elapsed, "user_seconds": after.ru_utime-before.ru_utime, "system_seconds": after.ru_stime-before.ru_stime, "max_rss_kib": max(0, after.ru_maxrss), "native": native, "metrics": metrics, "stderr": p.stderr[-2048:]})
+                rows.append({"core": core, "role": role, "repeat": repeat + 1, "status": "ok" if p.returncode == 0 else "failed", "returncode": p.returncode, "elapsed_seconds": elapsed, "user_seconds": None if after_user is None or before_user is None else after_user-before_user, "system_seconds": None if after_system is None or before_system is None else after_system-before_system, "max_rss_kib": after_rss, "native": native, "metrics": metrics, "stderr": p.stderr[-2048:]})
     return {"schema": "shadow6.benchmark.v1", "config": config, "results": rows}
 
 def main() -> int:
@@ -92,7 +109,9 @@ def main() -> int:
     except (OSError, ValueError, json.JSONDecodeError) as exc: ap.error(str(exc))
     payload = json.dumps(result, sort_keys=True, ensure_ascii=True)
     text_payload = "Shadow6 Benchmark schema=shadow6.benchmark.v1\n" + "core\trole\trepeat\tstatus\telapsed_seconds\tcpu_seconds\tmax_rss_kib\tthroughput_bps\tlatency_p95_seconds\tloss_rate\treturncode\n"
-    text_payload += "\n".join("{c}\t{r}\t{n}\t{s}\t{e:.6f}\t{u:.6f}\t{m}\t{t}\t{l}\t{o}\t{x}".format(c=row["core"], r=row.get("role", "-"), n=row.get("repeat", "-"), s=row["status"], e=row.get("elapsed_seconds", 0), u=row.get("user_seconds", 0)+row.get("system_seconds", 0), m=row.get("max_rss_kib", "-"), t=row.get("metrics", {}).get("throughput_bps", "-"), l=row.get("metrics", {}).get("latency_p95_seconds", "-"), o=row.get("metrics", {}).get("loss_rate", "-"), x=row.get("returncode", "-")) for row in result["results"]) + "\n"
+    def _number(value):
+        return "-" if value is None else value
+    text_payload += "\n".join("{c}\t{r}\t{n}\t{s}\t{e:.6f}\t{u}\t{m}\t{t}\t{l}\t{o}\t{x}".format(c=row["core"], r=row.get("role", "-"), n=row.get("repeat", "-"), s=row["status"], e=row.get("elapsed_seconds", 0), u=_number(None if row.get("user_seconds") is None or row.get("system_seconds") is None else row["user_seconds"] + row["system_seconds"]), m=row.get("max_rss_kib", "-"), t=row.get("metrics", {}).get("throughput_bps", "-"), l=row.get("metrics", {}).get("latency_p95_seconds", "-"), o=row.get("metrics", {}).get("loss_rate", "-"), x=row.get("returncode", "-")) for row in result["results"]) + "\n"
     output_payload = payload if ns.format == "json" else text_payload
     if ns.output == "-": print(output_payload, end="" if output_payload.endswith("\n") else "\n")
     else:
@@ -100,7 +119,8 @@ def main() -> int:
         report = Path(ns.output).with_suffix(".md")
         lines = ["# Shadow6 Benchmark Report", "", "真实原生进程实测结果；`unavailable`/`failed` 未被转换为成功。", "", "| Core | Role | Repeat | Status | Seconds | CPU s | Peak RSS KiB |", "|---|---|---:|---|---:|---:|---:|"]
         for row in result["results"]:
-            lines.append("| {core} | {role} | {repeat} | {status} | {elapsed:.6f} | {cpu:.6f} | {rss} |".format(core=row["core"], role=row.get("role", "-"), repeat=row.get("repeat", "-"), status=row["status"], elapsed=row.get("elapsed_seconds", 0), cpu=row.get("user_seconds", 0)+row.get("system_seconds", 0), rss=row.get("max_rss_kib", "-")))
+            cpu = None if row.get("user_seconds") is None or row.get("system_seconds") is None else row["user_seconds"] + row["system_seconds"]
+            lines.append("| {core} | {role} | {repeat} | {status} | {elapsed:.6f} | {cpu} | {rss} |".format(core=row["core"], role=row.get("role", "-"), repeat=row.get("repeat", "-"), status=row["status"], elapsed=row.get("elapsed_seconds", 0), cpu="-" if cpu is None else f"{cpu:.6f}", rss=row.get("max_rss_kib", "-")))
         report.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return 0
 if __name__ == "__main__": raise SystemExit(main())
