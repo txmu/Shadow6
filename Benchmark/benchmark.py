@@ -61,20 +61,38 @@ def run(config: dict) -> dict:
                 try:
                     native = json.loads(p.stdout) if p.stdout.strip().startswith("{") else None
                 except json.JSONDecodeError: pass
-                rows.append({"core": core, "role": role, "repeat": repeat + 1, "status": "ok" if p.returncode == 0 else "failed", "returncode": p.returncode, "elapsed_seconds": elapsed, "user_seconds": after.ru_utime-before.ru_utime, "system_seconds": after.ru_stime-before.ru_stime, "max_rss_kib": max(0, after.ru_maxrss), "native": native, "stderr": p.stderr[-2048:]})
+                metrics = {"payload_bytes": None, "messages": None, "bytes_sent": None, "bytes_received": None,
+                           "packets_sent": None, "packets_received": None, "throughput_bps": None,
+                           "packets_per_second": None, "latency_avg_seconds": None, "latency_p50_seconds": None,
+                           "latency_p95_seconds": None, "latency_p99_seconds": None, "latency_min_seconds": None,
+                           "latency_max_seconds": None, "loss_rate": None, "retransmissions": None,
+                           "concurrency": None, "duration_seconds": elapsed, "context_switches": None,
+                           "io_read_bytes": None, "io_write_bytes": None}
+                # Native integration tests may emit a metrics object without
+                # changing the wire protocol; preserve only known numeric fields.
+                if isinstance(native, dict):
+                    candidate = native.get("metrics", native)
+                    if isinstance(candidate, dict):
+                        for key in metrics:
+                            if key in candidate and (candidate[key] is None or isinstance(candidate[key], (int, float))):
+                                metrics[key] = candidate[key]
+                rows.append({"core": core, "role": role, "repeat": repeat + 1, "status": "ok" if p.returncode == 0 else "failed", "returncode": p.returncode, "elapsed_seconds": elapsed, "user_seconds": after.ru_utime-before.ru_utime, "system_seconds": after.ru_stime-before.ru_stime, "max_rss_kib": max(0, after.ru_maxrss), "native": native, "metrics": metrics, "stderr": p.stderr[-2048:]})
     return {"schema": "shadow6.benchmark.v1", "config": config, "results": rows}
 
 def main() -> int:
-    ap = argparse.ArgumentParser(); ap.add_argument("--config"); ap.add_argument("--role", choices=sorted(ROLES)); ap.add_argument("--output", default="-"); ap.add_argument("--format", choices=("json", "txt"), default="json")
+    ap = argparse.ArgumentParser(); ap.add_argument("--config"); ap.add_argument("--role", choices=sorted(ROLES)); ap.add_argument("--repeats", type=int); ap.add_argument("--output", default="-"); ap.add_argument("--format", choices=("json", "txt"), default="json")
     ns = ap.parse_args()
     try:
         config = _load_config(ns.config)
         if ns.role: config["roles"] = [ns.role]
+        if ns.repeats is not None:
+            if not 1 <= ns.repeats <= 1000: raise ValueError("repeats must be 1..1000")
+            config["repeats"] = ns.repeats
         result = run(config)
     except (OSError, ValueError, json.JSONDecodeError) as exc: ap.error(str(exc))
     payload = json.dumps(result, sort_keys=True, ensure_ascii=True)
-    text_payload = "Shadow6 Benchmark schema=shadow6.benchmark.v1\n" + "core\trole\trepeat\tstatus\telapsed_seconds\tcpu_seconds\tmax_rss_kib\treturncode\n"
-    text_payload += "\n".join("{c}\t{r}\t{n}\t{s}\t{e:.6f}\t{u:.6f}\t{m}\t{x}".format(c=row["core"], r=row.get("role", "-"), n=row.get("repeat", "-"), s=row["status"], e=row.get("elapsed_seconds", 0), u=row.get("user_seconds", 0)+row.get("system_seconds", 0), m=row.get("max_rss_kib", "-"), x=row.get("returncode", "-")) for row in result["results"]) + "\n"
+    text_payload = "Shadow6 Benchmark schema=shadow6.benchmark.v1\n" + "core\trole\trepeat\tstatus\telapsed_seconds\tcpu_seconds\tmax_rss_kib\tthroughput_bps\tlatency_p95_seconds\tloss_rate\treturncode\n"
+    text_payload += "\n".join("{c}\t{r}\t{n}\t{s}\t{e:.6f}\t{u:.6f}\t{m}\t{t}\t{l}\t{o}\t{x}".format(c=row["core"], r=row.get("role", "-"), n=row.get("repeat", "-"), s=row["status"], e=row.get("elapsed_seconds", 0), u=row.get("user_seconds", 0)+row.get("system_seconds", 0), m=row.get("max_rss_kib", "-"), t=row.get("metrics", {}).get("throughput_bps", "-"), l=row.get("metrics", {}).get("latency_p95_seconds", "-"), o=row.get("metrics", {}).get("loss_rate", "-"), x=row.get("returncode", "-")) for row in result["results"]) + "\n"
     output_payload = payload if ns.format == "json" else text_payload
     if ns.output == "-": print(output_payload, end="" if output_payload.endswith("\n") else "\n")
     else:
