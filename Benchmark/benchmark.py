@@ -38,6 +38,12 @@ def run(config: dict) -> dict:
         exe = (ROOT / CORE_PATHS[core]).resolve()
         if not exe.is_file() or not os.access(exe, os.X_OK):
             rows.append({"core": core, "status": "unavailable", "path": str(exe)}); continue
+        # A native executable with unresolved shared libraries is unavailable on
+        # this host; keep that distinct from an executed test failure.
+        if core == "nim":
+            deps = subprocess.run(["/usr/bin/ldd", str(exe)], capture_output=True, text=True, check=False)
+            if "not found" in deps.stdout:
+                rows.append({"core": core, "status": "unavailable", "path": str(exe), "reason": "native dependency missing"}); continue
         for role in config["roles"]:
             extra = config["args"].get(core, []) + config["args"].get(role, [])
             command = [str(exe), *ROLES[role], *extra]
