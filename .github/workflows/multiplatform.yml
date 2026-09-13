@@ -296,6 +296,13 @@ jobs:
           python3 Benchmark/benchmark.py --config Benchmark/example.json --output benchmark-linux.json
           python3 Benchmark/benchmark.py --config Benchmark/example.json --role integration --repeats 1 --output benchmark-integration.json
           python3 CLI/shadow6.py benchmark --all --role feature-report --repeats 1 --output benchmark-cli-all.json
+      - name: Dump Linux environment and benchmark diagnostics
+        if: always()
+        run: |
+          { uname -a; python3 --version; go version; rustc --version; zig version; } 2>&1 || true
+          for report in benchmark-*.json benchmark-*.txt benchmark-*.md; do
+            test -f "$report" && { echo "===== $report ====="; cat "$report"; }
+          done
       - uses: actions/upload-artifact@v4
         with:
           name: shadow6-benchmark-linux
@@ -394,6 +401,11 @@ jobs:
           cd ..
           python3 Benchmark/benchmark.py --core go --core rust --core cpp --core zig --core nim --role feature-report --repeats 1 --output benchmark-macos.json
           python3 Benchmark/benchmark.py --core go --core rust --core cpp --core zig --core nim --role feature-report --format txt --repeats 1 --output benchmark-macos.txt
+      - name: Dump macOS environment and benchmark diagnostics
+        if: always()
+        run: |
+          { uname -a; python3 --version; go version; rustc --version; zig version; } 2>&1 || true
+          for report in benchmark-*.json benchmark-*.txt benchmark-*.md; do test -f "$report" && { echo "===== $report ====="; cat "$report"; }; done
       - uses: actions/upload-artifact@v4
         with:
           name: shadow6-macos-core-go
@@ -408,6 +420,7 @@ jobs:
             Guard/shadow6-guard
             benchmark-macos.json
             benchmark-macos.txt
+            benchmark-macos.md
           if-no-files-found: error
   windows:
     runs-on: windows-latest
@@ -437,6 +450,12 @@ jobs:
           cd ..
           python Benchmark/benchmark.py --core go --role feature-report --repeats 1 --output benchmark-windows.json
           python Benchmark/benchmark.py --core go --role feature-report --format txt --repeats 1 --output benchmark-windows.txt
+      - name: Dump Windows environment and benchmark diagnostics
+        if: always()
+        shell: bash
+        run: |
+          { uname -a; python --version; go version; } 2>&1 || true
+          for report in benchmark-*.json benchmark-*.txt benchmark-*.md; do test -f "$report" && { echo "===== $report ====="; cat "$report"; }; done
       - uses: actions/upload-artifact@v4
         with:
           name: shadow6-windows-core-go
@@ -447,6 +466,7 @@ jobs:
             Guard/shadow6-guard
             benchmark-windows.json
             benchmark-windows.txt
+            benchmark-windows.md
           if-no-files-found: error
   freebsd:
     runs-on: ubuntu-latest
