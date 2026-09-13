@@ -47,7 +47,8 @@ def run(config: dict) -> dict:
         for role in config["roles"]:
             extra = config["args"].get(core, []) + config["args"].get(role, [])
             if role == "integration":
-                command = [os.environ.get("PYTHON", "python3"), str(ROOT / "integration/stack_test.py"), "--engine", "shadow6-" + core]
+                runner = os.environ.get("PYTHON") or (str(ROOT / ".venv/bin/python") if (ROOT / ".venv/bin/python").is_file() else "python3")
+                command = [runner, str(ROOT / "integration/stack_test.py"), "--engine", "shadow6-" + core]
             else:
                 command = [str(exe), *ROLES[role], *extra]
             for repeat in range(config["repeats"]):
