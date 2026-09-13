@@ -1,6 +1,6 @@
 """Real fixed CLI and authenticated UDP close-path integration for Core-D.
 
-This validates the existing driver, not end-to-end forwarding or confidentiality.
+This validates the bounded authenticated driver and its loopback forwarding path.
 """
 import hashlib
 import json

@@ -41,6 +41,15 @@ prim__loopback_exchange : Ptr Bits8 -> Bits64 -> Ptr Bits8 -> Bits64 -> PrimIO I
 %foreign "C:idris_secure_loopback_test,libsodium_ffi"
 prim__secure_loopback_test : PrimIO Int
 
+%foreign "C:idris_daemon_loop,libsodium_ffi"
+prim__daemon_loop : Bits16 -> Bits32 -> PrimIO Int
+
+public export
+daemonLoop : Bits16 -> Bits32 -> IO (Result String Int)
+daemonLoop port limit = do
+  result <- primIO (prim__daemon_loop port limit)
+  if result < 0 then pure (Err "loopback UDP daemon failed") else pure (Ok result)
+
 -- Helper functions for Buffer manipulation
 %foreign "scheme:blodwen-buffer-getbyte"
          "RefC:getBufferByte"

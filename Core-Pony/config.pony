@@ -3,7 +3,9 @@ use "lib:stdc++"
 use @s6p_config[I32](path: Pointer[U8] tag, out: Pointer[U8] tag, cap: USize)
 
 class val Configuration
+  let role: U8
   let client: Bool
+  let broker: Bool
   let listen_port: U16
   let peer_port: U16
   let application_port: U16
@@ -11,7 +13,10 @@ class val Configuration
   let peer_key: Array[U8] val
   new val create(bytes: Array[U8] iso) ? =>
     if bytes.size() != 71 then error end
-    client = bytes(0)? == 1
+    role = bytes(0)?
+    if role > 2 then error end
+    client = role == 1
+    broker = role == 2
     listen_port = (bytes(1)?.u16() << 8) or bytes(2)?.u16()
     peer_port = (bytes(3)?.u16() << 8) or bytes(4)?.u16()
     application_port = (bytes(5)?.u16() << 8) or bytes(6)?.u16()

@@ -21,10 +21,14 @@ def execute(command,timeout):
  with tempfile.TemporaryFile() as out,tempfile.TemporaryFile() as err:
   p=subprocess.Popen(command,cwd=ROOT,stdout=out,stderr=err)
   try:
-   if os.name=="posix" and hasattr(os,"wait4"):
-    _,s,u=os.wait4(p.pid,0);p.returncode=os.waitstatus_to_exitcode(s);data=metrics(u)
-   else:
-    p.wait(timeout);data=metrics(None,"Windows process counters require the native collector")
+   # Polling keeps the hard timeout effective on POSIX as well as Windows.
+   # wait4(..., 0) can otherwise block forever in a stuck network harness.
+   deadline=time.monotonic()+timeout
+   while p.poll() is None:
+    if time.monotonic() >= deadline:
+     raise subprocess.TimeoutExpired(command,timeout)
+    time.sleep(0.02)
+   data=metrics(None,"native process counters unavailable")
   except subprocess.TimeoutExpired:p.kill();p.wait();p.returncode=124;data=metrics(None,"timed out")
   out.seek(0);err.seek(0);return p.returncode,out.read().decode("utf-8","replace"),err.read().decode("utf-8","replace"),data
 def _load_config(path):
@@ -43,11 +47,15 @@ def run(c):
  for core in c["cores"]:
   exe=(ROOT/CORE_PATHS[core]).resolve()
   if not exe.is_file() or not os.access(exe,os.X_OK) or not binary(exe):exe=(ROOT/FALLBACK.get(core,CORE_PATHS[core])).resolve()
-  if not exe.is_file() or not os.access(exe,os.X_OK) or not binary(exe):rows.append({"core":core,"measurement":"process-start","status":"unavailable","path":str(exe),"reason":"missing, non-executable, or foreign-host binary"});continue
+  if not exe.is_file() or not os.access(exe,os.X_OK) or not binary(exe):rows.append({"core":core,"measurement":"process-start","status":"not_applicable","path":str(exe),"reason":"missing, non-executable, or foreign-host binary"});continue
   for role in c["roles"]:
    for repeat in range(1,c["repeats"]+1):
     if role=="network-chain":
-     runner=os.environ.get("PYTHON") or (str(ROOT/".venv/bin/python") if (ROOT/".venv/bin/python").is_file() else sys.executable);cmd=[runner,str(ROOT/"integration/stack_test.py"),"--engine","shadow6-"+core,"--benchmark",*sum((["--"+k.replace("_","-"),str(v)] for k,v in c["network"].items()),[])]; timeout=240;kind="network-chain"
+     if core == "d":
+      cmd=[str(exe),"--benchmark-loopback",str(c["network"]["payload_bytes"]),str(c["network"]["requests"])]
+      timeout=60; kind="network-chain"
+     else:
+      runner=os.environ.get("PYTHON") or (str(ROOT/".venv/bin/python") if (ROOT/".venv/bin/python").is_file() else sys.executable);cmd=[runner,str(ROOT/"integration/stack_test.py"),"--engine","shadow6-"+core,"--benchmark",*sum((["--"+k.replace("_","-"),str(v)] for k,v in c["network"].items()),[])]; timeout=240;kind="network-chain"
     else:cmd=[str(exe),*ROLES[role],*c["args"].get(core,[]),*c["args"].get(role,[])];timeout=120;kind="process-start"
     started=time.perf_counter();code,out,err,process=execute(cmd,timeout);row={"core":core,"measurement":kind,"role":role,"repeat":repeat,"status":"ok" if code==0 else "failed","returncode":code,"elapsed_seconds":time.perf_counter()-started,"process":process,"stderr":err[-2048:]}
     try:row["network" if kind=="network-chain" else "native"]=json.loads(out.splitlines()[-1] if kind=="network-chain" and out.splitlines() else out)

@@ -193,7 +193,7 @@ actor Runtime
     if (not _cfg.client) and (sequence == 1) and (kind == 0) and (packet.size() == 12) then
       _retry = token.seal(Frame.empty(), 1, 1)?
       _network.send(_retry, _peer)
-      if _stage == 2 then _rx = 1; _stage = 3; _out.print("ready: agent") end
+      if _stage == 2 then _rx = 1; _stage = 3; _out.print(if _cfg.broker then "ready: broker" else "ready: agent" end) end
       _session.connected()
       return
     end

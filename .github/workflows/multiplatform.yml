@@ -64,6 +64,11 @@ jobs:
           done
       - name: Build and test Core-Idris
         run: make test-idris PYTHON=python3
+      - name: Exercise real bounded UDP event loop
+        run: |
+          set -euo pipefail
+          test -x Core-Idris/shadow6-idris
+          Core-Idris/shadow6-idris --udp-loopback 0 1
       - name: Run real loopback integration
         run: |
           export LD_LIBRARY_PATH="$GITHUB_WORKSPACE/Core-Idris/ffi:${LD_LIBRARY_PATH:-}"

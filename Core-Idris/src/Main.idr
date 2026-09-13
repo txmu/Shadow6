@@ -14,7 +14,7 @@ import Shadow6.Features
 %default total
 
 -- | Command-line argument parsing
-data Command = FeatureReport | Version | Help | Run | LoopbackTest | Unknown String
+data Command = FeatureReport | Version | Help | Run | LoopbackTest | UdpLoopback Bits16 Bits32 | Unknown String
 
 parseArgs : List String -> Command
 parseArgs [] = Run  -- Default: run daemon
@@ -24,7 +24,16 @@ parseArgs ("-h" :: _) = Help
 parseArgs ("--help" :: _) = Help
 parseArgs ("run" :: _) = Run
 parseArgs ("--loopback-test" :: _) = LoopbackTest
+parseArgs ("--udp-loopback" :: port :: limit :: _) =
+  case (parsePositive port, parsePositive limit) of
+    (Just p, Just n) => UdpLoopback (cast p) (cast n)
+    _ => Unknown "--udp-loopback"
 parseArgs (x :: _) = Unknown x
+
+parsePositive : String -> Maybe Nat
+parsePositive s = case stringToNat s of
+  Just n => if n > 0 then Just n else Nothing
+  Nothing => Nothing
 
 -- | Display feature report
 showFeatureReport : IO ()
@@ -59,6 +68,7 @@ showHelp = do
   putStrLn "  --feature-report    Display feature configuration as JSON"
   putStrLn "  --version           Display version information"
   putStrLn "  --loopback-test     Run bounded authenticated loopback exchange"
+  putStrLn "  --udp-loopback P N  Run loopback UDP daemon for at most N datagrams"
   putStrLn "  -h, --help          Display this help message"
   putStrLn ""
   putStrLn "Security Features:"
@@ -232,6 +242,11 @@ main = do
     Help => showHelp
     Run => runDaemon
     LoopbackTest => runLoopbackTest
+    UdpLoopback port limit => do
+      result <- daemonLoop port limit
+      case result of
+        Ok n => putStrLn ("udp loopback daemon handled " ++ show n ++ " datagrams")
+        Err e => putStrLn ("udp loopback daemon failed: " ++ e) >> exitFailure
     Unknown cmd => do
       putStrLn ("Unknown command: " ++ cmd)
       putStrLn "Use --help for usage information"

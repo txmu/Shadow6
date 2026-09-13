@@ -44,9 +44,9 @@ extern "C" int s6p_config(const char *path, unsigned char *out, size_t cap) noex
                        {"peer_port", Json::Integer}, {"application_port", Json::Integer},
                        {"private_key", Json::String}, {"peer_public_key", Json::String}})) return -1;
         auto role = j.at("role").text;
-        if (role != "agent" && role != "client") return -1;
+        if (role != "agent" && role != "client" && role != "broker") return -1;
         unsigned char result[71]{};
-        result[0] = role == "client" ? 1 : 0;
+        result[0] = role == "client" ? 1 : (role == "broker" ? 2 : 0);
         size_t offset = 1;
         for (auto name : {"listen_port", "peer_port", "application_port"}) {
             auto n = j.at(name).integer;

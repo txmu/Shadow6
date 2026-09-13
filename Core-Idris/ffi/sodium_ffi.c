@@ -4,6 +4,15 @@
  */
 
 #include <sodium.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <unistd.h>
+#include <errno.h>
+#include <string.h>
+#include <time.h>
+#include <sys/time.h>
 #include <string.h>
 #include <stdint.h>
 #include <sys/socket.h>
@@ -172,4 +181,27 @@ int idris_secure_loopback_test(void) {
     int exchanged = idris_loopback_exchange(request, sizeof(request) - 1, response, sizeof(response));
     if (exchanged != (int)(sizeof(request) - 1) || memcmp(request, response, sizeof(request) - 1)) return -8;
     return 0;
+}
+
+/* Bounded, loopback-only daemon primitive.  Idris owns policy and parsing;
+ * this FFI only supplies socket I/O and never accepts a public bind. */
+int idris_daemon_loop(unsigned short port, unsigned int max_packets) {
+    if (max_packets == 0 || max_packets > 10000) return -1;
+    int fd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (fd < 0) return -1;
+    struct sockaddr_in addr; memset(&addr, 0, sizeof addr);
+    addr.sin_family = AF_INET; addr.sin_port = htons(port);
+    if (inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr) != 1 ||
+        bind(fd, (struct sockaddr *)&addr, sizeof addr) != 0) { close(fd); return -1; }
+    struct timeval tv = { .tv_sec = 0, .tv_usec = 100000 };
+    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv);
+    unsigned int handled = 0; unsigned char frame[1200];
+    while (handled < max_packets) {
+        ssize_t n = recv(fd, frame, sizeof frame, 0);
+        if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) break;
+        if (n < 0) { close(fd); return -1; }
+        if (n == 0) continue;
+        ++handled;
+    }
+    close(fd); return (int)handled;
 }

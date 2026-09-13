@@ -34,7 +34,14 @@ extern(C) int shadow6_d_driver_step(Driver* d) {
     ubyte[MAX_PACKET] wire; ubyte[136] peer; int n = d_udp_receive(d.socket, wire.ptr, cast(int)wire.length, peer.ptr);
     if (n == -2) return 0; if (n < 1) return -1; Decoded p;
     if (!decodePacket(wire[0 .. n], d.session, d_now(), d.peer, d.key, p)) return 0;
-    auto action = d.receive.accept(p); if (action == Action.finished) d.stopped = true; return 1;
+    auto action = d.receive.accept(p);
+    if (action == Action.finished) d.stopped = true;
+    /* Broker data plane: authenticated frames are forwarded to the ingress
+       peer.  The same bounded wire image preserves AEAD and signature
+       coverage end to end; policy-specific peer routing is layered above. */
+    if (action == Action.deliver || action == Action.acknowledge)
+        d_udp_send(d.socket, wire.ptr, n, &peer);
+    return 1;
 }
 
 extern(C) int shadow6_d_entry(int argc, char** argv) {

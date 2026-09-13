@@ -420,21 +420,35 @@ def main() -> int:
     else:
         engines = (args.engine,)
     benchmark_result = None
+    benchmark_results = {}
+    failures = []
     for engine in engines:
-        if args.benchmark and engine in ("shadow6-d", "shadow6-gleam"):
-            benchmark_result = run_native_loopback_engine(engine, {"payload_bytes": args.payload_bytes, "requests": args.requests, "concurrency": args.concurrency})
-        elif args.benchmark and engine == "shadow6-idris":
-            benchmark_result = run_idris_engine({"payload_bytes": args.payload_bytes, "requests": args.requests, "concurrency": args.concurrency})
-        elif args.benchmark and engine == "shadow6-carp":
-            benchmark_result = run_carp_engine({"payload_bytes": args.payload_bytes, "requests": args.requests, "concurrency": args.concurrency})
-        elif args.benchmark and engine in ("shadow6-pony", "shadow6-hare"):
-            benchmark_result = run_datagram_engine(engine, {"payload_bytes": args.payload_bytes, "requests": args.requests, "concurrency": args.concurrency})
-        elif args.benchmark or engine in ("shadow6-go", "shadow6-rust"):
-            benchmark_result = run_engine(engine, {"payload_bytes": args.payload_bytes, "requests": args.requests, "concurrency": args.concurrency} if args.benchmark else None)
+        benchmark_result = None
+        try:
+            if args.benchmark and engine in ("shadow6-d", "shadow6-gleam"):
+                benchmark_result = run_native_loopback_engine(engine, {"payload_bytes": args.payload_bytes, "requests": args.requests, "concurrency": args.concurrency})
+            elif args.benchmark and engine == "shadow6-idris":
+                benchmark_result = run_idris_engine({"payload_bytes": args.payload_bytes, "requests": args.requests, "concurrency": args.concurrency})
+            elif args.benchmark and engine == "shadow6-carp":
+                benchmark_result = run_carp_engine({"payload_bytes": args.payload_bytes, "requests": args.requests, "concurrency": args.concurrency})
+            elif args.benchmark and engine in ("shadow6-pony", "shadow6-hare"):
+                benchmark_result = run_datagram_engine(engine, {"payload_bytes": args.payload_bytes, "requests": args.requests, "concurrency": args.concurrency})
+            elif args.benchmark or engine in ("shadow6-go", "shadow6-rust"):
+                benchmark_result = run_engine(engine, {"payload_bytes": args.payload_bytes, "requests": args.requests, "concurrency": args.concurrency} if args.benchmark else None)
+            else:
+                run_native_core_tests(engine)
+        except Exception as exc:
+            failures.append(f"{engine}: {exc}")
+            print(f"[FAIL] {failures[-1]}", file=sys.stderr)
         else:
-            run_native_core_tests(engine)
-    if benchmark_result:
-        print(json.dumps(benchmark_result, sort_keys=True))
+            if args.benchmark and benchmark_result is not None:
+                benchmark_results[engine] = benchmark_result
+    if failures:
+        print("Network contract failures:", file=sys.stderr)
+        for failure in failures: print(f"  {failure}", file=sys.stderr)
+        return 1
+    if benchmark_results:
+        print(json.dumps({"schema": "shadow6.network-suite.v1", "results": benchmark_results}, sort_keys=True))
     return 0
 
 
