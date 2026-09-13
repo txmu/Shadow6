@@ -230,6 +230,17 @@ jobs:
           tar -xzf /tmp/ponyc.tar.gz --strip-components=1 -C .tools/ponyc-0.72.0
           test -x .tools/ponyc-0.72.0/bin/ponyc
           echo "$GITHUB_WORKSPACE/.tools/ponyc-0.72.0/bin" >> "$GITHUB_PATH"
+      - name: Build pinned native libdatachannel for Core-Nim
+        run: |
+          set -euo pipefail
+          git clone --depth 1 https://github.com/paullouisageneau/libdatachannel.git "$RUNNER_TEMP/shadow6-rtc-linux"
+          git -C "$RUNNER_TEMP/shadow6-rtc-linux" checkout --detach 9e6a13abbb6846c003d817d0387b6706466e2b03
+          git -C "$RUNNER_TEMP/shadow6-rtc-linux" submodule update --init --recursive --depth 1
+          cmake -S "$RUNNER_TEMP/shadow6-rtc-linux" -B "$RUNNER_TEMP/shadow6-rtc-linux-build" -DCMAKE_BUILD_TYPE=Release -DNO_TESTS=ON -DNO_EXAMPLES=ON -DNO_MEDIA=ON -DNO_WEBSOCKET=OFF -DBUILD_SHARED_LIBS=ON
+          cmake --build "$RUNNER_TEMP/shadow6-rtc-linux-build" --parallel 2
+          sudo cmake --install "$RUNNER_TEMP/shadow6-rtc-linux-build"
+          sudo ldconfig
+          test -f /usr/local/include/rtc/rtc.h
       - run: python -m venv .venv
       - name: Provision fixed Carp release
         run: |
@@ -252,7 +263,7 @@ jobs:
           test -x Core-Cpp/shadow6-cpp
           test -x Core-Zig/shadow6-zig
           test -x Core-Ada/shadow6-ada
-          if test -f /usr/include/rtc/rtc.h; then test -x Core-Nim/shadow6-nim; fi
+          test -x Core-Nim/shadow6-nim
           test -x Core-D/shadow6-d
           test -x Gate/shadow6-gate
           test -x Guard/shadow6-guard
@@ -268,6 +279,13 @@ jobs:
         run: |
           readelf -d Core-Cpp/shadow6-cpp | grep -E 'libssl|libcrypto|libstdc\\+\\+'
           readelf -W -l Core-Cpp/shadow6-cpp | grep -E 'GNU_STACK.*RW|GNU_RELRO'
+      - name: Run real twelve-core benchmark report
+        run: |
+          python3 Benchmark/benchmark.py --config Benchmark/example.json --output benchmark-linux.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shadow6-benchmark-linux
+          path: benchmark-linux.*
           shellcheck configure Core-Cpp/*.sh C11Relay/*.sh Guard/*.sh Tools/*.sh
       - run: make crosed-variants BUILD_PONY=1
       - run: make test
