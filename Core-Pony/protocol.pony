@@ -30,8 +30,8 @@ primitive SessionLimits
     U64(250_000_000) << bounded.u64()
 
 class ref ReliableSession
-  var _next: U64 = 1
-  var _acked: U64 = 0
+  var _next: U64 = 2
+  var _acked: U64 = 1
   var _attempt: U8 = 0
   var _connected: Bool = false
 

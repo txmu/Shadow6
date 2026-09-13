@@ -42,6 +42,7 @@ actor Runtime
   var _peer: NetAddress val = recover NetAddress end
   var _local: (NetAddress val | None) = None
   let _handshake: Handshake = Handshake
+  let _session: ReliableSession = ReliableSession
   var _token: (OCapToken | None) = None
   var _stage: U8 = 0
   var _ready_count: U8 = 0
@@ -49,6 +50,7 @@ actor Runtime
   var _tx: U64 = 1
   let _started: U64 = Time.nanos()
   var _handshake_started: U64 = 0
+  var _next_retry: U64 = 0
   var _hello: Array[U8] val = recover val Array[U8] end
   var _retry: Array[U8] val = recover val Array[U8] end
   let _timers: Timers = Timers
@@ -88,6 +90,7 @@ actor Runtime
         _retry = _handshake.start(_cfg.seed, _cfg.peer_key, Time.now()._1.u64())?
         _hello = _retry
         _stage = 1
+        _session.disconnected()
         _handshake_started = Time.nanos()
         _network.send(_retry, _peer)
       else failed() end
@@ -98,8 +101,25 @@ actor Runtime
     let elapsed = Time.nanos() - _started
     if elapsed >= 300_000_000_000 then _close(); return end
     if (_stage > 0) and (_stage < 3) then
-      if (Time.nanos() - _handshake_started) > 5_000_000_000 then failed()
-      else _network.send(_retry, _peer) end
+      if (Time.nanos() - _handshake_started) > 5_000_000_000 then
+        if _next_retry == 0 then
+          _session.disconnected()
+          _next_retry = Time.nanos() + _session.retry_delay()
+        elseif Time.nanos() >= _next_retry then
+          try
+            _handshake.clear()
+            _token = None
+            _stage = 1
+            _retry = _handshake.start(_cfg.seed, _cfg.peer_key, Time.now()._1.u64())?
+            _hello = _retry
+            _handshake_started = Time.nanos()
+            _next_retry = 0
+            _network.send(_retry, _peer)
+          end
+        end
+      else
+        _network.send(_retry, _peer)
+      end
     end
 
   be received(data: Array[U8] iso, from: NetAddress val, application: Bool) =>
@@ -123,6 +143,7 @@ actor Runtime
     let frame = Frame.empty()
     let bytes: Array[U8] val = consume data
     frame.append(bytes)
+    _tx = _tx + 1
     let wire: Array[U8] val = token.seal(consume frame, _tx, 2)?
     _network.send(wire, _peer)
 
@@ -159,10 +180,16 @@ actor Runtime
       _retry = token.seal(Frame.empty(), 1, 1)?
       _network.send(_retry, _peer)
       if _stage == 2 then _rx = 1; _stage = 3; _out.print("ready: agent") end
+      _session.connected()
       return
     end
     if _cfg.client and (_stage == 2) and (sequence == 1) and (kind == 1) and (packet.size() == 12) then
       _rx = 1; _stage = 3; _out.print("ready: client")
+      _session.connected()
+      return
+    end
+    if kind == 3 then
+      _session.acknowledge(sequence)
       return
     end
     if (_stage != 3) or (kind != 2) or (not ReplayWindow.accept(_rx, sequence)) then return end
