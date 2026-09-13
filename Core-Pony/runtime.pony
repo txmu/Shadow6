@@ -5,7 +5,6 @@ actor SocketActor is (UDPSocketActor & UDPLifecycleEventReceiver)
   var _udp: UDPSocket = UDPSocket.none()
   let _runtime: Runtime
   let _application: Bool
-  var _busy: Bool = false
 
   new create(auth: NetAuth, port: String, runtime: Runtime, application: Bool) =>
     _runtime = runtime
@@ -18,15 +17,13 @@ actor SocketActor is (UDPSocketActor & UDPLifecycleEventReceiver)
   fun ref _on_bind_failure() => _runtime.failed()
   fun ref _on_bound() => _runtime.bound(_application)
   fun ref _on_received(data: Array[U8] iso, from: NetAddress val): ReadAction =>
-    if (not _busy) and (data.size() <= 1200) then
-      _busy = true
+    if data.size() <= 1200 then
       _runtime.received(consume data, from, _application)
     end
-    // Keep the actor's receive gate open. The runtime may need to process a
-    // retransmission/ACK while an application datagram is being delivered.
+    // Pony serializes actor behaviours; the runtime performs bounded parsing
+    // before returning, so every accepted datagram is handed off in order.
     YieldReading
 
-  be ack() => _busy = false
   be send(data: Array[U8] val, target: NetAddress val) =>
     if _udp.is_open() then _udp.send_to(data, target) end
 
@@ -143,7 +140,6 @@ actor Runtime
         elseif from == _peer then _encrypted(consume data)? end
       end
     end
-    if application then _app.ack() else _network.ack() end
 
   fun ref _plaintext(data: Array[U8] iso, from: NetAddress val) ? =>
     match _local

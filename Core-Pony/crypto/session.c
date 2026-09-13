@@ -157,8 +157,13 @@ int s6p_open(unsigned char *packet, size_t size, const unsigned char *keys, size
     unsigned char nonce[12] = {0}, ad[44];
     write64(nonce + 4, sequence);
     memcpy(ad, packet, 12); memcpy(ad + 12, keys + 64, 32);
+    /* libsodium permits zero-length plaintext, but some builds reject an
+     * overlapping zero-length ciphertext/tag pointer. Give that case a
+     * stable non-overlapping sentinel while preserving the wire format. */
+    static const unsigned char empty_ciphertext = 0;
+    const unsigned char *ciphertext = (size == 28) ? &empty_ciphertext : packet + 12;
     int rc = crypto_aead_chacha20poly1305_ietf_decrypt_detached(packet + 12, NULL,
-        packet + 12, size - 28, packet + size - 16, ad, sizeof ad, nonce, keys + 32);
+        ciphertext, size - 28, packet + size - 16, ad, sizeof ad, nonce, keys + 32);
     if (rc) sodium_memzero(packet, size);
     return rc;
 }

@@ -2,6 +2,7 @@
 import ctypes
 import ctypes.util
 import json
+import os
 from pathlib import Path
 import select
 import socket
@@ -58,7 +59,10 @@ class NetworkTests(unittest.TestCase):
                                              capture_output=True, timeout=10)
                     self.assertNotEqual(checked.returncode, 0)
                     path.chmod(0o600)
-                    processes.append(subprocess.Popen([BIN, "--config", str(path)],
+                    command = [BIN, "--config", str(path)]
+                    if os.environ.get("SHADOW6_PONY_DEBUG") == "1":
+                        command.append("--debug")
+                    processes.append(subprocess.Popen(command,
                         stdout=subprocess.PIPE, stderr=subprocess.PIPE))
                 for process in processes:
                     ready, _, _ = select.select([process.stdout], [], [], 8)
@@ -72,7 +76,12 @@ class NetworkTests(unittest.TestCase):
                     try:
                         echoed = local.recvfrom(2048)[0]
                     except TimeoutError as exc:
-                        raise AssertionError(f"Pony application response timeout payload={len(payload)}") from exc
+                        diagnostics = []
+                        for process in processes:
+                            ready, _, _ = select.select([process.stderr], [], [], 0)
+                            if ready:
+                                diagnostics.append(process.stderr.read1(4096).decode(errors="replace"))
+                        raise AssertionError(f"Pony application response timeout payload={len(payload)} stderr={diagnostics}") from exc
                     self.assertEqual(echoed, payload)
         finally:
             for process in processes:
