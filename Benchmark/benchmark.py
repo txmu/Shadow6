@@ -17,7 +17,7 @@ CORE_PATHS = {
     "hare": "Core-Hare/shadow6-hare", "carp": "Core-Carp/shadow6-carp",
     "gleam": "Core-Gleam/shadow6-gleam", "idris": "Core-Idris/shadow6-idris",
 }
-ROLES = {"feature-report": ["--feature-report"], "version": ["--version"], "loopback": ["--loopback-test"]}
+ROLES = {"feature-report": ["--feature-report"], "version": ["--version"], "loopback": ["--loopback-test"], "integration": []}
 
 def _load_config(path: str | None) -> dict:
     if not path: return {"cores": list(CORE_PATHS), "roles": ["feature-report"], "repeats": 1, "args": {}}
@@ -46,11 +46,14 @@ def run(config: dict) -> dict:
                 rows.append({"core": core, "status": "unavailable", "path": str(exe), "reason": "native dependency missing"}); continue
         for role in config["roles"]:
             extra = config["args"].get(core, []) + config["args"].get(role, [])
-            command = [str(exe), *ROLES[role], *extra]
+            if role == "integration":
+                command = [os.environ.get("PYTHON", "python3"), str(ROOT / "integration/stack_test.py"), "--engine", "shadow6-" + core]
+            else:
+                command = [str(exe), *ROLES[role], *extra]
             for repeat in range(config["repeats"]):
                 before = resource.getrusage(resource.RUSAGE_CHILDREN)
                 start = time.perf_counter_ns()
-                p = subprocess.run(command, cwd=ROOT, capture_output=True, text=True, timeout=120, check=False)
+                p = subprocess.run(command, cwd=ROOT, capture_output=True, text=True, timeout=240 if role == "integration" else 120, check=False)
                 elapsed = (time.perf_counter_ns() - start) / 1e9
                 after = resource.getrusage(resource.RUSAGE_CHILDREN)
                 native = None

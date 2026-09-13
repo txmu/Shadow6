@@ -108,7 +108,7 @@ def main():
  q=sub.add_parser("benchmark",help="run real native benchmarks for selected cores")
  q.add_argument("--core",dest="cores",action="append",choices=sorted(k for k in COMPONENTS if k in {"go","rust","zig","ada","d","nim","cpp","pony","hare","carp","gleam","idris"}))
  q.add_argument("--all",action="store_true",help="benchmark all twelve cores")
- q.add_argument("--role",action="append",choices=("feature-report","version","loopback"),default=[])
+ q.add_argument("--role",action="append",choices=("feature-report","version","loopback","integration"),default=[])
  q.add_argument("--repeats",type=int,default=1)
  q.add_argument("--output",type=Path,default=Path("benchmark.json"))
  q.add_argument("--format",choices=("json","txt"),default="json")

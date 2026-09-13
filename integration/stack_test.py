@@ -237,7 +237,7 @@ def run_engine(engine: str) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--engine", choices=("shadow6-go", "shadow6-rust", "all"), default="all")
+    parser.add_argument("--engine", choices=("shadow6-go", "shadow6-rust", *CORE_TESTS, "all"), default="all")
     args = parser.parse_args()
     engines = ("shadow6-go", "shadow6-rust", *CORE_TESTS) if args.engine == "all" else (args.engine,)
     for engine in engines:
