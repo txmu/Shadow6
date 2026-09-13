@@ -97,6 +97,13 @@ def verify_core_reports(dry_run: bool) -> None:
     if dry_run:
         return
     reports: dict[str, dict[str, Any]] = {}
+    # EasyBuild validates every locally available native core, not only Go/Rust.
+    for core in ("Zig", "Ada", "D", "Nim", "Cpp", "Pony", "Hare", "Carp", "Gleam", "Idris"):
+        path = ROOT / f"Core-{core}/shadow6-{core.lower()}"
+        if path.is_file():
+            result = subprocess.run([str(path), "--feature-report"], cwd=ROOT, capture_output=True, text=True, timeout=10, check=False)
+            if result.returncode != 0:
+                raise EasyBuildError(f"feature report failed for {core}: {result.stderr.strip()}")
     for name, path in {
         "go": ROOT / "Core-Go/shadow6-go",
         "rust": ROOT / "Core-Rust/shadow6-rust",

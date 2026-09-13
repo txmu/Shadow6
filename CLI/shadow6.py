@@ -16,6 +16,15 @@ def command_for(name,args):
  return ([sys.executable,str(path)] if path.suffix==".py" else [str(path)])+args
 def run(name,args,events=False):
  if events:print(json.dumps({"event":"process.started","component":name,"argument_count":len(args)}),flush=True)
+ if args==["--version"] and name in {"go","rust","zig","ada","d","nim","cpp","pony","hare","carp","gleam","idris"}:
+  from shadow6_vcore import _binary,_run,strict_json_loads,validate_feature_report
+  path=COMPONENTS[name]
+  with _binary(path) as (fd,_,__):
+   result=_run(path,fd,["--feature-report"],5)
+  if result.returncode==0:
+   report=validate_feature_report(strict_json_loads(result.stdout),"shadow6-"+name)
+   print(report["core"]+" "+report["version"])
+  return result.returncode
  result=subprocess.run(command_for(name,args),check=False)
  if events:print(json.dumps({"event":"process.finished","component":name,"exit_code":result.returncode}),flush=True)
  return result.returncode
@@ -96,6 +105,12 @@ def main():
  add_hands_parser(sub)
  q=sub.add_parser("features");q.add_argument("--component",choices=("go","rust","gate"),action="append",default=[])
  q=sub.add_parser("vcore",help="discover installed cores and capability intersection");q.add_argument("args",nargs=argparse.REMAINDER)
+ q=sub.add_parser("benchmark",help="run real native benchmarks for selected cores")
+ q.add_argument("--core",dest="cores",action="append",choices=sorted(k for k in COMPONENTS if k in {"go","rust","zig","ada","d","nim","cpp","pony","hare","carp","gleam","idris"}))
+ q.add_argument("--all",action="store_true",help="benchmark all twelve cores")
+ q.add_argument("--role",action="append",choices=("feature-report","version","loopback"),default=[])
+ q.add_argument("--repeats",type=int,default=1)
+ q.add_argument("--output",type=Path,default=Path("benchmark.json"))
  q=sub.add_parser("sign");ss=q.add_subparsers(dest="kind",required=True);sp=ss.add_parser("plugin");sp.add_argument("manifest");sp.add_argument("--private-key",required=True);sp.add_argument("--signer",required=True)
  q=sub.add_parser("workflow");q.add_argument("stage",choices=("build","test","check","audit","crosed-variants","android-apk","package","release"));q.add_argument("args",nargs=argparse.REMAINDER)
  a=p.parse_args();tail=lambda v:v[1:] if v[:1]==["--"] else v
@@ -106,7 +121,20 @@ def main():
  if a.command in TRANSPORTS:return run("control",[a.command]+tail(a.args),a.json_events)
  if a.command=="features":return max(run(n,["--feature-report"],a.json_events) for n in (a.component or ["go","rust","gate"]))
  if a.command=="vcore":
-  return subprocess.run([sys.executable, str(ROOT/"CLI"/"shadow6_vcore.py")]+tail(a.args), check=False).returncode
+  import shadow6_vcore
+  return subprocess.run([sys.executable, shadow6_vcore.__file__]+tail(a.args), check=False).returncode
+ if a.command=="benchmark":
+  sys.path.insert(0, str(ROOT / "Benchmark"))
+  from benchmark import run
+  core_names = {"go","rust","zig","ada","d","nim","cpp","pony","hare","carp","gleam","idris"}
+  cores = [c for c in COMPONENTS if c in core_names and COMPONENTS[c].is_file()] if a.all else (a.cores or ["go"])
+  cores = [c for c in cores if c in core_names]
+  if not cores: raise SystemExit("benchmark requires --core or --all")
+  if not 1 <= a.repeats <= 1000: raise SystemExit("--repeats must be 1..1000")
+  result = run({"cores": cores, "roles": a.role or ["feature-report"], "repeats": a.repeats, "args": {}})
+  a.output.write_text(json.dumps(result, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+  print(json.dumps({"output": str(a.output), "results": len(result["results"])}, ensure_ascii=True))
+  return 0 if all(r["status"] == "ok" for r in result["results"]) else 1
  if a.command=="sign":return run("sign-plugin",[a.manifest,"--private-key",a.private_key,"--signer",a.signer],a.json_events)
  stages=[a.stage] if a.stage!="release" else ["build","crosed-variants","test","check","audit","android-apk","package"]
  for stage in stages:
