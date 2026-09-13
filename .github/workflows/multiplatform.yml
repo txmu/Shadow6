@@ -431,8 +431,11 @@ jobs:
           CROSED_LEVEL=0 APP_TRANSPORT=0 QUBES_ISOLATION=0 bash ./compile.sh
           cd ../Gate && go test ./... && go build -trimpath -o shadow6-gate .
           cd ../Guard && go test ./... && bash ./compile.sh
-          python3 Benchmark/benchmark.py --role feature-report --repeats 1 --output benchmark-windows.json
-          python3 Benchmark/benchmark.py --role feature-report --format txt --repeats 1 --output benchmark-windows.txt
+          # Windows hosted runners expose the launcher as `python`; `python3`
+          # is not a stable command name there.
+          cd ..
+          python Benchmark/benchmark.py --role feature-report --repeats 1 --output benchmark-windows.json
+          python Benchmark/benchmark.py --role feature-report --format txt --repeats 1 --output benchmark-windows.txt
       - uses: actions/upload-artifact@v4
         with:
           name: shadow6-windows-core-go
