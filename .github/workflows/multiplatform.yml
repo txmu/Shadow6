@@ -204,7 +204,16 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: goto-bus-stop/setup-zig@v2
         with: {version: '0.16.0'}
+      - name: Cache Nim toolchain
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.choosenim
+            ~/.nimble
+            ~/.cache/nim
+          key: nim-${{ runner.os }}-2.2.10
       - uses: jiro4989/setup-nim-action@v2
+        timeout-minutes: 5
         with: {nim-version: '2.2.10'}
       - uses: dlang-community/setup-dlang@v2
         with: {compiler: ldc-1.40.0}
@@ -573,7 +582,16 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-linux-android,x86_64-linux-android
+      - name: Cache Android Nim toolchain
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.choosenim
+            ~/.nimble
+            ~/.cache/nim
+          key: nim-android-2.2.10
       - uses: jiro4989/setup-nim-action@v2
+        timeout-minutes: 5
         with:
           nim-version: '2.2.10'
       - uses: dlang-community/setup-dlang@v2
