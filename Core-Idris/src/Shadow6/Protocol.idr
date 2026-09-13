@@ -2,6 +2,7 @@ module Shadow6.Protocol
 
 import Data.Vect
 import Data.Fin
+import Data.Bits
 import Data.List
 import Data.String
 import Data.SortedMap
