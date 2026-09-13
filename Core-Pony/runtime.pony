@@ -39,6 +39,8 @@ actor Runtime
   let _cfg: Configuration
   let _main: Main
   let _out: OutStream
+  let _err: OutStream
+  let _debug: Bool
   let _network: SocketActor
   let _app: SocketActor
   var _peer: NetAddress val = recover NetAddress end
@@ -61,10 +63,12 @@ actor Runtime
   let _timers: Timers = Timers
   var _closed: Bool = false
 
-  new create(auth: NetAuth, config: Configuration, out: OutStream, main: Main) =>
+  new create(auth: NetAuth, config: Configuration, out: OutStream, err: OutStream, main: Main, debug: Bool) =>
     _cfg = config
     _main = main
     _out = out
+    _err = err
+    _debug = debug
     let peer: Array[NetAddress] val = DNS.ip4(DNSAuth(auth), "127.0.0.1", config.peer_port.string())
     try _peer = peer(0)? else _main.failed() end
     if not config.client then
@@ -89,6 +93,7 @@ actor Runtime
   be bound(application: Bool) =>
     if _closed then return end
     _ready_count = _ready_count + 1
+    if _debug then _err.print("debug: bound application=" + application.string()) end
     if _ready_count != 2 then return end
     if _cfg.client then
       try
@@ -132,6 +137,7 @@ actor Runtime
 
   be received(data: Array[U8] iso, from: NetAddress val, application: Bool) =>
     if not _closed then
+      if _debug then _err.print("debug: received application=" + application.string() + " bytes=" + data.size().string() + " stage=" + _stage.string()) end
       try
         if application then _plaintext(consume data, from)?
         elseif from == _peer then _encrypted(consume data)? end
@@ -149,6 +155,7 @@ actor Runtime
     let token = _token as OCapToken
     let frame = Frame.empty()
     let bytes: Array[U8] val = consume data
+    if _debug then _err.print("debug: sealing payload bytes=" + bytes.size().string()) end
     frame.append(bytes)
     _tx = _tx + 1
     let wire: Array[U8] val = token.seal(consume frame, _tx, 2)?
@@ -156,6 +163,7 @@ actor Runtime
     _last_sequence = _tx
     _last_sent = Time.nanos()
     _network.send(wire, _peer)
+    if _debug then _err.print("debug: sent wire bytes=" + wire.size().string() + " sequence=" + _tx.string()) end
 
   fun ref _encrypted(data: Array[U8] iso) ? =>
     if (not _cfg.client) and (_stage == 0) then
@@ -210,6 +218,7 @@ actor Runtime
     _rx = sequence
     packet.trim_in_place(12)
     let plaintext: Array[U8] val = consume packet
+    if _debug then _err.print("debug: delivering payload bytes=" + plaintext.size().string()) end
     match _local
     | let local: NetAddress val => _app.send(plaintext, local)
     end

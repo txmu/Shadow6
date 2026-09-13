@@ -2,18 +2,14 @@
 """Test harness for Core-Idris feature contract validation."""
 
 import json
+import shlex
 import subprocess
 import sys
 from pathlib import Path
 
 def run_command(cmd, check=True):
     """Run command and return output."""
-    result = subprocess.run(
-        cmd,
-        shell=True,
-        capture_output=True,
-        text=True
-    )
+    result = subprocess.run(shlex.split(cmd), capture_output=True, text=True)
     if check and result.returncode != 0:
         print(f"Command failed: {cmd}")
         print(f"stderr: {result.stderr}")

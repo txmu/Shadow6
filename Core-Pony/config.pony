@@ -24,10 +24,10 @@ class val Configuration
     @sodium_memzero(bytes.cpointer(), bytes.size())
 
 actor ConfigReader
-  new create(auth: FileAuth, path: String, main: Main, check: Bool) =>
+  new create(auth: FileAuth, path: String, main: Main, check: Bool, debug: Bool) =>
     try
       if (path.size() == 0) or (path.size() > 4096) or path.contains(String.from_array([U8(0)])) then error end
       let bytes = recover iso Array[U8].init(0, 71) end
       if @s6p_config(path.cstring(), bytes.cpointer(), bytes.size()) != 0 then error end
-      main.configured(Configuration(consume bytes)?, check)
+      main.configured(Configuration(consume bytes)?, check, debug)
     else main.failed() end

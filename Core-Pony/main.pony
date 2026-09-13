@@ -15,17 +15,21 @@ actor Main
       end
       if (env.args.size() == 3) and ((env.args(1)? == "--config") or
         (env.args(1)? == "--check-config")) then
-        ConfigReader(FileAuth(env.root), env.args(2)?, this, env.args(1)? == "--check-config")
+        ConfigReader(FileAuth(env.root), env.args(2)?, this, env.args(1)? == "--check-config", false)
+        return
+      end
+      if (env.args.size() == 4) and (env.args(1)? == "--config") and (env.args(3)? == "--debug") then
+        ConfigReader(FileAuth(env.root), env.args(2)?, this, false, true)
         return
       end
     end
     env.err.print("shadow6-pony --config FILE | --check-config FILE | --feature-report")
     env.exitcode(2)
 
-  be configured(config: Configuration val, check: Bool) =>
+  be configured(config: Configuration val, check: Bool, debug: Bool) =>
     if check then _env.out.print("configuration is valid")
     else
-      Runtime(NetAuth(_env.root), config, _env.out, this)
+      Runtime(NetAuth(_env.root), config, _env.out, _env.err, this, debug)
     end
 
   be failed() =>
