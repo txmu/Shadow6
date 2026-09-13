@@ -16,6 +16,12 @@ assert keys.returncode == 0 and "Private Key (Hex):" in keys.stdout
 denied = run("--crosed-request", "/nonexistent/request", "--crosed-trust", "/nonexistent/trust")
 assert denied.returncode == 0 and json.loads(denied.stdout)["status"] == "denied"
 
+benchmark = run("--benchmark-loopback", "4", "8")
+assert benchmark.returncode == 0, benchmark.stderr
+metrics = json.loads(benchmark.stdout)
+assert metrics["requests_completed"] == 8 and metrics["bytes_transferred"] == 64
+assert metrics["success_rate"] == 1.0 and metrics["latency_p95_seconds"] >= 0
+
 with tempfile.TemporaryDirectory(prefix="shadow6-gleam-test.") as directory:
     root = pathlib.Path(directory)
     config = root / "config.json"

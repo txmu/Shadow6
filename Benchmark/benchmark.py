@@ -50,8 +50,8 @@ def run(c):
      runner=os.environ.get("PYTHON") or (str(ROOT/".venv/bin/python") if (ROOT/".venv/bin/python").is_file() else sys.executable);cmd=[runner,str(ROOT/"integration/stack_test.py"),"--engine","shadow6-"+core,"--benchmark",*sum((["--"+k.replace("_","-"),str(v)] for k,v in c["network"].items()),[])]; timeout=240;kind="network-chain"
     else:cmd=[str(exe),*ROLES[role],*c["args"].get(core,[]),*c["args"].get(role,[])];timeout=120;kind="process-start"
     started=time.perf_counter();code,out,err,process=execute(cmd,timeout);row={"core":core,"measurement":kind,"role":role,"repeat":repeat,"status":"ok" if code==0 else "failed","returncode":code,"elapsed_seconds":time.perf_counter()-started,"process":process,"stderr":err[-2048:]}
-    try:row["network" if kind=="network-chain" else "native"]=json.loads(out.splitlines()[-1] if kind=="network-chain" else out)
-    except json.JSONDecodeError:pass
+    try:row["network" if kind=="network-chain" else "native"]=json.loads(out.splitlines()[-1] if kind=="network-chain" and out.splitlines() else out)
+    except (json.JSONDecodeError,TypeError):pass
     rows.append(row)
  return {"schema":"shadow6.benchmark.v2","config":c,"results":rows}
 def write(result,base):

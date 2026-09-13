@@ -29,6 +29,14 @@ class CoreDTests(unittest.TestCase):
         self.assertNotEqual(self.call("--unknown").returncode, 0)
         self.assertNotEqual(self.call("--check-config", "/nonexistent-shadow6-config").returncode, 0)
 
+    def test_authenticated_client_broker_agent_target_benchmark(self):
+        result = self.call("--benchmark-loopback", "4", "8")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report = json.loads(result.stdout)
+        self.assertEqual(report["requests_completed"], 8)
+        self.assertEqual(report["bytes_transferred"], 64)
+        self.assertEqual(report["success_rate"], 1.0)
+
     def test_real_loopback_authenticated_close(self):
         seed = os.urandom(32)
         signer = Ed25519PrivateKey.from_private_bytes(seed)

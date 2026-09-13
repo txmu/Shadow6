@@ -52,6 +52,24 @@ static ERL_NIF_TERM decrypt(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
     return enif_make_tuple2(env, atom(env, "ok"), enif_make_binary(env, &plain));
 }
 
+static ERL_NIF_TERM encrypt(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[]) {
+    ErlNifBinary plain, aad, nonce, key, cipher, mac;
+    if (argc != 4 || !enif_inspect_binary(env, argv[0], &plain) ||
+        !enif_inspect_binary(env, argv[1], &aad) || !enif_inspect_binary(env, argv[2], &nonce) ||
+        !enif_inspect_binary(env, argv[3], &key) || plain.size > 65472 ||
+        nonce.size != crypto_aead_chacha20poly1305_ietf_NPUBBYTES ||
+        key.size != crypto_aead_chacha20poly1305_ietf_KEYBYTES ||
+        !enif_alloc_binary(plain.size, &cipher) ||
+        !enif_alloc_binary(crypto_aead_chacha20poly1305_ietf_ABYTES, &mac)) return enif_make_badarg(env);
+    if (crypto_aead_chacha20poly1305_ietf_encrypt_detached(cipher.data, mac.data, NULL,
+          plain.data, (unsigned long long)plain.size, aad.data, (unsigned long long)aad.size,
+          NULL, nonce.data, key.data) != 0) {
+        sodium_memzero(cipher.data, cipher.size); enif_release_binary(&cipher); enif_release_binary(&mac);
+        return atom(env, "error");
+    }
+    return enif_make_tuple3(env, atom(env, "ok"), enif_make_binary(env, &cipher), enif_make_binary(env, &mac));
+}
+
 static ERL_NIF_TERM x25519(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[]) {
     ErlNifBinary secret, peer, shared;
     if (argc != 2 || !enif_inspect_binary(env, argv[0], &secret) ||
@@ -155,6 +173,7 @@ static ErlNifFunc functions[] = {
   {"verify_mac", 3, verify_mac, ERL_NIF_DIRTY_JOB_CPU_BOUND},
   {"verify_ed25519", 3, verify_ed25519, ERL_NIF_DIRTY_JOB_CPU_BOUND},
   {"decrypt", 5, decrypt, ERL_NIF_DIRTY_JOB_CPU_BOUND},
+  {"encrypt", 4, encrypt, ERL_NIF_DIRTY_JOB_CPU_BOUND},
   {"x25519", 2, x25519, ERL_NIF_DIRTY_JOB_CPU_BOUND},
   {"keypair", 0, keypair, ERL_NIF_DIRTY_JOB_CPU_BOUND},
   {"sha256", 1, sha256, ERL_NIF_DIRTY_JOB_CPU_BOUND},

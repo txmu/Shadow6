@@ -1,5 +1,5 @@
 module main;
-import bounded, config, json, native, packet;
+import benchmark, bounded, config, json, native, packet;
 import core.stdc.stdio : printf, fgets, stdin;
 import core.stdc.string : strlen;
 
@@ -7,6 +7,7 @@ import core.stdc.string : strlen;
 
 struct Driver { int socket = -1; Key key; Secret signer; Key peer; SessionId session; ReceiveState receive; bool stopped; invariant { assert(socket >= -1 && socket < 40); } }
 private bool arg(const(char)* v, const(char)[] e) { if (v is null) return false; auto n = strlen(v); return n == e.length && equal(v[0 .. n], e); }
+private bool number(const(char)* value, out uint result) { result=0; if(value is null)return false; auto n=strlen(value); if(!n||n>5)return false; foreach(c;value[0..n]){if(c<'0'||c>'9')return false; result=result*10+c-'0';} return result>0; }
 private bool initDriver(ref Driver d, ref const Document doc) {
     auto role = doc.field(1, "role"); auto section = doc.get(1, role); if (!section) return false;
     Key pub; if (!loadKey(doc.field(section, "private_key"), pub, d.signer)) return false;
@@ -41,6 +42,10 @@ extern(C) int shadow6_d_entry(int argc, char** argv) {
     if (argc == 2 && arg(argv[1], "--feature-report")) {
         printf("%.*s\n", cast(int)features.length, features.ptr); return 0;
     }
+    if (argc == 4 && arg(argv[1], "--benchmark-loopback")) {
+        uint payload, requests; if(!number(argv[2],payload)||!number(argv[3],requests)) return 2;
+        return runBenchmark(payload,requests);
+    }
     if (argc == 2 && arg(argv[1], "--json-rpc")) {
         char[MAX_JSON] line; Document doc;
         while (fgets(line.ptr, cast(int)line.length, stdin) !is null) {
@@ -65,5 +70,5 @@ extern(C) int shadow6_d_entry(int argc, char** argv) {
         while (!d.stopped) { shadow6_d_driver_step(&d); d_pause(); }
         d_close(d.socket); return 0;
     }
-    printf("shadow6-d --config FILE [--embedded|--check-config] | --feature-report | --json-rpc\n"); return 2;
+    printf("shadow6-d --config FILE [--embedded|--check-config] | --feature-report | --json-rpc | --benchmark-loopback BYTES REQUESTS\n"); return 2;
 }

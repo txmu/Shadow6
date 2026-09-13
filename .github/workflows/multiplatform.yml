@@ -542,7 +542,7 @@ jobs:
             if zig version | grep -Eq '^0\.1[6-9]\.'; then zig build -Doptimize=ReleaseSafe && zig build test -Doptimize=ReleaseSafe; else echo 'OpenBSD package Zig is older than the supported 0.16 API; source contract remains covered by Linux/macOS'; fi
             if test -f /usr/local/include/rtc/rtc.h; then cd ../Core-Nim && nim c --mm:arc --threads:on -d:release -o:shadow6-nim src/shadow6_nim.nim; else echo 'libdatachannel unavailable; Core-Nim source contract present'; fi
             cd ..
-            python3 Benchmark/benchmark.py --core cpp --role network-chain --repeats 3 --output benchmark-openbsd.json
+            python3 Benchmark/benchmark.py --core go --role network-chain --repeats 3 --output benchmark-openbsd.json
       - uses: actions/upload-artifact@v4
         with:
           name: shadow6-openbsd-release

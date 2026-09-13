@@ -15,12 +15,14 @@ parse_args([<<"--crosed-trust">>, P|T], O) -> parse_args(T, O#{crosed_trust => P
 parse_args([<<"--init-config">>, R|T], O) -> parse_args(T, O#{init_config => R});
 parse_args([<<"--check-config">>|T], O) -> parse_args(T, O#{check_config => true});
 parse_args([<<"--feature-report">>|T], O) -> parse_args(T, O#{feature_report => true});
+parse_args([<<"--benchmark-loopback">>, B, R|T], O) -> parse_args(T, O#{benchmark => {binary_to_integer(B),binary_to_integer(R)}});
 parse_args([<<"--gen-key">>|T], O) -> parse_args(T, O#{gen_key => true});
 parse_args([<<"--help">>|T], O) -> parse_args(T, O#{help => true});
 parse_args([<<"-h">>|T], O) -> parse_args(T, O#{help => true});
 parse_args([Unknown|_], _) -> erlang:error({unknown_option, Unknown}).
 
 run(#{feature_report := true}) -> print_json(shadow6_crosed:feature_report()), halt(0);
+run(#{benchmark := {Bytes,Requests}}) -> ok=shadow6_benchmark:run(Bytes,Requests), halt(0);
 run(#{gen_key := true}) ->
     {Private, Public} = shadow6_sodium:keypair(),
     io:put_chars("--- Ed25519 Key Pair Generated ---\nPrivate Key (Hex): "),

@@ -153,6 +153,12 @@ def run_idris_engine(benchmark: dict) -> dict:
         latencies.append(time.perf_counter()-request)
     return benchmark_metrics(payload,latencies,time.perf_counter()-started)
 
+def run_native_loopback_engine(engine: str, benchmark: dict) -> dict:
+    binary=ROOT/CORE_BINARIES[engine]
+    result=subprocess.run([str(binary),"--benchmark-loopback",str(benchmark["payload_bytes"]),str(benchmark["requests"])],cwd=binary.parent,capture_output=True,text=True,timeout=30)
+    if result.returncode: raise RuntimeError(f"{engine} native benchmark failed: {result.stderr[-2048:] or result.stdout[-2048:]}")
+    return json.loads(result.stdout.splitlines()[-1])
+
 
 def run_native_core_tests(engine: str) -> None:
     tests = CORE_TESTS.get(engine)
@@ -415,7 +421,9 @@ def main() -> int:
         engines = (args.engine,)
     benchmark_result = None
     for engine in engines:
-        if args.benchmark and engine == "shadow6-idris":
+        if args.benchmark and engine in ("shadow6-d", "shadow6-gleam"):
+            benchmark_result = run_native_loopback_engine(engine, {"payload_bytes": args.payload_bytes, "requests": args.requests, "concurrency": args.concurrency})
+        elif args.benchmark and engine == "shadow6-idris":
             benchmark_result = run_idris_engine({"payload_bytes": args.payload_bytes, "requests": args.requests, "concurrency": args.concurrency})
         elif args.benchmark and engine == "shadow6-carp":
             benchmark_result = run_carp_engine({"payload_bytes": args.payload_bytes, "requests": args.requests, "concurrency": args.concurrency})
