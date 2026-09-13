@@ -40,6 +40,21 @@ CORE_TESTS = {
     "shadow6-gleam": [ROOT / "Core-Gleam/test_control.py"],
     "shadow6-idris": [ROOT / "Core-Idris/test_core.py"],
 }
+CORE_BINARIES = {
+    engine: ROOT / directory / binary
+    for engine, directory, binary in (
+        ("shadow6-zig", "Core-Zig", "shadow6-zig"),
+        ("shadow6-ada", "Core-Ada", "shadow6-ada"),
+        ("shadow6-d", "Core-D", "shadow6-d"),
+        ("shadow6-nim", "Core-Nim", "shadow6-nim"),
+        ("shadow6-cpp", "Core-Cpp", "shadow6-cpp"),
+        ("shadow6-pony", "Core-Pony", "shadow6-pony"),
+        ("shadow6-hare", "Core-Hare", "shadow6-hare"),
+        ("shadow6-carp", "Core-Carp", "shadow6-carp"),
+        ("shadow6-gleam", "Core-Gleam", "shadow6-gleam"),
+        ("shadow6-idris", "Core-Idris", "shadow6-idris"),
+    )
+}
 
 
 def run_native_core_tests(engine: str) -> None:
@@ -58,6 +73,14 @@ def run_native_core_tests(engine: str) -> None:
             cwd = test.parent
             environment = dict(os.environ)
             environment["PYTHON"] = str(Path(sys.executable).resolve())
+        elif engine == "shadow6-gleam":
+            command = [sys.executable, str(test), str(CORE_BINARIES[engine])]
+            cwd = ROOT
+            environment = None
+        elif engine == "shadow6-idris":
+            command = [sys.executable, str(test)]
+            cwd = test.parent
+            environment = None
         else:
             command = [sys.executable, str(test)]
             cwd = ROOT
@@ -251,7 +274,13 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--engine", choices=("shadow6-go", "shadow6-rust", *CORE_TESTS, "all"), default="all")
     args = parser.parse_args()
-    engines = ("shadow6-go", "shadow6-rust", *CORE_TESTS) if args.engine == "all" else (args.engine,)
+    if args.engine == "all":
+        engines = ("shadow6-go", "shadow6-rust", *(engine for engine in CORE_TESTS if CORE_BINARIES[engine].is_file()))
+        skipped = [engine for engine in CORE_TESTS if not CORE_BINARIES[engine].is_file()]
+        for engine in skipped:
+            print(f"[SKIP] {engine} native integration: binary was not built")
+    else:
+        engines = (args.engine,)
     for engine in engines:
         if engine in ("shadow6-go", "shadow6-rust"):
             run_engine(engine)

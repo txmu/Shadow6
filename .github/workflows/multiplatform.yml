@@ -161,6 +161,47 @@ jobs:
             Core-Gleam/shadow6-gleam
             Core-Gleam/shadow6-gleam-crosed
           if-no-files-found: error
+  linux-fast:
+    name: Linux fast core/integration gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: {go-version-file: Core-Go/go.mod}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install minimal native dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential pkg-config libssl-dev libsodium-dev
+          python -m venv .venv
+          .venv/bin/pip install -r requirements.txt
+      - name: Compile focused Linux cores
+        run: |
+          ./configure --disable-all --enable-core-go --enable-core-rust --enable-core-cpp --enable-auto
+          make core-go core-rust core-cpp
+      - name: Run focused unit and real integration tests
+        run: |
+          (cd Core-Cpp && PYTHON="$GITHUB_WORKSPACE/.venv/bin/python" bash ./test.sh)
+          .venv/bin/python integration/stack_test.py --engine shadow6-go
+          .venv/bin/python integration/stack_test.py --engine shadow6-rust
+          .venv/bin/python integration/stack_test.py --engine shadow6-cpp
+          PYTHONPATH=Benchmark .venv/bin/python -m unittest -v Benchmark/test_benchmark.py
+      - name: Run focused benchmark last
+        run: |
+          .venv/bin/python Benchmark/benchmark.py --core go --core rust --core cpp --role feature-report --repeats 1 --output benchmark-linux-fast.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: shadow6-linux-fast
+          path: |
+            Core-Go/shadow6-go
+            Core-Rust/shadow6-rust
+            Core-Cpp/shadow6-cpp
+            benchmark-linux-fast.*
+          if-no-files-found: warn
   linux:
     runs-on: ubuntu-latest
     env:
@@ -310,7 +351,7 @@ jobs:
         run: |
           { uname -a; python3 --version; go version; rustc --version; zig version; } 2>&1 || true
           for report in benchmark-*.json benchmark-*.txt benchmark-*.md; do
-            test -f "$report" && { echo "===== $report ====="; cat "$report"; }
+            if test -f "$report"; then echo "===== $report ====="; cat "$report"; fi
           done
       - uses: actions/upload-artifact@v4
         with:
