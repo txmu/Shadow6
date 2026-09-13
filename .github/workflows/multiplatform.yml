@@ -522,21 +522,23 @@ jobs:
       - uses: cross-platform-actions/action@24ef01df165c76df1ed2b9f9e9212e78dc2fc963 # v1.4.0, Node 24
         with:
           operating_system: openbsd
-          version: '7.6'
+          version: '7.9'
+          cpu_count: 2
+          memory: 6G
       - name: Test OpenBSD components
         shell: cpa.sh {0}
         run: |
-            sudo pkg_add go rust python%3.11 libsodium zig nim openssl-3.3.2p0v0
-            export PYTHON="$(command -v python3.11 || command -v python3)"
+            sudo pkg_add go rust python%3.13 libsodium zig nim openssl-3.5.6v0
+            export PYTHON="$(command -v python3.13 || command -v python3)"
             for tool in go cargo c++ "$PYTHON"; do command -v "$tool" || exit 1; done
-            export CPPFLAGS='-I/usr/local/include/eopenssl33'
-            export LDFLAGS='-L/usr/local/lib/eopenssl33 -Wl,-rpath,/usr/local/lib/eopenssl33'
-            test -f /usr/local/include/eopenssl33/openssl/ssl.h
+            export CPPFLAGS='-I/usr/local/include/eopenssl35'
+            export LDFLAGS='-L/usr/local/lib/eopenssl35 -Wl,-rpath,/usr/local/lib/eopenssl35'
+            test -f /usr/local/include/eopenssl35/openssl/ssl.h
             # The Go network benchmark generates configs through the Python
             # orchestrator, which imports the pinned application dependencies.
             "$PYTHON" -m venv .venv
             export PYTHON="$PWD/.venv/bin/python"
-            OPENSSL_INCLUDE_DIR=/usr/local/include/eopenssl33 OPENSSL_LIB_DIR=/usr/local/lib/eopenssl33 "$PYTHON" -m pip install -r requirements.txt
+            OPENSSL_INCLUDE_DIR=/usr/local/include/eopenssl35 OPENSSL_LIB_DIR=/usr/local/lib/eopenssl35 "$PYTHON" -m pip install -r requirements.txt
             cd Core-Go
             go test ./...
             bash ./compile.sh
