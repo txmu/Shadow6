@@ -532,6 +532,11 @@ jobs:
             export CPPFLAGS='-I/usr/local/include/eopenssl33'
             export LDFLAGS='-L/usr/local/lib/eopenssl33 -Wl,-rpath,/usr/local/lib/eopenssl33'
             test -f /usr/local/include/eopenssl33/openssl/ssl.h
+            # The Go network benchmark generates configs through the Python
+            # orchestrator, which imports the pinned application dependencies.
+            "$PYTHON" -m venv .venv
+            export PYTHON="$PWD/.venv/bin/python"
+            OPENSSL_INCLUDE_DIR=/usr/local/include/eopenssl33 OPENSSL_LIB_DIR=/usr/local/lib/eopenssl33 "$PYTHON" -m pip install -r requirements.txt
             cd Core-Go
             go test ./...
             bash ./compile.sh
@@ -545,7 +550,7 @@ jobs:
             bash ./test.sh
             if test -f /usr/local/include/rtc/rtc.h; then cd ../Core-Nim && nim c --mm:arc --threads:on -d:release -o:shadow6-nim src/shadow6_nim.nim; else echo 'libdatachannel unavailable; Core-Nim source contract present'; fi
             cd ..
-            python3 Benchmark/benchmark.py --core go --role network-chain --repeats 3 --output benchmark-openbsd.json
+            "$PYTHON" Benchmark/benchmark.py --core go --role network-chain --repeats 3 --output benchmark-openbsd.json
       - uses: actions/upload-artifact@v4
         with:
           name: shadow6-openbsd-release

@@ -10,6 +10,19 @@ Missing binaries and failed paths make the command fail. Results use schema
 `shadow6.benchmark.v2`. One run writes matching JSON, text, and Markdown
 reports, so formats always describe the same samples.
 
+C++ requires kernel SCTP. Before benchmarking it, a loopback socket probe
+checks support; an unsupported protocol is explicitly reported as
+`not_applicable`, without substituting TCP or claiming a successful measurement.
+Permission and other unexpected socket errors still fail. Component tests
+continue to cover C++ configuration and TLS on platforms without SCTP.
+
+On POSIX, nonblocking `wait4` collects usage for the particular child while
+preserving the deadline. Network measurements include the harness and its
+reaped children, not only the core. Peak RSS follows the OS's child-usage
+semantics; it is not the sum of simultaneous process RSS. Platforms without
+`wait4` report unavailable counters explicitly. Failed commands print bounded
+stdout/stderr diagnostics as well as saving them in the JSON report.
+
 ```sh
 python3 Benchmark/benchmark.py --output benchmark.json
 python3 Benchmark/benchmark.py --config Benchmark/example.json

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Fixed-command benchmark runner; process and network measurements differ."""
 from __future__ import annotations
-import argparse,json,os,subprocess,sys,tempfile,time
+import argparse,errno,json,os,socket,subprocess,sys,tempfile,time
 from pathlib import Path
 try: import resource
 except ModuleNotFoundError: resource=None
@@ -19,29 +19,35 @@ def metrics(u,reason=None):
  return {k:{"value":max(0,v),"state":"valid"} for k,v in values.items()}
 def execute(command,timeout):
  with tempfile.TemporaryFile() as out,tempfile.TemporaryFile() as err:
-  before=resource.getrusage(resource.RUSAGE_CHILDREN) if resource is not None else None
   p=subprocess.Popen(command,cwd=ROOT,stdout=out,stderr=err)
   try:
    # Polling keeps the hard timeout effective on POSIX as well as Windows.
    # wait4(..., 0) can otherwise block forever in a stuck network harness.
    deadline=time.monotonic()+timeout
-   while p.poll() is None:
+   usage=None
+   while True:
+    if hasattr(os,"wait4"):
+     pid,status,usage=os.wait4(p.pid,os.WNOHANG)
+     if pid:
+      p.returncode=os.waitstatus_to_exitcode(status)
+      break
+    elif p.poll() is not None:break
     if time.monotonic() >= deadline:
      raise subprocess.TimeoutExpired(command,timeout)
     time.sleep(0.02)
-   after=resource.getrusage(resource.RUSAGE_CHILDREN) if resource is not None else None
-   if before is not None and after is not None:
-    data=metrics(type("Usage",(),{
-     "ru_utime":after.ru_utime-before.ru_utime,
-     "ru_stime":after.ru_stime-before.ru_stime,
-     "ru_maxrss":after.ru_maxrss,
-     "ru_nvcsw":after.ru_nvcsw-before.ru_nvcsw,
-     "ru_nivcsw":after.ru_nivcsw-before.ru_nivcsw,
-     "ru_inblock":after.ru_inblock-before.ru_inblock,
-     "ru_oublock":after.ru_oublock-before.ru_oublock})())
-   else:data=metrics(None,"native process counters unavailable")
+   data=metrics(usage,"native process counters unavailable on this platform")
   except subprocess.TimeoutExpired:p.kill();p.wait();p.returncode=124;data=metrics(None,"timed out")
   out.seek(0);err.seek(0);return p.returncode,out.read().decode("utf-8","replace"),err.read().decode("utf-8","replace"),data
+def network_unavailable(core):
+ if core != "cpp":return None
+ try:
+  with socket.socket(socket.AF_INET,socket.SOCK_STREAM,132) as probe:
+   probe.bind(("127.0.0.1",0));probe.listen(1)
+ except OSError as error:
+  if error.errno in (errno.EPROTONOSUPPORT,errno.EAFNOSUPPORT,errno.EPROTOTYPE,errno.EOPNOTSUPP):
+   return f"kernel SCTP unavailable: {error}"
+  raise
+ return None
 def _load_config(path):
  d={"cores":list(CORE_PATHS),"roles":["feature-report","network-chain"],"repeats":1,"args":{},"network":{"payload_bytes":4,"requests":32,"concurrency":1}}
  if path:
@@ -60,6 +66,11 @@ def run(c):
   if not exe.is_file() or not os.access(exe,os.X_OK) or not binary(exe):exe=(ROOT/FALLBACK.get(core,CORE_PATHS[core])).resolve()
   if not exe.is_file() or not os.access(exe,os.X_OK) or not binary(exe):rows.append({"core":core,"measurement":"process-start","status":"not_applicable","path":str(exe),"reason":"missing, non-executable, or foreign-host binary"});continue
   for role in c["roles"]:
+   reason=network_unavailable(core) if role=="network-chain" else None
+   if reason:
+    rows.append({"core":core,"measurement":"network-chain","role":role,"status":"not_applicable","reason":reason})
+    print(f"[NOT APPLICABLE] {core} {role}: {reason}",file=sys.stderr)
+    continue
    for repeat in range(1,c["repeats"]+1):
     if role=="network-chain":
      if core == "d":
@@ -71,6 +82,9 @@ def run(c):
     started=time.perf_counter();code,out,err,process=execute(cmd,timeout);row={"core":core,"measurement":kind,"role":role,"repeat":repeat,"status":"ok" if code==0 else "failed","returncode":code,"elapsed_seconds":time.perf_counter()-started,"process":process,"stderr":err[-2048:]}
     try:row["network" if kind=="network-chain" else "native"]=json.loads(out.splitlines()[-1] if kind=="network-chain" and out.splitlines() else out)
     except (json.JSONDecodeError,TypeError):pass
+    if code:
+     row["stdout"]=out[-2048:]
+     print(f"[FAIL] {core} {role} repeat={repeat} exit={code}\n{err[-2048:]}\n{out[-2048:]}",file=sys.stderr)
     rows.append(row)
  return {"schema":"shadow6.benchmark.v2","config":c,"results":rows}
 def write(result,base):
