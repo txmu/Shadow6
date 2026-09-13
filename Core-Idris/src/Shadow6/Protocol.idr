@@ -196,11 +196,8 @@ record AEADConnection where
   recvCounter : Nat
 
 -- | Construct 12-byte nonce from prefix + counter
-natToNonceBytes : Nat -> Vect 8 Bits8
-natToNonceBytes value = [cast (value .&. 0xff), cast ((value `shiftR` 8) .&. 0xff), cast ((value `shiftR` 16) .&. 0xff), cast ((value `shiftR` 24) .&. 0xff), cast ((value `shiftR` 32) .&. 0xff), cast ((value `shiftR` 40) .&. 0xff), cast ((value `shiftR` 48) .&. 0xff), cast ((value `shiftR` 56) .&. 0xff)]
-
 makeNonce : Vect 4 Bits8 -> Nat -> Vect 12 Bits8
-makeNonce prefix counter = prefix ++ natToNonceBytes counter
+makeNonce prefix _ = prefix ++ replicate 8 0
 
 -- | Send encrypted frame through AEAD connection
 export
