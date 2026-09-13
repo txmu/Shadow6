@@ -38,10 +38,6 @@ actor Main
     let app = "false"
     let qubes = "false"
     let caps = "[]"
-    ifdef crosed_l5 then
-      compiled = "true"; level = "5"; app = "true"; qubes = "true"
-      caps = "[\"observe.version\",\"transport.application\",\"identity.assert\"]"
-    end
     "{\"core\":\"shadow6-pony\",\"version\":\"1.0.0\",\"crosed_compiled\":" +
       compiled + ",\"crosed_max_level\":" + level +
       ",\"app_transport\":" + app + ",\"qubes_isolation\":" + qubes +

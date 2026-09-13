@@ -1,10 +1,4 @@
-"""Object-capability authorization primitives for Crosed L5.
-
-Tokens carry only immutable authority data; authorization is the intersection
-of build level, signed request, per-plugin grant and domain policy.
-"""
-class val OCapGrant
-  let level: U8
+// Object capability authorization primitives for Crosed L5.
   let capabilities: Set[String] val
   let source_domain: String
   let target_domain: String
