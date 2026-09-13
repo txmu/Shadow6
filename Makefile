@@ -528,6 +528,8 @@ export IDRIS_CROSED_LEVEL IDRIS_APP_TRANSPORT IDRIS_QUBES_ISOLATION
 core-idris:
 ifeq ($(BUILD_IDRIS),1)
 	@echo "Building Core-Idris with Crosed level $(IDRIS_CROSED_LEVEL)..."
+	@case "$(IDRIS_CROSED_LEVEL)" in 0) level=L0;; 1) level=L1;; 2) level=L2;; 3) level=L3;; 4) level=L4;; 5) level=L5;; *) level=L0;; esac; \
+		printf 'module Shadow6.BuildConfig\n\nimport Shadow6.Types\n\n%%default total\n\npublic export\nBUILD_CROSED_LEVEL : CrosedLevel\nBUILD_CROSED_LEVEL = %s\n\npublic export\nBUILD_APP_TRANSPORT : Bool\nBUILD_APP_TRANSPORT = %s\n\npublic export\nBUILD_QUBES_ISOLATION : Bool\nBUILD_QUBES_ISOLATION = %s\n' "$$level" "$(if $(filter 1,$(IDRIS_APP_TRANSPORT)),True,False)" "$(if $(filter 1,$(IDRIS_QUBES_ISOLATION)),True,False)" > Core-Idris/src/Shadow6/BuildConfig.idr
 	@$(CC) -shared -fPIC -O2 -fstack-protector-strong $$(pkg-config --cflags libsodium) \
 		Core-Idris/ffi/sodium_ffi.c -o Core-Idris/ffi/libsodium_ffi.so \
 		$$(pkg-config --libs libsodium)

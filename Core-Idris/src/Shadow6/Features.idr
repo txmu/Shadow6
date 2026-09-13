@@ -3,6 +3,7 @@ module Shadow6.Features
 import Data.List
 import Data.String
 import Shadow6.Types
+import Shadow6.BuildConfig
 
 %default total
 
@@ -13,15 +14,15 @@ CORE_VERSION = "1.1.0"
 
 public export
 COMPILED_CROSED_LEVEL : CrosedLevel
-COMPILED_CROSED_LEVEL = L0  -- Default build
+COMPILED_CROSED_LEVEL = BUILD_CROSED_LEVEL
 
 public export
 COMPILED_APP_TRANSPORT : Bool
-COMPILED_APP_TRANSPORT = False  -- Default build
+COMPILED_APP_TRANSPORT = BUILD_APP_TRANSPORT
 
 public export
 COMPILED_QUBES_ISOLATION : Bool
-COMPILED_QUBES_ISOLATION = False  -- Default build
+COMPILED_QUBES_ISOLATION = BUILD_QUBES_ISOLATION
 
 public export
 COMPILED_UTF8 : Bool
