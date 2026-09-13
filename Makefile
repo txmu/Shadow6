@@ -529,7 +529,10 @@ core-idris:
 ifeq ($(BUILD_IDRIS),1)
 	@echo "Building Core-Idris with Crosed level $(IDRIS_CROSED_LEVEL)..."
 	@cd Core-Idris && $(IDRIS2) --build shadow6-idris.ipkg
-	@if [ -f Core-Idris/build/exec/shadow6-idris ]; then \
+	@if [ -f Core-Idris/obj/exec/shadow6-idris ]; then \
+		install -m 0755 Core-Idris/obj/exec/shadow6-idris Core-Idris/shadow6-idris; \
+		echo "✓ Core-Idris built successfully"; \
+	elif [ -f Core-Idris/build/exec/shadow6-idris ]; then \
 		install -m 0755 Core-Idris/build/exec/shadow6-idris Core-Idris/shadow6-idris; \
 		echo "✓ Core-Idris built successfully"; \
 	else \

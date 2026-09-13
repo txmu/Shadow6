@@ -54,7 +54,7 @@ echo "Compiling with Idris 2..."
 idris2 --build shadow6-idris.ipkg
 
 # Apply security hardening to generated C code
-if [ -f "build/exec/shadow6-idris" ]; then
+if [ -f "obj/exec/shadow6-idris" ]; then
   # Recompile with full security flags
   cd obj
   
@@ -81,7 +81,9 @@ if [ -f "build/exec/shadow6-idris" ]; then
 fi
 
 # Install binary
-if [ -f "build/exec/shadow6-idris" ]; then
+if [ -f "obj/exec/shadow6-idris" ]; then
+  install -m 0755 obj/exec/shadow6-idris shadow6-idris
+elif [ -f "build/exec/shadow6-idris" ]; then
   install -m 0755 build/exec/shadow6-idris shadow6-idris
 elif [ -f "shadow6-idris" ]; then
   chmod 0755 shadow6-idris
