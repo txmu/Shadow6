@@ -21,6 +21,8 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import struct
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -59,6 +61,86 @@ KNOWN_CAPABILITIES = frozenset(
 
 class PluginError(RuntimeError):
     """A plugin failed validation or execution."""
+
+
+class PluginRPCSession:
+    """Bounded request/response session for an already verified Plugin.
+
+    This is deliberately transport-neutral: adapters provide complete frames.
+    The session owns replay state and an attenuated OCAP capability set; plugin
+    code still executes only through ``run_plugin`` in its isolated child.
+    """
+    MAX_FRAME = 65_536
+    MAX_IN_FLIGHT = 16
+
+    def __init__(self, manifest: "PluginManifest", capabilities: frozenset[str] | None = None):
+        granted = manifest.capabilities if capabilities is None else capabilities
+        if not granted <= manifest.capabilities:
+            raise PluginError("OCAP capability exceeds plugin grant")
+        self.manifest = manifest
+        self.capabilities = frozenset(granted)
+        self._last_id = 0
+        self._closed = False
+        self._lock = threading.Lock()
+        self._active = 0
+
+    @staticmethod
+    def encode(message: dict[str, Any]) -> bytes:
+        payload = canonical(message)
+        if len(payload) > PluginRPCSession.MAX_FRAME - 4:
+            raise PluginError("Plugin RPC frame exceeds 65532 bytes")
+        return struct.pack(">I", len(payload)) + payload
+
+    @staticmethod
+    def decode(frame: bytes) -> dict[str, Any]:
+        if len(frame) < 4:
+            raise PluginError("truncated Plugin RPC frame")
+        size = struct.unpack(">I", frame[:4])[0]
+        if size > PluginRPCSession.MAX_FRAME - 4 or len(frame) != size + 4:
+            raise PluginError("invalid Plugin RPC frame length")
+        return strict_json(frame[4:])
+
+    def close(self) -> None:
+        with self._lock:
+            self._closed = True
+
+    def dispatch(self, request: dict[str, Any]) -> dict[str, Any]:
+        if self._closed:
+            raise PluginError("Plugin RPC session is closed")
+        if set(request) - {"id", "method", "params", "capabilities"}:
+            raise PluginError("unknown Plugin RPC request field")
+        request_id = request.get("id")
+        if type(request_id) is not int or not 1 <= request_id <= 0xFFFFFFFFFFFFFFFF:
+            raise PluginError("Plugin RPC id must be a positive integer")
+        with self._lock:
+            if request_id <= self._last_id:
+                raise PluginError("Plugin RPC request replay or out of order")
+            self._last_id = request_id
+            if self._active >= self.MAX_IN_FLIGHT:
+                raise PluginError("too many Plugin RPC requests")
+            self._active += 1
+        try:
+            method = request.get("method")
+            if not isinstance(method, str) or not re.fullmatch(r"plugin\.[a-z][a-z0-9_.-]{0,63}", method):
+                raise PluginError("invalid Plugin RPC method")
+            requested = request.get("capabilities", sorted(self.capabilities))
+            if not isinstance(requested, list) or len(requested) != len(set(requested)):
+                raise PluginError("invalid OCAP capability attenuation")
+            if not set(requested) <= self.capabilities:
+                raise PluginError("OCAP capability exceeds session grant")
+            params = request.get("params", {})
+            if not isinstance(params, dict):
+                raise PluginError("Plugin RPC params must be an object")
+            result = run_plugin(self.manifest, {
+                "protocol": "shadow6.plugin.rpc.v1", "method": method,
+                "capabilities": requested, "params": params,
+            })
+            return {"id": request_id, "ok": True, "result": result}
+        except PluginError as exc:
+            return {"id": request_id, "ok": False, "error": str(exc)[:256]}
+        finally:
+            with self._lock:
+                self._active -= 1
 
 
 @dataclass(frozen=True)

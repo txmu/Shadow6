@@ -20,6 +20,7 @@ from shadow6_plugins import (  # noqa: E402
     PluginRegistry,
     dispatch_hook,
     run_plugin,
+    PluginRPCSession,
 )
 
 
@@ -95,6 +96,17 @@ class PluginSystemTests(unittest.TestCase):
         manifest = self.registry.load("number-guess")
         with self.assertRaisesRegex(PluginError, "exceeds"):
             run_plugin(manifest, {"payload": "x" * 70_000})
+
+    def test_plugin_rpc_frames_and_ocap_replay_boundary(self):
+        manifest = self.registry.load("number-guess")
+        session = PluginRPCSession(manifest)
+        frame = session.encode({"id": 1, "method": "plugin.game", "params": {}})
+        self.assertEqual(session.decode(frame)["id"], 1)
+        self.assertFalse(session.dispatch({"id": 1, "method": "bad", "params": {}})["ok"])
+        with self.assertRaisesRegex(PluginError, "replay"):
+            session.dispatch({"id": 1, "method": "plugin.game", "params": {}})
+        with self.assertRaisesRegex(PluginError, "exceeds"):
+            PluginRPCSession(manifest, frozenset({"telemetry.read"}))
 
     def test_signed_hook_dispatch_has_no_host_network(self):
         self._require_namespace()
