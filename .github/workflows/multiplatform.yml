@@ -391,6 +391,7 @@ jobs:
           CROSED_LEVEL=5 APP_TRANSPORT=1 QUBES_ISOLATION=1 bash ./compile.sh
           mv shadow6-rust shadow6-rust-crosed
           CROSED_LEVEL=0 APP_TRANSPORT=0 QUBES_ISOLATION=0 bash ./compile.sh
+          cd ..
           python3 Benchmark/benchmark.py --role feature-report --repeats 1 --output benchmark-macos.json
           python3 Benchmark/benchmark.py --role feature-report --format txt --repeats 1 --output benchmark-macos.txt
       - uses: actions/upload-artifact@v4
@@ -434,8 +435,8 @@ jobs:
           # Windows hosted runners expose the launcher as `python`; `python3`
           # is not a stable command name there.
           cd ..
-          python Benchmark/benchmark.py --role feature-report --repeats 1 --output benchmark-windows.json
-          python Benchmark/benchmark.py --role feature-report --format txt --repeats 1 --output benchmark-windows.txt
+          python Benchmark/benchmark.py --core go --role feature-report --repeats 1 --output benchmark-windows.json
+          python Benchmark/benchmark.py --core go --role feature-report --format txt --repeats 1 --output benchmark-windows.txt
       - uses: actions/upload-artifact@v4
         with:
           name: shadow6-windows-core-go
@@ -488,8 +489,8 @@ jobs:
             cd ../Core-Zig && zig build -Doptimize=ReleaseSafe && zig build test -Doptimize=ReleaseSafe
             if test -f /usr/local/include/rtc/rtc.h || pkg info -e libdatachannel; then cd ../Core-Nim && nim c --mm:arc --threads:on -d:release -o:shadow6-nim src/shadow6_nim.nim; else echo 'libdatachannel unavailable; Core-Nim source contract present'; fi
             cd ..
-            python3 Benchmark/benchmark.py --role feature-report --repeats 1 --output benchmark-freebsd.json
-            python3 Benchmark/benchmark.py --role feature-report --format txt --repeats 1 --output benchmark-freebsd.txt
+            python3 Benchmark/benchmark.py --core go --core rust --core cpp --core zig --role feature-report --repeats 1 --output benchmark-freebsd.json
+            python3 Benchmark/benchmark.py --core go --core rust --core cpp --core zig --role feature-report --format txt --repeats 1 --output benchmark-freebsd.txt
       - uses: actions/upload-artifact@v4
         with:
           name: shadow6-freebsd-release
@@ -536,8 +537,8 @@ jobs:
             cd ../Core-Zig && zig build -Doptimize=ReleaseSafe && zig build test -Doptimize=ReleaseSafe
             if test -f /usr/local/include/rtc/rtc.h; then cd ../Core-Nim && nim c --mm:arc --threads:on -d:release -o:shadow6-nim src/shadow6_nim.nim; else echo 'libdatachannel unavailable; Core-Nim source contract present'; fi
             cd ..
-            python3 Benchmark/benchmark.py --role feature-report --repeats 1 --output benchmark-openbsd.json
-            python3 Benchmark/benchmark.py --role feature-report --format txt --repeats 1 --output benchmark-openbsd.txt
+          python3 Benchmark/benchmark.py --core go --core cpp --core zig --role feature-report --repeats 1 --output benchmark-openbsd.json
+          python3 Benchmark/benchmark.py --core go --core cpp --core zig --role feature-report --format txt --repeats 1 --output benchmark-openbsd.txt
       - uses: actions/upload-artifact@v4
         with:
           name: shadow6-openbsd-release

@@ -97,10 +97,11 @@ def run(config: dict) -> dict:
     return {"schema": "shadow6.benchmark.v1", "config": config, "results": rows}
 
 def main() -> int:
-    ap = argparse.ArgumentParser(); ap.add_argument("--config"); ap.add_argument("--role", choices=sorted(ROLES)); ap.add_argument("--repeats", type=int); ap.add_argument("--output", default="-"); ap.add_argument("--format", choices=("json", "txt"), default="json")
+    ap = argparse.ArgumentParser(); ap.add_argument("--config"); ap.add_argument("--core", action="append", choices=sorted(CORE_PATHS), help="core to benchmark; may be repeated"); ap.add_argument("--role", choices=sorted(ROLES)); ap.add_argument("--repeats", type=int); ap.add_argument("--output", default="-"); ap.add_argument("--format", choices=("json", "txt"), default="json")
     ns = ap.parse_args()
     try:
         config = _load_config(ns.config)
+        if ns.core: config["cores"] = ns.core
         if ns.role: config["roles"] = [ns.role]
         if ns.repeats is not None:
             if not 1 <= ns.repeats <= 1000: raise ValueError("repeats must be 1..1000")
