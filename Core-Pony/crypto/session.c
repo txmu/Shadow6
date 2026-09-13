@@ -141,7 +141,7 @@ int s6p_finish(unsigned char *state, size_t sn, const unsigned char *response,
 int s6p_seal(unsigned char *packet, size_t cap, size_t size,
               const unsigned char *keys, size_t kn, uint64_t sequence, unsigned kind) {
     if (!packet || !keys || cap > MAX_FRAME || size < 12 || size + 16 > cap ||
-        kn != KEYS || !sequence || sequence > 1000000 || kind > 2) return -1;
+        kn != KEYS || !sequence || sequence > 1000000 || kind > 3) return -1;
     unsigned char nonce[12] = {0}, ad[44];
     memcpy(packet, "S6D", 3); packet[3] = (unsigned char)kind;
     write64(packet + 4, sequence); write64(nonce + 4, sequence);
@@ -151,7 +151,7 @@ int s6p_seal(unsigned char *packet, size_t cap, size_t size,
 }
 int s6p_open(unsigned char *packet, size_t size, const unsigned char *keys, size_t kn) {
     if (!packet || !keys || size < 28 || size > MAX_FRAME || kn != KEYS ||
-        memcmp(packet, "S6D", 3) || packet[3] > 2) return -1;
+        memcmp(packet, "S6D", 3) || packet[3] > 3) return -1;
     uint64_t sequence = read64(packet + 4);
     if (!sequence || sequence > 1000000) return -1;
     unsigned char nonce[12] = {0}, ad[44];

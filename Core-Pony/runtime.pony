@@ -51,6 +51,9 @@ actor Runtime
   let _started: U64 = Time.nanos()
   var _handshake_started: U64 = 0
   var _next_retry: U64 = 0
+  var _last_wire: Array[U8] val = recover val Array[U8] end
+  var _last_sequence: U64 = 0
+  var _last_sent: U64 = 0
   var _hello: Array[U8] val = recover val Array[U8] end
   var _retry: Array[U8] val = recover val Array[U8] end
   let _timers: Timers = Timers
@@ -120,6 +123,9 @@ actor Runtime
       else
         _network.send(_retry, _peer)
       end
+    elseif (_stage == 3) and (_last_sequence > _rx) and ((Time.nanos() - _last_sent) > 750_000_000) then
+      _network.send(_last_wire, _peer)
+      _last_sent = Time.nanos()
     end
 
   be received(data: Array[U8] iso, from: NetAddress val, application: Bool) =>
@@ -145,6 +151,9 @@ actor Runtime
     frame.append(bytes)
     _tx = _tx + 1
     let wire: Array[U8] val = token.seal(consume frame, _tx, 2)?
+    _last_wire = wire
+    _last_sequence = _tx
+    _last_sent = Time.nanos()
     _network.send(wire, _peer)
 
   fun ref _encrypted(data: Array[U8] iso) ? =>
@@ -190,9 +199,13 @@ actor Runtime
     end
     if kind == 3 then
       _session.acknowledge(sequence)
+      if sequence >= _last_sequence then _last_sequence = 0 end
       return
     end
-    if (_stage != 3) or (kind != 2) or (not ReplayWindow.accept(_rx, sequence)) then return end
+    if (_stage != 3) or (kind != 2) then return end
+    if not ReplayWindow.accept(_rx, sequence) then
+      return
+    end
     _rx = sequence
     packet.trim_in_place(12)
     let plaintext: Array[U8] val = consume packet
