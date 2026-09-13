@@ -67,6 +67,28 @@ sortStrings (x :: xs) = insert x (sortStrings xs)
     insert y [] = [y]
     insert y (z :: zs) = if y <= z then y :: z :: zs else z :: insert y zs
 
+protocolHexDigit : Bits8 -> Char
+protocolHexDigit n =
+  if n < 10 then chr (ord '0' + cast n) else chr (ord 'a' + cast (n - 10))
+
+protocolByteToHex : Bits8 -> String
+protocolByteToHex b =
+  let hi = (b `shiftR` 4) .&. 0x0f
+      lo = b .&. 0x0f
+  in pack [protocolHexDigit hi, protocolHexDigit lo]
+
+protocolToHex : {n : Nat} -> Vect n Bits8 -> String
+protocolToHex vec = concat (map protocolByteToHex (toList vec))
+
+protocolToVect : List Bits8 -> (n : Nat ** Vect n Bits8)
+protocolToVect [] = (0 ** [])
+protocolToVect (x :: xs) =
+  let (n ** rest) = protocolToVect xs
+  in (S n ** x :: rest)
+
+protocolExtendHash : Vect 32 Bits8 -> IO (Vect 256 Bits8)
+protocolExtendHash hash = pure (hash ++ replicate 224 0)
+
 -- | Compute canonical signed payload for Crosed request
 computeSignedPayload : CrosedRequest -> IO (Vect 256 Bits8)
 computeSignedPayload req = do
@@ -74,8 +96,8 @@ computeSignedPayload req = do
   let capsStr = concat (intersperse "," sortedCaps)
   
   -- Build canonical string: version|modId|nonce|issuedAt|level|caps|hash
-  let nonceHex = toHexString req.nonce
-  let hashHex = toHexString req.payloadHash
+  let nonceHex = protocolToHex req.nonce
+  let hashHex = protocolToHex req.payloadHash
   
   let canonical = show req.version ++ "|" ++
                   req.modId ++ "|" ++
@@ -87,31 +109,8 @@ computeSignedPayload req = do
   
   -- SHA-256 hash of canonical representation
   let bytes = map cast (unpack canonical)
-  case toVect (length bytes) bytes of
-    (n ** vec) => sha256 vec >>= extendTo256
-  where
-    toHexString : {n : Nat} -> Vect n Bits8 -> String
-    toHexString vec = concat (map byte2hex (toList vec))
-    
-    byte2hex : Bits8 -> String
-    byte2hex b = 
-      let hi = (b `shiftR` 4) .&. 0x0f
-          lo = b .&. 0x0f
-      in pack [hexDigit hi, hexDigit lo]
-    
-    hexDigit : Bits8 -> Char
-    hexDigit n = if n < 10 
-                 then chr (ord '0' + cast n)
-                 else chr (ord 'a' + cast (n - 10))
-    
-    toVect : (len : Nat) -> List Bits8 -> (m : Nat ** Vect m Bits8)
-    toVect len [] = (0 ** [])
-    toVect len (x :: xs) = 
-      let (k ** v) = toVect len xs
-      in (S k ** x :: v)
-    
-    extendTo256 : Vect 32 Bits8 -> IO (Vect 256 Bits8)
-    extendTo256 hash = pure (hash ++ replicate 224 0)
+  case protocolToVect bytes of
+    (n ** vec) => sha256 vec >>= protocolExtendHash
 
 -- | Validate Crosed request with full signature verification
 export
