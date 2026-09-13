@@ -19,6 +19,7 @@ def metrics(u,reason=None):
  return {k:{"value":max(0,v),"state":"valid"} for k,v in values.items()}
 def execute(command,timeout):
  with tempfile.TemporaryFile() as out,tempfile.TemporaryFile() as err:
+  before=resource.getrusage(resource.RUSAGE_CHILDREN) if resource is not None else None
   p=subprocess.Popen(command,cwd=ROOT,stdout=out,stderr=err)
   try:
    # Polling keeps the hard timeout effective on POSIX as well as Windows.
@@ -28,7 +29,17 @@ def execute(command,timeout):
     if time.monotonic() >= deadline:
      raise subprocess.TimeoutExpired(command,timeout)
     time.sleep(0.02)
-   data=metrics(None,"native process counters unavailable")
+   after=resource.getrusage(resource.RUSAGE_CHILDREN) if resource is not None else None
+   if before is not None and after is not None:
+    data=metrics(type("Usage",(),{
+     "ru_utime":after.ru_utime-before.ru_utime,
+     "ru_stime":after.ru_stime-before.ru_stime,
+     "ru_maxrss":after.ru_maxrss,
+     "ru_nvcsw":after.ru_nvcsw-before.ru_nvcsw,
+     "ru_nivcsw":after.ru_nivcsw-before.ru_nivcsw,
+     "ru_inblock":after.ru_inblock-before.ru_inblock,
+     "ru_oublock":after.ru_oublock-before.ru_oublock})())
+   else:data=metrics(None,"native process counters unavailable")
   except subprocess.TimeoutExpired:p.kill();p.wait();p.returncode=124;data=metrics(None,"timed out")
   out.seek(0);err.seek(0);return p.returncode,out.read().decode("utf-8","replace"),err.read().decode("utf-8","replace"),data
 def _load_config(path):

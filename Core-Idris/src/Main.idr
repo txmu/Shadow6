@@ -31,9 +31,8 @@ parseArgs ("--udp-loopback" :: port :: limit :: _) =
 parseArgs (x :: _) = Unknown x
 
 parsePositive : String -> Maybe Nat
-parsePositive s = case stringToNat s of
-  Just n => if n > 0 then Just n else Nothing
-  Nothing => Nothing
+parsePositive s = case stringToNatOrZ s of
+  n => if n > 0 then Just n else Nothing
 
 -- | Display feature report
 showFeatureReport : IO ()
