@@ -203,10 +203,11 @@ jobs:
           mkdir -p .tools
           curl --fail --location --retry 3 \
             --output /tmp/ponyc.tar.gz \
-            https://github.com/ponylang/ponyc/releases/download/0.72.0/ponyc-0.72.0-x86_64-linux.tar.gz
-          tar -xzf /tmp/ponyc.tar.gz -C .tools
-          test -x .tools/ponyc-0.72.0-x86_64-linux/bin/ponyc
-          echo "$GITHUB_WORKSPACE/.tools/ponyc-0.72.0-x86_64-linux/bin" >> "$GITHUB_PATH"
+            https://github.com/ponylang/ponyc/releases/download/0.72.0/ponyc-x86-64-unknown-linux-ubuntu24.04.tar.gz
+          mkdir -p .tools/ponyc-0.72.0
+          tar -xzf /tmp/ponyc.tar.gz --strip-components=1 -C .tools/ponyc-0.72.0
+          test -x .tools/ponyc-0.72.0/bin/ponyc
+          echo "$GITHUB_WORKSPACE/.tools/ponyc-0.72.0/bin" >> "$GITHUB_PATH"
       - run: python -m venv .venv
       - run: .venv/bin/pip install -r requirements.txt -r requirements-ml.txt
       - name: Configure the complete Linux component matrix
