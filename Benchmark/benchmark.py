@@ -6,6 +6,7 @@ shell interpretation is deliberately never used.
 """
 from __future__ import annotations
 import argparse, json, os, subprocess, time
+import sys
 from pathlib import Path
 
 try:
@@ -36,6 +37,19 @@ def _child_usage():
         rss /= 1024
     return usage.ru_utime, usage.ru_stime, max(0, int(rss))
 
+
+def _host_binary(path: Path) -> bool:
+    """Reject stale binaries from another OS before subprocess can raise Exec format error."""
+    try:
+        magic = path.read_bytes()[:4]
+    except OSError:
+        return False
+    if sys.platform == "win32":
+        return magic[:2] == b"MZ"
+    if sys.platform == "darwin":
+        return magic in (b"\xfe\xed\xfa\xce", b"\xce\xfa\xed\xfe", b"\xfe\xed\xfa\xcf", b"\xcf\xfa\xed\xfe", b"\xca\xfe\xba\xbe")
+    return magic == b"\x7fELF"
+
 def _load_config(path: str | None) -> dict:
     if not path: return {"cores": list(CORE_PATHS), "roles": ["feature-report"], "repeats": 1, "args": {}}
     data = json.loads(Path(path).read_text(encoding="utf-8"))
@@ -53,7 +67,7 @@ def run(config: dict) -> dict:
     rows = []
     for core in config["cores"]:
         exe = (ROOT / CORE_PATHS[core]).resolve()
-        if not exe.is_file() or not os.access(exe, os.X_OK):
+        if not exe.is_file() or not os.access(exe, os.X_OK) or not _host_binary(exe):
             rows.append({"core": core, "status": "unavailable", "path": str(exe)}); continue
         # A native executable with unresolved shared libraries is unavailable on
         # this host; keep that distinct from an executed test failure.

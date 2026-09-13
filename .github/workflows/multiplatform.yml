@@ -392,8 +392,8 @@ jobs:
           mv shadow6-rust shadow6-rust-crosed
           CROSED_LEVEL=0 APP_TRANSPORT=0 QUBES_ISOLATION=0 bash ./compile.sh
           cd ..
-          python3 Benchmark/benchmark.py --role feature-report --repeats 1 --output benchmark-macos.json
-          python3 Benchmark/benchmark.py --role feature-report --format txt --repeats 1 --output benchmark-macos.txt
+          python3 Benchmark/benchmark.py --core go --core rust --core cpp --core zig --core nim --role feature-report --repeats 1 --output benchmark-macos.json
+          python3 Benchmark/benchmark.py --core go --core rust --core cpp --core zig --core nim --role feature-report --format txt --repeats 1 --output benchmark-macos.txt
       - uses: actions/upload-artifact@v4
         with:
           name: shadow6-macos-core-go

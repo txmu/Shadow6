@@ -112,7 +112,10 @@ public:
 #ifdef SSL_OP_NO_RENEGOTIATION
     options |= SSL_OP_NO_RENEGOTIATION;
 #endif
-    SSL_CTX_set_options(ctx_.get(), options);
+    // OpenSSL exposes option bits as long; cast at this ABI boundary so
+    // platforms where uint64_t is wider do not perform a lossy implicit
+    // conversion under -Wsign-conversion.
+    SSL_CTX_set_options(ctx_.get(), static_cast<unsigned long>(options));
     SSL_CTX_set_session_cache_mode(ctx_.get(), SSL_SESS_CACHE_OFF);
     SSL_CTX_set_num_tickets(ctx_.get(), 0);
     SSL_CTX_set_max_early_data(ctx_.get(), 0);
