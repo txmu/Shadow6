@@ -25,8 +25,6 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "Auto-Orchestrator"))
-from shadow6_auto import execute_mtd_rotation  # noqa: E402
 
 # Each entry invokes the core's existing real loopback/network tests.  The
 # harness never substitutes a synthetic wire protocol for a missing core test.
@@ -289,6 +287,8 @@ async def generate_configs(engine: str, output: Path, target_port: int, broker_p
             path = output / f"{role}.json"
             path.write_text(json.dumps(document), encoding="utf-8"); path.chmod(0o600)
         return
+    sys.path.insert(0, str(ROOT / "Auto-Orchestrator"))
+    from shadow6_auto import execute_mtd_rotation
     topology = {
         "version": "1.0",
         "global": {
