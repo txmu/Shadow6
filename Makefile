@@ -530,8 +530,9 @@ ifeq ($(BUILD_IDRIS),1)
 	@echo "Building Core-Idris with Crosed level $(IDRIS_CROSED_LEVEL)..."
 	@case "$(IDRIS_CROSED_LEVEL)" in 0) level=L0;; 1) level=L1;; 2) level=L2;; 3) level=L3;; 4) level=L4;; 5) level=L5;; *) level=L0;; esac; \
 		printf 'module Shadow6.BuildConfig\n\nimport Shadow6.Types\n\n%%default total\n\npublic export\nBUILD_CROSED_LEVEL : CrosedLevel\nBUILD_CROSED_LEVEL = %s\n\npublic export\nBUILD_APP_TRANSPORT : Bool\nBUILD_APP_TRANSPORT = %s\n\npublic export\nBUILD_QUBES_ISOLATION : Bool\nBUILD_QUBES_ISOLATION = %s\n' "$$level" "$(if $(filter 1,$(IDRIS_APP_TRANSPORT)),True,False)" "$(if $(filter 1,$(IDRIS_QUBES_ISOLATION)),True,False)" > Core-Idris/src/Shadow6/BuildConfig.idr
-	@$(CC) -shared -fPIC -O2 -fstack-protector-strong $$(pkg-config --cflags libsodium) \
-		Core-Idris/ffi/sodium_ffi.c -o Core-Idris/ffi/libsodium_ffi.so \
+	@lib_ext=so; lib_flag=-shared; case "$$(uname -s)" in Darwin) lib_ext=dylib; lib_flag=-dynamiclib;; esac; \
+		$(CC) $$lib_flag -fPIC -O2 -fstack-protector-strong $$(pkg-config --cflags libsodium) \
+		Core-Idris/ffi/sodium_ffi.c -o Core-Idris/ffi/libsodium_ffi.$$lib_ext \
 		$$(pkg-config --libs libsodium)
 	@cd Core-Idris && $(IDRIS2) --build shadow6-idris.ipkg
 	@if [ -f Core-Idris/obj/exec/shadow6-idris ]; then \
@@ -556,6 +557,8 @@ ifeq ($(BUILD_IDRIS),1)
 	@$(MAKE) core-idris IDRIS_CROSED_LEVEL=5 IDRIS_APP_TRANSPORT=1 IDRIS_QUBES_ISOLATION=1
 	@if [ -f Core-Idris/shadow6-idris ]; then \
 		install -m 0755 Core-Idris/shadow6-idris Core-Idris/shadow6-idris-crosed; \
+		if [ -d Core-Idris/shadow6-idris_app ]; then cp -a Core-Idris/shadow6-idris_app Core-Idris/shadow6-idris-crosed_app; fi; \
+		sed -i.bak 's/shadow6-idris_app/shadow6-idris-crosed_app/g' Core-Idris/shadow6-idris-crosed; \
 		echo "✓ Crosed variant saved"; \
 	fi
 	@echo "Rebuilding default L0 variant..."

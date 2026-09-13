@@ -80,6 +80,11 @@ if [ -f "obj/exec/shadow6-idris" ]; then
   cd ..
 fi
 
+# Keep the FFI library name aligned with the Chez backend on each platform.
+if [ "$(uname -s)" = "Darwin" ] && [ -f "ffi/libsodium_ffi.so" ] && [ ! -f "ffi/libsodium_ffi.dylib" ]; then
+  mv ffi/libsodium_ffi.so ffi/libsodium_ffi.dylib
+fi
+
 # Install binary
 if [ -f "obj/exec/shadow6-idris" ]; then
   install -m 0755 obj/exec/shadow6-idris shadow6-idris
