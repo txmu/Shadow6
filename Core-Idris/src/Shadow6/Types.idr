@@ -79,6 +79,10 @@ public export
 MAX_AEAD_PLAINTEXT : Nat
 MAX_AEAD_PLAINTEXT = 1048576
 
+public export
+nonceFromCounter : Vect 4 Bits8 -> Nat -> Vect 12 Bits8
+nonceFromCounter (p0 :: p1 :: p2 :: p3 :: []) value = [p0, p1, p2, p3, cast (value .&. 0xff), cast ((value `shiftR` 8) .&. 0xff), cast ((value `shiftR` 16) .&. 0xff), cast ((value `shiftR` 24) .&. 0xff), cast ((value `shiftR` 32) .&. 0xff), cast ((value `shiftR` 40) .&. 0xff), cast ((value `shiftR` 48) .&. 0xff), cast ((value `shiftR` 56) .&. 0xff)]
+
 -- | Timing window parameters for timing-channel UDP
 public export
 record TimingWindow where

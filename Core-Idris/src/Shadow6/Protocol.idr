@@ -195,14 +195,6 @@ record AEADConnection where
   sendCounter : Nat
   recvCounter : Nat
 
--- | Construct 12-byte nonce from prefix + counter
-public export
-nonceFromCounter : Vect 4 Bits8 -> Nat -> Vect 12 Bits8
-nonceFromCounter prefix counter =
-  let low = cast (counter .&. 0xff)
-      high = cast ((counter `shiftR` 8) .&. 0xff)
-  in prefix ++ [low, high, 0, 0, 0, 0, 0, 0]
-
 -- | Send encrypted frame through AEAD connection
 export
 aeadSend : AEADConnection ->
