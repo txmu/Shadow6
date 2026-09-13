@@ -13,6 +13,7 @@ import json
 import asyncio
 import os
 import re
+import select
 import signal
 import socket
 import subprocess
@@ -60,6 +61,99 @@ CORE_BINARIES.update({
     "shadow6-go": ROOT / "Core-Go/shadow6-go",
     "shadow6-rust": ROOT / "Core-Rust/shadow6-rust",
 })
+
+def benchmark_metrics(payload: bytes, latencies: list[float], duration: float) -> dict:
+    ordered = sorted(latencies); count = len(latencies)
+    return {"schema":"shadow6.network-chain.v1","payload_bytes":len(payload),"requests":count,"concurrency":1,"bytes_sent":len(payload)*count,"bytes_received":len(payload)*count,"duration_seconds":duration,"throughput_bps":len(payload)*count*8/duration,"latency_p95_seconds":ordered[min(count-1,int(count*.95))],"latency_avg_seconds":sum(latencies)/count,"success_rate":1.0}
+
+def reserve_udp(family: int, count: int) -> list[int]:
+    host = "::1" if family == socket.AF_INET6 else "127.0.0.1"
+    sockets = [socket.socket(family, socket.SOCK_DGRAM) for _ in range(count)]
+    try:
+        for item in sockets: item.bind((host, 0))
+        return [item.getsockname()[1] for item in sockets]
+    finally:
+        for item in sockets: item.close()
+
+def run_datagram_engine(engine: str, benchmark: dict) -> dict:
+    binary = CORE_BINARIES[engine]; family = socket.AF_INET6 if engine == "shadow6-hare" else socket.AF_INET
+    host = "::1" if family == socket.AF_INET6 else "127.0.0.1"; ports = reserve_udp(family, 4)
+    agent_port, client_port, app_port, target_port = ports
+    target = socket.socket(family, socket.SOCK_DGRAM); target.bind((host, target_port)); target.settimeout(10)
+    local = socket.socket(family, socket.SOCK_DGRAM); local.bind((host, 0)); local.settimeout(10)
+    processes = []
+    with tempfile.TemporaryDirectory(prefix=f"shadow6-bench-{engine}-") as directory:
+        root = Path(directory)
+        if engine == "shadow6-pony":
+            from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+            from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+            seeds = [os.urandom(32), os.urandom(32)]
+            pubs = [Ed25519PrivateKey.from_private_bytes(seed).public_key().public_bytes(Encoding.Raw, PublicFormat.Raw).hex() for seed in seeds]
+            configs = [dict(role="agent",listen_port=agent_port,peer_port=client_port,application_port=target_port,private_key=seeds[0].hex(),peer_public_key=pubs[1]),dict(role="client",listen_port=client_port,peer_port=agent_port,application_port=app_port,private_key=seeds[1].hex(),peer_public_key=pubs[0])]
+        else:
+            keys = [json.loads(subprocess.check_output([str(binary), "--gen-key"], text=True)) for _ in range(2)]
+            configs = [{"role":"agent","private_key":keys[0]["private_key"],"peer_public_key":keys[1]["public_key"],"listen_port":agent_port,"target_port":target_port},{"role":"client","private_key":keys[1]["private_key"],"peer_public_key":keys[0]["public_key"],"listen_port":client_port,"target_port":agent_port}]
+            app_port = client_port + 1
+        try:
+            for config in configs:
+                path=root/(config["role"]+".json");path.write_text(json.dumps(config),encoding="utf-8");path.chmod(0o600)
+                processes.append(subprocess.Popen([str(binary),"--config",str(path)],stdout=subprocess.PIPE,stderr=subprocess.PIPE))
+            for process in processes:
+                if not select.select([process.stdout],[],[],10)[0]: raise TimeoutError(f"{engine}: endpoint readiness timeout")
+                if b"ready" not in process.stdout.readline(): raise RuntimeError(f"{engine}: endpoint failed readiness")
+            if engine == "shadow6-hare":
+                for process in processes:
+                    if not select.select([process.stdout],[],[],10)[0] or b"session ready" not in process.stdout.readline(): raise TimeoutError(f"{engine}: session readiness timeout")
+            payload=b"x"*benchmark["payload_bytes"];latencies=[];started=time.perf_counter()
+            for _ in range(benchmark["requests"]):
+                request=time.perf_counter();local.sendto(payload,(host,app_port));data,address=target.recvfrom(1048577)
+                if data!=payload:raise AssertionError(f"{engine}: target payload mismatch")
+                target.sendto(data,address)
+                if local.recv(1048577)!=payload:raise AssertionError(f"{engine}: client response mismatch")
+                latencies.append(time.perf_counter()-request)
+            return benchmark_metrics(payload,latencies,time.perf_counter()-started)
+        finally:
+            target.close();local.close()
+            for process in processes:
+                process.terminate();process.communicate(timeout=5)
+
+def run_carp_engine(benchmark: dict) -> dict:
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+    binary=CORE_BINARIES["shadow6-carp"];ports=reserve_udp(socket.AF_INET,4);processes=[]
+    with tempfile.TemporaryDirectory(prefix="shadow6-bench-carp-") as directory:
+        root=Path(directory); channels=[]
+        for index in range(2):
+            seeds=[os.urandom(32),os.urandom(32)];pubs=[Ed25519PrivateKey.from_private_bytes(s).public_key().public_bytes(Encoding.Raw,PublicFormat.Raw) for s in seeds];binding=os.urandom(32)
+            paths=[]
+            for side in range(2):
+                path=root/f"{index}-{side}.keys";path.write_bytes(seeds[side]+pubs[1-side]+binding);path.chmod(0o600);paths.append(path)
+            listener=subprocess.Popen([str(binary),"--listen",str(paths[1]),str(ports[index*2+1]),str(ports[index*2]),"C"],stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+            sender=subprocess.Popen([str(binary),"--send",str(paths[0]),str(ports[index*2]),str(ports[index*2+1]),"C"],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+            processes += [listener,sender];channels.append((sender,listener))
+        try:
+            time.sleep(.25);payload=b"x"*benchmark["payload_bytes"];latencies=[];started=time.perf_counter()
+            for _ in range(benchmark["requests"]):
+                request=time.perf_counter();channels[0][0].stdin.write(payload);channels[0][0].stdin.flush()
+                if not select.select([channels[0][1].stdout],[],[],10)[0] or channels[0][1].stdout.read(len(payload))!=payload:raise AssertionError("shadow6-carp: forward path failed")
+                channels[1][0].stdin.write(payload);channels[1][0].stdin.flush()
+                if not select.select([channels[1][1].stdout],[],[],10)[0] or channels[1][1].stdout.read(len(payload))!=payload:raise AssertionError("shadow6-carp: reverse path failed")
+                latencies.append(time.perf_counter()-request)
+            return benchmark_metrics(payload,latencies,time.perf_counter()-started)
+        finally:
+            for process in processes:
+                process.terminate()
+                try:process.communicate(timeout=5)
+                except subprocess.TimeoutExpired:process.kill();process.communicate()
+
+def run_idris_engine(benchmark: dict) -> dict:
+    if benchmark["payload_bytes"] != 4: raise ValueError("shadow6-idris benchmark payload is fixed at 4 bytes")
+    binary=CORE_BINARIES["shadow6-idris"];payload=b"ping";latencies=[];started=time.perf_counter()
+    for _ in range(benchmark["requests"]):
+        request=time.perf_counter();result=subprocess.run([str(binary),"--loopback-test"],cwd=binary.parent,capture_output=True,timeout=10)
+        if result.returncode or b"PASS" not in result.stdout:raise RuntimeError(f"shadow6-idris loopback failed: {result.stderr[-2048:]!r}")
+        latencies.append(time.perf_counter()-request)
+    return benchmark_metrics(payload,latencies,time.perf_counter()-started)
 
 
 def run_native_core_tests(engine: str) -> None:
@@ -183,6 +277,18 @@ def wait_for_proxy(client: subprocess.Popen[str], log_path: Path, deadline: floa
 
 
 async def generate_configs(engine: str, output: Path, target_port: int, broker_port: int) -> None:
+    if engine == "shadow6-cpp":
+        subprocess.run([str(CORE_BINARIES[engine]), "--init-demo", str(output)], check=True, capture_output=True, timeout=10)
+        documents = {role: json.loads((output / f"{role}.json").read_text(encoding="utf-8")) for role in ("broker", "agent", "client")}
+        documents["broker"]["broker"]["listen_addr"] = f"127.0.0.1:{broker_port}"
+        for role in ("agent", "client"):
+            documents[role][role]["broker_addr"] = f"127.0.0.1:{broker_port}"
+            documents[role][role]["listen_addr"] = "127.0.0.1:0"
+        documents["agent"]["agent"]["target_addr"] = f"127.0.0.1:{target_port}"
+        for role, document in documents.items():
+            path = output / f"{role}.json"
+            path.write_text(json.dumps(document), encoding="utf-8"); path.chmod(0o600)
+        return
     topology = {
         "version": "1.0",
         "global": {
@@ -237,7 +343,7 @@ def run_engine(engine: str, benchmark: dict | None = None) -> dict | None:
         broker_port = free_port()
         asyncio.run(generate_configs(engine, output, target_port, broker_port))
         prefix = f"it-{engine}"
-        config = lambda role: output / f"{prefix}-{role}.json"
+        config = lambda role: output / (f"{role}.json" if engine == "shadow6-cpp" else f"{prefix}-{role}.json")
         command = lambda cfg: [str(binary), "--config", str(cfg)]
         log_paths = {role: Path(directory) / f"{role}.log" for role in ("broker", "agent", "client")}
         log_files = {
@@ -269,8 +375,8 @@ def run_engine(engine: str, benchmark: dict | None = None) -> dict | None:
                         received = connection.recv(len(payload))
                         if received != payload: raise AssertionError(f"{engine}: benchmark response mismatch")
                         latencies.append(time.perf_counter() - request_started)
-                    duration = time.perf_counter() - started; ordered = sorted(latencies)
-                    result = {"schema":"shadow6.network-chain.v1","payload_bytes":len(payload),"requests":len(latencies),"concurrency":1,"bytes_sent":len(payload)*len(latencies),"bytes_received":len(payload)*len(latencies),"duration_seconds":duration,"throughput_bps":len(payload)*len(latencies)*8/duration,"latency_p95_seconds":ordered[min(len(ordered)-1,int(len(ordered)*.95))],"latency_avg_seconds":sum(latencies)/len(latencies),"success_rate":1.0}
+                    duration = time.perf_counter() - started
+                    result = benchmark_metrics(payload,latencies,duration)
             print(f"[PASS] {engine} orchestrator -> broker -> agent -> client data path")
             success = True
         finally:
@@ -309,7 +415,13 @@ def main() -> int:
         engines = (args.engine,)
     benchmark_result = None
     for engine in engines:
-        if args.benchmark or engine in ("shadow6-go", "shadow6-rust"):
+        if args.benchmark and engine == "shadow6-idris":
+            benchmark_result = run_idris_engine({"payload_bytes": args.payload_bytes, "requests": args.requests, "concurrency": args.concurrency})
+        elif args.benchmark and engine == "shadow6-carp":
+            benchmark_result = run_carp_engine({"payload_bytes": args.payload_bytes, "requests": args.requests, "concurrency": args.concurrency})
+        elif args.benchmark and engine in ("shadow6-pony", "shadow6-hare"):
+            benchmark_result = run_datagram_engine(engine, {"payload_bytes": args.payload_bytes, "requests": args.requests, "concurrency": args.concurrency})
+        elif args.benchmark or engine in ("shadow6-go", "shadow6-rust"):
             benchmark_result = run_engine(engine, {"payload_bytes": args.payload_bytes, "requests": args.requests, "concurrency": args.concurrency} if args.benchmark else None)
         else:
             run_native_core_tests(engine)

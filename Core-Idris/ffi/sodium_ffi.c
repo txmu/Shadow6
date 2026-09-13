@@ -168,5 +168,8 @@ int idris_secure_loopback_test(void) {
     ct[0] ^= 1;
     if (crypto_aead_xchacha20poly1305_ietf_decrypt(out, &plen, NULL, ct, clen,
         msg, sizeof(msg), nonce, shared) == 0) return -7;
+    const unsigned char request[] = "ping"; unsigned char response[sizeof(request)];
+    int exchanged = idris_loopback_exchange(request, sizeof(request) - 1, response, sizeof(response));
+    if (exchanged != (int)(sizeof(request) - 1) || memcmp(request, response, sizeof(request) - 1)) return -8;
     return 0;
 }
