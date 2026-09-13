@@ -19,6 +19,14 @@ CONTROL = Path(__file__).with_name("shadow6_control.py")
 
 
 class ControlCenterTests(unittest.TestCase):
+    def test_abc_control_session_is_monotonic_and_replay_protected(self):
+        session = control.ABCControlSession(ttl=10)
+        self.assertEqual(session.advance("B", 1)["phase"], "B")
+        self.assertEqual(session.advance("C", 2)["phase"], "C")
+        with self.assertRaises(ValueError):
+            session.advance("A", 3)
+        with self.assertRaises(ValueError):
+            session.advance("C", 2)
     def test_privacy_and_guide_match_across_stdio_protocols(self):
         def run(adapter, payload):
             return subprocess.run([sys.executable, str(CONTROL), adapter], input=payload,

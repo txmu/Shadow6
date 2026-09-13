@@ -15,6 +15,8 @@ import re
 import stat
 import subprocess
 import sys
+import time
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -153,6 +155,35 @@ METHOD_SPECS: dict[str, dict[str, Any]] = {
 }
 
 MUTATING_METHODS = {name for name, spec in METHOD_SPECS.items() if spec["mutating"]}
+
+
+class ABCControlSession:
+    """Bounded A/B/C control transaction shared by local adapters.
+
+    A prepares, B authorizes, C commits. Transitions are monotonic and the
+    request id is replay-protected; no phase executes a host command itself.
+    """
+    MAX_TTL = 300
+    def __init__(self, ttl: int = 60):
+        if type(ttl) is not int or not 1 <= ttl <= self.MAX_TTL:
+            raise ValueError("invalid control session ttl")
+        self.phase = "A"
+        self.expires = time.monotonic() + ttl
+        self.last_request = 0
+        self._lock = threading.Lock()
+
+    def advance(self, phase: str, request_id: int) -> dict[str, Any]:
+        if time.monotonic() >= self.expires:
+            raise ValueError("control session expired")
+        if phase not in {"A", "B", "C"} or type(request_id) is not int or request_id <= self.last_request:
+            raise ValueError("invalid or replayed control transition")
+        with self._lock:
+            expected = {"A": "B", "B": "C", "C": "C"}[self.phase]
+            if phase != expected:
+                raise ValueError("control phases must advance A -> B -> C")
+            self.last_request = request_id
+            self.phase = phase
+        return {"phase": self.phase, "request_id": request_id, "expires_in": max(0, int(self.expires - time.monotonic()))}
 
 
 def schema() -> dict[str, Any]:
