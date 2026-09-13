@@ -33,8 +33,16 @@ actor Main
     _env.exitcode(2)
 
   fun feature_report(): String =>
+    let compiled = "false"
+    let level = "0"
+    let app = "false"
+    let qubes = "false"
+    let caps = "[]"
+    ifdef crosed_l5 then
+      compiled = "true"; level = "5"; app = "true"; qubes = "true"
+      caps = "[\"observe.version\",\"transport.application\",\"identity.assert\"]"
+    end
     "{\"core\":\"shadow6-pony\",\"version\":\"1.0.0\",\"crosed_compiled\":" +
-      "false" +
-      ",\"crosed_max_level\":0" +
-      ",\"app_transport\":false" +
-      ",\"qubes_isolation\":false,\"gate_compiled\":false,\"gate_enabled_by_default\":false,\"utf8\":true,\"crosed_capabilities\":[]}" 
+      compiled + ",\"crosed_max_level\":" + level +
+      ",\"app_transport\":" + app + ",\"qubes_isolation\":" + qubes +
+      ",\"gate_compiled\":false,\"gate_enabled_by_default\":false,\"utf8\":true,\"crosed_capabilities\":" + caps + "}"

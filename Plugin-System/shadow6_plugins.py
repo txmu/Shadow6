@@ -344,6 +344,21 @@ def _child_limits() -> None:
 def run_plugin(manifest: PluginManifest, request: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(request, dict):
         raise PluginError("plugin request must be an object")
+    # OCAP boundary: a caller may attenuate the signed manifest grant. Any
+    # requested capability outside that grant is rejected before the process
+    # starts; omitted capabilities inherit the manifest's (already granted)
+    # set for backwards compatibility.
+    requested_caps = request.get("capabilities")
+    if requested_caps is not None:
+        if (not isinstance(requested_caps, list) or
+                any(not isinstance(cap, str) for cap in requested_caps) or
+                len(requested_caps) != len(set(requested_caps))):
+            raise PluginError("invalid OCAP capability attenuation")
+        if not set(requested_caps) <= manifest.capabilities:
+            raise PluginError("OCAP capability exceeds plugin grant")
+    else:
+        request = dict(request)
+        request["capabilities"] = sorted(manifest.capabilities)
     encoded = canonical(request)
     if len(encoded) > 65_536:
         raise PluginError("plugin request exceeds 65536 bytes")
