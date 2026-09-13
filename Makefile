@@ -32,7 +32,7 @@ PREFIX ?= /usr/local
 DESTDIR ?=
 PYTHON ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python3)
 
-.PHONY: all build core-go core-rust core-gleam test-gleam core-cpp core-hare test-hare core-carp test-carp gate migration i18n crosed-variants public6 public6-variants public6-contract relay guard service-init auto detector plugins package-manager easybuild crosed app-layer extension-system assistants slots control-center android-preflight android-cores android-apk integration-test test check audit package install clean distclean
+.PHONY: all build core-go core-rust core-gleam test-gleam core-cpp core-hare test-hare core-carp test-carp core-pony test-pony pony-crosed-variant gate migration i18n crosed-variants public6 public6-variants public6-contract relay guard service-init auto detector plugins package-manager easybuild crosed app-layer extension-system assistants slots control-center android-preflight android-cores android-apk integration-test test check audit package install clean distclean
 
 all: build
 
@@ -92,6 +92,23 @@ test: test-zig
 endif
 
 build: core-go core-rust core-gleam core-cpp core-hare core-carp gate migration i18n cli online-repository relay guard service-init auto detector plugins package-manager easybuild crosed app-layer extension-system assistants slots control-center public6-contract
+
+PONYC ?= $(if $(wildcard .tools/ponyc-0.72.0/bin/ponyc),.tools/ponyc-0.72.0/bin/ponyc,ponyc)
+PONY_CROSED_LEVEL ?= 0
+core-pony:
+	@test "$(PONY_CROSED_LEVEL)" = 0 || { echo 'Core-Pony L5 is not implemented' >&2; exit 1; }
+	@mkdir -p Core-Pony/obj
+	@$(CC) -std=c11 -Wall -Wextra -Werror -O2 -fPIC -fstack-protector-strong -c Core-Pony/crypto/session.c -o Core-Pony/obj/session.o
+	@$(CXX) -std=c++20 -Wall -Wextra -Werror -O2 -fPIC -fstack-protector-strong -c Core-Pony/crypto/config.cpp -o Core-Pony/obj/config.o
+	@ar rcs Core-Pony/obj/libs6p.a Core-Pony/obj/session.o Core-Pony/obj/config.o
+	@$(PONYC) --pic -p Core-Pony/obj -D openssl_3.0.x -b shadow6-pony -o Core-Pony Core-Pony
+pony-crosed-variant:
+	@echo 'Core-Pony L5 is not implemented' >&2
+	@exit 1
+test-pony: core-pony
+	@$(PYTHON) Core-Pony/tests/test_core.py --binary Core-Pony/shadow6-pony
+	@$(PYTHON) Core-Pony/tests/test_network.py
+	@$(PYTHON) Core-Pony/tests/test_crypto.py
 
 core-hare:
 ifeq ($(BUILD_HARE),1)
