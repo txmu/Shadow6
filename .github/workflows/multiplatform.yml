@@ -66,6 +66,36 @@ jobs:
         run: make test-idris PYTHON=python3
       - name: Build and test Crosed variant
         run: make idris-crosed-variant PYTHON=python3 && python3 Core-Idris/test_core.py
+      - name: Collect Core-Idris build outputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          output_dir="$RUNNER_TEMP/core-idris-$RUNNER_OS"
+          mkdir -p "$output_dir"
+          install -m 0755 Core-Idris/shadow6-idris "$output_dir/shadow6-idris"
+          install -m 0755 Core-Idris/shadow6-idris-crosed "$output_dir/shadow6-idris-crosed"
+          cp -a Core-Idris/shadow6-idris_app "$output_dir/"
+          cp -a Core-Idris/shadow6-idris-crosed_app "$output_dir/"
+          cp Core-Idris/ffi/libsodium_ffi.so "$output_dir/" 2>/dev/null || \
+            cp Core-Idris/ffi/libsodium_ffi.dylib "$output_dir/"
+          library_path="$GITHUB_WORKSPACE/Core-Idris/ffi:${LD_LIBRARY_PATH:-}"
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            export DYLD_LIBRARY_PATH="$GITHUB_WORKSPACE/Core-Idris/ffi:${DYLD_LIBRARY_PATH:-}"
+          else
+            export LD_LIBRARY_PATH="$library_path"
+          fi
+          "$output_dir/shadow6-idris" --feature-report > "$output_dir/feature-report-l0.json"
+          "$output_dir/shadow6-idris-crosed" --feature-report > "$output_dir/feature-report-l5.json"
+          (cd "$output_dir" && find . -type f -print | LC_ALL=C sort | while IFS= read -r file; do
+            if command -v sha256sum >/dev/null 2>&1; then sha256sum "$file"; else shasum -a 256 "$file"; fi
+          done > SHA256SUMS)
+          du -ah "$output_dir"
+          cat "$output_dir/SHA256SUMS"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shadow6-idris-${{ matrix.os }}
+          path: ${{ runner.temp }}/core-idris-${{ runner.os }}
+          if-no-files-found: error
   linux-gleam:
     name: Core-Gleam (${{ matrix.arch }})
     strategy:
