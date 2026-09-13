@@ -9,9 +9,14 @@ boundary with replay and lifetime checks, covered by native negative tests. It
 is wired into real UDP actors and a strict configuration loader. A two-process
 loopback integration test verifies encrypted binary payload round trips.
 
-The explicit build reports L0 and supports a pinned-peer loopback UDP tunnel.
-L5 builds fail explicitly; Plugin RPC, full A/B/C, external network deployment,
-reconnection and Go/Rust feature parity remain unimplemented.
+The default build reports L0 and supports a pinned-peer loopback UDP tunnel.
+`make pony-crosed-variant` also produces an explicit L5 binary and restores the
+default binary. Its immutable `CrosedGrant` is an OCAP attenuation boundary:
+build level, signed request, requested level, per-Mod level, named capability,
+and source/target domain policy must all agree. Plugin RPC, full A/B/C,
+external network deployment, reconnection and data-plane parity remain work in
+progress; the L5 feature report is a compiled authorization ceiling, not a
+claim that those runtime paths are complete.
 Future Plugins must remain signed, bounded and out-of-process.
 OCap does not prohibit arbitrary native FFI syscalls; that needs a compiler FFI
 allowlist and OS isolation. Immutable tokens are shared immutable memory.

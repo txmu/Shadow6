@@ -96,15 +96,16 @@ build: core-go core-rust core-gleam core-cpp core-hare core-carp gate migration 
 PONYC ?= $(if $(wildcard .tools/ponyc-0.72.0/bin/ponyc),.tools/ponyc-0.72.0/bin/ponyc,ponyc)
 PONY_CROSED_LEVEL ?= 0
 core-pony:
-	@test "$(PONY_CROSED_LEVEL)" = 0 || { echo 'Core-Pony L5 is not implemented' >&2; exit 1; }
+	@test "$(PONY_CROSED_LEVEL)" = 0 -o "$(PONY_CROSED_LEVEL)" = 5 || { echo 'PONY_CROSED_LEVEL must be 0 or 5' >&2; exit 1; }
 	@mkdir -p Core-Pony/obj
 	@$(CC) -std=c11 -Wall -Wextra -Werror -O2 -fPIC -fstack-protector-strong -c Core-Pony/crypto/session.c -o Core-Pony/obj/session.o
 	@$(CXX) -std=c++20 -Wall -Wextra -Werror -O2 -fPIC -fstack-protector-strong -c Core-Pony/crypto/config.cpp -o Core-Pony/obj/config.o
 	@ar rcs Core-Pony/obj/libs6p.a Core-Pony/obj/session.o Core-Pony/obj/config.o
-	@$(PONYC) --pic -p Core-Pony/obj -D openssl_3.0.x -b shadow6-pony -o Core-Pony Core-Pony
+	@$(PONYC) --pic -p Core-Pony/obj $(if $(filter 5,$(PONY_CROSED_LEVEL)),-D crosed_l5,) -D openssl_3.0.x -b shadow6-pony -o Core-Pony Core-Pony
 pony-crosed-variant:
-	@echo 'Core-Pony L5 is not implemented' >&2
-	@exit 1
+	@$(MAKE) core-pony PONY_CROSED_LEVEL=5
+	@install -m 0755 Core-Pony/shadow6-pony Core-Pony/shadow6-pony-crosed
+	@$(MAKE) core-pony PONY_CROSED_LEVEL=0
 test-pony: core-pony
 	@$(PYTHON) Core-Pony/tests/test_core.py --binary Core-Pony/shadow6-pony
 	@$(PYTHON) Core-Pony/tests/test_network.py
@@ -197,6 +198,7 @@ crosed-variants:
 	@install -m 0755 Core-Rust/shadow6-rust Core-Rust/shadow6-rust-crosed
 	@if test "$(BUILD_GLEAM)" = 1; then install -m 0755 Core-Gleam/shadow6-gleam Core-Gleam/shadow6-gleam-crosed; fi
 	@$(MAKE) core-go core-rust core-gleam CROSED_LEVEL=0 APP_TRANSPORT=0 QUBES_ISOLATION=0
+	@$(MAKE) pony-crosed-variant
 
 public6: public6-contract
 	@$(MAKE) build BUILD_GO=1 BUILD_RUST=1 BUILD_CPP=1 BUILD_RELAY=1 BUILD_GUARD=1 BUILD_AUTO=1 BUILD_DETECTOR=1 BUILD_PLUGINS=1 BUILD_CROSED=1 BUILD_APP=1 BUILD_ASSISTANTS=1 BUILD_CONTROL=1 BUILD_SLOTS=1 BUILD_PUBLIC6=1 BUILD_COMPLIANCE=0 CROSED_LEVEL=0 APP_TRANSPORT=0 QUBES_ISOLATION=0

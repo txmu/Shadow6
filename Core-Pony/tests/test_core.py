@@ -10,10 +10,15 @@ assert "class val OCapToken" in SESSION and "iso" in SESSION
 PROTO = (ROOT / "protocol.pony").read_text()
 assert "HandshakeTranscript" in PROTO and "ReplayWindow" in PROTO
 assert "candidate > previous" in PROTO
+CROSED = (ROOT / "crosed.pony").read_text()
+assert "class val CrosedGrant" in CROSED
+assert "signed and (build_level == 5)" in CROSED
+assert "level(grant.capability) <= grant.request_level" in CROSED
 
 if "--binary" in sys.argv:
     p = subprocess.run([str(ROOT / "shadow6-pony"), "--feature-report"], check=True, capture_output=True, text=True)
     report = json.loads(p.stdout)
     assert report["core"] == "shadow6-pony" and report["crosed_max_level"] == 0
     assert report["crosed_capabilities"] == [] and not report["crosed_compiled"]
+    assert report["transport"] == "udp"
 print("Core-Pony contract tests passed")

@@ -1,10 +1,10 @@
 """Shared, strict feature-report contract for every registered Core family."""
 import re
 
-TRANSPORTS = {"shadow6-go": "kcp", "shadow6-rust": "quic", "shadow6-gleam": "micro-mux", "shadow6-zig": "enet",
+TRANSPORTS = {"shadow6-go": "kcp", "shadow6-rust": "quic", "shadow6-pony": "udp", "shadow6-gleam": "micro-mux", "shadow6-zig": "enet",
               "shadow6-ada": "cell-relay", "shadow6-d": "rle-udp", "shadow6-nim": "webrtc"}
 CORE_PATHS = {name: f"Core-{suffix}/{name}" for name, suffix in (
-    ("shadow6-go", "Go"), ("shadow6-rust", "Rust"), ("shadow6-gleam", "Gleam"), ("shadow6-zig", "Zig"),
+    ("shadow6-go", "Go"), ("shadow6-rust", "Rust"), ("shadow6-pony", "Pony"), ("shadow6-gleam", "Gleam"), ("shadow6-zig", "Zig"),
     ("shadow6-ada", "Ada"), ("shadow6-d", "D"), ("shadow6-nim", "Nim"))}
 CAPABILITY_LEVELS = {"observe.version": 1, "observe.health": 1, "policy.request": 2,
     "policy.config": 2, "transport.metadata": 3, "transport.application": 3,

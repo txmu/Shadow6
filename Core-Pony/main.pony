@@ -33,12 +33,14 @@ actor Main
     _env.exitcode(2)
 
   fun feature_report(): String =>
-    let compiled = "false"
-    let level = "0"
-    let app = "false"
-    let qubes = "false"
-    let caps = "[]"
+    let compiled = ifdef "crosed_l5" then "true" else "false" end
+    let level = ifdef "crosed_l5" then "5" else "0" end
+    let app = ifdef "crosed_l5" then "true" else "false" end
+    let qubes = ifdef "crosed_l5" then "true" else "false" end
+    let caps = ifdef "crosed_l5" then
+      "[\"core.hook\",\"core.lifecycle\",\"identity.assert\",\"identity.resolve\",\"observe.health\",\"observe.version\",\"policy.config\",\"policy.request\",\"transport.application\",\"transport.metadata\"]"
+    else "[]" end
     "{\"core\":\"shadow6-pony\",\"version\":\"1.0.0\",\"crosed_compiled\":" +
       compiled + ",\"crosed_max_level\":" + level +
       ",\"app_transport\":" + app + ",\"qubes_isolation\":" + qubes +
-      ",\"gate_compiled\":false,\"gate_enabled_by_default\":false,\"utf8\":true,\"crosed_capabilities\":" + caps + "}"
+      ",\"gate_compiled\":false,\"gate_enabled_by_default\":false,\"utf8\":true,\"transport\":\"udp\",\"crosed_capabilities\":" + caps + "}"
