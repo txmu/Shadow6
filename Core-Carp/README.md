@@ -31,8 +31,12 @@ The 96-byte key file must be owned, regular, non-symlink and exactly mode 0600.
 Offline keys are three independent symmetric keys. Payloads are bounded to 994
 bytes. Offline decoding intentionally has no session or replay state.
 
-Online commands: `--listen CONFIG LOCAL_PORT PEER_PORT` and
-`--send CONFIG LOCAL_PORT PEER_PORT`. They bind/connect IPv4 loopback only.
+Online commands: `--listen CONFIG LOCAL_PORT PEER_PORT [A|B|C]` and
+`--send CONFIG LOCAL_PORT PEER_PORT [A|B|C]`. Omitting the mode preserves the
+legacy simplex A contract. B and C are explicit bidirectional/full-duplex
+contracts; the selected mode is authenticated in the handshake and packet
+associated data, so mismatched modes fail closed. They bind/connect IPv4
+loopback only.
 The sender streams stdin; the listener writes authenticated payloads to stdout.
 Online CONFIG is a distinct 96-byte format: own Ed25519 seed, pinned peer public
 key, then a shared 32-byte deployment binding. Configure reciprocal peer keys.

@@ -71,17 +71,27 @@ class CoreTests(unittest.TestCase):
         ports = [sock.getsockname()[1] for sock in sockets]
         for sock in sockets:
             sock.close()
-        receiver = subprocess.Popen([str(BIN), "--listen", str(paths[1]), str(ports[1]), str(ports[0])], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        try:
-            time.sleep(.15)
-            sender = subprocess.run([str(BIN), "--send", str(paths[0]), str(ports[0]), str(ports[1])], input=b"authenticated onion UDP", capture_output=True, timeout=7)
-            self.assertEqual(sender.returncode, 0, sender.stderr)
-            import select
-            self.assertTrue(select.select([receiver.stdout], [], [], 3)[0])
-            self.assertEqual(os.read(receiver.stdout.fileno(), 128), b"authenticated onion UDP")
-        finally:
-            receiver.terminate()
-            receiver.communicate(timeout=3)
+        for mode in ("A", "B", "C"):
+            sockets = [socket.socket(socket.AF_INET, socket.SOCK_DGRAM) for _ in range(2)]
+            for sock in sockets:
+                sock.bind(("127.0.0.1", 0))
+            ports = [sock.getsockname()[1] for sock in sockets]
+            for sock in sockets:
+                sock.close()
+            receiver = subprocess.Popen([str(BIN), "--listen", str(paths[1]), str(ports[1]), str(ports[0]), mode], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            try:
+                time.sleep(.15)
+                sender = subprocess.run([str(BIN), "--send", str(paths[0]), str(ports[0]), str(ports[1]), mode], input=(b"authenticated " + mode.encode()), capture_output=True, timeout=7)
+                self.assertEqual(sender.returncode, 0, sender.stderr)
+                import select
+                self.assertTrue(select.select([receiver.stdout], [], [], 3)[0])
+                self.assertEqual(os.read(receiver.stdout.fileno(), 128), b"authenticated " + mode.encode())
+            finally:
+                receiver.terminate()
+                receiver.communicate(timeout=3)
+
+    def test_unknown_mode_rejected(self):
+        self.call("--send", str(self.key), "12001", "12002", "D", ok=False)
 
 if __name__ == "__main__":
     unittest.main()

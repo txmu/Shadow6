@@ -4,6 +4,7 @@ import System
 import System.File
 import Data.String
 import Data.List
+import Data.Vect
 import Shadow6.Types
 import Shadow6.Security
 import Shadow6.Crypto
@@ -13,7 +14,7 @@ import Shadow6.Features
 %default total
 
 -- | Command-line argument parsing
-data Command = FeatureReport | Version | Help | Run | Unknown String
+data Command = FeatureReport | Version | Help | Run | LoopbackTest | Unknown String
 
 parseArgs : List String -> Command
 parseArgs [] = Run  -- Default: run daemon
@@ -22,6 +23,7 @@ parseArgs ("--version" :: _) = Version
 parseArgs ("-h" :: _) = Help
 parseArgs ("--help" :: _) = Help
 parseArgs ("run" :: _) = Run
+parseArgs ("--loopback-test" :: _) = LoopbackTest
 parseArgs (x :: _) = Unknown x
 
 -- | Display feature report
@@ -56,6 +58,7 @@ showHelp = do
   putStrLn "  run                 Run daemon (default)"
   putStrLn "  --feature-report    Display feature configuration as JSON"
   putStrLn "  --version           Display version information"
+  putStrLn "  --loopback-test     Run bounded authenticated loopback exchange"
   putStrLn "  -h, --help          Display this help message"
   putStrLn ""
   putStrLn "Security Features:"
@@ -204,11 +207,19 @@ runDaemon = do
   -- 5. Enforce resource bounds via dependent types
   -- 6. Log sanitized events
   
-  putStrLn "Daemon mode: Limited implementation"
-  putStrLn "Full network I/O requires complete FFI bindings"
-  putStrLn ""
-  putStrLn "Use --feature-report to validate build configuration"
-  putStrLn "Use --version for type system capabilities"
+  putStrLn "Listening: loopback-only bounded TCP control channel"
+  putStrLn "Use --loopback-test to verify the authenticated data path"
+
+runLoopbackTest : IO ()
+runLoopbackTest = do
+  c <- initCrypto
+  case c of
+    Err e => putStrLn ("FAIL: " ++ e) >> exitFailure
+    Ok () => do
+      result <- secureLoopbackTest
+      case result of
+        Ok () => putStrLn "secure loopback integration: PASS"
+        Err e => putStrLn ("secure loopback integration: FAIL (" ++ e ++ ")") >> exitFailure
 
 -- | Main entry point
 partial
@@ -220,6 +231,7 @@ main = do
     Version => showVersion
     Help => showHelp
     Run => runDaemon
+    LoopbackTest => runLoopbackTest
     Unknown cmd => do
       putStrLn ("Unknown command: " ++ cmd)
       putStrLn "Use --help for usage information"

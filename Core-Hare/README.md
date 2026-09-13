@@ -15,7 +15,10 @@ The current runtime has native `agent` and `client` roles. Generate each
 identity with `shadow6-hare --gen-key` and pin its `public_key` in the other
 endpoint's `peer_public_key`. Each 0600 JSON config requires exactly `role`,
 `private_key` (32-byte seed as hex), `peer_public_key`, `listen_port`, and
-`target_port`. Unknown/duplicate fields, nested values and invalid ports reject.
+`target_port`; optional `mode` selects legacy `simplex` (the default) or the
+authenticated full-duplex `abc` contract. Unknown/duplicate fields, nested
+values and invalid ports reject. In `abc`, A performs identity challenge, B
+confirms ephemeral keys, and C carries encrypted traffic in both directions.
 Run both with `shadow6-hare --config FILE`, starting the agent first.
 
 For the agent, target_port is the local UDP service. For the client, target_port

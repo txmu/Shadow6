@@ -25,6 +25,13 @@ static uint64_t previous_sequence;
 static unsigned long packets;
 static time_t session_deadline;
 static int endpoint_mode;
+/* A=simplex, B=bidirectional, C=full duplex contract.  The mode is
+ * authenticated as part of the session transcript and packet AD. */
+static unsigned char link_mode = 'A';
+static int parse_mode(const char *s) {
+    if (!s || s[1] != '\0' || (s[0] != 'A' && s[0] != 'B' && s[0] != 'C')) return -1;
+    return (unsigned char)s[0];
+}
 static time_t monotonic_seconds(void) {
     struct timespec now;
     if (clock_gettime(CLOCK_MONOTONIC, &now)) exit(2);
@@ -55,7 +62,7 @@ static int wrap(struct packet *p, size_t size) {
     unsigned char scratch[WIRE];
     for (int layer = 2; layer >= 0; --layer) {
         size_t start = (size_t)layer * HEADER, n = WIRE - start - HEADER;
-        unsigned char ad[8] = {'S','6','C',1,(unsigned char)layer,0,0,0};
+        unsigned char ad[8] = {'S','6','C',1,(unsigned char)layer,link_mode,0,0};
         randombytes_buf(p->bytes + start, 24);
         if (crypto_aead_xchacha20poly1305_ietf_encrypt_detached(scratch,
             p->bytes + start + 24, NULL, p->bytes + start + HEADER, n,
@@ -73,7 +80,7 @@ static int packet_peel(struct packet *p) {
     if (!p->valid) return -1;
     for (int layer = 0; layer < 3; ++layer) {
         size_t start = (size_t)layer * HEADER, n = WIRE - start - HEADER;
-        unsigned char ad[8] = {'S','6','C',1,(unsigned char)layer,0,0,0};
+        unsigned char ad[8] = {'S','6','C',1,(unsigned char)layer,link_mode,0,0};
         if (crypto_aead_xchacha20poly1305_ietf_decrypt_detached(scratch, NULL,
             p->bytes + start + HEADER, n, p->bytes + start + 24,
             ad, sizeof ad, p->bytes + start, p->keys + layer * 32)) {
@@ -163,8 +170,9 @@ static int establish(int fd, unsigned char *config, int sender) {
         crypto_sign_detached(reply + 128, NULL, reply, 128, sk);
         if (send(fd, reply, 192, 0) != 192) goto done;
     }
-    unsigned char material[161];
+    unsigned char material[162];
     memcpy(material, reply, 128); memcpy(material + 128, config + 64, 32);
+    material[161] = link_mode;
     for (int layer = 0; layer < 3; ++layer) {
         material[160] = (unsigned char)layer;
         crypto_generichash(session_keys + layer * 32, 32, material, sizeof material, shared, 32);
@@ -212,8 +220,10 @@ static struct packet packet_receive(void) {
     setvbuf(stdin, NULL, _IONBF, 0);
     setvbuf(stdout, NULL, _IONBF, 0);
     alarm(300);
-    if (argc == 5 && (!strcmp(argv[1], "--listen") || !strcmp(argv[1], "--send"))) {
+    if ((argc == 5 || argc == 6) && (!strcmp(argv[1], "--listen") || !strcmp(argv[1], "--send"))) {
         int local = port_number(argv[3]), peer = port_number(argv[4]);
+        if (argc == 6 && parse_mode(argv[5]) < 0) exit(2);
+        link_mode = argc == 6 ? (unsigned char)argv[5][0] : 'A';
         if (local < 0 || peer < 0 || local == peer || secure_keys(argv[2], p.keys)) exit(2);
         udp_fd = udp_open(local, peer);
         int sender = !strcmp(argv[1], "--send");
@@ -232,7 +242,7 @@ static struct packet packet_receive(void) {
         close(fd); sodium_memzero(&p, sizeof p); exit(ok ? 0 : 2);
     }
     if (argc != 3 || (strcmp(argv[1], "--encode") && strcmp(argv[1], "--decode") && strcmp(argv[1], "--check-config"))) {
-        fputs("shadow6-carp --gen-key FILE | --check-config FILE | --encode FILE | --decode FILE | --listen FILE LOCAL_PORT PEER_PORT | --send FILE LOCAL_PORT PEER_PORT | --feature-report\n", stderr); exit(2);
+        fputs("shadow6-carp --gen-key FILE | --check-config FILE | --encode FILE | --decode FILE | --listen FILE LOCAL_PORT PEER_PORT [A|B|C] | --send FILE LOCAL_PORT PEER_PORT [A|B|C] | --feature-report\n", stderr); exit(2);
     }
     if (secure_keys(argv[2], p.keys)) return p;
     if (!strcmp(argv[1], "--check-config")) { sodium_memzero(&p, sizeof p); exit(0); }

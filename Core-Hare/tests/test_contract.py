@@ -10,6 +10,8 @@ SRC = (ROOT / "src/main.ha").read_text()
 def test_fixed_packet_contract():
     assert "len(p) == PACKET" in SRC
     assert "12-byte monotonic nonce" in (ROOT / "README.md").read_text()
+    assert 'c.mode = "simplex"' in (ROOT / "src/config.ha").read_text()
+    assert 'c.mode != "simplex" && c.mode != "abc"' in (ROOT / "src/config.ha").read_text()
 
 def test_platform_scope_and_fail_closed():
     assert "Linux/FreeBSD" in (ROOT / "README.md").read_text()
@@ -45,6 +47,11 @@ if __name__ == "__main__":
                                         capture_output=True, text=True, timeout=10)
                 assert (result.returncode == 0) == expected, result
             check(True)
+            valid_abc = json.dumps({**json.loads(valid), "mode": "abc"})
+            path.write_text(valid_abc)
+            check(True)
+            path.write_text(json.dumps({**json.loads(valid), "mode": "invalid"}))
+            check(False)
             path.chmod(0o644)
             check(False)
             path.chmod(0o600)

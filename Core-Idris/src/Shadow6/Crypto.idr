@@ -36,6 +36,11 @@ prim__sha256 : Ptr Bits8 -> Ptr Bits8 -> Bits64 -> PrimIO Int
 %foreign "C:idris_random_bytes,libsodium_ffi"
 prim__random_bytes : Ptr Bits8 -> Bits64 -> PrimIO ()
 
+%foreign "C:idris_loopback_exchange,libsodium_ffi"
+prim__loopback_exchange : Ptr Bits8 -> Bits64 -> Ptr Bits8 -> Bits64 -> PrimIO Int
+%foreign "C:idris_secure_loopback_test,libsodium_ffi"
+prim__secure_loopback_test : PrimIO Int
+
 -- Helper functions for Buffer manipulation
 %foreign "scheme:blodwen-buffer-getbyte"
          "RefC:getBufferByte"
@@ -64,10 +69,14 @@ vectToBuffer {n} vec = do
 -- Convert Buffer to Vect
 bufferToVect : Buffer -> (n : Nat) -> IO (Vect n Bits8)
 bufferToVect buf Z = pure []
-bufferToVect buf (S k) = do
-  byte <- primIO $ prim__getByte buf 0
-  rest <- bufferToVect buf k  -- Simplified: should offset
-  pure (cast byte :: rest)
+bufferToVect buf n = readAt 0 n
+  where
+    readAt : Int -> (remaining : Nat) -> IO (Vect remaining Bits8)
+    readAt idx Z = pure []
+    readAt idx (S k) = do
+      byte <- primIO $ prim__getByte buf idx
+      rest <- readAt (idx + 1) k
+      pure (cast byte :: rest)
 
 -- Get buffer raw pointer
 %foreign "RefC:getBufferData"
@@ -255,3 +264,21 @@ randomBytes n = do
     | Nothing => pure (replicate n 0)
   primIO $ prim__random_bytes (prim__bufferData buf) (cast n)
   bufferToVect buf n
+
+-- Real TCP loopback exchange used by integration tests and health checks.
+export
+loopbackExchange : {n : Nat} -> Vect n Bits8 -> IO (Result String (Vect n Bits8))
+loopbackExchange input = do
+  inBuf <- vectToBuffer input
+  Just outBuf <- newBuffer (cast n)
+    | Nothing => pure (Err "loopback response allocation failed")
+  rc <- primIO $ prim__loopback_exchange (prim__bufferData inBuf) (cast n)
+        (prim__bufferData outBuf) (cast n)
+  if rc == cast n then Ok <$> bufferToVect outBuf n
+  else pure (Err ("loopback exchange failed: " ++ show rc))
+
+export
+secureLoopbackTest : IO (Result String ())
+secureLoopbackTest = do
+  rc <- primIO prim__secure_loopback_test
+  if rc == 0 then pure (Ok ()) else pure (Err ("secure loopback failed: " ++ show rc))

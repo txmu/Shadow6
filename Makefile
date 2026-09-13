@@ -4,6 +4,7 @@ BUILD_GO ?= 1
 BUILD_RUST ?= 1
 BUILD_GLEAM ?= $(if $(wildcard .tools/gleam/bin/gleam),1,0)
 BUILD_CPP ?= 1
+BUILD_PONY ?= $(if $(or $(wildcard .tools/ponyc-0.72.0/bin/ponyc),$(shell command -v ponyc 2>/dev/null)),1,0)
 BUILD_ZIG ?= 0
 BUILD_HARE ?= $(if $(shell command -v hare 2>/dev/null),1,0)
 BUILD_ADA ?= 0
@@ -198,7 +199,7 @@ crosed-variants:
 	@install -m 0755 Core-Rust/shadow6-rust Core-Rust/shadow6-rust-crosed
 	@if test "$(BUILD_GLEAM)" = 1; then install -m 0755 Core-Gleam/shadow6-gleam Core-Gleam/shadow6-gleam-crosed; fi
 	@$(MAKE) core-go core-rust core-gleam CROSED_LEVEL=0 APP_TRANSPORT=0 QUBES_ISOLATION=0
-	@$(MAKE) pony-crosed-variant
+	@if test "$(BUILD_PONY)" = 1; then $(MAKE) pony-crosed-variant; else echo 'Core-Pony disabled; set BUILD_PONY=1 with the Pony toolchain installed to enable it'; fi
 
 public6: public6-contract
 	@$(MAKE) build BUILD_GO=1 BUILD_RUST=1 BUILD_CPP=1 BUILD_RELAY=1 BUILD_GUARD=1 BUILD_AUTO=1 BUILD_DETECTOR=1 BUILD_PLUGINS=1 BUILD_CROSED=1 BUILD_APP=1 BUILD_ASSISTANTS=1 BUILD_CONTROL=1 BUILD_SLOTS=1 BUILD_PUBLIC6=1 BUILD_COMPLIANCE=0 CROSED_LEVEL=0 APP_TRANSPORT=0 QUBES_ISOLATION=0

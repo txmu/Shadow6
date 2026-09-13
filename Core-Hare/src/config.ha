@@ -9,6 +9,7 @@ use unix;
 
 type configuration = struct {
 	role: str,
+	mode: str,
 	listen: u16,
 	target: u16,
 	key: [32]u8,
@@ -19,6 +20,7 @@ type configuration = struct {
 // Escapes, duplicate keys, nested data and unknown fields fail closed.
 fn parse_config(input: str) (configuration | void) = {
 	let c = configuration { ... };
+	c.mode = "simplex";
 	let p = 0z;
 	const b = strings::toutf8(input);
 	let seen = 0u;
@@ -28,6 +30,10 @@ fn parse_config(input: str) (configuration | void) = {
 		if (!take(b, &p, ':')) return;
 		let bit = 0u;
 		switch (k) {
+		case "mode" =>
+			bit = 32u;
+			c.mode = match (quoted(b, &p)) { case let s: str => yield s; case => return; };
+			if (c.mode != "simplex" && c.mode != "abc") return;
 		case "role" =>
 			bit = 1;
 			c.role = match (quoted(b, &p)) { case let s: str => yield s; case => return; };
@@ -65,7 +71,7 @@ fn parse_config(input: str) (configuration | void) = {
 		if (!take(b, &p, ',')) return;
 	};
 	space(b, &p);
-	if (p != len(b) || seen != 31 || c.listen == c.target || c.listen == 65535 || c.listen + 1 == c.target) return;
+	if (p != len(b) || (seen != 31u && seen != 63u) || c.listen == c.target || c.listen == 65535 || c.listen + 1 == c.target) return;
 	return c;
 };
 

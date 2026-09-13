@@ -64,6 +64,11 @@ jobs:
           done
       - name: Build and test Core-Idris
         run: make test-idris PYTHON=python3
+      - name: Run real loopback integration
+        run: |
+          export LD_LIBRARY_PATH="$GITHUB_WORKSPACE/Core-Idris/ffi:${LD_LIBRARY_PATH:-}"
+          Core-Idris/shadow6-idris --loopback-test
+          test "$(${GITHUB_WORKSPACE}/Core-Idris/shadow6-idris --feature-report | python3 -c 'import json,sys; print(json.load(sys.stdin)["crosed_max_level"])')" = 0
       - name: Build and test Crosed variant
         run: make idris-crosed-variant PYTHON=python3 && python3 Core-Idris/test_core.py
       - name: Collect Core-Idris build outputs
@@ -192,13 +197,23 @@ jobs:
         run: |
           bash Tools/bootstrap_hare_linux.sh "$GITHUB_WORKSPACE/.tools/hare-ci"
           echo "$GITHUB_WORKSPACE/.tools/hare-ci/bin" >> "$GITHUB_PATH"
+      - name: Provision pinned Pony toolchain
+        run: |
+          set -euo pipefail
+          mkdir -p .tools
+          curl --fail --location --retry 3 \
+            --output /tmp/ponyc.tar.gz \
+            https://github.com/ponylang/ponyc/releases/download/0.72.0/ponyc-0.72.0-x86_64-linux.tar.gz
+          tar -xzf /tmp/ponyc.tar.gz -C .tools
+          test -x .tools/ponyc-0.72.0-x86_64-linux/bin/ponyc
+          echo "$GITHUB_WORKSPACE/.tools/ponyc-0.72.0-x86_64-linux/bin" >> "$GITHUB_PATH"
       - run: python -m venv .venv
       - run: .venv/bin/pip install -r requirements.txt -r requirements-ml.txt
       - name: Configure the complete Linux component matrix
         run: ./configure --enable-all
       - name: Build every Linux core and component
         run: |
-          make build BUILD_ZIG=1 BUILD_ADA=1 BUILD_CPP=1
+          make build BUILD_ZIG=1 BUILD_ADA=1 BUILD_CPP=1 BUILD_PONY=1
           make core-nim
           make core-d
           test -x Core-Hare/shadow6-hare
@@ -223,7 +238,7 @@ jobs:
           readelf -d Core-Cpp/shadow6-cpp | grep -E 'libssl|libcrypto|libstdc\\+\\+'
           readelf -W -l Core-Cpp/shadow6-cpp | grep -E 'GNU_STACK.*RW|GNU_RELRO'
           shellcheck configure Core-Cpp/*.sh C11Relay/*.sh Guard/*.sh Tools/*.sh
-      - run: make crosed-variants
+      - run: make crosed-variants BUILD_PONY=1
       - run: make test
       - run: make check
       - run: make audit
