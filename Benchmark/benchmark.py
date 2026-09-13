@@ -68,7 +68,7 @@ def run(config: dict) -> dict:
     for core in config["cores"]:
         exe = (ROOT / CORE_PATHS[core]).resolve()
         if not exe.is_file() or not os.access(exe, os.X_OK) or not _host_binary(exe):
-            rows.append({"core": core, "status": "unavailable", "path": str(exe)}); continue
+            rows.append({"core": core, "status": "unavailable", "path": str(exe), "reason": "missing, non-executable, or foreign-host binary"}); continue
         # A native executable with unresolved shared libraries is unavailable on
         # this host; keep that distinct from an executed test failure.
         if core == "nim":
@@ -99,6 +99,8 @@ def run(config: dict) -> dict:
                            "latency_max_seconds": None, "loss_rate": None, "retransmissions": None,
                            "concurrency": None, "duration_seconds": elapsed, "context_switches": None,
                            "io_read_bytes": None, "io_write_bytes": None}
+                metric_scope = "network" if role in {"loopback", "integration"} else "process"
+                metric_note = None if role in {"loopback", "integration"} else "role does not exercise a data-plane network"
                 # Native integration tests may emit a metrics object without
                 # changing the wire protocol; preserve only known numeric fields.
                 if isinstance(native, dict):
@@ -107,7 +109,7 @@ def run(config: dict) -> dict:
                         for key in metrics:
                             if key in candidate and (candidate[key] is None or isinstance(candidate[key], (int, float))):
                                 metrics[key] = candidate[key]
-                rows.append({"core": core, "role": role, "repeat": repeat + 1, "status": "ok" if p.returncode == 0 else "failed", "returncode": p.returncode, "elapsed_seconds": elapsed, "user_seconds": None if after_user is None or before_user is None else after_user-before_user, "system_seconds": None if after_system is None or before_system is None else after_system-before_system, "max_rss_kib": after_rss, "native": native, "metrics": metrics, "stderr": p.stderr[-2048:]})
+                rows.append({"core": core, "role": role, "repeat": repeat + 1, "status": "ok" if p.returncode == 0 else "failed", "returncode": p.returncode, "elapsed_seconds": elapsed, "user_seconds": None if after_user is None or before_user is None else after_user-before_user, "system_seconds": None if after_system is None or before_system is None else after_system-before_system, "max_rss_kib": after_rss, "native": native, "metrics": metrics, "metric_scope": metric_scope, "metric_note": metric_note, "stderr": p.stderr[-2048:]})
     return {"schema": "shadow6.benchmark.v1", "config": config, "results": rows}
 
 def main() -> int:
