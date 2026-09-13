@@ -61,7 +61,7 @@ def run(config: dict) -> dict:
     return {"schema": "shadow6.benchmark.v1", "config": config, "results": rows}
 
 def main() -> int:
-    ap = argparse.ArgumentParser(); ap.add_argument("--config"); ap.add_argument("--role", choices=sorted(ROLES)); ap.add_argument("--output", default="-")
+    ap = argparse.ArgumentParser(); ap.add_argument("--config"); ap.add_argument("--role", choices=sorted(ROLES)); ap.add_argument("--output", default="-"); ap.add_argument("--format", choices=("json", "txt"), default="json")
     ns = ap.parse_args()
     try:
         config = _load_config(ns.config)
@@ -69,9 +69,12 @@ def main() -> int:
         result = run(config)
     except (OSError, ValueError, json.JSONDecodeError) as exc: ap.error(str(exc))
     payload = json.dumps(result, sort_keys=True, ensure_ascii=True)
-    if ns.output == "-": print(payload)
+    text_payload = "Shadow6 Benchmark schema=shadow6.benchmark.v1\n" + "core\trole\trepeat\tstatus\telapsed_seconds\tcpu_seconds\tmax_rss_kib\treturncode\n"
+    text_payload += "\n".join("{c}\t{r}\t{n}\t{s}\t{e:.6f}\t{u:.6f}\t{m}\t{x}".format(c=row["core"], r=row.get("role", "-"), n=row.get("repeat", "-"), s=row["status"], e=row.get("elapsed_seconds", 0), u=row.get("user_seconds", 0)+row.get("system_seconds", 0), m=row.get("max_rss_kib", "-"), x=row.get("returncode", "-")) for row in result["results"]) + "\n"
+    output_payload = payload if ns.format == "json" else text_payload
+    if ns.output == "-": print(output_payload, end="" if output_payload.endswith("\n") else "\n")
     else:
-        Path(ns.output).write_text(payload + "\n", encoding="utf-8")
+        Path(ns.output).write_text(output_payload + ("" if output_payload.endswith("\n") else "\n"), encoding="utf-8")
         report = Path(ns.output).with_suffix(".md")
         lines = ["# Shadow6 Benchmark Report", "", "真实原生进程实测结果；`unavailable`/`failed` 未被转换为成功。", "", "| Core | Role | Repeat | Status | Seconds | CPU s | Peak RSS KiB |", "|---|---|---:|---|---:|---:|---:|"]
         for row in result["results"]:

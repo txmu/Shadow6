@@ -111,6 +111,7 @@ def main():
  q.add_argument("--role",action="append",choices=("feature-report","version","loopback"),default=[])
  q.add_argument("--repeats",type=int,default=1)
  q.add_argument("--output",type=Path,default=Path("benchmark.json"))
+ q.add_argument("--format",choices=("json","txt"),default="json")
  q=sub.add_parser("sign");ss=q.add_subparsers(dest="kind",required=True);sp=ss.add_parser("plugin");sp.add_argument("manifest");sp.add_argument("--private-key",required=True);sp.add_argument("--signer",required=True)
  q=sub.add_parser("workflow");q.add_argument("stage",choices=("build","test","check","audit","crosed-variants","android-apk","package","release"));q.add_argument("args",nargs=argparse.REMAINDER)
  a=p.parse_args();tail=lambda v:v[1:] if v[:1]==["--"] else v
@@ -132,7 +133,12 @@ def main():
   if not cores: raise SystemExit("benchmark requires --core or --all")
   if not 1 <= a.repeats <= 1000: raise SystemExit("--repeats must be 1..1000")
   result = run({"cores": cores, "roles": a.role or ["feature-report"], "repeats": a.repeats, "args": {}})
-  a.output.write_text(json.dumps(result, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+  if a.format == "json":
+   a.output.write_text(json.dumps(result, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+  else:
+   lines=["Shadow6 Benchmark schema=shadow6.benchmark.v1", "core\trole\trepeat\tstatus\telapsed_seconds\tcpu_seconds\tmax_rss_kib\treturncode"]
+   lines += ["{c}\t{r}\t{n}\t{s}\t{e:.6f}\t{u:.6f}\t{m}\t{x}".format(c=r["core"],r=r.get("role","-"),n=r.get("repeat","-"),s=r["status"],e=r.get("elapsed_seconds",0),u=r.get("user_seconds",0)+r.get("system_seconds",0),m=r.get("max_rss_kib","-"),x=r.get("returncode","-")) for r in result["results"]]
+   a.output.write_text("\n".join(lines)+"\n",encoding="utf-8")
   print(json.dumps({"output": str(a.output), "results": len(result["results"])}, ensure_ascii=True))
   return 0 if all(r["status"] == "ok" for r in result["results"]) else 1
  if a.command=="sign":return run("sign-plugin",[a.manifest,"--private-key",a.private_key,"--signer",a.signer],a.json_events)
