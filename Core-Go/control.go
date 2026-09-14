@@ -592,7 +592,7 @@ func startBroker(config *Config) error {
 }
 
 func routeIP() string {
-	for _, destination := range []string{"[2606:4700:4700::1111]:53", "1.1.1.1:53"} {
+	for _, destination := range []string{"127.0.0.1:9", "[::1]:9"} {
 		connection, err := net.DialTimeout("udp", destination, time.Second)
 		if err == nil {
 			address := connection.LocalAddr().(*net.UDPAddr).IP

@@ -88,6 +88,7 @@ jobs:
           cp -a Core-Idris/shadow6-idris-crosed_app "$output_dir/"
           cp Core-Idris/ffi/libsodium_ffi.so "$output_dir/" 2>/dev/null || \
             cp Core-Idris/ffi/libsodium_ffi.dylib "$output_dir/"
+          sed -i '1s|^#!.*$|#!/usr/bin/env -S scheme --program|' "$output_dir/shadow6-idris" "$output_dir/shadow6-idris-crosed"
           library_path="$GITHUB_WORKSPACE/Core-Idris/ffi:${LD_LIBRARY_PATH:-}"
           if [ "$RUNNER_OS" = "macOS" ]; then
             export DYLD_LIBRARY_PATH="$GITHUB_WORKSPACE/Core-Idris/ffi:${DYLD_LIBRARY_PATH:-}"
@@ -234,6 +235,7 @@ jobs:
           sudo cmake --install "$RUNNER_TEMP/shadow6-rtc-linux-build"
           sudo ldconfig
           test -f /usr/local/include/rtc/rtc.h
+          cp -L /usr/local/lib/libdatachannel.so.0.23 Core-Nim/libdatachannel.so.0.23
       - run: python -m venv .venv
       - name: Provision fixed Carp release
         run: |
