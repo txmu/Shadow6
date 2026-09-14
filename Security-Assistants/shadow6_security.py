@@ -284,7 +284,8 @@ def sha256_file(path: Path, limit: int = 128 * 1024 * 1024) -> str:
 
 
 def bounded_run(command: list[str], cwd: Path, timeout: float,
-                max_output: int = MAX_JSON, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+                max_output: int = MAX_JSON, env: dict[str, str] | None = None,
+                *, pass_fds: tuple[int, ...] = ()) -> subprocess.CompletedProcess[str]:
     """Run a trusted argv with a hard deadline and a combined output byte cap.
 
     POSIX children get a new session. TimeoutExpired signals the deadline;
@@ -304,7 +305,7 @@ def bounded_run(command: list[str], cwd: Path, timeout: float,
     with selectors.DefaultSelector() as selector:
         process = subprocess.Popen(command, cwd=cwd, env=env, stdin=subprocess.DEVNULL,
                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                   start_new_session=True, close_fds=True)
+                                   start_new_session=True, close_fds=True, pass_fds=pass_fds)
         try:
             for stream, name in ((process.stdout, "stdout"), (process.stderr, "stderr")):
                 os.set_blocking(stream.fileno(), False)

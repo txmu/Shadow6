@@ -232,7 +232,7 @@ static struct packet packet_receive(void) {
         endpoint_mode = 1; return packet_receive();
     }
     if (argc == 2 && strcmp(argv[1], "--feature-report") == 0) {
-        puts("{\"core\":\"shadow6-carp\",\"version\":\"0.1.0\",\"crosed_compiled\":false,\"crosed_max_level\":0,\"app_transport\":false,\"qubes_isolation\":false,\"utf8\":true,\"crosed_capabilities\":[]}"); exit(0);
+        puts("{\"core\":\"shadow6-carp\",\"version\":\"0.1.0\",\"crosed_compiled\":false,\"crosed_max_level\":0,\"app_transport\":false,\"qubes_isolation\":false,\"gate_compiled\":false,\"gate_enabled_by_default\":false,\"utf8\":true,\"crosed_capabilities\":[]}"); exit(0);
     }
     if (argc == 3 && strcmp(argv[1], "--gen-key") == 0) {
         int fd = open(argv[2], O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0600);

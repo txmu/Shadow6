@@ -22,8 +22,11 @@ actor Main
         ConfigReader(FileAuth(env.root), env.args(2)?, this, false, true)
         return
       end
+      if (env.args.size() == 5) and (env.args(1)? == "--plugin-rpc") then
+        if PluginRPC.start(env, this, env.args(2)?, env.args(3)?, env.args(4)?) then return end
+      end
     end
-    env.err.print("shadow6-pony --config FILE | --check-config FILE | --feature-report")
+    env.err.print("shadow6-pony --config FILE | --check-config FILE | --feature-report | --plugin-rpc ID CAPABILITY JSON")
     env.exitcode(2)
 
   be configured(config: Configuration val, check: Bool, debug: Bool) =>
@@ -34,6 +37,13 @@ actor Main
 
   be failed() =>
     _env.err.print("shadow6-pony: configuration, bind or handshake failed")
+    _env.exitcode(2)
+
+  be plugin_done(bytes: Array[U8] iso) =>
+    _env.out.write(consume bytes)
+
+  be plugin_failed(message: String) =>
+    _env.err.print("shadow6-pony: plugin RPC failed: " + message)
     _env.exitcode(2)
 
   fun feature_report(): String =>

@@ -540,6 +540,10 @@ def main() -> int:
     run = subparsers.add_parser("run")
     run.add_argument("plugin_id")
     run.add_argument("request", help="JSON object passed to the plugin")
+    rpc = subparsers.add_parser("rpc")
+    rpc.add_argument("plugin_id")
+    rpc.add_argument("capability")
+    rpc.add_argument("params", help="JSON object passed as bounded RPC parameters")
     game = subparsers.add_parser("game")
     game.add_argument("plugin_id")
     game.add_argument("--locale", choices=("en", "zh-CN"), default=os.environ.get("SHADOW6_LOCALE", "en"))
@@ -567,6 +571,16 @@ def main() -> int:
         if not isinstance(request, dict):
             raise PluginError("request must be a JSON object")
         print(json.dumps(run_plugin(manifest, request), ensure_ascii=False))
+    elif args.command == "rpc":
+        if args.capability not in manifest.capabilities:
+            raise PluginError("requested RPC capability is not granted by the signed manifest")
+        params = strict_json(args.params, PluginRPCSession.MAX_FRAME - 1024)
+        session = PluginRPCSession(manifest, frozenset({args.capability}))
+        response = session.dispatch({
+            "id": 1, "method": "plugin.invoke", "params": params,
+            "capabilities": [args.capability],
+        })
+        print(json.dumps(response, ensure_ascii=False))
     elif args.command == "game":
         _interactive_game(registry, args.plugin_id, args.locale)
     elif args.command == "dispatch":

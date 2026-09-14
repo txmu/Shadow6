@@ -21,6 +21,26 @@ def public(seed):
 
 
 class NetworkTests(unittest.TestCase):
+    def test_external_addresses_require_explicit_operator_opt_in(self):
+        with tempfile.TemporaryDirectory(prefix="shadow6-pony-config-") as directory:
+            path = Path(directory) / "external.json"
+            config = dict(
+                role="client", listen_port=41001, peer_port=41002,
+                application_port=41003, private_key=bytes(range(32)).hex(),
+                peer_public_key=public(bytes(range(32, 64))),
+                bind_host="192.0.2.10", peer_host="198.51.100.20",
+                application_host="127.0.0.1", allow_external=False,
+            )
+            path.write_text(json.dumps(config))
+            path.chmod(0o600)
+            denied = subprocess.run([BIN, "--check-config", str(path)], timeout=10)
+            self.assertNotEqual(denied.returncode, 0)
+            config["allow_external"] = True
+            path.write_text(json.dumps(config))
+            path.chmod(0o600)
+            accepted = subprocess.run([BIN, "--check-config", str(path)], timeout=10)
+            self.assertEqual(accepted.returncode, 0)
+
     def test_roundtrip(self):
         sockets, processes = [], []
         try:
@@ -93,6 +113,74 @@ class NetworkTests(unittest.TestCase):
                     process.kill()
                     process.communicate()
             for sock in sockets:
+                sock.close()
+
+    def test_three_party_broker_relay(self):
+        """A and C authenticate end-to-end while B only relays ciphertext."""
+        reservations, processes = [], []
+        try:
+            for _ in range(7):
+                sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                sock.bind(("127.0.0.1", 0))
+                reservations.append(sock)
+            client_port, broker_client_port, broker_agent_port, agent_port, app_port, target_port, _ = (
+                sock.getsockname()[1] for sock in reservations
+            )
+            for sock in reservations[:5]:
+                sock.close()
+            reservations[6].close()
+            target = reservations[5]
+            target.settimeout(8)
+            seed_a, seed_b, seed_c = bytes(range(32)), bytes(range(64, 96)), bytes(range(32, 64))
+            with tempfile.TemporaryDirectory(prefix="shadow6-pony-broker-") as directory:
+                specs = (
+                    ("broker", broker_client_port, agent_port, broker_agent_port, seed_b, seed_a),
+                    ("agent", agent_port, broker_agent_port, target_port, seed_a, seed_c),
+                    ("client", client_port, broker_client_port, app_port, seed_c, seed_a),
+                )
+                for role, listen, peer, application, seed, pin in specs:
+                    path = Path(directory) / f"{role}.json"
+                    path.write_text(json.dumps(dict(
+                        role=role, listen_port=listen, peer_port=peer,
+                        application_port=application, private_key=seed.hex(),
+                        peer_public_key=public(pin), bind_host="127.0.0.1",
+                        peer_host="127.0.0.1", application_host="127.0.0.1",
+                        allow_external=False,
+                    )))
+                    path.chmod(0o600)
+                    command = [BIN, "--config", str(path)]
+                    if os.environ.get("SHADOW6_PONY_DEBUG") == "1":
+                        command.append("--debug")
+                    processes.append(subprocess.Popen(
+                        command, stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                    ))
+                for process in processes:
+                    ready, _, _ = select.select([process.stdout], [], [], 8)
+                    self.assertTrue(ready, "three-party readiness timeout")
+                    self.assertIn(b"ready:", process.stdout.readline())
+                local = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                local.settimeout(8)
+                local.sendto(b"through-broker", ("127.0.0.1", app_port))
+                try:
+                    payload, address = target.recvfrom(2048)
+                except TimeoutError as exc:
+                    diagnostics = [process.stderr.read1(8192).decode(errors="replace") for process in processes]
+                    raise AssertionError(f"three-party payload timeout: {diagnostics}") from exc
+                self.assertEqual(payload, b"through-broker")
+                target.sendto(payload, address)
+                self.assertEqual(local.recvfrom(2048)[0], payload)
+                local.close()
+        finally:
+            for process in processes:
+                process.terminate()
+            for process in processes:
+                try:
+                    process.communicate(timeout=5)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.communicate()
+            for sock in reservations:
                 sock.close()
 
 

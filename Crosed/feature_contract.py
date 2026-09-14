@@ -2,10 +2,14 @@
 import re
 
 TRANSPORTS = {"shadow6-go": "kcp", "shadow6-rust": "quic", "shadow6-pony": "udp", "shadow6-gleam": "micro-mux", "shadow6-zig": "enet",
-              "shadow6-ada": "cell-relay", "shadow6-d": "rle-udp", "shadow6-nim": "webrtc"}
+              "shadow6-ada": "cell-relay", "shadow6-d": "rle-udp", "shadow6-nim": "webrtc",
+              "shadow6-cpp": "sctp-tls13", "shadow6-hare": "udp",
+              "shadow6-carp": "udp", "shadow6-idris": "udp"}
 CORE_PATHS = {name: f"Core-{suffix}/{name}" for name, suffix in (
     ("shadow6-go", "Go"), ("shadow6-rust", "Rust"), ("shadow6-pony", "Pony"), ("shadow6-gleam", "Gleam"), ("shadow6-zig", "Zig"),
-    ("shadow6-ada", "Ada"), ("shadow6-d", "D"), ("shadow6-nim", "Nim"))}
+    ("shadow6-ada", "Ada"), ("shadow6-d", "D"), ("shadow6-nim", "Nim"),
+    ("shadow6-cpp", "Cpp"), ("shadow6-hare", "Hare"),
+    ("shadow6-carp", "Carp"), ("shadow6-idris", "Idris"))}
 CAPABILITY_LEVELS = {"observe.version": 1, "observe.health": 1, "policy.request": 2,
     "policy.config": 2, "transport.metadata": 3, "transport.application": 3,
     "identity.assert": 4, "identity.resolve": 4, "core.lifecycle": 5, "core.hook": 5}
@@ -13,7 +17,8 @@ BOOLEAN_FIELDS = {"crosed_compiled", "app_transport", "qubes_isolation", "gate_c
                   "gate_enabled_by_default", "utf8"}
 COMMON_FIELDS = BOOLEAN_FIELDS | {"core", "version", "crosed_max_level", "crosed_capabilities"}
 EXTRA_FIELDS = {"shadow6-ada": {"cell_size"}, "shadow6-d": {"better_c"},
-                "shadow6-nim": {"memory_model"}}
+                "shadow6-nim": {"memory_model"},
+                "shadow6-cpp": {"standalone", "control_protocol", "data_transport", "max_sessions"}}
 
 
 def validate_feature_report(report, expected_core=None):
@@ -50,4 +55,8 @@ def validate_feature_report(report, expected_core=None):
         raise ValueError("Core-D must use betterC")
     if "memory_model" in report and report["memory_model"] not in ("arc", "orc"):
         raise ValueError("Nim requires ARC/ORC")
+    for field, expected in {"standalone": True, "control_protocol": "shadow6-cpp-wss-v1",
+                            "data_transport": "sctp-tls13", "max_sessions": 16}.items():
+        if field in report and (type(report[field]) is not type(expected) or report[field] != expected):
+            raise ValueError("invalid C++ feature field: " + field)
     return report

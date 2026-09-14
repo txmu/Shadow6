@@ -152,7 +152,12 @@ METHOD_SPECS: dict[str, dict[str, Any]] = {
     "gate.portmap.generate": _method("Generate a bounded one-address-per-port logical E-class map.", {"ports":{"type":"array","items":{"type":"integer","minimum":1,"maximum":65535},"maxItems":4096},"start":_STRING}, ("ports",)),
     "gate.portmap.validate": _method("Validate a logical E-class Gate port map.", {"path":_PATH}, ("path",)),
     "process.catalog": _method("List fixed unified-CLI components and availability.", {"root":_PATH}),
-    "vcore.discover": _method("Discover installed cores and their common capabilities.", {"root":_PATH, "timeout": {"type":"number", "minimum":0.1, "maximum":30}}),
+    "vcore.discover": _method("Discover installed signed cores without executing them.",
+        {"root": _PATH, "timeout": {"type": "integer", "minimum": 1, "maximum": 30},
+         "manifest": _PATH, "public_key": _PATH}),
+    "vcore.invoke": _method("Translate a bounded read-only request to a signed Core process.",
+        {"root": _PATH, "manifest": _PATH, "public_key": _PATH, "request": _OBJECT},
+        ("manifest", "public_key", "request")),
     "result.validate": _method("Validate a bounded Control API result envelope.", {"result":_OBJECT}, ("result",)),
 }
 
@@ -515,11 +520,22 @@ def dispatch(method: str, raw_params: Any = None) -> Any:
             _only(params,{"root","output","private_key","signer"});return repository_build(Path(params["root"]).resolve(strict=True),Path(params["output"]),Path(params["private_key"]),str(params["signer"]))
         raise ValueError("unsupported repository method")
     if method=="process.catalog":
-        _only(params,{"root"});root=_root(params);paths={"go":"Core-Go/shadow6-go","rust":"Core-Rust/shadow6-rust","cpp":"Core-Cpp/shadow6-cpp","gate":"Gate/shadow6-gate","control":"Control-Center/shadow6_control.py","migrate":"Migration/shadow6_migrate.py","repo":"Online-Repository/shadow6_repo.py"};return {"components":[{"name":name,"available":(root/path).is_file()} for name,path in paths.items()]}
+        _only(params, {"root"})
+        from shadow6_vcore import CORE_PATHS
+        root = _root(params)
+        paths = {**CORE_PATHS, "gate": "Gate/shadow6-gate",
+                 "control": "Control-Center/shadow6_control.py",
+                 "migrate": "Migration/shadow6_migrate.py", "repo": "Online-Repository/shadow6_repo.py"}
+        return {"components": [{"name": name, "available": (root / path).is_file()}
+                               for name, path in paths.items()]}
     if method=="vcore.discover":
-        _only(params,{"root","timeout"})
+        _only(params,{"root","timeout","manifest","public_key"})
         from shadow6_vcore import discover
-        return discover(_root(params), float(params.get("timeout", 5.0)))
+        return discover(_root(params), params.get("timeout", 5), params.get("manifest"), params.get("public_key"))
+    if method == "vcore.invoke":
+        _only(params, {"root", "manifest", "public_key", "request"})
+        from shadow6_vcore import invoke
+        return invoke(_root(params), params["request"], params["manifest"], params["public_key"])
     if method=="result.validate":
         _only(params,{"result"});result=params.get("result")
         if not isinstance(result,dict) or set(result)-{"id","ok","result","error"} or not isinstance(result.get("ok"),bool):raise ValueError("invalid result envelope")

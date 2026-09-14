@@ -6,11 +6,11 @@ actor SocketActor is (UDPSocketActor & UDPLifecycleEventReceiver)
   let _runtime: Runtime
   let _application: Bool
 
-  new create(auth: NetAuth, port: String, runtime: Runtime, application: Bool) =>
+  new create(auth: NetAuth, host: String, port: String, runtime: Runtime, application: Bool) =>
     _runtime = runtime
     _application = application
     let size = DefaultReadBufferSize()
-    _udp = UDPSocket(UDPAuth(auth), "127.0.0.1", port, this, this,
+    _udp = UDPSocket(UDPAuth(auth), host, port, this, this,
       size, IP4, 16)
 
   fun ref _socket(): UDPSocket => _udp
@@ -42,6 +42,7 @@ actor Runtime
   let _app: SocketActor
   var _peer: NetAddress val = recover NetAddress end
   var _local: (NetAddress val | None) = None
+  var _broker_client: (NetAddress val | None) = None
   let _handshake: Handshake = Handshake
   let _session: ReliableSession = ReliableSession
   var _token: (OCapToken | None) = None
@@ -66,14 +67,17 @@ actor Runtime
     _out = out
     _err = err
     _debug = debug
-    let peer: Array[NetAddress] val = DNS.ip4(DNSAuth(auth), "127.0.0.1", config.peer_port.string())
+    let peer: Array[NetAddress] val = DNS.ip4(DNSAuth(auth), config.peer_host, config.peer_port.string())
     try _peer = peer(0)? else _main.failed() end
     if not config.client then
-      let local: Array[NetAddress] val = DNS.ip4(DNSAuth(auth), "127.0.0.1", config.application_port.string())
+      let local: Array[NetAddress] val = DNS.ip4(DNSAuth(auth), config.application_host, config.application_port.string())
       try _local = local(0)? else _main.failed() end
     end
-    _network = SocketActor(auth, config.listen_port.string(), this, false)
-    _app = SocketActor(auth, if config.client then config.application_port.string() else "0" end, this, true)
+    _network = SocketActor(auth, config.bind_host, config.listen_port.string(), this, false)
+    _app = SocketActor(auth, config.bind_host,
+      if config.client then config.application_port.string()
+      elseif config.broker then config.application_port.string()
+      else "0" end, this, true)
     _timers(Timer(_Tick(this), 250_000_000, 250_000_000))
 
   be failed() =>
@@ -92,6 +96,7 @@ actor Runtime
     _ready_count = _ready_count + 1
     if _debug then _err.print("debug: bound application=" + application.string()) end
     if _ready_count != 2 then return end
+    if _cfg.broker then _out.print("ready: broker"); return end
     if _cfg.client then
       try
         _retry = _handshake.start(_cfg.seed, _cfg.peer_key, Time.now()._1.u64())?
@@ -136,9 +141,24 @@ actor Runtime
     if not _closed then
       if _debug then _err.print("debug: received application=" + application.string() + " bytes=" + data.size().string() + " stage=" + _stage.string()) end
       try
-        if application then _plaintext(consume data, from)?
+        if _cfg.broker then _relay(consume data, from, application)
+        elseif application then _plaintext(consume data, from)?
         elseif from == _peer then _encrypted(consume data)? end
       end
+    end
+
+  fun ref _relay(data: Array[U8] iso, from: NetAddress val, agent_side: Bool) =>
+    if agent_side then
+      if from != _peer then return end
+      match _broker_client
+      | let client_address: NetAddress val => _network.send(consume data, client_address)
+      end
+    else
+      match _broker_client
+      | let client_address: NetAddress val => if from != client_address then return end
+      | None => _broker_client = from
+      end
+      _app.send(consume data, _peer)
     end
 
   fun ref _plaintext(data: Array[U8] iso, from: NetAddress val) ? =>
@@ -147,6 +167,7 @@ actor Runtime
     | None => _local = from
     end
     if (_stage != 3) or (data.size() > 1172) then return end
+    if _last_sequence > _rx then return end
     if _tx >= 1000000 then _close(); return end
     let token = _token as OCapToken
     let frame = Frame.empty()

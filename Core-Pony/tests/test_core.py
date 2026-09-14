@@ -19,8 +19,12 @@ assert "level(grant.capability) <= grant.request_level" in CROSED
 RUNTIME = (ROOT / "runtime.pony").read_text()
 assert "kind == 3" in RUNTIME and "_last_wire" in RUNTIME and "_last_sent" in RUNTIME
 assert "token.seal(consume ack, sequence, 3)" in RUNTIME
+PLUGIN = (ROOT / "plugin_rpc.pony").read_text()
+assert "StartProcess" in PLUGIN and "PluginRPCNotify" in PLUGIN
+assert "Plugin-System/shadow6_plugins.py" in PLUGIN
 CONFIG = (ROOT / "config.pony").read_text()
 assert "broker: Bool" in CONFIG and "role > 2" in CONFIG
+assert "allow_external" in CONFIG and "peer_host" in CONFIG
 
 if "--binary" in sys.argv:
     p = subprocess.run([str(ROOT / "shadow6-pony"), "--feature-report"], check=True, capture_output=True, text=True)

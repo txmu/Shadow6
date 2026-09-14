@@ -23,6 +23,7 @@ Core-Gleam/shadow6-gleam
 Core-Gleam/shadow6-gleam-crosed
 Core-Zig/shadow6-zig
 Core-Zig/.zig-cache/
+.zig-cache/
 Core-Zig/zig-out/
 Core-Hare/shadow6-hare
 Core-Carp/shadow6-carp

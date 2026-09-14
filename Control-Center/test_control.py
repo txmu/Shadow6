@@ -32,7 +32,7 @@ class ControlCenterTests(unittest.TestCase):
             return subprocess.run([sys.executable, str(CONTROL), adapter], input=payload,
                 capture_output=True, timeout=15, check=True).stdout
 
-        for method, params in (("system.guide", {"lang": "zh"}), ("privacy.report", {})):
+        for method, params in (("system.guide", {"lang": "zh"}), ("privacy.report", {}), ("vcore.discover", {})):
             expected = dispatch(method, params)
             tool = control._tool_name(method)
             request = {"id": 1, "method": method, "params": params}
@@ -314,6 +314,15 @@ class ControlCenterTests(unittest.TestCase):
 
 
 class ControlHTTPTests(unittest.IsolatedAsyncioTestCase):
+    async def test_vcore_discovery_is_consistent_and_authenticated(self):
+        payload = {"id": 1, "method": "vcore.discover", "params": {}}
+        async with self.client.post(self.url + "/v1/rpc", json=payload) as reply:
+            self.assertEqual(reply.status, 401)
+        async with self.client.post(self.url + "/v1/rpc", json=payload,
+                headers={"Authorization": "Bearer " + "a" * 32}) as reply:
+            self.assertEqual(reply.status, 200)
+            self.assertEqual((await reply.json())["result"], dispatch("vcore.discover", {}))
+
     async def asyncSetUp(self):
         from aiohttp import ClientSession, web
         self.runner = control.http_runner(control.http_app("a" * 32))
