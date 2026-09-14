@@ -560,10 +560,7 @@ fn mask_ip(ip: &str, stealth: bool) -> String {
     hasher.update(format!("{}{}", ip, salt));
     hasher.update(format!("{}shadow_salt", ip));
     let hash = hasher.finalize();
-    format!(
-        "IP[MASKED:{:02x}{:02x}{:02x}{:02x}]",
-        hash[0], hash[1], hash[2], hash[3]
-    )
+    format!("IP[MASKED:{}]", hex::encode(&hash[..16]))
 }
 
 async fn get_route_ip() -> String {

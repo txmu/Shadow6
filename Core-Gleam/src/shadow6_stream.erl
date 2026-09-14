@@ -7,13 +7,11 @@ init({StreamId, Session}) ->
     Monitor = erlang:monitor(process, Session),
     {ok, #{id => StreamId, session => Session, monitor => Monitor, next => 0}}.
 
-handle_cast({packet, Sequence, Nonce, Mac, Ciphertext, Key, Peer}, #{id := StreamId, next := Next} = State) ->
+handle_cast({packet, Sequence, Plaintext, Peer}, #{id := StreamId, next := Next} = State) ->
     true = Sequence >= Next,
-    Aad = <<16#53364D4D:32, StreamId:16, Sequence:64, Nonce/binary>>,
-    {ok, Payload} = shadow6_sodium:decrypt(Ciphertext, Mac, Aad, Nonce, Key),
-    _Typed = case Payload of
-      <<${, _/binary>> -> {ok, _} = shadow6_json:parse_payload(Payload);
-      _ -> Payload
+    _Typed = case Plaintext of
+      <<${, _/binary>> -> {ok, _} = shadow6_json:parse_payload(Plaintext);
+      _ -> Plaintext
     end,
     {noreply, State#{next := Sequence + 1, peer => Peer}};
 handle_cast(_, State) -> {noreply, State}.

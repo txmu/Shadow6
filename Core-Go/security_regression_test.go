@@ -8,6 +8,24 @@ import (
 	"testing"
 )
 
+func TestLPDReplayCacheDoesNotEvictLiveNonce(t *testing.T) {
+	cache := newLPDReplayCache()
+	const now int64 = 1000
+	first := []byte("first-nonce")
+	if !cache.reserve(first, now) {
+		t.Fatal("first nonce was rejected")
+	}
+	for i := 0; i < 50_000; i++ {
+		cache.seen[string([]byte{byte(i), byte(i >> 8), byte(i >> 16)})] = now
+	}
+	if cache.reserve([]byte("new-nonce"), now) {
+		t.Fatal("cache accepted a nonce while full")
+	}
+	if cache.reserve(first, now) {
+		t.Fatal("live nonce became reusable under capacity pressure")
+	}
+}
+
 func TestSecurityStrictJSON(t *testing.T) {
 	for _, input := range []string{
 		`{"role":"client","role":"broker"}`,

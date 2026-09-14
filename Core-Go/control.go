@@ -572,7 +572,9 @@ func maskIP(ip string, stealth bool) string {
 		return ip
 	}
 	hash := sha256.Sum256(append(append([]byte(nil), maskingSalt...), []byte(ip)...))
-	return fmt.Sprintf("IP[MASKED:%s]", hex.EncodeToString(hash[:4]))
+	// Keep a 128-bit identifier so the bounded IPv4 space cannot be used to
+	// recover the process salt from a masked log value.
+	return fmt.Sprintf("IP[MASKED:%s]", hex.EncodeToString(hash[:16]))
 }
 
 func startBroker(config *Config) error {

@@ -367,6 +367,8 @@ type lpdReplayCache struct {
 	seen map[string]int64
 }
 
+const lpdReplayWindowSeconds int64 = 60
+
 func newLPDReplayCache() *lpdReplayCache {
 	return &lpdReplayCache{seen: make(map[string]int64)}
 }
@@ -375,12 +377,17 @@ func (cache *lpdReplayCache) reserve(nonce []byte, now int64) bool {
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
 	for key, timestamp := range cache.seen {
-		if timestamp < now-60 {
+		if timestamp < now-lpdReplayWindowSeconds {
 			delete(cache.seen, key)
 		}
 	}
 	key := string(nonce)
-	if _, exists := cache.seen[key]; exists || len(cache.seen) >= 50_000 {
+	if _, exists := cache.seen[key]; exists {
+		return false
+	}
+	// Never evict a live nonce under pressure: doing so would permit replay.
+	// New requests fail closed until entries age out of the time window.
+	if len(cache.seen) >= 50_000 {
 		return false
 	}
 	cache.seen[key] = now

@@ -20,13 +20,13 @@ handle_info({udp, Socket, Address, Port, Packet}, #{socket := Socket} = State) -
     true = byte_size(Packet) =< ?MAX_DATAGRAM,
     Packets=maps:get(packets,State),
     NextPackets=case map_size(Packets) < ?MAX_PACKET_ACTORS of
-      true -> {ok, Pid} = shadow6_dynamic_sup:start_child(shadow6_packet_sup, [self(), Address, Port, Packet]),
+      true -> {ok, Pid} = shadow6_dynamic_sup:start_child(shadow6_packet_sup, [self(), Address, Port, Packet, maps:get(key, State)]),
               _=erlang:monitor(process,Pid),maps:put(Pid,true,Packets);
       false -> Packets
     end,
     ok = inet:setopts(Socket, [{active, once}]),
     {noreply, State#{packets := NextPackets}};
-handle_info({parsed_packet, StreamId, Sequence, Nonce, Mac, Payload, Peer}, #{streams := Streams, key := Key} = State) ->
+handle_info({parsed_packet, StreamId, Sequence, Plaintext, Peer}, #{streams := Streams} = State) ->
     {Pid, NextStreams} = case maps:find(StreamId, Streams) of
       {ok, Existing} ->
         case erlang:is_process_alive(Existing) of
@@ -35,7 +35,7 @@ handle_info({parsed_packet, StreamId, Sequence, Nonce, Mac, Payload, Peer}, #{st
         end;
       error -> new_stream(StreamId, Streams)
     end,
-    case Pid of undefined -> ok; _ -> gen_server:cast(Pid, {packet, Sequence, Nonce, Mac, Payload, Key, Peer}) end,
+    case Pid of undefined -> ok; _ -> gen_server:cast(Pid, {packet, Sequence, Plaintext, Peer}) end,
     {noreply, State#{streams := NextStreams}};
 handle_info({'DOWN', _, process, Pid, _}, #{streams := Streams,packets := Packets} = State) ->
     {noreply, State#{streams := maps:filter(fun(_, Value) -> Value =/= Pid end, Streams),
