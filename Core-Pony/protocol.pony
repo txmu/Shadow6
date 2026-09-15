@@ -24,7 +24,7 @@ primitive ReplayWindow
 
 primitive SessionLimits
   fun max_clients(): USize => 256
-  fun max_pending(): USize => 32
+  fun max_pending(): USize => 256
   fun reconnect_delay(attempt: U8): U64 =>
     let bounded = if attempt > 6 then 6 else attempt end
     U64(250_000_000) << bounded.u64()
@@ -67,43 +67,84 @@ class ref PluginTable
 
 class ref ReliableSession
   var _next: U64 = 2
-  var _acked: U64 = 1
+  var _send_base: U64 = 2
+  var _receive_next: U64 = 2
   var _attempt: U8 = 0
   var _connected: Bool = false
-  var _sent: Map[U64, U64] = Map[U64, U64]
-  var _received: Map[U64, Bool] = Map[U64, Bool]
-  var _srtt: U64 = 250_000_000
-  var _rttvar: U64 = 125_000_000
+  let _sent: Map[U64, PendingPacket] = Map[U64, PendingPacket]
+  let _received: Map[U64, Array[U8] val] = Map[U64, Array[U8] val]
+  var _srtt: U64 = 0
+  var _rttvar: U64 = 0
 
   fun ref connected() => _connected = true; _attempt = 0
-  fun ref disconnected() => _connected = false; _attempt = _attempt + 1
-  fun ref acknowledge(sequence: U64): Bool =>
-    if (sequence <= _acked) or (sequence >= _next) then false
-    else
-      _acked = sequence
-      try _sent.remove(sequence)? end
+  fun ref disconnected() => _connected = false; _attempt = (_attempt + 1).min(6)
+  fun ref clear() => _connected = false; _sent.clear(); _received.clear()
+  fun can_send(): Bool =>
+    _connected and (_next < U64.max_value()) and
+      ((_next - _send_base) < SessionLimits.max_pending().u64())
+  fun ref acknowledge(sequence: U64, now: U64): Bool =>
+    try
+      let packet = _sent(sequence)?
+      // Karn: an ACK after retransmission is ambiguous and provides no sample.
+      if packet.retries == 0 then sample_rtt(now - packet.first_sent) end
+      _sent.remove(sequence)?
+      while (_send_base < _next) and (not _sent.contains(_send_base)) do
+        _send_base = _send_base + 1
+      end
       true
-    end
+    else false end
   fun ref next_sequence(): U64 ? =>
-    if (not _connected) or ((_next - _acked) > SessionLimits.max_pending().u64()) then error end
-    let value = _next; _next = _next + 1; _sent(value) = 0; value
+    if not can_send() then error end
+    let value = _next; _next = _next + 1; value
+  fun ref sent(sequence: U64, wire: Array[U8] val, now: U64) =>
+    _sent(sequence) = PendingPacket(wire, now, rto())
   fun retry_delay(): U64 => SessionLimits.reconnect_delay(_attempt)
-  fun ref accept_receive(sequence: U64): Bool =>
-    if (sequence <= _acked) or (sequence >= (_acked + SessionLimits.max_pending().u64())) then false
-    elseif _received.contains(sequence) then false
-    else _received(sequence) = true; true end
-  fun ref expire(now: U64, timeout: U64): Array[U64] iso^ =>
-    let due = recover iso Array[U64] end
-    for (sequence, sent) in _sent.pairs() do
-      if (sent != 0) and (now >= (sent + timeout)) then due.push(sequence) end
+  fun ref accept_receive(sequence: U64, payload: Array[U8] iso): Bool =>
+    if (sequence < 2) or (sequence == U64.max_value()) then false
+    elseif sequence < _receive_next then true
+    elseif (sequence - _receive_next) >= SessionLimits.max_pending().u64() then false
+    elseif _received.contains(sequence) then true
+    else _received(sequence) = consume payload; true end
+  fun ref deliver(): Array[Array[U8] val] iso^ =>
+    let result = recover iso Array[Array[U8] val] end
+    while _received.contains(_receive_next) do
+      try
+        (_, let payload) = _received.remove(_receive_next)?
+        result.push(payload)
+        _receive_next = _receive_next + 1
+      else break end
+    end
+    consume result
+  fun ref retransmit(now: U64): Array[Array[U8] val] iso^ ? =>
+    let due = recover iso Array[Array[U8] val] end
+    for packet in _sent.values() do
+      if (now >= packet.last_sent) and ((now - packet.last_sent) >= packet.timeout) then
+        if packet.retries >= 8 then error end
+        packet.retries = packet.retries + 1
+        packet.last_sent = now
+        packet.timeout = (packet.timeout * 2).min(5_000_000_000)
+        due.push(packet.wire)
+      end
     end
     consume due
   fun ref sample_rtt(sample: U64) =>
     if sample == 0 then return end
+    if _srtt == 0 then _srtt = sample; _rttvar = sample / 2; return end
     let deviation = if _srtt >= sample then _srtt - sample else sample - _srtt end
     _rttvar = ((_rttvar * 3) + deviation) / 4
     _srtt = ((_srtt * 7) + sample) / 8
-  fun rto(): U64 => (_srtt + (_rttvar * 4)).max(100_000_000).min(5_000_000_000)
+  fun rto(): U64 =>
+    if _srtt == 0 then 1_000_000_000
+    else (_srtt + (_rttvar * 4).max(10_000_000)).max(100_000_000).min(5_000_000_000) end
+
+class ref PendingPacket
+  let wire: Array[U8] val
+  let first_sent: U64
+  var last_sent: U64
+  var timeout: U64
+  var retries: U8 = 0
+  new create(bytes: Array[U8] val, now: U64, rto: U64) =>
+    wire = bytes; first_sent = now; last_sent = now; timeout = rto
 
 class ref SessionTable
   let _sessions: Map[String, ReliableSession] = Map[String, ReliableSession]

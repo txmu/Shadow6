@@ -13,6 +13,7 @@ use @s6p_seal[I32](packet: Pointer[U8] tag, cap: USize, size: USize,
 use @s6p_open[I32](packet: Pointer[U8] tag, size: USize, keys: Pointer[U8] tag, kn: USize)
 use @sodium_memzero[None](p: Pointer[U8] tag, size: USize)
 use @s6p_public[I32](seed: Pointer[U8] tag, n: USize, pk: Pointer[U8] tag, cap: USize)
+use @s6p_peer_matches[I32](peer: Pointer[U8] tag, n: USize, hello: Pointer[U8] tag, hn: USize)
 
 // These FFI calls mutate only exclusively owned output buffers, synchronously.
 // They are not marked readnone/readonly: AEAD has observable writes. Pointers
@@ -51,10 +52,14 @@ class Handshake
 
   fun ref finish(response: Array[U8] iso, now: U64): OCapToken ? =>
     if not _pending then error end
-    _pending = false
+    // Validate against a private copy: unauthenticated packets may not consume
+    // the pending handshake. C always wipes the attempted state; the live
+    // state is wiped only on authenticated completion or the owning timeout.
+    let attempt = _state.clone()
     let keys = recover iso Array[U8].init(0, 96) end
-    if @s6p_finish(_state.cpointer(), _state.size(), response.cpointer(), response.size(),
-      keys.cpointer(), keys.size(), now) != 0 then clear(); error end
+    if @s6p_finish(attempt.cpointer(), attempt.size(), response.cpointer(), response.size(),
+      keys.cpointer(), keys.size(), now) != 0 then error end
+    clear()
     OCapToken(consume keys)?
 
   fun ref clear() =>
@@ -62,6 +67,12 @@ class Handshake
     _pending = false
 
 primitive AgentHandshake
+  fun select_peer(peers: Array[Array[U8] val] val, hello: Array[U8] box): Array[U8] val ? =>
+    for peer in peers.values() do
+      if @s6p_peer_matches(peer.cpointer(), peer.size(), hello.cpointer(), hello.size()) == 1 then return peer end
+    end
+    error
+
   fun apply(seed: Array[U8] box, peer: Array[U8] box, hello: Array[U8] box,
     now: U64): (Array[U8] iso^, OCapToken) ?
   =>

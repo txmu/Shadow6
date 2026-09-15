@@ -31,6 +31,17 @@ int s6p_public(const unsigned char *seed, size_t n, unsigned char *pk, size_t ca
     return result;
 }
 
+/* The first half of the signed nonce is a public identity selector.  The
+ * remaining 128 random bits keep each hello unique.  Selection is not auth:
+ * s6p_respond must still verify the complete signature with the selected pin. */
+int s6p_peer_matches(const unsigned char *peer, size_t n,
+                     const unsigned char *hello, size_t hn) {
+    if (!peer || !hello || n != 32 || hn != HELLO || memcmp(hello, "S6Q1", 4)) return 0;
+    unsigned char selector[16];
+    if (crypto_generichash(selector, sizeof selector, peer, n, NULL, 0)) return 0;
+    return sodium_memcmp(selector, hello + 12, sizeof selector) == 0;
+}
+
 /* Signature inputs include both pinned identities, role/version and the full
  * prior transcript. This prevents reflection and unknown-key-share attacks. */
 static size_t signed_input(unsigned char *out, const unsigned char *packet,
@@ -54,8 +65,10 @@ int s6p_start(const unsigned char *seed, size_t n, const unsigned char *peer,
     memset(state, 0, STATE); memset(out, 0, HELLO);
     int rc = identity(seed, state + 32, sk);
     memcpy(state + 64, peer, 32);
-    memcpy(out, "S6P1", 4); write64(out + 4, now);
-    randombytes_buf(out + 12, 32);
+    memcpy(out, "S6Q1", 4); write64(out + 4, now);
+    rc |= crypto_generichash(out + 12, 16, state + 32, 32, NULL, 0);
+    randombytes_buf(out + 28, 16);
+    rc |= crypto_generichash(out + 12, 16, state + 32, 32, NULL, 0);
     randombytes_buf(state, 32);
     rc |= crypto_scalarmult_curve25519_base(out + 44, state);
     size_t len = signed_input(input, out, 76, state + 32, peer, NULL);
@@ -72,7 +85,7 @@ static int derive(unsigned char *keys, const unsigned char *secret,
     unsigned char shared[32], material[320], root[32], first[32], second[32];
     int rc = crypto_scalarmult_curve25519(shared, secret, remote);
     if (rc) { sodium_memzero(shared, sizeof shared); return -1; }
-    memcpy(material, "S6PKDF01", 8);
+    memcpy(material, "S6PKDF02", 8);
     memcpy(material + 8, hello, HELLO);
     memcpy(material + 8 + HELLO, response, RESPONSE);
     rc |= crypto_generichash(root, 32, material, sizeof material, shared, 32);
@@ -94,13 +107,13 @@ int s6p_respond(const unsigned char *seed, size_t n, const unsigned char *peer,
     if (!seed || !peer || !hello || !out || !keys || n != 32 || pn != 32 ||
         hn != HELLO || cap != RESPONSE || kn != KEYS || sodium_init() < 0) return -1;
     memset(out, 0, RESPONSE); memset(keys, 0, KEYS);
-    if (memcmp(hello, "S6P1", 4) || !fresh(hello + 4, now)) return -1;
+    if (memcmp(hello, "S6Q1", 4) || !fresh(hello + 4, now)) return -1;
     unsigned char sk[64], pk[32], input[312], secret[32];
     int rc = identity(seed, pk, sk);
     size_t len = signed_input(input, hello, 76, peer, pk, NULL);
     rc |= crypto_sign_verify_detached(hello + 76, input, len, peer);
     if (rc == 0) {
-        memcpy(out, "S6P2", 4); write64(out + 4, now);
+        memcpy(out, "S6Q2", 4); write64(out + 4, now);
         memcpy(out + 12, hello + 12, 32);
         randombytes_buf(out + 44, 32); randombytes_buf(secret, 32);
         rc |= crypto_scalarmult_curve25519_base(out + 76, secret);
@@ -122,7 +135,7 @@ int s6p_finish(unsigned char *state, size_t sn, const unsigned char *response,
     memset(keys, 0, KEYS);
     const unsigned char *hello = state + 96;
     int rc = -1;
-    if (!memcmp(response, "S6P2", 4) && fresh(response + 4, now) &&
+    if (!memcmp(response, "S6Q2", 4) && fresh(response + 4, now) &&
         fresh(hello + 4, now) && !sodium_memcmp(response + 12, hello + 12, 32)) {
         size_t len = signed_input(input, response, 108, state + 32, state + 64, hello);
         rc = crypto_sign_verify_detached(response + 108, input, len, state + 64);
@@ -141,9 +154,12 @@ int s6p_finish(unsigned char *state, size_t sn, const unsigned char *response,
 int s6p_seal(unsigned char *packet, size_t cap, size_t size,
               const unsigned char *keys, size_t kn, uint64_t sequence, unsigned kind) {
     if (!packet || !keys || cap > MAX_FRAME || size < 12 || size + 16 > cap ||
-        kn != KEYS || !sequence || sequence > 1000000 || kind > 3) return -1;
-    unsigned char nonce[12] = {0}, ad[44];
-    memcpy(packet, "S6D", 3); packet[3] = (unsigned char)kind;
+        kn != KEYS || !sequence || kind > 3) return -1;
+    /* Domain-separate DATA/ACK/control packets.  The old nonce encoded only
+     * the sequence, so a DATA and ACK sharing a sequence reused a nonce under
+     * the same TX key. */
+    unsigned char nonce[12] = {'S', '6', (unsigned char)kind, 1}, ad[44];
+    memcpy(packet, "S6E", 3); packet[3] = (unsigned char)kind;
     write64(packet + 4, sequence); write64(nonce + 4, sequence);
     memcpy(ad, packet, 12); memcpy(ad + 12, keys + 64, 32);
     return crypto_aead_chacha20poly1305_ietf_encrypt_detached(packet + 12,
@@ -151,10 +167,10 @@ int s6p_seal(unsigned char *packet, size_t cap, size_t size,
 }
 int s6p_open(unsigned char *packet, size_t size, const unsigned char *keys, size_t kn) {
     if (!packet || !keys || size < 28 || size > MAX_FRAME || kn != KEYS ||
-        memcmp(packet, "S6D", 3) || packet[3] > 3) return -1;
+        memcmp(packet, "S6E", 3) || packet[3] > 3) return -1;
     uint64_t sequence = read64(packet + 4);
-    if (!sequence || sequence > 1000000) return -1;
-    unsigned char nonce[12] = {0}, ad[44];
+    if (!sequence) return -1;
+    unsigned char nonce[12] = {'S', '6', packet[3], 1}, ad[44];
     write64(nonce + 4, sequence);
     memcpy(ad, packet, 12); memcpy(ad + 12, keys + 64, 32);
     /* libsodium permits zero-length plaintext, but some builds reject an

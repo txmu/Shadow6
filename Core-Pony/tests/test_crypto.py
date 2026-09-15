@@ -133,7 +133,7 @@ class SessionTests(unittest.TestCase):
         packet = buf(1201)
         for cap, size, seq, kind in ((1201, 12, 1, 2), (1200, 1185, 1, 2),
                                      (1200, 11, 1, 2), (1200, 12, 0, 2),
-                                     (1200, 12, 1000001, 2)):
+                                     (1200, 12, 1, 4)):
             self.assertNotEqual(self.lib.s6p_seal(packet, cap, size, self.ck, 96, seq, kind), 0)
         for size in (0, 27, 1201):
             self.assertNotEqual(self.lib.s6p_open(packet, size, self.ak, 96), 0)
@@ -144,6 +144,25 @@ class SessionTests(unittest.TestCase):
         self.setUp()
         self.establish()
         self.assertNotEqual(previous, bytes(self.ck))
+
+    def test_full_counter_space_and_nonce_domains(self):
+        self.establish()
+        for sequence in (1000001, 2**32, 2**63, 2**64 - 1):
+            packet = self.seal(b"counter", sequence=sequence)
+            self.assertEqual(self.lib.s6p_open(packet, len(packet), self.ak, 96), 0)
+        # Identical plaintext and sequence in distinct authenticated kinds must
+        # have distinct cipher streams, not just distinct associated-data tags.
+        data = self.seal(b"same plaintext", sequence=123, kind=2)
+        ack = self.seal(b"same plaintext", sequence=123, kind=3)
+        self.assertNotEqual(bytes(data[12:-16]), bytes(ack[12:-16]))
+        for packet in (data, ack):
+            self.assertEqual(self.lib.s6p_open(packet, len(packet), self.ak, 96), 0)
+
+    def test_old_wire_version_fails_closed(self):
+        self.establish()
+        packet = self.seal()
+        packet[2] = ord("D")
+        self.assertNotEqual(self.lib.s6p_open(packet, len(packet), self.ak, 96), 0)
 
 
 if __name__ == "__main__":

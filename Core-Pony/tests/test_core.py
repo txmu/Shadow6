@@ -20,7 +20,7 @@ assert "class val CrosedGrant" in CROSED
 assert "signed and (build_level == 5)" in CROSED
 assert "level(grant.capability) <= grant.request_level" in CROSED
 RUNTIME = (ROOT / "runtime.pony").read_text()
-assert "kind == 3" in RUNTIME and "_last_wire" in RUNTIME and "_last_sent" in RUNTIME
+assert "kind == 3" in RUNTIME and "ClientSession" in RUNTIME and "_sessions" in RUNTIME
 assert "token.seal(consume ack, sequence, 3)" in RUNTIME
 PLUGIN = (ROOT / "plugin_rpc.pony").read_text()
 assert "StartProcess" in PLUGIN and "PluginRPCNotify" in PLUGIN
