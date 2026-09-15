@@ -302,6 +302,13 @@ async def generate_configs(engine: str, output: Path, target_port: int, broker_p
             path = output / f"{role}.json"
             path.write_text(json.dumps(document), encoding="utf-8"); path.chmod(0o600)
         return
+    # Go/Rust benchmark runs only need the signed core JSON contract.  Keep
+    # them independent from Auto-Orchestrator's optional UI/SSH dependencies
+    # (which are not packaged on BSD runners).
+    if engine in {"shadow6-go", "shadow6-rust"}:
+        from local_configs import generate_configs as generate_local_configs
+        generate_local_configs(output, target_port, broker_port, engine)
+        return
     sys.path.insert(0, str(ROOT / "Auto-Orchestrator"))
     from shadow6_auto import execute_mtd_rotation
     topology = {
