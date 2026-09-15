@@ -142,7 +142,7 @@ actor Runtime is DatagramReceiver
           source.consumed(); return
         end
         let hello: Array[U8] val = consume data
-        let nonce_bytes = recover val Array[U8](32) end
+        let nonce_bytes = recover iso Array[U8](32) end
         for byte in hello.slice(12, 44).values() do nonce_bytes.push(byte) end
         let nonce = String.from_array(consume nonce_bytes)
         if _recent.contains(nonce) then source.consumed(); return end
