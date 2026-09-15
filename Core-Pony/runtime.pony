@@ -142,9 +142,12 @@ actor Runtime is DatagramReceiver
           source.consumed(); return
         end
         let hello: Array[U8] val = consume data
-        let nonce_bytes = recover iso Array[U8](32) end
+        // Copy the authenticated nonce into an immutable buffer before using
+        // it as a map key; slice() yields a mutable view in Pony 0.72.
+        let nonce_bytes: Array[U8] iso = recover iso Array[U8](32) end
         for byte in hello.slice(12, 44).values() do nonce_bytes.push(byte) end
-        let nonce = String.from_array(consume nonce_bytes)
+        let nonce_data: Array[U8] val = consume nonce_bytes
+        let nonce = String.from_array(nonce_data)
         if _recent.contains(nonce) then source.consumed(); return end
         let peer_key = AgentHandshake.select_peer(_cfg.peer_keys, hello)?
         (let response, let token) = AgentHandshake(_cfg.seed, peer_key, hello, Time.now()._1.u64())?
