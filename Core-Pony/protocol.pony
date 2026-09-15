@@ -100,7 +100,8 @@ class ref ReliableSession
     consume due
   fun ref sample_rtt(sample: U64) =>
     if sample == 0 then return end
-    _rttvar = ((_rttvar * 3) + (_srtt.abs_diff(sample))) / 4
+    let deviation = if _srtt >= sample then _srtt - sample else sample - _srtt end
+    _rttvar = ((_rttvar * 3) + deviation) / 4
     _srtt = ((_srtt * 7) + sample) / 8
   fun rto(): U64 => (_srtt + (_rttvar * 4)).max(100_000_000).min(5_000_000_000)
 

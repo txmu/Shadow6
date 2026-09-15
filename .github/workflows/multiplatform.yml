@@ -9,6 +9,7 @@ jobs:
     name: Core-Pony focused contract
     if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - name: Provision pinned Pony toolchain
@@ -21,13 +22,15 @@ jobs:
           tar -xzf /tmp/ponyc.tar.gz --strip-components=1 -C .tools/ponyc-0.72.0
           test -x .tools/ponyc-0.72.0/bin/ponyc
       - name: Install native dependencies
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends build-essential libsodium-dev python3
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends build-essential libsodium-dev libssl-dev python3
       - name: Build default and Crosed variants
-        run: make crosed-variants BUILD_PONY=1 PONYC="$GITHUB_WORKSPACE/.tools/ponyc-0.72.0/bin/ponyc"
+        run: make pony-crosed-variant BUILD_PONY=1 PONYC="$GITHUB_WORKSPACE/.tools/ponyc-0.72.0/bin/ponyc"
       - name: Run Pony contract and crypto tests
         run: |
           python3 Core-Pony/tests/test_core.py --binary
           python3 Core-Pony/tests/test_crypto.py
+      - name: Run real Pony network tests
+        run: python3 Core-Pony/tests/test_network.py
       - name: Verify feature contracts
         run: |
           test "$(Core-Pony/shadow6-pony --feature-report | python3 -c 'import json,sys; print(json.load(sys.stdin)["crosed_max_level"])')" = 0
