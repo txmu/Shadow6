@@ -70,16 +70,39 @@ class ref ReliableSession
   var _acked: U64 = 1
   var _attempt: U8 = 0
   var _connected: Bool = false
+  var _sent: Map[U64, U64] = Map[U64, U64]
+  var _received: Map[U64, Bool] = Map[U64, Bool]
+  var _srtt: U64 = 250_000_000
+  var _rttvar: U64 = 125_000_000
 
   fun ref connected() => _connected = true; _attempt = 0
   fun ref disconnected() => _connected = false; _attempt = _attempt + 1
   fun ref acknowledge(sequence: U64): Bool =>
     if (sequence <= _acked) or (sequence >= _next) then false
-    else _acked = sequence; true end
+    else
+      _acked = sequence
+      try _sent.remove(sequence)? end
+      true
+    end
   fun ref next_sequence(): U64 ? =>
     if (not _connected) or ((_next - _acked) > SessionLimits.max_pending().u64()) then error end
-    let value = _next; _next = _next + 1; value
+    let value = _next; _next = _next + 1; _sent(value) = 0; value
   fun retry_delay(): U64 => SessionLimits.reconnect_delay(_attempt)
+  fun ref accept_receive(sequence: U64): Bool =>
+    if (sequence <= _acked) or (sequence >= (_acked + SessionLimits.max_pending().u64())) then false
+    elseif _received.contains(sequence) then false
+    else _received(sequence) = true; true end
+  fun ref expire(now: U64, rto: U64): Array[U64] iso^ =>
+    let due = recover iso Array[U64] end
+    for (sequence, sent) in _sent.pairs() do
+      if (sent != 0) and (now >= (sent + rto)) then due.push(sequence) end
+    end
+    consume due
+  fun ref sample_rtt(sample: U64) =>
+    if sample == 0 then return end
+    _rttvar = ((_rttvar * 3) + (_srtt.abs_diff(sample))) / 4
+    _srtt = ((_srtt * 7) + sample) / 8
+  fun rto(): U64 => (_srtt + (_rttvar * 4)).max(100_000_000).min(5_000_000_000)
 
 class ref SessionTable
   let _sessions: Map[String, ReliableSession] = Map[String, ReliableSession]

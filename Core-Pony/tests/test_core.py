@@ -12,6 +12,9 @@ assert "HandshakeTranscript" in PROTO and "ReplayWindow" in PROTO
 assert "class val PluginRequest" in PROTO and "PluginLimits" in PROTO
 assert "class ref PluginTable" in PROTO
 assert "candidate > previous" in PROTO
+assert "accept_receive" in PROTO and "_received" in PROTO
+assert "sample_rtt" in PROTO and "rto()" in PROTO
+assert "_sent" in PROTO and "max_pending" in PROTO
 CROSED = (ROOT / "crosed.pony").read_text()
 assert "class val CrosedGrant" in CROSED
 assert "signed and (build_level == 5)" in CROSED
