@@ -97,7 +97,7 @@ actor Runtime is DatagramReceiver
     for session in _sessions.values() do session.tick(now) end
     for relay in _relays.values() do relay.tick(now) end
     let expired = Array[String]
-    for (id, until) in _recent.pairs() do if now >= until then expired.push(id) end end
+    for (id, expires_at) in _recent.pairs() do if now >= expires_at then expired.push(id) end end
     for id in expired.values() do try _recent.remove(id)? end end
   be retired(id: String, session: ClientSession) =>
     try
