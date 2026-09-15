@@ -730,8 +730,8 @@ jobs:
           # dependencies without invoking pip's Rust build isolation.
           sudo pkgin -y install py311-cryptography
           /usr/pkg/bin/python3.11 -m venv --system-site-packages .venv
-          sed '/^cryptography==/d' requirements.txt > .tmp/netbsd-requirements.txt
-          .venv/bin/pip install --only-binary=:all: -r .tmp/netbsd-requirements.txt
+          # stack_test imports only cryptography; aiohttp and the UI packages
+          # have no compatible NetBSD wheels and are not used by this check.
           .venv/bin/python Benchmark/benchmark.py --core go --role network-chain --repeats 3 --require-network --output benchmark-netbsd
       - name: Upload NetBSD network reports
         if: always()
