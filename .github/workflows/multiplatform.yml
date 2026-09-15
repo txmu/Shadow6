@@ -724,8 +724,14 @@ jobs:
       - name: Measure NetBSD native Go network chain
         shell: cpa.sh {0}
         run: |
-          /usr/pkg/bin/python3.11 -m venv .venv
-          .venv/bin/pip install -r requirements.txt
+          # NetBSD's Python 3.11 has no compatible cryptography wheel and
+          # building it would require Rust unavailable in the guest. Use the
+          # native pkgsrc build for cryptography, then install the pure/Python
+          # dependencies without invoking pip's Rust build isolation.
+          sudo pkgin -y install py311-cryptography
+          /usr/pkg/bin/python3.11 -m venv --system-site-packages .venv
+          sed '/^cryptography==/d' requirements.txt > .tmp/netbsd-requirements.txt
+          .venv/bin/pip install --only-binary=:all: -r .tmp/netbsd-requirements.txt
           .venv/bin/python Benchmark/benchmark.py --core go --role network-chain --repeats 3 --require-network --output benchmark-netbsd
       - name: Upload NetBSD network reports
         if: always()
