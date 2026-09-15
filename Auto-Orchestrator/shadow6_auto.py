@@ -595,7 +595,10 @@ def _write_secure_json(path: Path, data: dict) -> None:
     parent_info = path.parent.lstat()
     if stat.S_ISLNK(parent_info.st_mode) or not stat.S_ISDIR(parent_info.st_mode):
         raise ValueError(f"output directory must be a real directory: {path.parent}")
-    if parent_info.st_uid != getattr(os, "geteuid", lambda: -1)():
+    # Windows has no POSIX uid namespace; ACL validation is delegated to the
+    # filesystem while we retain ownership checks on Unix.
+    geteuid = getattr(os, "geteuid", None)
+    if geteuid is not None and parent_info.st_uid != geteuid():
         raise PermissionError(f"output directory must be owned by the effective user: {path.parent}")
     os.chmod(path.parent, 0o700)
     fd, temporary = tempfile.mkstemp(prefix=f".{path.name}.tmp-", dir=path.parent)
