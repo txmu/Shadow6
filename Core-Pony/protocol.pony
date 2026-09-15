@@ -92,10 +92,10 @@ class ref ReliableSession
     if (sequence <= _acked) or (sequence >= (_acked + SessionLimits.max_pending().u64())) then false
     elseif _received.contains(sequence) then false
     else _received(sequence) = true; true end
-  fun ref expire(now: U64, rto: U64): Array[U64] iso^ =>
+  fun ref expire(now: U64, timeout: U64): Array[U64] iso^ =>
     let due = recover iso Array[U64] end
     for (sequence, sent) in _sent.pairs() do
-      if (sent != 0) and (now >= (sent + rto)) then due.push(sequence) end
+      if (sent != 0) and (now >= (sent + timeout)) then due.push(sequence) end
     end
     consume due
   fun ref sample_rtt(sample: U64) =>
