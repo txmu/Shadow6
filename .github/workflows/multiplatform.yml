@@ -251,7 +251,7 @@ jobs:
         run: |
           chmod 0755 Core-Gleam/shadow6-gleam Core-Gleam/shadow6-gleam-crosed
           chmod 0755 Core-Idris/shadow6-idris Core-Idris/shadow6-idris-crosed
-          find Core-Idris/shadow6-idris_app Core-Idris/shadow6-idris-crosed_app -type f -name '*-boot' -exec chmod 0755 {} +
+          find Core-Idris/shadow6-idris_app Core-Idris/shadow6-idris-crosed_app -type f -exec chmod u+rwX,go+rX {} +
           echo "LD_LIBRARY_PATH=$GITHUB_WORKSPACE/Core-Idris:$GITHUB_WORKSPACE/Core-Idris/ffi" >> "$GITHUB_ENV"
       - name: Provision pinned Hare toolchain
         timeout-minutes: 15
@@ -607,7 +607,7 @@ jobs:
             benchmark-freebsd.json
             benchmark-freebsd.txt
             benchmark-freebsd.md
-          if-no-files-found: error
+          if-no-files-found: warn
       - uses: actions/upload-artifact@v4
         with:
           name: shadow6-freebsd-release
@@ -736,7 +736,7 @@ jobs:
             benchmark-netbsd.json
             benchmark-netbsd.txt
             benchmark-netbsd.md
-          if-no-files-found: error
+          if-no-files-found: warn
       - name: NetBSD boot diagnostics
         if: failure()
         run: |

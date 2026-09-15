@@ -20,6 +20,12 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 
+def _effective_uid() -> int:
+    """Return the effective uid on POSIX; Windows has no uid namespace."""
+    getter = getattr(os, "geteuid", None)
+    return int(getter()) if getter is not None else -1
+
+
 CAPABILITY_LEVELS = {
     "observe.version": 1, "observe.health": 1,
     "policy.request": 2, "policy.config": 2,
@@ -101,7 +107,7 @@ def secure_read(path: Path, limit: int, *, secret: bool = False, dir_fd: int | N
     def check(info: os.stat_result) -> None:
         if not stat.S_ISREG(info.st_mode) or info.st_size > limit:
             raise CrosedError("file must be bounded and regular")
-        if info.st_uid not in ({os.geteuid()} if secret else {0, os.geteuid()}) or info.st_mode & 0o022:
+        if info.st_uid not in ({_effective_uid()} if secret else {0, _effective_uid()}) or info.st_mode & 0o022:
             raise CrosedError("file must be owner-controlled and not group/other writable")
         if secret and stat.S_IMODE(info.st_mode) != 0o600:
             raise CrosedError("private key must have mode 0600")
@@ -224,7 +230,7 @@ def build_request(
 def inspect_binary(path: Path) -> dict[str, Any]:
     resolved = path.resolve(strict=True)
     metadata = resolved.stat()
-    if metadata.st_uid != os.geteuid() or metadata.st_mode & 0o022:
+    if metadata.st_uid != _effective_uid() or metadata.st_mode & 0o022:
         raise CrosedError("Core binary must be owner-controlled and not group/other writable")
     completed = subprocess.run([str(resolved), "--feature-report"], capture_output=True, text=True, timeout=5, check=False)
     if completed.returncode != 0:
