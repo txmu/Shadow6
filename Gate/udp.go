@@ -56,18 +56,8 @@ func (state *gateState) acceptNonce(pub, nonce []byte, timestamp, now int64) boo
 		return false
 	}
 	if len(state.replays) >= maxUDPReplays {
-		// Evict the soonest-expiring entry so a bounded replay cache cannot
-		// permanently deny service to legitimate authenticated peers.
-		var oldest [48]byte
-		var expiry int64
-		for k, value := range state.replays {
-			if expiry == 0 || value < expiry {
-				oldest, expiry = k, value
-			}
-		}
-		if expiry != 0 {
-			delete(state.replays, oldest)
-		}
+		// Preserve every live replay record; only time expiry frees capacity.
+		return false
 	}
 	state.replays[key] = timestamp + 30
 	return true

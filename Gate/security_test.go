@@ -197,8 +197,11 @@ func TestReplayCacheFullAndWindowBoundary(t *testing.T) {
 		}
 	}
 	binary.BigEndian.PutUint64(nonce, maxUDPReplays)
-	if !state.acceptNonce(pub, nonce, 100, 100) {
-		t.Fatal("full replay cache rejected a fresh authenticated entry")
+	if state.acceptNonce(pub, nonce, 100, 100) {
+		t.Fatal("full replay cache must reject new entries without evicting live records")
+	}
+	if len(state.replays) != maxUDPReplays {
+		t.Fatal("replay cache size changed under pressure")
 	}
 	binary.BigEndian.PutUint64(nonce, 0)
 	if state.acceptNonce(pub, nonce, 100, 130) {
