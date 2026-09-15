@@ -64,6 +64,15 @@ def benchmark_metrics(payload: bytes, latencies: list[float], duration: float) -
     ordered = sorted(latencies); count = len(latencies)
     return {"schema":"shadow6.network-chain.v1","payload_bytes":len(payload),"requests":count,"concurrency":1,"bytes_sent":len(payload)*count,"bytes_received":len(payload)*count,"duration_seconds":duration,"throughput_bps":len(payload)*count*8/duration,"latency_p95_seconds":ordered[min(count-1,int(count*.95))],"latency_avg_seconds":sum(latencies)/count,"success_rate":1.0}
 
+def receive_exact(connection: socket.socket, length: int) -> bytes:
+    result = bytearray()
+    while len(result) < length:
+        chunk = connection.recv(length - len(result))
+        if not chunk:
+            raise EOFError('target closed before complete benchmark response')
+        result.extend(chunk)
+    return bytes(result)
+
 def reserve_udp(family: int, count: int) -> list[int]:
     host = "::1" if family == socket.AF_INET6 else "127.0.0.1"
     sockets = [socket.socket(family, socket.SOCK_DGRAM) for _ in range(count)]
@@ -371,14 +380,14 @@ def run_engine(engine: str, benchmark: dict | None = None) -> dict | None:
             proxy_port = wait_for_proxy(client, log_paths["client"], time.monotonic() + 20)
             with socket.create_connection(("127.0.0.1", proxy_port), timeout=5) as connection:
                 connection.sendall(b"ping")
-                if connection.recv(4) != b"ping":
+                if receive_exact(connection, 4) != b"ping":
                     raise AssertionError(f"{engine}: target response mismatch")
                 if benchmark:
                     payload = b"x" * benchmark["payload_bytes"]
                     latencies = []; started = time.perf_counter()
                     for _ in range(benchmark["requests"]):
                         request_started = time.perf_counter(); connection.sendall(payload)
-                        received = connection.recv(len(payload))
+                        received = receive_exact(connection, len(payload))
                         if received != payload: raise AssertionError(f"{engine}: benchmark response mismatch")
                         latencies.append(time.perf_counter() - request_started)
                     duration = time.perf_counter() - started

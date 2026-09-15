@@ -5,10 +5,46 @@ import core.stdc.string : memcpy, memcmp;
 @nogc nothrow:
 enum MAX_DATA = 1024;
 enum HEADER = 39;
-enum MAX_PACKET = HEADER + MAX_DATA + 1 + 16 + 64;
+enum MAX_PACKET = HEADER + MAX_DATA + 1 + 16;
 enum MAX_SEQUENCE = uint.max - 1;
 enum PacketKind : ubyte { data = 1, ack = 2, close = 3, hello = 4 }
 alias SessionId = ubyte[16];
+enum HELLO_SIZE = 193;
+alias Hello = ubyte[HELLO_SIZE];
+
+bool makeHello(ubyte kind, ref const SessionId session, long now, ref const Key identity,
+               ref const Key ephemeral, ref const Key binding, ref const Secret signer, out Hello wire) {
+    if ((kind != 1 && kind != 2) || now < 0) return false;
+    wire[0 .. 8] = cast(const(ubyte)[])"S6DHEL02";
+    wire[8] = kind; wire[9 .. 25] = session[];
+    foreach(i; 0 .. 8) wire[32 - i] = cast(ubyte)(cast(ulong)now >> (i * 8));
+    wire[33 .. 65] = identity[]; wire[65 .. 97] = ephemeral[]; wire[97 .. 129] = binding[];
+    Signature sig;
+    if (!sign(signer, wire[0 .. 129], sig)) return false;
+    wire[129 .. $] = sig[]; return true;
+}
+bool checkHello(const(ubyte)[] wire, ubyte kind, long now, ref const Key identity, ref const Key binding) {
+    if (wire.length != HELLO_SIZE || now < 0 || memcmp(wire.ptr, "S6DHEL02".ptr, 8) || wire[8] != kind ||
+        memcmp(wire.ptr + 33, identity.ptr, 32) || memcmp(wire.ptr + 97, binding.ptr, 32)) return false;
+    ulong stamp; foreach(b; wire[25 .. 33]) stamp = (stamp << 8) | b;
+    if (stamp > cast(ulong)now + 30 || (cast(ulong)now > stamp && cast(ulong)now - stamp > 30)) return false;
+    Signature sig; sig[] = wire[129 .. $];
+    return verify(identity, wire[0 .. 129], sig);
+}
+// HKDF-Extract with the signed transcript hash as salt; directional expand
+// labels prevent reflection. Fresh X25519 keys make replayed hellos harmless.
+bool trafficKeys(ref const Key secret, ref const Key peerEphemeral, ref const Hello request,
+                 ref const Hello response, out Key c2s, out Key s2c) {
+    Key dh, salt, prk; ubyte[HELLO_SIZE * 2] transcript;
+    scope(exit) { d_wipe(dh.ptr, 32); d_wipe(prk.ptr, 32); }
+    if (!deriveShared(secret, peerEphemeral, dh)) return false;
+    transcript[0 .. HELLO_SIZE] = request[]; transcript[HELLO_SIZE .. $] = response[];
+    if (!hash(transcript, salt) || d_hmac(salt.ptr, dh.ptr, 32, prk.ptr)) return false;
+    immutable c = "shadow6-d-v2/client-to-server\x01";
+    immutable s = "shadow6-d-v2/server-to-client\x01";
+    return d_hmac(prk.ptr, c.ptr, cast(int)c.length, c2s.ptr) == 0 &&
+           d_hmac(prk.ptr, s.ptr, cast(int)s.length, s2c.ptr) == 0;
+}
 
 bool rleEncode(const(ubyte)[] input, ubyte[] output, out size_t used)
 in { assert(input.length <= MAX_DATA && output.length >= input.length + 1); }
@@ -70,46 +106,41 @@ struct Wire {
 }
 
 bool encodePacket(PacketKind kind, ref const SessionId session, uint sequence, long now,
-                  const(ubyte)[] data, ref const Secret signer, ref const Key key, out Wire wire)
+                  const(ubyte)[] data, ref const Key key, out Wire wire)
 in { assert(data.length <= MAX_DATA && sequence < MAX_SEQUENCE && now >= 0 && now <= 9007199254740991L); }
-out(ok) { assert(!ok || (wire.length >= HEADER + 17 + 64 && wire.length <= MAX_PACKET)); }
+out(ok) { assert(!ok || (wire.length >= HEADER + 17 && wire.length <= MAX_PACKET)); }
 do {
-    if (kind < PacketKind.data || kind > PacketKind.hello || (kind == PacketKind.data) != (data.length > 0)) return false;
+    if (kind < PacketKind.data || kind >= PacketKind.hello || (kind == PacketKind.data) != (data.length > 0)) return false;
     ubyte[MAX_DATA + 1] compressed; size_t n;
     if (!rleEncode(data, compressed, n)) return false;
-    wire.data[0 .. 8] = cast(const(ubyte)[])"S6DUDP01";
+    wire.data[0 .. 8] = cast(const(ubyte)[])"S6DUDP02";
     wire.data[8] = kind; wire.data[9 .. 25] = session[];
     put32(wire.data[25 .. 29], sequence);
     foreach(i; 0 .. 8) wire.data[36 - i] = cast(ubyte)(cast(ulong)now >> (i * 8));
     uint cipherLength = cast(uint)n + 16;
     wire.data[37] = cast(ubyte)(cipherLength >> 8); wire.data[38] = cast(ubyte)cipherLength;
-    ubyte[12] nonce; nonce[0] = kind; put32(nonce[4 .. 8], sequence);
+    ubyte[12] nonce; nonce[0] = kind; put32(nonce[4 .. 8], sequence); put32(nonce[8 .. 12], cast(uint)now);
     if (!encrypt(key, nonce, wire.data[0 .. HEADER], compressed[0 .. n], wire.data[HEADER .. HEADER + cipherLength])) return false;
-    Signature signature;
-    if (!sign(signer, wire.data[0 .. HEADER + cipherLength], signature)) return false;
-    wire.data[HEADER + cipherLength .. HEADER + cipherLength + 64] = signature[];
-    wire.length = HEADER + cipherLength + 64;
+    wire.length = HEADER + cipherLength;
     return true;
 }
 
 private bool decodeBounded(const(ubyte)[] frame, ref const SessionId session, long now,
-                          ref const Key peer, ref const Key key, out Decoded outPacket)
+                          ref const Key key, out Decoded outPacket)
 in { assert(frame.length <= MAX_PACKET && now >= 0 && now <= 9007199254740991L); }
 out(ok) { assert(!ok || (outPacket.verified && outPacket.length <= MAX_DATA && outPacket.sequence < MAX_SEQUENCE)); }
 do {
-    if (frame.length < HEADER + 17 + 64 || memcmp(frame.ptr, "S6DUDP01".ptr, 8) || memcmp(frame.ptr + 9, session.ptr, 16)) return false;
-    if (frame[8] < PacketKind.data || frame[8] > PacketKind.hello) return false;
+    if (frame.length < HEADER + 17 || memcmp(frame.ptr, "S6DUDP02".ptr, 8) || memcmp(frame.ptr + 9, session.ptr, 16)) return false;
+    if (frame[8] < PacketKind.data || frame[8] >= PacketKind.hello) return false;
     uint n = (cast(uint)frame[37] << 8) | frame[38];
-    if (n < 17 || n > MAX_DATA + 17 || n != frame.length - HEADER - 64) return false;
+    if (n < 17 || n > MAX_DATA + 17 || n != frame.length - HEADER) return false;
     ulong stamp;
     foreach(b; frame[29 .. 37]) stamp = (stamp << 8) | b;
     if (stamp > cast(ulong)now + 30 || (cast(ulong)now > stamp && cast(ulong)now - stamp > 30)) return false;
     uint sequence = get32(frame[25 .. 29]); if (sequence >= MAX_SEQUENCE) return false;
-    Signature sig; sig[] = frame[$ - 64 .. $];
-    if (!verify(peer, frame[0 .. $ - 64], sig)) return false;
-    ubyte[12] nonce; nonce[0] = frame[8]; put32(nonce[4 .. 8], sequence);
+    ubyte[12] nonce; nonce[0] = frame[8]; put32(nonce[4 .. 8], sequence); put32(nonce[8 .. 12], cast(uint)stamp);
     ubyte[MAX_DATA + 1] plain;
-    if (!decrypt(key, nonce, frame[0 .. HEADER], frame[HEADER .. $ - 64], plain)) return false;
+    if (!decrypt(key, nonce, frame[0 .. HEADER], frame[HEADER .. $], plain)) return false;
     if (!rleDecode(plain[0 .. n - 16], outPacket.payload, outPacket.length)) return false;
     if ((frame[8] == PacketKind.data) != (outPacket.length > 0)) return false;
     outPacket.kind = cast(PacketKind)frame[8]; outPacket.sequence = sequence; outPacket.verified = true;
@@ -117,10 +148,10 @@ do {
 }
 
 bool decodePacket(const(ubyte)[] frame, ref const SessionId session, long now,
-                  ref const Key peer, ref const Key key, out Decoded result) {
+                  ref const Key key, out Decoded result) {
     // Treat socket lengths and clocks as untrusted before invoking contracts.
     if (frame.length > MAX_PACKET || now < 0 || now > 9007199254740991L) return false;
-    return decodeBounded(frame, session, now, peer, key, result);
+    return decodeBounded(frame, session, now, key, result);
 }
 
 enum Action { ignore, deliver, acknowledge, finished }

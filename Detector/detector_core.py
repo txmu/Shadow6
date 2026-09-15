@@ -206,7 +206,7 @@ class TrafficFeatures:
         return packet_length, TrafficFeatures.calculate_entropy(payload[:256]), is_tcp, len(payload)
 
     @staticmethod
-    def flow_key(packet: bytes) -> tuple[bytes, bytes, int, int, int]:
+    def flow_key(packet: bytes, *, directional: bool = False) -> tuple[bytes, bytes, int, int, int]:
         """Return a stable best-effort five-tuple without trusting packet lengths."""
         if len(packet) < 14:
             return b"", b"", -1, 0, 0
@@ -237,8 +237,21 @@ class TrafficFeatures:
             source_port, destination_port = struct.unpack_from("!HH", packet, transport_offset)
         forward = (source, destination, source_port, destination_port)
         reverse = (destination, source, destination_port, source_port)
-        canonical = min(forward, reverse)
+        canonical = forward if directional else min(forward, reverse)
         return canonical[0], canonical[1], protocol, canonical[2], canonical[3]
+
+    @staticmethod
+    def threat_event(packet: bytes) -> str | None:
+        """Produce evidence from parsed addresses, never packet payload text."""
+        import ipaddress
+
+        source, _, protocol, _, port = TrafficFeatures.flow_key(packet, directional=True)
+        if protocol not in (6, 17) or len(source) not in (4, 16) or not 1 <= port <= 65535:
+            return None
+        return "SHADOW6_THREAT " + json.dumps(
+            {"version": 1, "source": str(ipaddress.ip_address(source)), "port": port},
+            separators=(",", ":"),
+        )
 
 
 def export_random_forest(model: object, path: str | Path) -> None:

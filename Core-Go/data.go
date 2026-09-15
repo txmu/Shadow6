@@ -33,17 +33,20 @@ const (
 
 var activeTunnelSlots = make(chan struct{}, maxActiveTunnels)
 var proxyBufferPool = sync.Pool{New: func() any {
-	buffer := make([]byte, proxyCopyBufferBytes)
+	buffer := make([]byte, dataBudget.copyBytes)
 	return &buffer
 }}
 
 type aeadConn struct {
 	net.Conn
-	aead        cipher.AEAD
-	decoded     []byte
-	readMutex   sync.Mutex
-	writeMutex  sync.Mutex
-	noncePrefix [4]byte
+	aead       cipher.AEAD
+	decoded    []byte
+	readMutex  sync.Mutex
+	writeMutex sync.Mutex
+	// AES-GCM's 96-bit nonce is split into a per-connection 64-bit random
+	// domain and a 32-bit monotonic frame counter.  A 32-bit domain made
+	// simultaneous tunnels sharing a key collision-prone.
+	noncePrefix [8]byte
 	sendCounter uint64
 }
 
@@ -56,7 +59,7 @@ func newAEADConn(connection net.Conn, key []byte) (*aeadConn, error) {
 	if err != nil {
 		return nil, err
 	}
-	var prefix [4]byte
+	var prefix [8]byte
 	if _, err := rand.Read(prefix[:]); err != nil {
 		return nil, err
 	}
@@ -69,13 +72,13 @@ func (connection *aeadConn) Write(plaintext []byte) (int, error) {
 	if len(plaintext) > maxAEADPlaintext {
 		return 0, errors.New("AEAD plaintext frame is too large")
 	}
-	if connection.sendCounter == ^uint64(0) {
+	if connection.sendCounter >= uint64(^uint32(0)) {
 		return 0, errors.New("AEAD nonce counter exhausted")
 	}
 	nonce := make([]byte, connection.aead.NonceSize())
 	copy(nonce, connection.noncePrefix[:])
 	connection.sendCounter++
-	binary.BigEndian.PutUint64(nonce[len(nonce)-8:], connection.sendCounter)
+	binary.BigEndian.PutUint32(nonce[len(nonce)-4:], uint32(connection.sendCounter))
 	ciphertext := connection.aead.Seal(nonce, nonce, plaintext, nil)
 	var length [4]byte
 	binary.BigEndian.PutUint32(length[:], uint32(len(ciphertext)))
@@ -150,12 +153,16 @@ func deriveSymmetricKey(sharedSecret, clientPublic, agentPublic []byte) ([]byte,
 
 func configureKCP(session *kcp.UDPSession) {
 	session.SetStreamMode(true)
-	session.SetWindowSize(kcpSendWindow, kcpReceiveWindow)
-	session.SetNoDelay(1, 20, 2, 1)
+	session.SetWindowSize(dataBudget.window, dataBudget.window)
+	noCongestion := 1
+	if dataBudget.congestionControl {
+		noCongestion = 0
+	}
+	session.SetNoDelay(1, 20, 2, noCongestion)
 	session.SetACKNoDelay(true)
 	_ = session.SetMtu(kcpMTU)
-	_ = session.SetReadBuffer(dataSocketBufferBytes)
-	_ = session.SetWriteBuffer(dataSocketBufferBytes)
+	_ = session.SetReadBuffer(dataBudget.socketBytes)
+	_ = session.SetWriteBuffer(dataBudget.socketBytes)
 }
 
 func copyWithPooledBuffer(destination io.Writer, source io.Reader) (int64, error) {
@@ -266,8 +273,8 @@ func (service *AgentService) provisionAccess(request *AccessReq) (*AccessResp, e
 	if err != nil {
 		return nil, err
 	}
-	_ = listener.SetReadBuffer(dataSocketBufferBytes)
-	_ = listener.SetWriteBuffer(dataSocketBufferBytes)
+	_ = listener.SetReadBuffer(dataBudget.socketBytes)
+	_ = listener.SetWriteBuffer(dataBudget.socketBytes)
 	port := listener.Addr().(*net.UDPAddr).Port
 	response := &AccessResp{
 		Success: true, DynamicPort: 0, KCPPort: port, E2EEPubKey: agentPublic, Transport: "kcp",

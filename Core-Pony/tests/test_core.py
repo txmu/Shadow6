@@ -30,6 +30,7 @@ assert "broker: Bool" in CONFIG and "role > 2" in CONFIG
 assert "allow_external" in CONFIG and "peer_host" in CONFIG
 
 if "--binary" in sys.argv:
+    subprocess.run([str(ROOT / "shadow6-pony"), "--transport-self-test"], check=True, timeout=10)
     p = subprocess.run([str(ROOT / "shadow6-pony"), "--feature-report"], check=True, capture_output=True, text=True)
     report = json.loads(p.stdout)
     assert report["core"] == "shadow6-pony" and report["crosed_max_level"] == 0

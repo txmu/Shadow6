@@ -49,7 +49,7 @@ in accordance with the repository's prohibition on introducing scanning.
 
 ## ENet data plane
 
-Shadow6 ENet v1 is a custom ENet-style reliable UDP protocol, **not** an
+Shadow6 ENet v2 is a custom ENet-style reliable UDP protocol, **not** an
 implementation of upstream ENet's wire format. The authenticated control grant
 exchanges ephemeral X25519 keys under Ed25519 signatures. A SHA-256/HMAC
 extract/expand schedule binds both ephemeral keys and the ENet protocol domain;
@@ -61,19 +61,24 @@ Datagrams are at most 1200 bytes:
 | Bytes | Field |
 | --- | --- |
 | 0–3 | `S6EN` magic |
-| 4–7 | Version 1, OPEN/DATA/ACK/FIN command, two zero reserved bytes |
+| 4–7 | Version 2, OPEN/DATA/ACK/FIN command, two zero reserved bytes |
 | 8–23 | Random channel identifier |
 | 24–31 | Directional AEAD nonce counter, big endian |
-| 32–35 | Reliable sequence / acknowledged sequence, big endian |
-| 36–39 | Reserved zero bytes |
+| 32–39 | 64-bit reliable sequence / acknowledged sequence, big endian |
 | 40… | Encrypted payload followed by 16-byte authentication tag |
 
-There is a 32-packet reliable window, ordered reassembly, authenticated ACKs,
+There is a bounded 256-packet reliable window, ordered reassembly, authenticated ACKs,
 exponential retransmission (200 ms to 3 s, at most eight attempts), congestion
 backoff, half-close support, and wraparound rejection. Retransmission preserves
 the original ciphertext. Duplicate reliable sequences are ACKed again without
 being delivered twice. Retired channel IDs remain reserved for the grant's
 lifetime. The loopback backend is contacted only after authenticated OPEN.
+ENet v1 data packets are rejected; upgrade both Zig endpoints together.
+The congestion window grows from four packets on authenticated ACKs up to
+256 (286 KiB payload in flight), then shrinks on loss. Each grant reserves a
+16 MiB arena for its sixteen channels, with at most sixteen grants and a
+4 MiB worker stack per grant. These bounds are explicit memory tradeoffs;
+this change does not claim 2 MiB in flight or measured gigabit performance.
 
 Linux uses native `io_uring` for UDP and tunnel TCP operations, batches up to
 32 UDP sends per submission, and drains cancellation completions before

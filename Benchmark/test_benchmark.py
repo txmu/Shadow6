@@ -1,7 +1,7 @@
 import errno, json, os, sys, tempfile, time, unittest
 from unittest.mock import patch
 from pathlib import Path
-from benchmark import _load_config, execute, network_unavailable
+from benchmark import _load_config, execute, network_unavailable, network_result, run, write, validate_config
 
 class ConfigTests(unittest.TestCase):
     def test_rejects_unknown_and_unbounded(self):
@@ -10,6 +10,40 @@ class ConfigTests(unittest.TestCase):
             with self.assertRaises(ValueError): _load_config(str(p))
     def test_defaults_are_bounded(self):
         c = _load_config(None); self.assertEqual(c["repeats"], 1); self.assertIn("go", c["cores"])
+
+    def test_cli_overrides_and_network_fields_are_revalidated(self):
+        for change in ({'repeats':True}, {'repeats':1001}, {'network':{'requests':2}},
+                       {'args':{'go':['--config','sensitive.json']}}, {'cores':['go','go']}):
+            config = _load_config(None); config.update(change)
+            with self.subTest(change=change), self.assertRaises(ValueError): validate_config(config)
+
+class ReportTests(unittest.TestCase):
+    def test_wrapped_network_metrics_survive_all_three_formats(self):
+        data = dict(throughput_bps=1234.5, duration_seconds=0.5,
+                    latency_p95_seconds=0.001, success_rate=1.0)
+        out = 'ready\n'+json.dumps({'schema':'shadow6.network-suite.v1','results':{'shadow6-go':data}})
+        self.assertEqual(network_result(out,'go'),data)
+        result = {'results':[dict(core='go',measurement='network-chain',status='ok',network=network_result(out,'go'))]}
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)/'report'
+            write(result,path)
+            for suffix in ('.json','.txt','.md'):
+                self.assertIn('1234.5',path.with_suffix(suffix).read_text())
+
+    def test_network_cannot_pass_with_missing_or_nonfinite_measurements(self):
+        for data in ({}, {'throughput_bps':float('nan')}, {'throughput_bps':True}):
+            with self.subTest(data=data), self.assertRaises((ValueError,KeyError)):
+                network_result(json.dumps(data),'go')
+
+    def test_missing_core_fails_instead_of_silently_skipping(self):
+        with patch('benchmark.available',return_value=False):
+            result=run({'cores':['pony'],'roles':['network-chain']})
+        self.assertEqual(result['results'][0]['status'],'failed')
+
+    def test_required_network_rejects_unsupported_kernel(self):
+        with patch('benchmark.available',return_value=True), patch('benchmark.network_unavailable',return_value='SCTP unavailable'):
+            result=run({'cores':['cpp'],'roles':['network-chain'],'require_network':True})
+        self.assertEqual(result['results'][0]['status'],'failed')
 
 class ProcessTests(unittest.TestCase):
     @unittest.skipUnless(hasattr(os, "wait4"), "requires POSIX wait4")

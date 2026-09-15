@@ -2,6 +2,8 @@
 #include "config.hpp"
 #include <chrono>
 #include <csignal>
+#include <mutex>
+#include <thread>
 #include <openssl/ssl.h>
 #include <poll.h>
 #include <sys/socket.h>
@@ -11,6 +13,23 @@ inline volatile std::sig_atomic_t stopped = 0;
 using Clock = std::chrono::steady_clock;
 using Deadline = Clock::time_point;
 inline Deadline deadline(unsigned seconds = 5) { return Clock::now() + std::chrono::seconds(seconds); }
+// CPU admission belongs to TLS, not to the lightweight TCP/SCTP acceptor.
+// Allow reconnect bursts, while bounding sustained unauthenticated work.
+class HandshakeBudget {
+  std::mutex mutex_;
+  double tokens_ = 64;
+  Deadline updated_ = Clock::now();
+public:
+  bool take(Deadline now) {
+    std::lock_guard lock(mutex_);
+    tokens_ = std::min(64.0, tokens_ + std::max(0.0, std::chrono::duration<double>(now - updated_).count()) * 16.0);
+    updated_ = now;
+    if (tokens_ < 1.0) return false;
+    tokens_ -= 1.0;
+    return true;
+  }
+};
+inline HandshakeBudget handshake_budget;
 inline bool wait_fd(int fd, short events, Deadline until) {
   while (!stopped && Clock::now() < until) {
     pollfd p{fd, events, 0};
@@ -35,7 +54,7 @@ inline Fd listen_socket(const Endpoint &ep, int protocol) {
   if (!fd || !nonblocking(fd.value)) return Fd{};
   int one = 1;
   if (setsockopt(fd.value, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one)) != 0 ||
-      bind(fd.value, reinterpret_cast<const sockaddr *>(&ep.address), ep.size) || listen(fd.value, 16)) return Fd{};
+      bind(fd.value, reinterpret_cast<const sockaddr *>(&ep.address), ep.size) || listen(fd.value, 128)) return Fd{};
   return fd;
 }
 inline Fd connect_socket(const Endpoint &ep, int protocol) {
@@ -137,6 +156,10 @@ public:
   bool handshake(bool server) {
     if (!ssl_) return false;
     auto until = deadline();
+    while (!handshake_budget.take(Clock::now())) {
+      if (stopped || Clock::now() >= until) return false;
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
     do { int n = server ? SSL_accept(ssl_.get()) : SSL_connect(ssl_.get()); if (n == 1) return SSL_get_verify_result(ssl_.get()) == X509_V_OK; if (!again(n, until)) return false; } while (!stopped);
     return false;
   }

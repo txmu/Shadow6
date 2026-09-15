@@ -17,6 +17,7 @@
 #include <unistd.h>
 #include <openssl/ssl.h>
 #include <openssl/evp.h>
+#include <openssl/hmac.h>
 #include <openssl/x509v3.h>
 
 /* Stable libsodium ABI. The data loop calls only allocation-free primitives. */
@@ -51,6 +52,11 @@ int d_verify(const void *pub, const void *data, int n, const void *sig) {
 }
 int d_xpublic(const void *secret, void *pub) { return crypto_scalarmult_curve25519_base(pub, secret); }
 int d_shared(const void *secret, const void *pub, void *shared) { return crypto_scalarmult_curve25519(shared, secret, pub); }
+int d_hmac(const void *key, const void *data, int n, void *out) {
+    unsigned written = 0;
+    if (n < 0 || n > 65536) return -1;
+    return HMAC(EVP_sha256(), key, 32, data, (size_t)n, out, &written) && written == 32 ? 0 : -1;
+}
 int d_encrypt(const void *key, const void *nonce, const void *aad, int an, const void *plain, int n, void *out) {
     unsigned long long written = 0;
     if (an < 0 || an > 64 || n < 0 || n > 1025) return -1;

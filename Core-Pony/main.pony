@@ -9,6 +9,11 @@ actor Main
     _env = env
     if @sodium_init() < 0 then env.exitcode(2); return end
     try
+      if (env.args.size() == 2) and (env.args(1)? == "--transport-self-test") then
+        if TransportSelfTest() then env.out.print("transport state-machine tests passed")
+        else env.exitcode(2) end
+        return
+      end
       if (env.args.size() == 2) and (env.args(1)? == "--feature-report") then
         env.out.print(feature_report())
         return

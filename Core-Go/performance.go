@@ -1,5 +1,7 @@
 package main
 
+import "runtime"
+
 // The high-throughput contract is shared by the Go data-plane setup and its
 // tests.  It is a capacity target, not a claim that every CPU, kernel, NIC, or
 // path can sustain this rate.
@@ -16,6 +18,22 @@ const (
 	maxControlConnections               = 4096
 	maxSessionsPerGrant                 = 256
 )
+
+type transportBudget struct {
+	window, socketBytes, copyBytes int
+	congestionControl              bool
+}
+
+// Socket buffers are kernel memory; the KCP window bounds user-space queued
+// segments. Mobile builds need smaller budgets for both, independently.
+func budgetForPlatform(platform string) transportBudget {
+	if platform == "android" || platform == "ios" {
+		return transportBudget{256, 256 * 1024, 32 * 1024, true}
+	}
+	return transportBudget{kcpSendWindow, dataSocketBufferBytes, proxyCopyBufferBytes, false}
+}
+
+var dataBudget = budgetForPlatform(runtime.GOOS)
 
 func requiredBandwidthDelayBytes(bitsPerSecond, roundTripMilliseconds int64) int64 {
 	return (bitsPerSecond*roundTripMilliseconds + 7999) / 8000

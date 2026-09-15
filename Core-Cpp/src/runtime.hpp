@@ -1,6 +1,7 @@
 #pragma once
 #include "net.hpp"
 #include <atomic>
+#include <deque>
 #include <functional>
 #include <mutex>
 #include <thread>
@@ -59,22 +60,26 @@ inline void ready(const char *role, const Endpoint &ep) {
 inline void serve(int listener, const std::function<void(int)> &handler) {
   struct Worker { std::thread thread; std::atomic<bool> done{true}; };
   std::array<Worker, 16> workers;
-  auto refill = deadline(1); unsigned tokens = 16;
+  struct Pending { Fd fd; Deadline expires; };
+  std::deque<Pending> pending;
   while (!stopped) {
-    if (Clock::now() >= refill) { refill = deadline(1); tokens = 16; }
-    if (!tokens) { std::this_thread::sleep_for(std::chrono::milliseconds(50)); continue; }
-    if (!wait_fd(listener, POLLIN, deadline(1))) continue;
-    Fd accepted(accept(listener, nullptr, nullptr));
-    if (!accepted || !nonblocking(accepted.value)) continue;
-    --tokens;
+    while (!pending.empty() && pending.front().expires <= Clock::now()) pending.pop_front();
+    pollfd ready{listener, POLLIN, 0};
+    if (pending.size() < 128 && poll(&ready, 1, 10) > 0 && (ready.revents & POLLIN)) {
+      Fd accepted(accept(listener, nullptr, nullptr));
+      if (accepted && nonblocking(accepted.value)) pending.push_back({std::move(accepted), deadline()});
+    } else if (pending.size() == 128) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
     for (auto &worker : workers) {
+      if (pending.empty()) break;
       if (!worker.done.load()) continue;
       if (worker.thread.joinable()) worker.thread.join();
-      worker.done = false; int fd = accepted.value; accepted.value = -1;
+      worker.done = false; int fd = pending.front().fd.value;
+      pending.front().fd.value = -1; pending.pop_front();
       worker.thread = std::thread([&handler, &worker, fd] {
         Fd owned(fd); handler(fd); worker.done = true;
       });
-      break;
     }
   }
   for (auto &worker : workers) if (worker.thread.joinable()) worker.thread.join();

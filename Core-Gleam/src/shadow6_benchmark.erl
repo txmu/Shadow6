@@ -22,12 +22,15 @@ run(_,_) -> erlang:error(benchmark_bounds).
 loop(N,N,_,_,_,_,_,_,_,Total,Lats)->{Total,Lats};
 loop(N,Count,Payload,Key,{Relay,RelayPort},{Agent,AIP,APort},{Client,CIP,CPort},{App,Proxy},{AgentTarget,Target},Total,Lats)->
     Start = erlang:monotonic_time(microsecond), ok=gen_tcp:send(App,Payload), {ok,Payload}=gen_tcp:recv(Proxy,byte_size(Payload),5000),
-    Wire = encode(N,Payload,Key), ok=gen_udp:send(Client,{127,0,0,1},RelayPort,Wire), {ok,{_,_,Wire}}=gen_udp:recv(Relay,0,5000), ok=gen_udp:send(Relay,AIP,APort,Wire),
-    {ok,{_,_,AgentWire}}=gen_udp:recv(Agent,0,5000), Payload=decode(AgentWire,Key), ok=gen_tcp:send(AgentTarget,Payload), {ok,Payload}=gen_tcp:recv(Target,byte_size(Payload),5000), ok=gen_tcp:send(Target,Payload), {ok,Payload}=gen_tcp:recv(AgentTarget,byte_size(Payload),5000),
-    Reply = encode(N,Payload,Key), ok=gen_udp:send(Agent,{127,0,0,1},RelayPort,Reply), {ok,{_,_,Reply}}=gen_udp:recv(Relay,0,5000), ok=gen_udp:send(Relay,CIP,CPort,Reply),
-    {ok,{_,_,ClientWire}}=gen_udp:recv(Client,0,5000), Payload=decode(ClientWire,Key), ok=gen_tcp:send(Proxy,Payload), {ok,Payload}=gen_tcp:recv(App,byte_size(Payload),5000),
+    Wire = encode(0,N,Payload,Key), ok=gen_udp:send(Client,{127,0,0,1},RelayPort,Wire), {ok,{_,_,Wire}}=gen_udp:recv(Relay,0,5000), ok=gen_udp:send(Relay,AIP,APort,Wire),
+    {ok,{_,_,AgentWire}}=gen_udp:recv(Agent,0,5000), Payload=decode(0,AgentWire,Key), ok=gen_tcp:send(AgentTarget,Payload), {ok,Payload}=gen_tcp:recv(Target,byte_size(Payload),5000), ok=gen_tcp:send(Target,Payload), {ok,Payload}=gen_tcp:recv(AgentTarget,byte_size(Payload),5000),
+    Reply = encode(1,N,Payload,Key), ok=gen_udp:send(Agent,{127,0,0,1},RelayPort,Reply), {ok,{_,_,Reply}}=gen_udp:recv(Relay,0,5000), ok=gen_udp:send(Relay,CIP,CPort,Reply),
+    {ok,{_,_,ClientWire}}=gen_udp:recv(Client,0,5000), Payload=decode(1,ClientWire,Key), ok=gen_tcp:send(Proxy,Payload), {ok,Payload}=gen_tcp:recv(App,byte_size(Payload),5000),
     Latency = erlang:monotonic_time(microsecond)-Start,
     loop(N+1,Count,Payload,Key,{Relay,RelayPort},{Agent,AIP,APort},{Client,CIP,CPort},{App,Proxy},{AgentTarget,Target},Total+Latency,[Latency|Lats]).
 
-encode(Sequence,Payload,Key)->Nonce = <<0:32,Sequence:64>>, Aad = <<1396067661:32,1:16,Sequence:64,Nonce/binary>>, {ok,Cipher,Mac}=shadow6_sodium:encrypt(Payload,Aad,Nonce,Key), <<Aad/binary,Mac/binary,Cipher/binary>>.
-decode(<<1396067661:32,1:16,Sequence:64,Nonce:12/binary,Mac:16/binary,Cipher/binary>>,Key)->Aad = <<1396067661:32,1:16,Sequence:64,Nonce/binary>>, {ok,Plain}=shadow6_sodium:decrypt(Cipher,Mac,Aad,Nonce,Key), Plain.
+encode(Direction,Sequence,Payload,Key) when Direction =:= 0; Direction =:= 1 ->
+    Nonce = <<Direction:32,Sequence:64>>, Aad = <<1396067661:32,Direction:16,Sequence:64,Nonce/binary>>, {ok,Cipher,Mac}=shadow6_sodium:encrypt(Payload,Aad,Nonce,Key), <<Aad/binary,Mac/binary,Cipher/binary>>.
+decode(Direction, <<1396067661:32,Direction:16,Sequence:64,Nonce:12/binary,Mac:16/binary,Cipher/binary>>,Key)->
+    <<Direction:32,Sequence:64>> = Nonce,
+    Aad = <<1396067661:32,Direction:16,Sequence:64,Nonce/binary>>, {ok,Plain}=shadow6_sodium:decrypt(Cipher,Mac,Aad,Nonce,Key), Plain.

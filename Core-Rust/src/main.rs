@@ -550,17 +550,16 @@ fn mask_ip(ip: &str, stealth: bool) -> String {
     if !stealth || ip.is_empty() {
         return ip.to_string();
     }
-    static MASK_SALT: std::sync::OnceLock<String> = std::sync::OnceLock::new();
-    let salt = MASK_SALT.get_or_init(|| {
-        let mut buf = [0u8; 16];
+    static MASK_KEY: std::sync::OnceLock<ring::hmac::Key> = std::sync::OnceLock::new();
+    let key = MASK_KEY.get_or_init(|| {
+        let mut buf = [0u8; 32];
         rand::rngs::OsRng.fill_bytes(&mut buf);
-        hex::encode(buf)
+        ring::hmac::Key::new(ring::hmac::HMAC_SHA256, &buf)
     });
-    let mut hasher = Sha256::new();
-    hasher.update(format!("{}{}", ip, salt));
-    hasher.update(format!("{}shadow_salt", ip));
-    let hash = hasher.finalize();
-    format!("IP[MASKED:{}]", hex::encode(&hash[..16]))
+    // HMAC-SHA256 with a process secret gives a keyed pseudonym. Truncate
+    // only the displayed identifier, never the secret or authentication tag.
+    let hash = ring::hmac::sign(key, ip.as_bytes());
+    format!("IP[MASKED:{}]", hex::encode(&hash.as_ref()[..16]))
 }
 
 async fn get_route_ip() -> String {
@@ -3296,6 +3295,10 @@ mod tests {
             "Salt should remain consistent during a single runtime"
         );
         assert!(m1.starts_with("IP[MASKED:"));
+        assert_eq!(m1.len(), "IP[MASKED:]".len() + 32);
+        assert_ne!(m1, mask_ip("192.168.1.101", true));
+        assert_eq!(mask_ip(ip, false), ip);
+        assert_eq!(mask_ip("", true), "");
     }
 
     #[tokio::test]

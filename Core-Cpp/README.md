@@ -33,3 +33,9 @@ The generated target defaults to loopback port 22. Review all addresses before
 starting the processes. Run `bash test.sh` for strict parser, ticket/replay,
 mutual-authentication, ACL, half-close, concurrency, and three-process loopback
 SCTP tests. The host kernel must support SCTP.
+
+Connection admission uses a 128-entry, five-second pending queue and sixteen
+workers. TCP/SCTP accepts do not consume cryptographic rate-limit tokens. TLS
+handshakes share a bounded budget of sixteen starts per second with a burst of
+64, so ordinary reconnect bursts can be queued without making sustained
+unauthenticated cryptographic work unlimited.

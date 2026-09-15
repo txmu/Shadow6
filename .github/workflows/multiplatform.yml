@@ -197,6 +197,7 @@ jobs:
             Core-Gleam/shadow6-gleam-crosed
           if-no-files-found: error
   linux:
+    needs: [idris, linux-gleam]
     runs-on: ubuntu-latest
     env:
       BUILD_HARE: '1'
@@ -235,7 +236,23 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             build-essential pkg-config libssl-dev libsodium-dev libunistring-dev \
-            gnat gprbuild ldc shellcheck unzip
+            gnat gprbuild ldc shellcheck unzip chezscheme
+      - name: Download same-commit Gleam Linux builds
+        uses: actions/download-artifact@v4
+        with:
+          name: shadow6-gleam-x86_64
+          path: Core-Gleam
+      - name: Download same-commit Idris Linux builds
+        uses: actions/download-artifact@v4
+        with:
+          name: shadow6-idris-ubuntu-latest
+          path: Core-Idris
+      - name: Restore executable modes for downloaded core artifacts
+        run: |
+          chmod 0755 Core-Gleam/shadow6-gleam Core-Gleam/shadow6-gleam-crosed
+          chmod 0755 Core-Idris/shadow6-idris Core-Idris/shadow6-idris-crosed
+          find Core-Idris/shadow6-idris_app Core-Idris/shadow6-idris-crosed_app -type f -name '*-boot' -exec chmod 0755 {} +
+          echo "LD_LIBRARY_PATH=$GITHUB_WORKSPACE/Core-Idris:$GITHUB_WORKSPACE/Core-Idris/ffi" >> "$GITHUB_ENV"
       - name: Provision pinned Hare toolchain
         timeout-minutes: 15
         run: |
@@ -290,6 +307,10 @@ jobs:
           test -x Core-Ada/shadow6-ada
           test -x Core-Nim/shadow6-nim
           test -x Core-D/shadow6-d
+          test -x Core-Pony/shadow6-pony
+          test -x Core-Carp/shadow6-carp
+          Core-Gleam/shadow6-gleam --feature-report
+          Core-Idris/shadow6-idris --feature-report
           test -x Gate/shadow6-gate
           test -x Guard/shadow6-guard
           test -x C11Relay/bridge_relay
@@ -326,15 +347,32 @@ jobs:
           "$stage_dir/usr/local/bin/shadow6-slots" catalog >/tmp/shadow6-staged-slots.json
       - name: Run final benchmarks after all Linux builds and tests
         run: |
+          # Exercise every compiled core's real loopback transport.  Keep this
+          # as a separate gate so a missing/invalid network measurement cannot
+          # be hidden by feature-report rows or a not-applicable SCTP probe.
+          python3 Benchmark/benchmark.py \
+            --core go --core rust --core zig --core ada --core d --core nim \
+            --core cpp --core pony --core hare --core carp --core gleam --core idris \
+            --role network-chain --repeats 3 --require-network \
+            --output benchmark-linux-network
           python3 Benchmark/benchmark.py --config Benchmark/example.json --output benchmark-linux.json
           python3 CLI/shadow6.py benchmark --all --role feature-report --repeats 3 --output benchmark-cli-all.json
+      - name: Upload Linux network benchmark reports (JSON/TXT/Markdown)
+        uses: actions/upload-artifact@v4
+        with:
+          name: shadow6-linux-network-benchmark
+          path: |
+            benchmark-linux-network.json
+            benchmark-linux-network.txt
+            benchmark-linux-network.md
+          if-no-files-found: error
       - name: Package and collect every Linux release output
         run: |
           make package
           mkdir -p ci-artifacts/linux
           cp ../Shadow6.tar.gz ../Shadow6.zip ci-artifacts/linux/
           cp /tmp/shadow6-sbom.json /tmp/shadow6-observation.json ci-artifacts/linux/
-          cp benchmark-linux.* benchmark-cli-all.* ci-artifacts/linux/
+          cp benchmark-linux.* benchmark-linux-network.* benchmark-cli-all.* ci-artifacts/linux/
           tar -tzf ci-artifacts/linux/Shadow6.tar.gz >/dev/null
           unzip -tq ci-artifacts/linux/Shadow6.zip
           test "$(tar -tzf ci-artifacts/linux/Shadow6.tar.gz | grep -c 'Core-Cpp/shadow6-cpp$')" -eq 1
@@ -427,6 +465,16 @@ jobs:
       - name: Run final macOS benchmark after every build and test
         run: |
           .venv/bin/python Benchmark/benchmark.py --core go --core rust --core cpp --core zig --role network-chain --repeats 3 --output benchmark-macos.json
+      - name: Upload macOS network reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: shadow6-macos-network-benchmark
+          path: |
+            benchmark-macos.json
+            benchmark-macos.txt
+            benchmark-macos.md
+          if-no-files-found: error
       - name: Dump macOS environment and benchmark diagnostics
         if: always()
         run: |
@@ -455,6 +503,10 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with: {go-version-file: Core-Go/go.mod}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - name: Install network harness dependencies
+        run: python -m pip install -r requirements.txt
       - uses: actions/cache@v4
         with:
           path: |
@@ -472,6 +524,19 @@ jobs:
           CROSED_LEVEL=0 APP_TRANSPORT=0 QUBES_ISOLATION=0 bash ./compile.sh
           cd ../Gate && go test ./... && go build -trimpath -o shadow6-gate .
           cd ../Guard && go test ./... && bash ./compile.sh
+      - name: Measure native Windows Go network chain
+        shell: bash
+        run: python Benchmark/benchmark.py --core go --role network-chain --repeats 3 --require-network --output benchmark-windows
+      - name: Upload Windows network reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: shadow6-windows-network-benchmark
+          path: |
+            benchmark-windows.json
+            benchmark-windows.txt
+            benchmark-windows.md
+          if-no-files-found: error
       - name: Dump Windows environment and benchmark diagnostics
         if: always()
         shell: bash
@@ -528,7 +593,21 @@ jobs:
             echo 'FreeBSD Zig 0.16 translate-c currently fails in the system headers; Zig remains covered by Linux/macOS'
             if test -f /usr/local/include/rtc/rtc.h || pkg info -e libdatachannel; then cd ../Core-Nim && nim c --mm:arc --threads:on -d:release -o:shadow6-nim src/shadow6_nim.nim; else echo 'libdatachannel unavailable; Core-Nim source contract present'; fi
             cd ..
-            python3 Benchmark/benchmark.py --core cpp --role network-chain --repeats 3 --output benchmark-freebsd.json
+            python3 -m venv .venv
+            .venv/bin/pip install -r requirements.txt
+      - name: Measure FreeBSD native network chains
+        shell: cpa.sh {0}
+        run: .venv/bin/python Benchmark/benchmark.py --core go --core rust --core cpp --role network-chain --repeats 3 --output benchmark-freebsd
+      - name: Upload FreeBSD network reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: shadow6-freebsd-network-benchmark
+          path: |
+            benchmark-freebsd.json
+            benchmark-freebsd.txt
+            benchmark-freebsd.md
+          if-no-files-found: error
       - uses: actions/upload-artifact@v4
         with:
           name: shadow6-freebsd-release
@@ -583,7 +662,19 @@ jobs:
             bash ./test.sh
             if test -f /usr/local/include/rtc/rtc.h; then cd ../Core-Nim && nim c --mm:arc --threads:on -d:release -o:shadow6-nim src/shadow6_nim.nim; else echo 'libdatachannel unavailable; Core-Nim source contract present'; fi
             cd ..
-            "$PYTHON" Benchmark/benchmark.py --core go --role network-chain --repeats 3 --output benchmark-openbsd.json
+      - name: Measure OpenBSD native network chains
+        shell: cpa.sh {0}
+        run: .venv/bin/python Benchmark/benchmark.py --core go --core cpp --role network-chain --repeats 3 --output benchmark-openbsd
+      - name: Upload OpenBSD network reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: shadow6-openbsd-network-benchmark
+          path: |
+            benchmark-openbsd.json
+            benchmark-openbsd.txt
+            benchmark-openbsd.md
+          if-no-files-found: error
       - uses: actions/upload-artifact@v4
         with:
           name: shadow6-openbsd-release
@@ -630,6 +721,22 @@ jobs:
           bash Tools/test_netbsd.sh
           test -x Core-Go/shadow6-go
           test -x Core-Go/shadow6-go-crosed
+      - name: Measure NetBSD native Go network chain
+        shell: cpa.sh {0}
+        run: |
+          /usr/pkg/bin/python3.11 -m venv .venv
+          .venv/bin/pip install -r requirements.txt
+          .venv/bin/python Benchmark/benchmark.py --core go --role network-chain --repeats 3 --require-network --output benchmark-netbsd
+      - name: Upload NetBSD network reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: shadow6-netbsd-network-benchmark
+          path: |
+            benchmark-netbsd.json
+            benchmark-netbsd.txt
+            benchmark-netbsd.md
+          if-no-files-found: error
       - name: NetBSD boot diagnostics
         if: failure()
         run: |

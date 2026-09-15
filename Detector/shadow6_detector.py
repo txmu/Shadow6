@@ -167,6 +167,9 @@ class RealTimeDetector:
                         is_tcp,
                         iat,
                     )
+                    event = TrafficFeatures.threat_event(packet)
+                    if event is not None:
+                        logger.warning("%s", event)
                     if self.decoy:
                         self.decoy.start()
 

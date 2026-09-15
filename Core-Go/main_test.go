@@ -268,6 +268,13 @@ func TestAEADWriteUsesUniqueCounterNonces(t *testing.T) {
 	if bytes.Equal(nonces[0], nonces[1]) {
 		t.Fatal("AEAD nonce repeated")
 	}
+	if !bytes.Equal(nonces[0][:8], nonces[1][:8]) || binary.BigEndian.Uint32(nonces[1][8:]) != 2 {
+		t.Fatal("AEAD connection domain and monotonic frame counter were not preserved")
+	}
+	secure.sendCounter = uint64(^uint32(0))
+	if _, err := secure.Write([]byte("exhausted")); err == nil {
+		t.Fatal("AEAD 32-bit frame counter wrap was accepted")
+	}
 	secure.sendCounter = ^uint64(0)
 	if _, err := secure.Write([]byte("exhausted")); err == nil {
 		t.Fatal("AEAD counter wrap was accepted")

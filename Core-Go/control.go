@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/ed25519"
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/tls"
@@ -560,7 +561,7 @@ func dialBroker(addresses []string, peerID string, peerKey ed25519.PrivateKey, b
 }
 
 var maskingSalt = func() []byte {
-	result := make([]byte, 16)
+	result := make([]byte, 32)
 	if _, err := rand.Read(result); err != nil {
 		panic(err)
 	}
@@ -571,10 +572,11 @@ func maskIP(ip string, stealth bool) string {
 	if !stealth || ip == "" {
 		return ip
 	}
-	hash := sha256.Sum256(append(append([]byte(nil), maskingSalt...), []byte(ip)...))
-	// Keep a 128-bit identifier so the bounded IPv4 space cannot be used to
-	// recover the process salt from a masked log value.
-	return fmt.Sprintf("IP[MASKED:%s]", hex.EncodeToString(hash[:16]))
+	// HMAC makes the process secret an actual key and avoids treating the
+	// secret as a public hash prefix. Keep 128 bits for a stable log identifier.
+	mac := hmac.New(sha256.New, maskingSalt)
+	_, _ = mac.Write([]byte(ip))
+	return fmt.Sprintf("IP[MASKED:%s]", hex.EncodeToString(mac.Sum(nil)[:16]))
 }
 
 func startBroker(config *Config) error {

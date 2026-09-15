@@ -10,6 +10,12 @@ Missing binaries and failed paths make the command fail. Results use schema
 `shadow6.benchmark.v2`. One run writes matching JSON, text, and Markdown
 reports, so formats always describe the same samples.
 
+Use `--require-network` for a release gate: every selected core must complete
+the requested loopback exchange with valid finite metrics (unsupported
+protocols such as SCTP are then failures, not silently skipped). Reports carry
+the commit/runner identity, exact transport path, and state that measurements
+are loopback-only; they are not WAN saturation claims.
+
 C++ requires kernel SCTP. Before benchmarking it, a loopback socket probe
 checks support; an unsupported protocol is explicitly reported as
 `not_applicable`, without substituting TCP or claiming a successful measurement.

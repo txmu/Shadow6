@@ -4,10 +4,11 @@ import stat
 import struct
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 from detector_core import RF_FEATURES, RF_FORMAT, SafeRandomForestModel, TrafficFeatures
-from watch import clean_output
+from watch import ShadowSentinel, clean_output
 
 
 def leaf_model():
@@ -48,6 +49,12 @@ def ipv4_udp_packet(source: bytes, destination: bytes, source_port: int, destina
 
 
 class DetectorCoreTests(unittest.TestCase):
+    def test_threat_event_preserves_direction(self):
+        packet = ipv4_udp_packet(b"\x0a\x00\x00\x02", b"\x0a\x00\x00\x01", 5000, 4321, b"probe")
+        identity = ShadowSentinel._alert_identity(TrafficFeatures.threat_event(packet))
+        self.assertEqual(identity, ("10.0.0.2", 4321))
+        self.assertIsNone(TrafficFeatures.threat_event(b"short"))
+
     def test_sentinel_output_is_bounded_and_sanitized(self):
         cleaned = clean_output("\x1b[31mALERT\x1b[0m\n" + "x" * 5000)
         self.assertFalse("\x1b" in cleaned)
@@ -125,6 +132,63 @@ class DetectorCoreTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 SafeRandomForestModel.load(link_path)
             self.assertEqual(stat.S_IMODE(model_path.stat().st_mode), 0o600)
+
+
+class SentinelTests(unittest.TestCase):
+    def setUp(self):
+        self.sentinel = ShadowSentinel(["detector"], "/tmp/orchestrator", "/tmp/topology", 300)
+        self.sentinel.log = lambda *args: None
+
+    def event(self, source=1, port=1000):
+        return "SHADOW6_THREAT " + json.dumps({"version": 1, "source": f"192.0.2.{source}", "port": port})
+
+    def test_single_source_and_duplicates_cannot_rotate(self):
+        for port in range(1000, 1100):
+            self.assertFalse(self.sentinel._allow_rotation(self.event(port=port)))
+        for _ in range(20):
+            self.assertFalse(self.sentinel._allow_rotation(self.event()))
+        self.assertEqual(len(self.sentinel.alert_history), 100)
+
+    def test_global_rotation_requires_multiple_sources_and_ports(self):
+        self.assertFalse(self.sentinel._allow_rotation(self.event(1, 1000)))
+        self.assertFalse(self.sentinel._allow_rotation(self.event(2, 1001)))
+        self.assertTrue(self.sentinel._allow_rotation(self.event(3, 1002)))
+        self.sentinel.alert_pending.clear()
+        for source in range(4, 10):
+            self.assertFalse(self.sentinel._allow_rotation(self.event(source, 1000 + source)))
+
+    def test_unstructured_unknown_and_duplicate_fields_never_count(self):
+        for reason in (
+            "MALICIOUS PROBE DETECTED",
+            'SHADOW6_THREAT {"version":1,"source":"192.0.2.1","port":80,"extra":1}',
+            'SHADOW6_THREAT {"version":1,"version":1,"source":"192.0.2.1","port":80}',
+            'SHADOW6_THREAT {"version":true,"source":"192.0.2.1","port":80}',
+            'SHADOW6_THREAT {"version":1,"source":"not-an-ip","port":80}',
+        ):
+            self.assertFalse(self.sentinel._allow_rotation(reason))
+        self.assertEqual(self.sentinel.alert_history, {})
+
+    def test_failure_and_timeout_consume_cooldown(self):
+        import subprocess
+        for outcome in (subprocess.CompletedProcess([], 1), subprocess.TimeoutExpired([], 120), OSError("failed")):
+            with self.subTest(outcome=outcome):
+                self.setUp()
+                with patch("watch.time.monotonic", side_effect=[100.0, 101.0]), patch("watch.subprocess.run") as run:
+                    if isinstance(outcome, Exception):
+                        run.side_effect = outcome
+                    else:
+                        run.return_value = outcome
+                    self.sentinel.trigger_rotation("test")
+                    self.sentinel.trigger_rotation("test")
+                    self.assertEqual(run.call_count, 1)
+                    self.assertEqual(self.sentinel.last_attempt, 100)
+                    self.assertEqual(self.sentinel.failure_backoff, 300)
+
+    def test_expired_votes_cannot_accumulate(self):
+        with patch("watch.time.monotonic", side_effect=[100, 161, 162]):
+            self.assertFalse(self.sentinel._allow_rotation(self.event(1, 1000)))
+            self.assertFalse(self.sentinel._allow_rotation(self.event(2, 1001)))
+            self.assertFalse(self.sentinel._allow_rotation(self.event(3, 1002)))
 
 
 if __name__ == "__main__":

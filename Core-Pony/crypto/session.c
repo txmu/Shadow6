@@ -68,7 +68,6 @@ int s6p_start(const unsigned char *seed, size_t n, const unsigned char *peer,
     memcpy(out, "S6Q1", 4); write64(out + 4, now);
     rc |= crypto_generichash(out + 12, 16, state + 32, 32, NULL, 0);
     randombytes_buf(out + 28, 16);
-    rc |= crypto_generichash(out + 12, 16, state + 32, 32, NULL, 0);
     randombytes_buf(state, 32);
     rc |= crypto_scalarmult_curve25519_base(out + 44, state);
     size_t len = signed_input(input, out, 76, state + 32, peer, NULL);

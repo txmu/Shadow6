@@ -9,6 +9,7 @@ package body Relay is
       N : Native.Int; Count : Cells.Length; Local_Closed : Boolean := False;
       Deadline : constant Native.Time := Native.Clock + Native.Time (Integer'Min (Lifetime, 86_400)) * 1000;
       Idle : Native.Time := Native.Clock;
+      Wait_Local, Wait_Remote : Native.Int;
       procedure Send_Cell is
       begin
          Check (Native.Seal (Send_Key'Address, Native.Int (Seq), Plain'Address, Wire'Address));
@@ -45,7 +46,9 @@ package body Relay is
             Idle := Native.Clock;
          end if;
          exit when Local_Closed and State.Mode = Cells.Closed;
-         Native.Pause;
+         Wait_Local := (if Local_Closed then -1 else Local);
+         Wait_Remote := (if State.Mode = Cells.Closed then -1 else Remote);
+         Native.Wait_Readable (Wait_Local, Wait_Remote);
       end loop;
       Native.Wipe (Input'Address, Input'Length); Native.Wipe (Output'Address, Output'Length);
    end Run;

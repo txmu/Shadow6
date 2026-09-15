@@ -255,4 +255,16 @@ int s6_ready(int h) {
     return poll(&p, 1, 0) > 0 && p.revents ? 1 : 0;
 }
 void s6_pause(void) { struct timespec t = {0, 10000000}; nanosleep(&t, NULL); }
+/* Wait only when neither active direction has work. SSL may already hold
+ * decrypted bytes even when its underlying socket is no longer readable. */
+void s6_wait_readable(int first, int second) {
+    struct pollfd fds[2]; nfds_t count = 0;
+    int ids[2] = {first, second};
+    for (int i = 0; i < 2; ++i) if (valid(ids[i])) {
+        if (handles[ids[i]].tls && SSL_pending(handles[ids[i]].tls)) return;
+        fds[count++] = (struct pollfd){handles[ids[i]].fd, POLLIN, 0};
+    }
+    /* The finite wait also keeps idle/lifetime enforcement responsive. */
+    (void)poll(fds, count, 100);
+}
 void s6_half_close(int h) { if (valid(h)) shutdown(handles[h].fd, SHUT_WR); }

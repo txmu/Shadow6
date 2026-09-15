@@ -1,23 +1,47 @@
 /* libdatachannel owns its threads. Nim ARC objects never cross callbacks. */
+#ifndef SHADOW6_QUEUE_TEST
 #include <rtc/rtc.h>
+#else
+/* The queue regression harness needs no external RTC runtime. */
+#define RTC_ERR_NOT_AVAIL (-3)
+static int rtcSetMessageCallback(int id, void (*callback)(int, const char *, int, void *)) {
+    (void)callback; return id == 999 ? -1 : 0;
+}
+#endif
 #include <pthread.h>
 #include <stdatomic.h>
 #include <string.h>
 #include <stdint.h>
+#include <time.h>
+#include <errno.h>
 
 static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t space = PTHREAD_COND_INITIALIZER;
+#ifndef SHADOW6_QUEUE_TEST
 static int accepted[16], count;
 static atomic_int gathered;
+#endif
+static uint64_t next_generation;
 /* Fixed receive queues impose a bound even when an authenticated peer floods
- * while the Nim event loop is busy. A full queue poisons that channel. */
-static struct { int used, id, head, count, failed; int size[4]; char data[4][65536]; } queues[20];
+ * while the Nim event loop is busy. These are reliable ordered streams:
+ * dropping an already-delivered SCTP/WebSocket message would corrupt them.
+ * Apply bounded callback backpressure until the consumer drains a slot. */
+static struct { int used, id, head, count, failed; uint64_t generation; int size[4]; char data[4][65536]; } queues[20];
 static void message(int id, const char *data, int size, void *unused) {
     (void)unused;
     int n = size < 0 ? (int)strnlen(data,65536)+1 : size;
     pthread_mutex_lock(&lock);
     for (int i=0;i<20;i++) if (queues[i].used && queues[i].id==id) {
-        if (n>65536 || n<1 || queues[i].count==4) queues[i].failed=1;
-        else {
+        uint64_t generation = queues[i].generation;
+        if (n>65536 || n<1) queues[i].failed=1;
+        struct timespec until;
+        if (clock_gettime(CLOCK_REALTIME, &until)) queues[i].failed=1;
+        else until.tv_sec += 5;
+        while (!queues[i].failed && queues[i].used && queues[i].generation==generation && queues[i].count==4) {
+            int result = pthread_cond_timedwait(&space, &lock, &until);
+            if (result && queues[i].used && queues[i].generation==generation) queues[i].failed=1;
+        }
+        if (!queues[i].failed && queues[i].used && queues[i].generation==generation) {
             int slot=(queues[i].head+queues[i].count)%4;
             memcpy(queues[i].data[slot],data,n);
             queues[i].size[slot]=size<0 ? -n : n;
@@ -32,10 +56,19 @@ static int watch(int id) {
     int slot=-1;
     pthread_mutex_lock(&lock);
     for (int i=0;i<20;i++) if (!queues[i].used) {
-        memset(&queues[i],0,sizeof queues[i]); queues[i].used=1; queues[i].id=id; slot=i; break;
+        if (next_generation == UINT64_MAX) break;
+        memset(&queues[i],0,sizeof queues[i]); queues[i].used=1; queues[i].id=id;
+        queues[i].generation=++next_generation; slot=i; break;
     }
     pthread_mutex_unlock(&lock);
-    if (slot<0 || rtcSetMessageCallback(id,message)) return -1;
+    if (slot<0) return -1;
+    if (rtcSetMessageCallback(id,message)) {
+        pthread_mutex_lock(&lock);
+        queues[slot].used=0;
+        pthread_cond_broadcast(&space);
+        pthread_mutex_unlock(&lock);
+        return -1;
+    }
     return id;
 }
 int nim_rtc_receive(int id, char *data, int *size) {
@@ -47,7 +80,8 @@ int nim_rtc_receive(int id, char *data, int *size) {
         int slot=queues[i].head, n=queues[i].size[slot];
         if ((n<0 ? -n : n)>*size) break;
         memcpy(data,queues[i].data[slot],n<0 ? -n : n); *size=n;
-        queues[i].head=(slot+1)%4; queues[i].count--; result=0; break;
+        queues[i].head=(slot+1)%4; queues[i].count--; result=0;
+        pthread_cond_broadcast(&space); break;
     }
     pthread_mutex_unlock(&lock);
     return result;
@@ -55,8 +89,10 @@ int nim_rtc_receive(int id, char *data, int *size) {
 void nim_rtc_forget(int id) {
     pthread_mutex_lock(&lock);
     for (int i=0;i<20;i++) if (queues[i].used && queues[i].id==id) queues[i].used=0;
+    pthread_cond_broadcast(&space);
     pthread_mutex_unlock(&lock);
 }
+#ifndef SHADOW6_QUEUE_TEST
 static void on_client(int server, int ws, void *unused) {
     (void)server; (void)unused;
     pthread_mutex_lock(&lock);
@@ -116,3 +152,4 @@ int nim_rtc_channel(int pc) {
     return dc;
 }
 int nim_rtc_gathered(void) { return atomic_load(&gathered); }
+#endif

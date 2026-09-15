@@ -28,6 +28,7 @@ package Native with SPARK_Mode => Off is
    function Read (H : Int; P : System.Address; N : Int; Exact : Int := 1) return Int with Import, Convention => C, External_Name => "s6_read";
    function Write (H : Int; P : System.Address; N : Int) return Int with Import, Convention => C, External_Name => "s6_write";
    function Ready (H : Int) return Int with Import, Convention => C, External_Name => "s6_ready";
+   procedure Wait_Readable (First, Second : Int) with Import, Convention => C, External_Name => "s6_wait_readable";
    procedure Pause with Import, Convention => C, External_Name => "s6_pause";
    procedure Half_Close (H : Int) with Import, Convention => C, External_Name => "s6_half_close";
 end Native;

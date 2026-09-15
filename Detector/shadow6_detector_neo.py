@@ -248,7 +248,7 @@ class RealTimeDetector:
         self.interface = interface
         self.model_type = model_type
         self.decoy = decoy
-        self.last_seen = {}
+        self.last_seen = collections.OrderedDict()
         self.buffers = collections.OrderedDict()
         if model_type == "rf":
             self.model = SafeRandomForestModel.load(model_path)
@@ -275,6 +275,9 @@ class RealTimeDetector:
                 now = time.monotonic()
                 iat = max(0.0, now - self.last_seen.get(flow, now))
                 self.last_seen[flow] = now
+                self.last_seen.move_to_end(flow)
+                if len(self.last_seen) > 10_000:
+                    self.last_seen.popitem(last=False)
                 features = [packet_length, entropy, is_tcp, payload_size, iat]
                 if self.model_type == "rf":
                     malicious = self.model.predict([features])[0] == 1
@@ -288,6 +291,9 @@ class RealTimeDetector:
                     malicious = len(buffer) == self.window_size and self.model.predict_sequence(buffer) == 1
                 if malicious:
                     logger.warning("PROBE SEQUENCE DETECTED: flow=%r", flow)
+                    event = TrafficFeatures.threat_event(packet)
+                    if event is not None:
+                        logger.warning("%s", event)
                     if self.decoy:
                         self.decoy.start()
 

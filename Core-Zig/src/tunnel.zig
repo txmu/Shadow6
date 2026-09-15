@@ -41,7 +41,10 @@ pub const Tunnel = struct {
         const udp = try p.bind(&bind_addr, true);
         errdefer p.close(udp);
         self.* = .{ .parent = a, .backend = backend, .udp = udp, .master = master, .authorized = authorized, .target_port = target, .client = client, .deadline = p.now() + @as(i64, seconds) * 1000, .channels = undefined, .slots = slots };
-        try self.life.init(a, 2 * 1024 * 1024);
+        // Sixteen channels, each with bounded 256-packet TX/RX windows. The
+        // slab is fixed and charged to the tunnel so a larger BDP window
+        // cannot turn into unbounded process allocation.
+        try self.life.init(a, 16 * 1024 * 1024);
         errdefer self.life.deinit();
         self.channels = try self.life.allocator().alloc(?Channel, 16);
         @memset(self.channels, null);
@@ -61,7 +64,7 @@ pub const Tunnel = struct {
         a.destroy(self);
     }
     pub fn start(self: *Tunnel) !void {
-        const thread = try std.Thread.spawn(.{ .stack_size = 512 * 1024 }, worker, .{self});
+        const thread = try std.Thread.spawn(.{ .stack_size = 4 * 1024 * 1024 }, worker, .{self});
         thread.detach();
     }
     fn worker(self: *Tunnel) void {
@@ -149,7 +152,7 @@ pub const Tunnel = struct {
             } else if (data.kind != .open or self.client or data.seq != 0) return error.InvalidSequence;
             ch.output_offset = 0;
             ch.secure.received[ch.secure.next_rx % enet.window] = null;
-            if (ch.secure.next_rx == std.math.maxInt(u32)) return error.SessionLimit;
+            if (ch.secure.next_rx == std.math.maxInt(u64)) return error.SessionLimit;
             ch.secure.next_rx += 1;
         }
     }

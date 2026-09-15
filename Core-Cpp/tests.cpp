@@ -1,5 +1,6 @@
 #include "src/runtime.hpp"
 #include <cstdlib>
+#include <sys/wait.h>
 
 using namespace shadow6;
 static void require(bool ok, const char *what) {
@@ -17,7 +18,42 @@ static Json make_proof(const Json &ticket, const std::string &secret) {
   Json j = Json::obj(); j.object["version"] = Json(std::int64_t{1}); j.object["ticket"] = ticket;
   j.object["signature"] = Json(sign(private_key(secret).get(), ticket_payload(ticket))); return j;
 }
+static void accept_burst() {
+  Endpoint bind;
+  require(endpoint("127.0.0.1:1", bind), "burst loopback address");
+  reinterpret_cast<sockaddr_in *>(&bind.address)->sin_port = 0;
+  Fd listener = listen_socket(bind, IPPROTO_TCP);
+  require(static_cast<bool>(listener), "burst listener");
+  auto address = socket_endpoint(listener.value);
+  auto child = fork();
+  require(child >= 0, "burst server fork");
+  if (child == 0) {
+    std::signal(SIGALRM, [](int) { stopped = 1; });
+    std::signal(SIGTERM, [](int) { stopped = 1; });
+    alarm(10);
+    serve(listener.value, [](int fd) { (void)plain_write(fd, "accepted"); });
+    _exit(0);
+  }
+  bool complete = true;
+  for (unsigned i = 0; i < 64; ++i) {
+    Fd connection = connect_socket(address, IPPROTO_TCP);
+    if (!connection || !wait_fd(connection.value, POLLIN, deadline(2))) { complete = false; break; }
+    char reply[8];
+    if (recv(connection.value, reply, sizeof(reply), MSG_WAITALL) != 8 || std::string_view(reply, 8) != "accepted") { complete = false; break; }
+  }
+  kill(child, SIGTERM);
+  int status = 0;
+  require(waitpid(child, &status, 0) == child && WIFEXITED(status) && WEXITSTATUS(status) == 0, "burst server shutdown");
+  require(complete, "64 TCP accepts are not capped at 16 per second");
+}
 static int unit_tests() {
+  HandshakeBudget budget;
+  auto budget_now = Clock::now();
+  for (unsigned i = 0; i < 64; ++i) require(budget.take(budget_now), "TLS reconnect burst");
+  require(!budget.take(budget_now), "TLS work stays rate bounded");
+  require(budget.take(budget_now + std::chrono::milliseconds(63)), "TLS budget refills continuously");
+  require(!budget.take(budget_now + std::chrono::milliseconds(63)), "TLS refill cannot mint extra permits");
+  accept_burst();
   Json j;
   for (auto bad : {"", "{,}", "{\"x\":1,}", "{\"x\":1 \"y\":2}", "[1,]", "01", "1.0", "1e3", "9007199254740992", "{\"x\":1,\"x\":2}", "{\"x\":1,\"\\u0078\":2}", "\"\\ud800\"", "\"\\udfff\"", "{} {}"}) require(!JsonParser{}.parse(bad, j), "strict JSON rejection");
   require(!JsonParser{}.parse(std::string("\"\xff\"", 3), j), "invalid UTF-8");

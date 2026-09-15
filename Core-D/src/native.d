@@ -9,6 +9,7 @@ extern(C) {
     int d_xpublic(const(void)*, void*);
     int d_shared(const(void)*, const(void)*, void*);
     int d_hash(const(void)*, int, void*, int);
+    int d_hmac(const(void)*, const(void)*, int, void*);
     void d_wipe(void*, int);
     int d_encrypt(const(void)*, const(void)*, const(void)*, int, const(void)*, int, void*);
     int d_decrypt(const(void)*, const(void)*, const(void)*, int, const(void)*, int, void*);

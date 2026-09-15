@@ -2,6 +2,7 @@ import shadow6_gleam
 import shadow6_packet
 
 pub fn main() {
+  replay_tests()
   let packet = <<
     shadow6_packet.magic:size(32),
     7:size(16),
@@ -23,3 +24,6 @@ pub fn main() {
 
 @external(erlang, "shadow6_test_support", "payload")
 fn test_payload() -> shadow6_gleam.Dynamic
+
+@external(erlang, "shadow6_test_support", "replay_tests")
+fn replay_tests() -> Nil

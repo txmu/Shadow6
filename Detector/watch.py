@@ -5,8 +5,8 @@ Shadow6 MTD Sentinel (watch.py)
 Description:
     Bridges the Detection and Orchestration layers. 
     Monitors Detector logs (Standard RF or Neo LSTM) and triggers 
-    an immediate MTD (Moving Target Defense) rotation upon 
-    sensing active probing or sequence anomalies.
+    bounded probe evidence. Global MTD requires multiple sources and ports,
+    a threat threshold, and an independent rotation budget.
 
 Workflow:
     Detector -> stdout -> Sentinel (watch.py) -> Orchestrator (apply)
@@ -20,6 +20,8 @@ import argparse
 import re
 import subprocess
 import threading
+import ipaddress
+import json
 from datetime import datetime
 
 # --- Configuration & Styling ---
@@ -45,14 +47,32 @@ def clean_output(value, limit=4096):
     return value[:limit].strip()
 
 class ShadowSentinel:
-    def __init__(self, detector_cmd, orchestrator_path, topo_path, cooldown):
+    def __init__(
+        self,
+        detector_cmd,
+        orchestrator_path,
+        topo_path,
+        cooldown,
+        score_threshold=3,
+        score_window=60,
+        rotation_interval=3600,
+    ):
         self.detector_cmd = detector_cmd
         self.orchestrator_path = orchestrator_path
         self.topo_path = topo_path
         self.cooldown = cooldown
-        self.last_rotation = 0
+        self.last_rotation = float("-inf")
+        self.last_attempt = float("-inf")
+        self.failure_backoff = 0.0
+        self.score_threshold = max(1, int(score_threshold))
+        self.score_window = max(1, int(score_window))
+        self.alert_history = {}
+        self.rotation_tokens = 1
+        self.rotation_interval = max(self.cooldown, int(rotation_interval))
+        self.last_token_refill = time.monotonic()
         self.detector_proc = None
         self.rotation_lock = threading.Lock()
+        self.state_lock = threading.Lock()
         self.alert_pending = threading.Event()
         self.stop_event = threading.Event()
 
@@ -68,6 +88,14 @@ class ShadowSentinel:
             return
         try:
             current_time = time.monotonic()
+            with self.state_lock:
+                retry_delay = max(self.cooldown, self.failure_backoff)
+                if current_time - self.last_attempt < retry_delay:
+                    self.log("Rotation attempt is rate-limited; coalescing this alert.", YELLOW)
+                    return
+                # Charge the attempt before invoking the orchestrator. Failed
+                # subprocesses must not permit an immediate retry storm.
+                self.last_attempt = current_time
             if current_time - self.last_rotation < self.cooldown:
                 self.log("Detection alert received during cooldown; ignoring.", YELLOW)
                 return
@@ -79,8 +107,8 @@ class ShadowSentinel:
             # Run the orchestrator as a subprocess
             result = subprocess.run(
                 cmd,
-                capture_output=True,
-                text=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
                 timeout=120,
                 cwd=os.path.dirname(self.orchestrator_path),
                 check=False,
@@ -88,24 +116,105 @@ class ShadowSentinel:
             
             if result.returncode == 0:
                 self.log("MTD Rotation successful. Fingerprints updated across all nodes.", GREEN)
-                self.last_rotation = current_time
+                with self.state_lock:
+                    self.last_rotation = current_time
+                    self.failure_backoff = 0.0
             else:
-                detail = (result.stderr or result.stdout).strip()
-                self.log(f"Orchestrator failed: {detail}", RED)
+                self.log(f"Orchestrator failed with exit status {result.returncode}.", RED)
+                with self.state_lock:
+                    self.failure_backoff = min(
+                        max(self.cooldown, self.failure_backoff * 2 or self.cooldown),
+                        self.cooldown * 8,
+                    )
         except subprocess.TimeoutExpired:
             self.log("Orchestrator timed out after 120 seconds.", RED)
+            with self.state_lock:
+                self.failure_backoff = min(
+                    max(self.cooldown, self.failure_backoff * 2 or self.cooldown),
+                    self.cooldown * 8,
+                )
         except Exception as e:
             self.log(f"Error during rotation execution: {e}", RED)
+            with self.state_lock:
+                self.failure_backoff = min(
+                    max(self.cooldown, self.failure_backoff * 2 or self.cooldown),
+                    self.cooldown * 8,
+                )
         finally:
             self.rotation_lock.release()
             self.alert_pending.clear()
 
+    @staticmethod
+    def _alert_identity(reason):
+        """Only bounded versioned detector events count toward global MTD."""
+        marker = "SHADOW6_THREAT "
+        if marker not in reason:
+            return None
+        try:
+            def unique_fields(pairs):
+                result = {}
+                for key, value in pairs:
+                    if key in result:
+                        raise ValueError("duplicate field")
+                    result[key] = value
+                return result
+
+            event = json.loads(reason.split(marker, 1)[1], object_pairs_hook=unique_fields)
+            if not isinstance(event, dict) or set(event) != {"version", "source", "port"}:
+                return None
+            if type(event["version"]) is not int or event["version"] != 1:
+                return None
+            if type(event["port"]) is not int or not 1 <= event["port"] <= 65535:
+                return None
+            if not isinstance(event["source"], str):
+                return None
+            address = ipaddress.ip_address(event["source"])
+            if address.is_unspecified or address.is_multicast:
+                return None
+            return str(address), event["port"]
+        except (ValueError, TypeError, RecursionError):
+            return None
+
+    def _allow_rotation(self, reason):
+        """Apply a bounded threat score and token bucket before full MTD."""
+        now = time.monotonic()
+        identity = self._alert_identity(reason)
+        if identity is None:
+            return False
+        with self.state_lock:
+            cutoff = now - self.score_window
+            self.alert_history = {
+                key: seen for key, seen in self.alert_history.items() if seen > cutoff
+            }
+            # One vote per source/port pair per window, bounded under a flood.
+            if identity not in self.alert_history and len(self.alert_history) >= 4096:
+                return False
+            self.alert_history.setdefault(identity, now)
+            sources = {key[0] for key in self.alert_history}
+            ports = {key[1] for key in self.alert_history}
+            elapsed = now - self.last_token_refill
+            if elapsed >= self.rotation_interval:
+                self.rotation_tokens = 1
+                self.last_token_refill = now
+            if len(self.alert_history) < self.score_threshold or len(sources) < 3 or len(ports) < 3:
+                return False
+            if self.rotation_tokens < 1 or self.alert_pending.is_set():
+                return False
+            if now - self.last_attempt < max(self.cooldown, self.failure_backoff):
+                return False
+            self.rotation_tokens -= 1
+            self.last_token_refill = now
+            self.alert_history.clear()
+            self.alert_pending.set()
+            return True
+
     def schedule_rotation(self, reason):
-        """Coalesce bursts into at most one pending rotation worker."""
-        if self.alert_pending.is_set():
+        """Aggregate alerts and coalesce bursts into one rotation worker."""
+        reason = clean_output(reason)
+        if not self._allow_rotation(reason):
+            self.log("Detection recorded; threat threshold or rotation budget not met.", YELLOW)
             return
-        self.alert_pending.set()
-        threading.Thread(target=self.trigger_rotation, args=(clean_output(reason),), daemon=True).start()
+        threading.Thread(target=self.trigger_rotation, args=(reason,), daemon=True).start()
 
     def start_monitoring(self):
         """Starts the detector and monitors its output stream."""
@@ -138,7 +247,7 @@ class ShadowSentinel:
                 if not clean_line:
                     continue
                 print(f"  [DETECTOR] {clean_line}")
-                if any(key in clean_line for key in ATTACK_KEYWORDS):
+                if "SHADOW6_THREAT " in clean_line or any(key in clean_line for key in ATTACK_KEYWORDS):
                     self.schedule_rotation(clean_line)
             return_code = self.detector_proc.wait()
             if self.stop_event.is_set():
@@ -157,6 +266,9 @@ def main():
     parser.add_argument("--auto", default=default_orchestrator, help="Path to the shadow6_auto.py script")
     parser.add_argument("--topo", required=True, help="Path to the topology YAML file")
     parser.add_argument("--cooldown", type=int, default=300, help="Minimum seconds between rotations (default: 300)")
+    parser.add_argument("--score-threshold", type=int, default=3, help="Alerts required within the score window (default: 3)")
+    parser.add_argument("--score-window", type=int, default=60, help="Threat score window in seconds (default: 60)")
+    parser.add_argument("--rotation-interval", type=int, default=3600, help="One global rotation attempt per interval in seconds (default: 3600)")
     parser.add_argument("--interface", default="any", help="Sniffing interface")
     parser.add_argument("--model", default="dpi_model.json", help="Path to RF JSON or Neo LSTM model")
     parser.add_argument("--neo", action="store_true", help="Use the new experimental LSTM detector")
@@ -167,6 +279,8 @@ def main():
     detector_script = args.detector
     if args.cooldown < 1:
         parser.error("--cooldown must be positive")
+    if args.score_threshold < 3 or args.score_window < 1 or args.rotation_interval < args.cooldown:
+        parser.error("threshold must be >=3, score window positive, rotation interval >= cooldown")
     for label, path in (("detector", args.detector), ("orchestrator", args.auto), ("topology", args.topo)):
         if not os.path.isfile(path):
             parser.error(f"{label} file does not exist: {path}")
@@ -190,7 +304,10 @@ def main():
         detector_cmd=detector_cmd,
         orchestrator_path=os.path.abspath(args.auto),
         topo_path=os.path.abspath(args.topo),
-        cooldown=args.cooldown
+        cooldown=args.cooldown,
+        score_threshold=args.score_threshold,
+        score_window=args.score_window,
+        rotation_interval=args.rotation_interval,
     )
 
     sentinel.start_monitoring()

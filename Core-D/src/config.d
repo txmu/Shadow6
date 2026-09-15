@@ -2,7 +2,7 @@ module config;
 import bounded, json, native;
 import core.stdc.string : memcmp;
 @nogc nothrow:
-enum features = `{"core":"shadow6-d","version":"1.1.0","crosed_compiled":false,"crosed_max_level":0,"app_transport":false,"qubes_isolation":false,"gate_compiled":false,"gate_enabled_by_default":false,"utf8":true,"crosed_capabilities":[],"transport":"rle-udp","better_c":true}`;
+enum features = `{"core":"shadow6-d","version":"1.2.0","crosed_compiled":false,"crosed_max_level":0,"app_transport":false,"qubes_isolation":false,"gate_compiled":false,"gate_enabled_by_default":false,"utf8":true,"crosed_capabilities":[],"transport":"rle-udp","better_c":true}`;
 
 bool loadKey(const(char)[] encoded, out Key pub, out Secret secret)
 in { assert(encoded.length <= MAX_JSON); }

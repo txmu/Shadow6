@@ -20,10 +20,10 @@ proc deleteChannelRaw(id: cint): cint {.importc: "rtcDeleteDataChannel", header:
 proc deleteWsRaw(id: cint): cint {.importc: "rtcDeleteWebSocket", header: "rtc/rtc.h".}
 proc forget(id: cint) {.importc: "nim_rtc_forget".}
 proc deleteChannel*(id: cint): cint =
+  forget(id)
   result = deleteChannelRaw(id)
-  forget(id)
 proc deleteWs*(id: cint): cint =
-  result = deleteWsRaw(id)
   forget(id)
+  result = deleteWsRaw(id)
 proc deleteServer*(id: cint): cint {.importc: "rtcDeleteWebSocketServer", header: "rtc/rtc.h".}
 proc cleanup*() {.importc: "rtcCleanup", header: "rtc/rtc.h".}

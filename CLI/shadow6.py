@@ -108,7 +108,7 @@ def main():
  q=sub.add_parser("benchmark",help="run real native benchmarks for selected cores")
  q.add_argument("--core",dest="cores",action="append",choices=sorted(k for k in COMPONENTS if k in {"go","rust","zig","ada","d","nim","cpp","pony","hare","carp","gleam","idris"}))
  q.add_argument("--all",action="store_true",help="benchmark all twelve cores")
- q.add_argument("--role",action="append",choices=("feature-report","version","loopback","integration"),default=[])
+ q.add_argument("--role",action="append",choices=("feature-report","version","network-chain","loopback","integration"),default=[])
  q.add_argument("--repeats",type=int,default=1)
  q.add_argument("--output",type=Path,default=Path("benchmark.json"))
  q.add_argument("--format",choices=("json","txt"),default="json")
@@ -126,20 +126,15 @@ def main():
   return subprocess.run([sys.executable, shadow6_vcore.__file__]+tail(a.args), check=False).returncode
  if a.command=="benchmark":
   sys.path.insert(0, str(ROOT / "Benchmark"))
-  from benchmark import run as benchmark_run
+  from benchmark import run as benchmark_run, write as benchmark_write
   core_names = {"go","rust","zig","ada","d","nim","cpp","pony","hare","carp","gleam","idris"}
-  cores = [c for c in COMPONENTS if c in core_names and COMPONENTS[c].is_file()] if a.all else (a.cores or ["go"])
+  cores = [c for c in COMPONENTS if c in core_names] if a.all else (a.cores or ["go"])
   cores = [c for c in cores if c in core_names]
   if not cores: raise SystemExit("benchmark requires --core or --all")
-  if not 1 <= a.repeats <= 1000: raise SystemExit("--repeats must be 1..1000")
-  result = benchmark_run({"cores": cores, "roles": a.role or ["feature-report"], "repeats": a.repeats, "args": {}})
-  if a.format == "json":
-   a.output.write_text(json.dumps(result, sort_keys=True, indent=2) + "\n", encoding="utf-8")
-  else:
-   lines=["Shadow6 Benchmark schema=shadow6.benchmark.v1", "core\trole\trepeat\tstatus\telapsed_seconds\tcpu_seconds\tmax_rss_kib\treturncode"]
-   def number(value): return "-" if value is None else value
-   lines += ["{c}\t{r}\t{n}\t{s}\t{e:.6f}\t{u}\t{m}\t{x}".format(c=r["core"],r=r.get("role","-"),n=r.get("repeat","-"),s=r["status"],e=r.get("elapsed_seconds",0),u=number(None if r.get("user_seconds") is None or r.get("system_seconds") is None else r["user_seconds"]+r["system_seconds"]),m=number(r.get("max_rss_kib")),x=r.get("returncode","-")) for r in result["results"]]
-   a.output.write_text("\n".join(lines)+"\n",encoding="utf-8")
+  if not 1 <= a.repeats <= 100: raise SystemExit("--repeats must be 1..100")
+  roles = ['network-chain' if role in ('loopback','integration') else role for role in (a.role or ['feature-report'])]
+  result = benchmark_run({"cores": cores, "roles": roles, "repeats": a.repeats, "args": {}})
+  benchmark_write(result,a.output)
   print(json.dumps({"output": str(a.output), "results": len(result["results"])}, ensure_ascii=True))
   return 0 if all(r["status"] == "ok" for r in result["results"]) else 1
  if a.command=="sign":return run("sign-plugin",[a.manifest,"--private-key",a.private_key,"--signer",a.signer],a.json_events)

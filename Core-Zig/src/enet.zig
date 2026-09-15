@@ -1,4 +1,4 @@
-// Shadow6 ENet v1: an intentionally distinct ENet-style reliable UDP wire
+// Shadow6 ENet v2: an intentionally distinct ENet-style reliable UDP wire
 // protocol, not wire-compatible with upstream ENet, KCP or QUIC.
 const std = @import("std");
 const cfg = @import("config.zig");
@@ -6,17 +6,20 @@ const AEAD = std.crypto.aead.chacha_poly.ChaCha20Poly1305;
 pub const mtu = 1200;
 pub const header = 40;
 pub const payload_max = mtu - header - AEAD.tag_length;
-pub const window = 32;
+// Congestion grows from four packets on ACKs and backs off on loss. The
+// 256-packet ceiling permits 286 KiB in flight; TX and RX storage together
+// remain below 640 KiB per channel. Nonce and sequence wrap fail closed.
+pub const window = 256;
 pub const Kind = enum(u8) { open = 1, data = 2, ack = 3, fin = 4 };
-pub const Packet = struct { bytes: [mtu]u8 = undefined, len: usize = 0, seq: u32 = 0, deadline: i64 = 0, attempts: u8 = 0, active: bool = false };
-pub const Received = struct { kind: Kind, seq: u32, len: usize, bytes: [payload_max]u8 };
+pub const Packet = struct { bytes: [mtu]u8 = undefined, len: usize = 0, seq: u64 = 0, deadline: i64 = 0, attempts: u8 = 0, active: bool = false };
+pub const Received = struct { kind: Kind, seq: u64, len: usize, bytes: [payload_max]u8 };
 pub const Session = struct {
     sid: [16]u8,
     tx_key: [32]u8,
     rx_key: [32]u8,
     counter: u64 = 0,
-    next_tx: u32 = 0,
-    next_rx: u32 = 0,
+    next_tx: u64 = 0,
+    next_rx: u64 = 0,
     highest_rx: u64 = 0,
     replay: u64 = 0,
     pending: [window]Packet = @splat(.{}),
@@ -24,7 +27,7 @@ pub const Session = struct {
     in_flight: usize = 0,
     congestion: usize = 4,
     pub fn canQueue(self: *const Session) bool {
-        return self.in_flight < self.congestion and self.next_tx < std.math.maxInt(u32) and !self.pending[self.next_tx % window].active and self.counter < std.math.maxInt(u64);
+        return self.in_flight < self.congestion and self.next_tx < std.math.maxInt(u64) and !self.pending[self.next_tx % window].active and self.counter < std.math.maxInt(u64);
     }
     pub fn init(master: [32]u8, sid: [16]u8, client: bool) Session {
         var input: [17]u8 = undefined;
@@ -40,18 +43,17 @@ pub const Session = struct {
     pub fn deinit(self: *Session) void {
         std.crypto.secureZero(u8, std.mem.asBytes(self));
     }
-    pub fn encode(self: *Session, kind: Kind, seq: u32, data: []const u8) !Packet {
+    pub fn encode(self: *Session, kind: Kind, seq: u64, data: []const u8) !Packet {
         if (data.len > payload_max or self.counter == std.math.maxInt(u64)) return error.SessionLimit;
         var out = Packet{ .len = header + data.len + 16, .seq = seq, .active = true };
         @memcpy(out.bytes[0..4], "S6EN");
-        out.bytes[4] = 1;
+        out.bytes[4] = 2;
         out.bytes[5] = @intFromEnum(kind);
         out.bytes[6] = 0;
         out.bytes[7] = 0;
         @memcpy(out.bytes[8..24], &self.sid);
         std.mem.writeInt(u64, out.bytes[24..32], self.counter, .big);
-        std.mem.writeInt(u32, out.bytes[32..36], seq, .big);
-        @memset(out.bytes[36..40], 0);
+        std.mem.writeInt(u64, out.bytes[32..40], seq, .big);
         var nonce: [12]u8 = @splat(0);
         std.mem.writeInt(u64, nonce[4..12], self.counter, .big);
         AEAD.encrypt(out.bytes[header..][0..data.len], out.bytes[header + data.len ..][0..16], data, out.bytes[0..header], nonce, self.tx_key);
@@ -70,10 +72,10 @@ pub const Session = struct {
         return slot;
     }
     pub fn decode(self: *Session, packet: []const u8) !Received {
-        if (packet.len < header + 16 or packet.len > mtu or !cfg.eq(packet[0..4], "S6EN") or packet[4] != 1 or packet[6] != 0 or packet[7] != 0 or !cfg.eq(packet[8..24], &self.sid) or !cfg.eq(packet[36..40], &.{ 0, 0, 0, 0 })) return error.InvalidPacket;
+        if (packet.len < header + 16 or packet.len > mtu or !cfg.eq(packet[0..4], "S6EN") or packet[4] != 2 or packet[6] != 0 or packet[7] != 0 or !cfg.eq(packet[8..24], &self.sid)) return error.InvalidPacket;
         const kind = std.enums.fromInt(Kind, packet[5]) orelse return error.InvalidPacket;
         const count = std.mem.readInt(u64, packet[24..32], .big);
-        const seq = std.mem.readInt(u32, packet[32..36], .big);
+        const seq = std.mem.readInt(u64, packet[32..40], .big);
         const len = packet.len - header - 16;
         if (kind != .data and len != 0) return error.InvalidPacket;
         var nonce: [12]u8 = @splat(0);
@@ -92,7 +94,7 @@ pub const Session = struct {
         } else self.replay |= @as(u64, 1) << @intCast(self.highest_rx - count);
         return out;
     }
-    pub fn acknowledge(self: *Session, seq: u32) void {
+    pub fn acknowledge(self: *Session, seq: u64) void {
         const slot = &self.pending[seq % window];
         if (!slot.active or slot.seq != seq) return;
         slot.active = false;
@@ -143,4 +145,22 @@ test "lost ACK, retransmission, bounded retries and window wrap" {
     const pending = try sender.queue(.fin, "", 203);
     pending.attempts = 8;
     try std.testing.expectError(error.RetryLimit, sender.retry(pending, pending.deadline));
+}
+test "WAN window exceeds 32, 64 bit sequences and fail closed version migration" {
+    var sender = Session.init(@splat(4), @splat(5), true);
+    var receiver = Session.init(@splat(4), @splat(5), false);
+    sender.next_tx = @as(u64, std.math.maxInt(u32)) + 16;
+    sender.congestion = window;
+    for (0..window) |_| {
+        const packet = try sender.queue(.data, "wide sequence", 0);
+        const decoded = try receiver.decode(packet.bytes[0..packet.len]);
+        try std.testing.expectEqual(packet.seq, decoded.seq);
+    }
+    try std.testing.expect(sender.in_flight > 32);
+    try std.testing.expectError(error.Backpressure, sender.queue(.data, "full", 0));
+    var old = try sender.encode(.ack, 1, "");
+    old.bytes[4] = 1;
+    try std.testing.expectError(error.InvalidPacket, receiver.decode(old.bytes[0..old.len]));
+    sender.counter = std.math.maxInt(u64);
+    try std.testing.expectError(error.SessionLimit, sender.encode(.ack, 1, ""));
 }
