@@ -59,7 +59,8 @@ nim-crosed-variant:
 	@$(MAKE) core-nim NIM_CROSED_LEVEL=0
 
 test-nim:
-	@if test -x Core-Nim/shadow6-nim; then $(NIM) c -r --mm:arc --nimcache:Core-Nim/obj/test --path:Core-Nim/src -o:Core-Nim/test_protocol Core-Nim/tests/test_protocol.nim; $(PYTHON) Core-Nim/test_core.py; else echo 'libdatachannel unavailable; Core-Nim tests skipped'; fi
+	@$(PYTHON) Core-Nim/tests/test_queue.py
+	@if test -x Core-Nim/shadow6-nim; then $(NIM) c -r --mm:arc --nimcache:Core-Nim/obj/test --path:Core-Nim/src -o:Core-Nim/test_protocol Core-Nim/tests/test_protocol.nim; $(PYTHON) Core-Nim/test_core.py; else echo 'libdatachannel unavailable; Core-Nim protocol tests skipped'; fi
 
 .PHONY: core-zig test-zig
 
