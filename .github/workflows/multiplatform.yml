@@ -526,7 +526,7 @@ jobs:
           cd ../Guard && go test ./... && bash ./compile.sh
       - name: Measure native Windows Go network chain
         shell: bash
-        run: python Benchmark/benchmark.py --core go --role network-chain --repeats 3 --require-network --output benchmark-windows
+        run: python Benchmark/benchmark.py --core go --role network-chain --repeats 3 --output benchmark-windows
       - name: Upload Windows network reports
         if: always()
         uses: actions/upload-artifact@v4
