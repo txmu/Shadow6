@@ -157,7 +157,7 @@ def validate_portable(value: Any, depth: int = 0) -> None:
 def _check_file(metadata: os.stat_result, path: Path, limit: int, secret: bool) -> None:
     if not stat.S_ISREG(metadata.st_mode):
         raise SecurityError(f"path must be a regular non-symlink file: {path}")
-    if secret and (metadata.st_uid != os.geteuid() or stat.S_IMODE(metadata.st_mode) != 0o600):
+    if secret and (metadata.st_uid != getattr(os, "geteuid", lambda: -1)() or stat.S_IMODE(metadata.st_mode) != 0o600):
         raise SecurityError(f"secret file must be owner-controlled with mode 0600: {path}")
     if metadata.st_size > limit:
         raise SecurityError(f"file exceeds {limit} bytes: {path}")
@@ -180,7 +180,7 @@ def _read_descriptor(descriptor: int, limit: int) -> bytes:
 def _locked_file(path: Path, limit: int, *, create: bool = False, exclusive: bool = True):
     """Bound lock acquisition and recheck the locked, nonblocking-opened inode."""
     parent = path.parent.lstat()
-    if not stat.S_ISDIR(parent.st_mode) or parent.st_uid != os.geteuid() or parent.st_mode & 0o022:
+    if not stat.S_ISDIR(parent.st_mode) or parent.st_uid != getattr(os, "geteuid", lambda: -1)() or parent.st_mode & 0o022:
         raise SecurityError("state parent must be an owner-controlled non-symlink directory")
     flags = (os.O_RDWR if exclusive else os.O_RDONLY) | os.O_NONBLOCK | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
     descriptor = os.open(path, flags | (os.O_CREAT if create else 0), 0o600)
@@ -649,7 +649,7 @@ def _plugin_inventory(root: Path, *, verify_signatures: bool) -> tuple[set[str],
         keys[name] = Ed25519PublicKey.from_public_bytes(_hex_bytes(encoded, 32, "plugin public key"))
     plugin_root = root / "plugins"
     metadata = plugin_root.lstat()
-    if not stat.S_ISDIR(metadata.st_mode) or metadata.st_uid != os.geteuid() or metadata.st_mode & 0o022:
+    if not stat.S_ISDIR(metadata.st_mode) or metadata.st_uid != getattr(os, "geteuid", lambda: -1)() or metadata.st_mode & 0o022:
         raise SecurityError("unsafe plugin root")
     manifests = []
     required = {"schema_version", "id", "name", "version", "runtime", "entrypoint", "capabilities",
@@ -662,7 +662,7 @@ def _plugin_inventory(root: Path, *, verify_signatures: bool) -> tuple[set[str],
             raise SecurityError("plugin directory must not be a symlink")
         if not stat.S_ISDIR(metadata.st_mode):
             continue
-        if metadata.st_uid != os.geteuid() or metadata.st_mode & 0o022:
+        if metadata.st_uid != getattr(os, "geteuid", lambda: -1)() or metadata.st_mode & 0o022:
             raise SecurityError("unsafe plugin directory permissions")
         manifest = strict_json_loads(secure_read(directory / "plugin.json", 65_536), 65_536)
         if (not isinstance(manifest, dict) or set(manifest) != required or

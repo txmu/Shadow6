@@ -223,7 +223,7 @@ def secure_read(path: Path, limit: int, *, secret: bool = False, dir_fd: int | N
     def check(info: os.stat_result) -> None:
         if not stat.S_ISREG(info.st_mode) or info.st_size > limit:
             raise PluginError("file must be bounded and regular")
-        if info.st_uid not in ({os.geteuid()} if secret else {0, os.geteuid()}) or info.st_mode & 0o022:
+        if info.st_uid not in ({getattr(os, "geteuid", lambda: -1)()} if secret else {0, getattr(os, "geteuid", lambda: -1)()}) or info.st_mode & 0o022:
             raise PluginError("file must be owner-controlled and not group/other writable")
         if secret and stat.S_IMODE(info.st_mode) != 0o600:
             raise PluginError("private key must have mode 0600")
@@ -252,7 +252,7 @@ def _regular_owner_file(path: Path) -> os.stat_result:
     before = path.lstat()
     if path.is_symlink() or not path.is_file():
         raise PluginError(f"plugin path must be a regular non-symlink file: {path}")
-    if before.st_uid != os.geteuid():
+    if before.st_uid != getattr(os, "geteuid", lambda: -1)():
         raise PluginError(f"plugin file is not owned by the effective user: {path}")
     if before.st_mode & 0o022:
         raise PluginError(f"plugin file must not be group/other writable: {path}")
@@ -301,7 +301,7 @@ class PluginRegistry:
             raise PluginError("plugin root must not be a symlink")
         self.plugin_root = plugin_root.resolve(strict=True)
         metadata = self.plugin_root.stat()
-        if not stat.S_ISDIR(metadata.st_mode) or metadata.st_uid not in {0, os.geteuid()} or metadata.st_mode & 0o002:
+        if not stat.S_ISDIR(metadata.st_mode) or metadata.st_uid not in {0, getattr(os, "geteuid", lambda: -1)()} or metadata.st_mode & 0o002:
             raise PluginError("plugin root must be an owner-controlled directory")
         self.trusted_signers = _load_trust_store(trust_store)
         unknown = granted_capabilities - KNOWN_CAPABILITIES

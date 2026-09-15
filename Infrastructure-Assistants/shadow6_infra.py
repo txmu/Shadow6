@@ -228,7 +228,7 @@ def execute_plan(plan_path: Path, public_key: Path, expected_root: Path, state_d
     verify_plan(plan, public_key, expected_root)
     state_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
     metadata = state_dir.lstat()
-    if not stat.S_ISDIR(metadata.st_mode) or metadata.st_uid != os.geteuid() or stat.S_IMODE(metadata.st_mode) != 0o700:
+    if not stat.S_ISDIR(metadata.st_mode) or metadata.st_uid != getattr(os, "geteuid", lambda: -1)() or stat.S_IMODE(metadata.st_mode) != 0o700:
         raise InfrastructureError("runbook state directory must be owner-controlled and mode 0700")
     state = state_dir / "consumed-runbooks"
     with _locked_file(state, MAX_JSON, create=True) as descriptor:

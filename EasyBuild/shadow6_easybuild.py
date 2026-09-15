@@ -86,7 +86,7 @@ def run_fixed(arguments: list[str], environment: dict[str, str], dry_run: bool) 
 def _secure_regular(path: Path, limit: int, *, private: bool = True) -> None:
     """Reject replaced, linked, writable, or oversized state files."""
     metadata = path.lstat()
-    if not path.is_file() or path.is_symlink() or metadata.st_uid != os.geteuid():
+    if not path.is_file() or path.is_symlink() or metadata.st_uid != getattr(os, "geteuid", lambda: -1)():
         raise EasyBuildError(f"state file must be an owner-controlled regular file: {path}")
     if (metadata.st_mode & 0o077 if private else metadata.st_mode & 0o022) or metadata.st_size > limit:
         raise EasyBuildError(f"state file permissions or size are unsafe: {path}")

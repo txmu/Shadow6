@@ -19,7 +19,7 @@ def read_private_key(path: Path) -> bytes:
     descriptor = os.open(path, flags)
     try:
         metadata = os.fstat(descriptor)
-        if metadata.st_uid != os.geteuid() or metadata.st_mode & 0o077:
+        if metadata.st_uid != getattr(os, "geteuid", lambda: -1)() or metadata.st_mode & 0o077:
             raise PermissionError("private key must be owner-controlled with mode 0600")
         if metadata.st_size > 16_384:
             raise ValueError("private key file is too large")

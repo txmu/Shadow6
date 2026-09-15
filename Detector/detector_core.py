@@ -71,7 +71,7 @@ def validate_model_file(path: str | Path) -> Path:
     info = model_path.lstat()
     if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
         raise ValueError("model path must be a regular, non-symlink file")
-    if info.st_uid != os.geteuid():
+    if info.st_uid != getattr(os, "geteuid", lambda: -1)():
         raise PermissionError("model file must be owned by the effective user")
     if info.st_mode & 0o022:
         raise PermissionError("model file must not be group/world writable")
@@ -87,7 +87,7 @@ def open_validated_model(path: str | Path):
     before = model_path.lstat()
     if stat.S_ISLNK(before.st_mode) or not stat.S_ISREG(before.st_mode):
         raise ValueError("model path must be a regular, non-symlink file")
-    if before.st_uid != os.geteuid():
+    if before.st_uid != getattr(os, "geteuid", lambda: -1)():
         raise PermissionError("model file must be owned by the effective user")
     if before.st_mode & 0o022:
         raise PermissionError("model file must not be group/world writable")
@@ -99,7 +99,7 @@ def open_validated_model(path: str | Path):
         opened = os.fstat(descriptor)
         if not stat.S_ISREG(opened.st_mode) or (opened.st_dev, opened.st_ino) != (before.st_dev, before.st_ino):
             raise ValueError("model file changed while it was being opened")
-        if opened.st_uid != os.geteuid() or opened.st_mode & 0o022:
+        if opened.st_uid != getattr(os, "geteuid", lambda: -1)() or opened.st_mode & 0o022:
             raise PermissionError("opened model file has unsafe ownership or permissions")
         if opened.st_size > MAX_MODEL_BYTES:
             raise ValueError("model file is too large")

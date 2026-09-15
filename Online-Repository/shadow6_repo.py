@@ -75,7 +75,7 @@ def secure_read(path: Path, limit: int, *, secret: bool = False, dir_fd: int | N
         if not stat.S_ISREG(info.st_mode) or info.st_size > limit:
             raise ValueError("file must be bounded and regular")
         if secret:
-            if info.st_uid != os.geteuid() or stat.S_IMODE(info.st_mode) != 0o600:
+            if info.st_uid != getattr(os, "geteuid", lambda: -1)() or stat.S_IMODE(info.st_mode) != 0o600:
                 raise ValueError("private key must be owner-controlled with mode 0600")
     before = os.stat(path, dir_fd=dir_fd, follow_symlinks=False)
     check(before)

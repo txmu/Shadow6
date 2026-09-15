@@ -146,7 +146,7 @@ def secure_file(filepath: str):
         opened = os.fstat(descriptor)
         if not stat.S_ISREG(opened.st_mode) or (opened.st_dev, opened.st_ino) != (before.st_dev, before.st_ino):
             raise ValueError("sensitive file changed while it was being opened")
-        if opened.st_uid != os.geteuid():
+        if opened.st_uid != getattr(os, "geteuid", lambda: -1)():
             raise PermissionError("sensitive file must be owned by the effective user")
         if opened.st_nlink != 1 or opened.st_size > MAX_TOPOLOGY_BYTES:
             raise ValueError("sensitive file must be singly linked and bounded")
@@ -457,7 +457,7 @@ def load_topology_file(yaml_path: str) -> dict:
             raise ValueError("topology exceeds the 1 MiB size limit")
         topology = parse_topology(document)
         final = os.fstat(descriptor)
-        if final.st_uid != os.geteuid() or final.st_mode & 0o022:
+        if final.st_uid != getattr(os, "geteuid", lambda: -1)() or final.st_mode & 0o022:
             raise PermissionError("topology must be owner-controlled and not group/world writable")
         if any(node.get("ssh_pass") for node in topology["nodes"]):
             if stat.S_IMODE(final.st_mode) != 0o600 or final.st_nlink != 1:
@@ -595,7 +595,7 @@ def _write_secure_json(path: Path, data: dict) -> None:
     parent_info = path.parent.lstat()
     if stat.S_ISLNK(parent_info.st_mode) or not stat.S_ISDIR(parent_info.st_mode):
         raise ValueError(f"output directory must be a real directory: {path.parent}")
-    if parent_info.st_uid != os.geteuid():
+    if parent_info.st_uid != getattr(os, "geteuid", lambda: -1)():
         raise PermissionError(f"output directory must be owned by the effective user: {path.parent}")
     os.chmod(path.parent, 0o700)
     fd, temporary = tempfile.mkstemp(prefix=f".{path.name}.tmp-", dir=path.parent)

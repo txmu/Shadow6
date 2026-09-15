@@ -59,7 +59,7 @@ def _timeout(value):
 @contextmanager
 def _binary(path):
     before = path.lstat()
-    if (not stat.S_ISREG(before.st_mode) or before.st_uid != os.geteuid()
+    if (not stat.S_ISREG(before.st_mode) or before.st_uid != getattr(os, "geteuid", lambda: -1)()
             or before.st_mode & 0o022 or not before.st_mode & 0o111
             or not 1 <= before.st_size <= MAX_BINARY):
         raise ValueError("core must be an owned regular executable, not writable by others")
@@ -118,7 +118,7 @@ def _bundle(root, name):
                     if len(files) >= 128:
                         raise ValueError("Idris bundle is oversized")
                     info = path.lstat()
-                    if info.st_uid != os.geteuid() or info.st_mode & 0o022:
+                    if info.st_uid != getattr(os, "geteuid", lambda: -1)() or info.st_mode & 0o022:
                         raise ValueError("Idris bundle must be owner-controlled")
                     files[str(path.relative_to(root))] = hashlib.sha256(secure_read(path, MAX_BINARY)).hexdigest()
     return files

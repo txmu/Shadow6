@@ -258,7 +258,7 @@ class RealTimeDetector:
             self.window_size = self.model.window_size
 
     def sniff_loop(self) -> None:
-        if os.geteuid() != 0:
+        if getattr(os, "geteuid", lambda: -1)() != 0:
             raise PermissionError("real-time AF_PACKET capture requires root or CAP_NET_RAW")
         with socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.ntohs(0x0003)) as raw_socket:
             if self.interface != "any":
