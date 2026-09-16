@@ -448,6 +448,13 @@ def run_engine(engine: str, benchmark: dict | None = None) -> dict | None:
                         latencies.append(time.perf_counter() - request_started)
                     duration = time.perf_counter() - started
                     result = benchmark_metrics(payload,latencies,duration)
+                # Complete the stream with an explicit FIN before the child
+                # processes are torn down.  Abruptly closing a Windows TCP
+                # handle while the echo target still has unread bytes causes
+                # WSAECONNRESET and hides an otherwise real lifecycle bug.
+                connection.shutdown(socket.SHUT_WR)
+                while connection.recv(65536):
+                    pass
             success = True
             print(f"[PASS] {engine} orchestrator -> broker -> agent -> client data path")
         finally:
