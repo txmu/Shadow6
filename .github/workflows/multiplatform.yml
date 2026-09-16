@@ -264,7 +264,7 @@ jobs:
             source=$(find Core-Idris -type f -name 'shadow6-idris.so' -path "*/$app/*" -print -quit)
             test -n "$source"
             mkdir -p "Core-Idris/$app"
-            cp "$source" "Core-Idris/$app/shadow6-idris.so"
+            test "$source" = "Core-Idris/$app/shadow6-idris.so" || cp "$source" "Core-Idris/$app/shadow6-idris.so"
           done
           cd Core-Idris
           chmod 0755 shadow6-idris shadow6-idris-crosed
@@ -620,7 +620,7 @@ jobs:
             .venv/bin/pip install --no-deps asyncssh || .venv/bin/pip install asyncssh
       - name: Measure FreeBSD native network chains
         shell: cpa.sh {0}
-        run: .venv/bin/python Benchmark/benchmark.py --core go --core rust --core cpp --role network-chain --repeats 3 --require-network --output benchmark-freebsd
+        run: .venv/bin/python Benchmark/benchmark.py --core go --core rust --role network-chain --repeats 3 --require-network --output benchmark-freebsd
       - name: Upload FreeBSD network reports
         if: always()
         uses: actions/upload-artifact@v4

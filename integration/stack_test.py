@@ -386,6 +386,7 @@ def run_engine(engine: str, benchmark: dict | None = None) -> dict | None:
     target = EchoTarget()
     broker = agent = client = None
     success = False
+    result = None
     with tempfile.TemporaryDirectory(prefix=f"shadow6-it-{engine}-") as directory:
         output = Path(directory) / "configs"
         target_port = target.start()
@@ -428,6 +429,9 @@ def run_engine(engine: str, benchmark: dict | None = None) -> dict | None:
                     result = benchmark_metrics(payload,latencies,duration)
             success = True
             print(f"[PASS] {engine} orchestrator -> broker -> agent -> client data path")
+        except OSError as exc:
+            if getattr(exc, "winerror", None) != 10054 or not result:
+                raise
         finally:
             terminate(client, "client")
             terminate(agent, "agent")
