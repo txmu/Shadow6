@@ -40,6 +40,12 @@ RUNBOOKS = {
     "integration-test": (["make", "integration-test"], 180),
     "package-release": (["bash", "Tools/package_release.sh"], 300),
 }
+# Signed runbooks execute only fixed commands below.  Never inherit a caller's
+# PATH: a writable directory earlier in PATH could replace ``make``/``bash``
+# and turn an otherwise valid signature into arbitrary code execution.
+SAFE_EXECUTION_PATH = os.pathsep.join(
+    directory for directory in ("/usr/bin", "/bin", "/usr/local/bin") if Path(directory).is_dir()
+)
 
 
 class InfrastructureError(SecurityError):
@@ -252,6 +258,7 @@ def execute_plan(plan_path: Path, public_key: Path, expected_root: Path, state_d
     for name in ("LD_PRELOAD", "LD_LIBRARY_PATH", "PYTHONPATH", "PYTHONHOME", "BASH_ENV", "ENV", "GIT_CONFIG_COUNT",
                  "MAKEFLAGS", "MFLAGS", "GNUMAKEFLAGS", "MAKEFILES", "SHELLOPTS", "BASHOPTS"):
         environment.pop(name, None)
+    environment["PATH"] = SAFE_EXECUTION_PATH
     completed = bounded_run(command, expected_root.resolve(), timeout, env=environment)
     output = (completed.stdout + completed.stderr)[-65_536:]
     return {
