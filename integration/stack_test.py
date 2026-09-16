@@ -266,11 +266,25 @@ def free_port() -> int:
 def terminate(process: subprocess.Popen[str] | None, label: str) -> None:
     if process is None or process.poll() is not None:
         return
+    def reap_after_reset() -> bool:
+        """Reap a Windows child after a socket-reset race during termination.
+
+        WSAECONNRESET can be raised by the Windows process wrapper while the
+        child is tearing down its loopback sockets.  It is only accepted after
+        repeated polling proves that the process exited; a live child remains
+        a hard test failure.
+        """
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline:
+            if process.poll() is not None:
+                return True
+            time.sleep(0.05)
+        return process.poll() is not None
     try:
         process.terminate()
     except OSError as exc:
         if getattr(exc, "winerror", None) == 10054:
-            if process.poll() is not None:
+            if reap_after_reset():
                 return
         raise
     try:
@@ -279,19 +293,16 @@ def terminate(process: subprocess.Popen[str] | None, label: str) -> None:
         try:
             process.kill()
         except OSError as exc:
-            if getattr(exc, "winerror", None) != 10054:
+            if getattr(exc, "winerror", None) != 10054 or not reap_after_reset():
                 raise
         try:
             process.wait(timeout=5)
         except OSError as exc:
-            if getattr(exc, "winerror", None) != 10054 or process.poll() is None:
+            if getattr(exc, "winerror", None) != 10054 or not reap_after_reset():
                 raise
         raise RuntimeError(f"{label} did not terminate cleanly")
     except OSError as exc:
-        # Windows may report WSAECONNRESET while the child is already exiting.
-        # Treat that race as successful cleanup; a still-running child remains
-        # a real failure and is surfaced to the caller.
-        if getattr(exc, "winerror", None) != 10054 and process.poll() is None:
+        if getattr(exc, "winerror", None) != 10054 or not reap_after_reset():
             raise
 
 

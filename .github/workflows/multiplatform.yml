@@ -112,6 +112,8 @@ jobs:
           set -euo pipefail
           output_dir="$RUNNER_TEMP/core-idris-$RUNNER_OS"
           mkdir -p "$output_dir"
+          artifact_dir="$RUNNER_TEMP/core-idris-artifact-$RUNNER_OS"
+          mkdir -p "$artifact_dir"
           install -m 0755 Core-Idris/shadow6-idris "$output_dir/shadow6-idris"
           install -m 0755 Core-Idris/shadow6-idris-crosed "$output_dir/shadow6-idris-crosed"
           cp -a Core-Idris/shadow6-idris_app "$output_dir/"
@@ -133,13 +135,14 @@ jobs:
           # modes, and relative layout are part of the executable contract.
           # Preserve that tree as one archive instead of reconstructing it
           # from independently downloaded files.
-          tar -C "$output_dir" -czf "$RUNNER_TEMP/core-idris-${RUNNER_OS}.tar.gz" .
+          tar -C "$output_dir" -czf "$artifact_dir/core-idris-runtime.tar.gz" .
+          test -s "$artifact_dir/core-idris-runtime.tar.gz"
           du -ah "$output_dir"
           cat "$output_dir/SHA256SUMS"
       - uses: actions/upload-artifact@v4
         with:
           name: shadow6-idris-${{ matrix.os }}
-          path: ${{ runner.temp }}/core-idris-${{ runner.os }}
+          path: ${{ runner.temp }}/core-idris-artifact-${{ runner.os }}/core-idris-runtime.tar.gz
           if-no-files-found: error
   linux-gleam:
     name: Core-Gleam (${{ matrix.arch }})

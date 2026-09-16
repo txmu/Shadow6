@@ -857,6 +857,7 @@ func startClient(config *Config) error {
 				defer localConnection.Close()
 				secure, dialErr := dialSecureKCP(target, key)
 				if dialErr != nil {
+					log.Printf("[Client] KCP session failed for %s: %v", target, dialErr)
 					return
 				}
 				defer secure.Close()
@@ -865,6 +866,8 @@ func startClient(config *Config) error {
 					_, copyErr := io.Copy(secure, localConnection)
 					if copyErr != nil && !isExpectedCloseError(copyErr) {
 						log.Printf("[Client] local-to-KCP copy failed: %v", copyErr)
+					} else if copyErr != nil {
+						log.Printf("[Client] local-to-KCP closed: %v", copyErr)
 					}
 					done <- struct{}{}
 				}()
@@ -872,6 +875,8 @@ func startClient(config *Config) error {
 					_, copyErr := io.Copy(localConnection, secure)
 					if copyErr != nil && !isExpectedCloseError(copyErr) {
 						log.Printf("[Client] KCP-to-local copy failed: %v", copyErr)
+					} else if copyErr != nil {
+						log.Printf("[Client] KCP-to-local closed: %v", copyErr)
 					}
 					if tcpConn, ok := localConnection.(*net.TCPConn); ok {
 						_ = tcpConn.CloseRead()
