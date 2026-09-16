@@ -267,17 +267,12 @@ def terminate(process: subprocess.Popen[str] | None, label: str) -> None:
     if process is None or process.poll() is not None:
         return
     try:
-        if os.name == "nt":
-            process.terminate()
-        else:
-            process.send_signal(signal.SIGTERM)
+        process.terminate()
     except OSError as exc:
         if getattr(exc, "winerror", None) == 10054:
-            # Windows can report a reset while the child is already exiting.
-            # Continue to reap it below; a live child is still an error.
-            pass
-        else:
-            raise
+            if process.poll() is not None:
+                return
+        raise
     try:
         process.wait(timeout=5)
     except subprocess.TimeoutExpired:
@@ -291,8 +286,6 @@ def terminate(process: subprocess.Popen[str] | None, label: str) -> None:
         except OSError as exc:
             if getattr(exc, "winerror", None) != 10054 or process.poll() is None:
                 raise
-        if process.poll() is None:
-            raise RuntimeError(f"{label} did not terminate cleanly")
         raise RuntimeError(f"{label} did not terminate cleanly")
     except OSError as exc:
         # Windows may report WSAECONNRESET while the child is already exiting.
@@ -429,9 +422,6 @@ def run_engine(engine: str, benchmark: dict | None = None) -> dict | None:
                     result = benchmark_metrics(payload,latencies,duration)
             success = True
             print(f"[PASS] {engine} orchestrator -> broker -> agent -> client data path")
-        except OSError as exc:
-            if getattr(exc, "winerror", None) != 10054 or not result:
-                raise
         finally:
             terminate(client, "client")
             terminate(agent, "agent")

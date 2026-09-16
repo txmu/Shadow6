@@ -200,6 +200,11 @@ func proxyConnection(client net.Conn, targetPort int, key []byte) {
 		}
 		done <- struct{}{}
 	}()
+	// Keep both directions alive until the client or target closes its side.
+	// Returning after the first copier exits closes the peer connection while
+	// the other direction is still active; Windows reports that race as
+	// WSAECONNRESET (10054), and can drop valid subsequent proxy requests.
+	<-done
 	<-done
 }
 
