@@ -250,6 +250,23 @@ jobs:
       - name: Restore executable modes for downloaded core artifacts
         run: |
           chmod 0755 Core-Gleam/shadow6-gleam Core-Gleam/shadow6-gleam-crosed
+          # actions/download-artifact may retain the producer directory when
+          # the artifact contains both launchers and companion app trees.
+          # Normalize that layout before any wrapper-relative execution.
+          for name in shadow6-idris shadow6-idris-crosed; do
+            if [ ! -f "Core-Idris/$name" ]; then
+              source=$(find Core-Idris -type f -name "$name" -print -quit)
+              test -n "$source"
+              cp "$source" "Core-Idris/$name"
+            fi
+          done
+          for app in shadow6-idris_app shadow6-idris-crosed_app; do
+            if [ ! -d "Core-Idris/$app" ]; then
+              source=$(find Core-Idris -type d -name "$app" -print -quit)
+              test -n "$source"
+              cp -a "$source" "Core-Idris/$app"
+            fi
+          done
           cd Core-Idris
           chmod 0755 shadow6-idris shadow6-idris-crosed
           find shadow6-idris_app shadow6-idris-crosed_app -type f -exec chmod 0755 {} +
@@ -600,7 +617,7 @@ jobs:
             sudo pkg install -y py311-cryptography 2>/dev/null || true
             python3 -m venv --system-site-packages .venv
             .venv/bin/python -c 'import cryptography' 2>/dev/null || \
-              .venv/bin/pip install --no-cache-dir 'cryptography>=43,<47'
+              .venv/bin/pip install --no-cache-dir --only-binary=:all: 'cryptography>=43,<47'
             .venv/bin/pip install --no-deps asyncssh || .venv/bin/pip install asyncssh
       - name: Measure FreeBSD native network chains
         shell: cpa.sh {0}

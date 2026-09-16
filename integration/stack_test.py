@@ -266,7 +266,12 @@ def free_port() -> int:
 def terminate(process: subprocess.Popen[str] | None, label: str) -> None:
     if process is None or process.poll() is not None:
         return
-    process.send_signal(signal.SIGTERM)
+    try:
+        process.send_signal(signal.SIGTERM)
+    except OSError as exc:
+        if getattr(exc, "winerror", None) == 10054:
+            return
+        raise
     try:
         process.wait(timeout=5)
     except subprocess.TimeoutExpired:
