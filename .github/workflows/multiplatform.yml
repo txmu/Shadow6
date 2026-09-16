@@ -263,11 +263,17 @@ jobs:
           path: ${{ runner.temp }}/idris-artifact
       - name: Restore executable modes for downloaded core artifacts
         run: |
+          # The runtime artifact intentionally contains only the compiled
+          # Idris tree. Preserve the checked-in real integration harness
+          # before replacing the build directory so the full-stack test still
+          # exercises the downloaded binary instead of silently skipping it.
+          cp Core-Idris/test_core.py "$RUNNER_TEMP/shadow6-idris-test_core.py"
           rm -rf Core-Idris
           mkdir -p Core-Idris
           archive=$(find "$RUNNER_TEMP/idris-artifact" -type f -name 'core-idris-*.tar.gz' -print -quit)
           test -n "$archive"
           tar -xzf "$archive" -C Core-Idris
+          install -m 0755 "$RUNNER_TEMP/shadow6-idris-test_core.py" Core-Idris/test_core.py
           chmod 0755 Core-Gleam/shadow6-gleam Core-Gleam/shadow6-gleam-crosed
           cd Core-Idris
           chmod 0755 shadow6-idris shadow6-idris-crosed
