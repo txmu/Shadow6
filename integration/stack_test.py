@@ -415,8 +415,11 @@ def run_engine(engine: str, benchmark: dict | None = None) -> dict | None:
                         latencies.append(time.perf_counter() - request_started)
                     duration = time.perf_counter() - started
                     result = benchmark_metrics(payload,latencies,duration)
-            print(f"[PASS] {engine} orchestrator -> broker -> agent -> client data path")
             success = True
+            print(f"[PASS] {engine} orchestrator -> broker -> agent -> client data path")
+        except OSError as exc:
+            if getattr(exc, "winerror", None) != 10054:
+                raise
         finally:
             terminate(client, "client")
             terminate(agent, "agent")

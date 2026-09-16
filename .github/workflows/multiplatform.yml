@@ -261,11 +261,10 @@ jobs:
             fi
           done
           for app in shadow6-idris_app shadow6-idris-crosed_app; do
-            if [ ! -d "Core-Idris/$app" ]; then
-              source=$(find Core-Idris -type d -name "$app" -print -quit)
-              test -n "$source"
-              cp -a "$source" "Core-Idris/$app"
-            fi
+            source=$(find Core-Idris -type f -name 'shadow6-idris.so' -path "*/$app/*" -print -quit)
+            test -n "$source"
+            mkdir -p "Core-Idris/$app"
+            cp "$source" "Core-Idris/$app/shadow6-idris.so"
           done
           cd Core-Idris
           chmod 0755 shadow6-idris shadow6-idris-crosed
@@ -614,7 +613,7 @@ jobs:
             echo 'FreeBSD Zig 0.16 translate-c currently fails in the system headers; Zig remains covered by Linux/macOS'
             if test -f /usr/local/include/rtc/rtc.h || pkg info -e libdatachannel; then cd ../Core-Nim && nim c --mm:arc --threads:on -d:release -o:shadow6-nim src/shadow6_nim.nim; else echo 'libdatachannel unavailable; Core-Nim source contract present'; fi
             cd ..
-            sudo pkg install -y py311-cryptography 2>/dev/null || true
+            sudo pkg install -y py312-cryptography 2>/dev/null || true
             python3 -m venv --system-site-packages .venv
             .venv/bin/python -c 'import cryptography' 2>/dev/null || \
               .venv/bin/pip install --no-cache-dir --only-binary=:all: 'cryptography>=43,<47'
