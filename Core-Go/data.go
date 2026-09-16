@@ -251,6 +251,11 @@ func proxyConnection(client net.Conn, targetPort int, key []byte) {
 	// WSAECONNRESET (10054), and can drop valid subsequent proxy requests.
 	<-done
 	<-done
+	// Both directions have reached EOF, but Windows can still have the final
+	// FIN/ACK exchange queued while the KCP session is being torn down. Keep
+	// the target alive for one bounded scheduling window so its graceful FIN is
+	// observed before deferred Close releases the socket.
+	time.Sleep(100 * time.Millisecond)
 }
 
 func samePeerIP(left, right net.IP) bool {
