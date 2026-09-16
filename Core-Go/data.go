@@ -18,6 +18,7 @@ import (
 	"os"
 	"os/exec"
 	"sync"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -208,8 +209,24 @@ func samePeerIP(left, right net.IP) bool {
 		return left4.Equal(right4)
 	}
 	return left.Equal(right)
-}
 
+}
+func isExpectedCloseError(err error) bool {
+	if err == nil {
+		return true
+	}
+	if err == io.EOF {
+		return true
+	}
+	errStr := err.Error()
+	// Windows: "forcibly closed by the remote host"
+	// POSIX: "closed pipe", "broken pipe", "connection reset"
+	return strings.Contains(errStr, "closed pipe") ||
+		strings.Contains(errStr, "broken pipe") ||
+		strings.Contains(errStr, "forcibly closed") ||
+		strings.Contains(errStr, "closed network connection") ||
+		strings.Contains(errStr, "connection reset")
+}
 type AgentService struct {
 	config     *AgentConfig
 	privateKey ed25519.PrivateKey
@@ -841,19 +858,26 @@ func startClient(config *Config) error {
 				done := make(chan struct{}, 2)
 				go func() {
 					_, copyErr := io.Copy(secure, localConnection)
-					if copyErr != nil {
+					if copyErr != nil && !isExpectedCloseError(copyErr) {
 						log.Printf("[Client] local-to-KCP copy failed: %v", copyErr)
 					}
 					done <- struct{}{}
 				}()
 				go func() {
 					_, copyErr := io.Copy(localConnection, secure)
-					if copyErr != nil {
+					if copyErr != nil && !isExpectedCloseError(copyErr) {
 						log.Printf("[Client] KCP-to-local copy failed: %v", copyErr)
+					}
+					if tcpConn, ok := localConnection.(*net.TCPConn); ok {
+						_ = tcpConn.CloseRead()
 					}
 					done <- struct{}{}
 				}()
 				<-done
+				select {
+				case <-done:
+				case <-time.After(100 * time.Millisecond):
+				}
 			}()
 		default:
 			localConnection.Close()

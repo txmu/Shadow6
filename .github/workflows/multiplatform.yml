@@ -252,7 +252,7 @@ jobs:
           chmod 0755 Core-Gleam/shadow6-gleam Core-Gleam/shadow6-gleam-crosed
           chmod 0755 Core-Idris/shadow6-idris Core-Idris/shadow6-idris-crosed
           find Core-Idris/shadow6-idris_app Core-Idris/shadow6-idris-crosed_app -type f -exec chmod 0755 {} +
-          echo "LD_LIBRARY_PATH=$GITHUB_WORKSPACE/Core-Idris:$GITHUB_WORKSPACE/Core-Idris/ffi" >> "$GITHUB_ENV"
+          echo "LD_LIBRARY_PATH=$GITHUB_WORKSPACE/Core-Idris/ffi:$GITHUB_WORKSPACE/Core-Idris/ffi" >> "$GITHUB_ENV"
       - name: Provision pinned Hare toolchain
         timeout-minutes: 15
         run: |
@@ -595,6 +595,7 @@ jobs:
             cd ..
             sudo pkg install -y py311-cryptography 2>/dev/null || true
             python3 -m venv --system-site-packages .venv
+            .venv/bin/pip install --no-deps asyncssh || .venv/bin/pip install asyncssh
       - name: Measure FreeBSD native network chains
         shell: cpa.sh {0}
         run: .venv/bin/python Benchmark/benchmark.py --core go --core rust --core cpp --role network-chain --repeats 3 --require-network --output benchmark-freebsd
