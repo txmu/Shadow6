@@ -211,6 +211,7 @@ class EchoTarget:
         self.error: BaseException | None = None
         self.listener: socket.socket | None = None
         self.port = 0
+        self.connection_done = threading.Event()
         self.thread = threading.Thread(target=self._run, daemon=True)
 
     def _run(self) -> None:
@@ -228,13 +229,16 @@ class EchoTarget:
                         connection, _ = listener.accept()
                     except socket.timeout:
                         continue
-                    with connection:
-                        connection.settimeout(10)
-                        while not self.stop.is_set():
-                            data = connection.recv(65536)
-                            if not data:
-                                break
-                            connection.sendall(data)
+                    try:
+                        with connection:
+                            connection.settimeout(10)
+                            while not self.stop.is_set():
+                                data = connection.recv(65536)
+                                if not data:
+                                    break
+                                connection.sendall(data)
+                    finally:
+                        self.connection_done.set()
         except OSError as exc:
             if not self.stop.is_set():
                 self.error = exc
@@ -256,6 +260,9 @@ class EchoTarget:
         if self.listener:
             self.listener.close()
         self.thread.join(2)
+
+    def wait_for_connection_close(self, timeout: float) -> bool:
+        return self.connection_done.wait(timeout)
 
 
 def free_port() -> int:
@@ -455,6 +462,8 @@ def run_engine(engine: str, benchmark: dict | None = None) -> dict | None:
                 connection.shutdown(socket.SHUT_WR)
                 while connection.recv(65536):
                     pass
+            if not target.wait_for_connection_close(3):
+                raise AssertionError(f"{engine}: target connection did not complete graceful close")
             success = True
             print(f"[PASS] {engine} orchestrator -> broker -> agent -> client data path")
         finally:
