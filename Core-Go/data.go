@@ -175,17 +175,39 @@ func proxyConnection(client net.Conn, targetPort int, key []byte) {
 	defer client.Close()
 	target, err := net.DialTimeout("tcp", net.JoinHostPort("127.0.0.1", fmt.Sprint(targetPort)), 5*time.Second)
 	if err != nil {
+		log.Printf("[Agent] target connection failed: %v", err)
 		return
 	}
 	defer target.Close()
 	secure, err := newAEADConn(client, key)
 	if err != nil {
+		log.Printf("[Agent] secure connection setup failed: %v", err)
 		return
 	}
 	done := make(chan struct{}, 2)
-	go func() { _, _ = copyWithPooledBuffer(target, secure); done <- struct{}{} }()
-	go func() { _, _ = copyWithPooledBuffer(secure, target); done <- struct{}{} }()
+	go func() {
+		_, copyErr := copyWithPooledBuffer(target, secure)
+		if copyErr != nil {
+			log.Printf("[Agent] secure-to-target copy failed: %v", copyErr)
+		}
+		done <- struct{}{}
+	}()
+	go func() {
+		_, copyErr := copyWithPooledBuffer(secure, target)
+		if copyErr != nil {
+			log.Printf("[Agent] target-to-secure copy failed: %v", copyErr)
+		}
+		done <- struct{}{}
+	}()
 	<-done
+}
+
+func samePeerIP(left, right net.IP) bool {
+	left4, right4 := left.To4(), right.To4()
+	if left4 != nil && right4 != nil {
+		return left4.Equal(right4)
+	}
+	return left.Equal(right)
 }
 
 type AgentService struct {
@@ -312,7 +334,8 @@ func (service *AgentService) provisionAccess(request *AccessReq) (*AccessResp, e
 				return
 			}
 			remote := session.RemoteAddr().(*net.UDPAddr).IP
-			if !remote.Equal(authorizedIP) {
+			if !samePeerIP(remote, authorizedIP) {
+				log.Printf("[Agent] rejected KCP peer %s; expected %s", remote, authorizedIP)
 				_ = session.Close()
 				continue
 			}
@@ -816,8 +839,20 @@ func startClient(config *Config) error {
 				}
 				defer secure.Close()
 				done := make(chan struct{}, 2)
-				go func() { _, _ = io.Copy(secure, localConnection); done <- struct{}{} }()
-				go func() { _, _ = io.Copy(localConnection, secure); done <- struct{}{} }()
+				go func() {
+					_, copyErr := io.Copy(secure, localConnection)
+					if copyErr != nil {
+						log.Printf("[Client] local-to-KCP copy failed: %v", copyErr)
+					}
+					done <- struct{}{}
+				}()
+				go func() {
+					_, copyErr := io.Copy(localConnection, secure)
+					if copyErr != nil {
+						log.Printf("[Client] KCP-to-local copy failed: %v", copyErr)
+					}
+					done <- struct{}{}
+				}()
 				<-done
 			}()
 		default:
