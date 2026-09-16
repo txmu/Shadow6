@@ -249,8 +249,8 @@ jobs:
           # by the producer job. Install the same Homebrew Chez on this Ubuntu
           # consumer instead of executing with the distro's older ABI.
           eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
-          brew install chez
-          echo "$(brew --prefix chez)/bin" >> "$GITHUB_PATH"
+          brew install chezscheme
+          echo "$(brew --prefix chezscheme)/bin" >> "$GITHUB_PATH"
       - name: Download same-commit Gleam Linux builds
         uses: actions/download-artifact@v4
         with:
