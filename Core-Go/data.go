@@ -40,10 +40,12 @@ var proxyBufferPool = sync.Pool{New: func() any {
 
 type aeadConn struct {
 	net.Conn
-	aead       cipher.AEAD
-	decoded    []byte
-	readMutex  sync.Mutex
-	writeMutex sync.Mutex
+	aead        cipher.AEAD
+	decoded     []byte
+	readMutex   sync.Mutex
+	writeMutex  sync.Mutex
+	readEOF     bool
+	writeClosed bool
 	// AES-GCM's 96-bit nonce is split into a per-connection 64-bit random
 	// domain and a 32-bit monotonic frame counter.  A 32-bit domain made
 	// simultaneous tunnels sharing a key collision-prone.
@@ -70,9 +72,33 @@ func newAEADConn(connection net.Conn, key []byte) (*aeadConn, error) {
 func (connection *aeadConn) Write(plaintext []byte) (int, error) {
 	connection.writeMutex.Lock()
 	defer connection.writeMutex.Unlock()
+	if connection.writeClosed {
+		return 0, io.ErrClosedPipe
+	}
+	if len(plaintext) == 0 {
+		return 0, nil
+	}
 	if len(plaintext) > maxAEADPlaintext {
 		return 0, errors.New("AEAD plaintext frame is too large")
 	}
+	return connection.writeFrameLocked(plaintext)
+}
+
+// writeEOF sends an authenticated end-of-stream marker without closing the
+// underlying KCP/TCP connection. This preserves the reverse direction while
+// allowing each endpoint to half-close its local stream.
+func (connection *aeadConn) writeEOF() error {
+	connection.writeMutex.Lock()
+	defer connection.writeMutex.Unlock()
+	if connection.writeClosed {
+		return nil
+	}
+	connection.writeClosed = true
+	_, err := connection.writeFrameLocked(nil)
+	return err
+}
+
+func (connection *aeadConn) writeFrameLocked(plaintext []byte) (int, error) {
 	if connection.sendCounter >= uint64(^uint32(0)) {
 		return 0, errors.New("AEAD nonce counter exhausted")
 	}
@@ -95,6 +121,9 @@ func (connection *aeadConn) Write(plaintext []byte) (int, error) {
 func (connection *aeadConn) Read(destination []byte) (int, error) {
 	connection.readMutex.Lock()
 	defer connection.readMutex.Unlock()
+	if connection.readEOF {
+		return 0, io.EOF
+	}
 	if len(destination) == 0 {
 		return 0, nil
 	}
@@ -121,6 +150,10 @@ func (connection *aeadConn) Read(destination []byte) (int, error) {
 	plaintext, err := connection.aead.Open(nil, ciphertext[:nonceSize], ciphertext[nonceSize:], nil)
 	if err != nil {
 		return 0, fmt.Errorf("AEAD authentication failed: %w", err)
+	}
+	if len(plaintext) == 0 {
+		connection.readEOF = true
+		return 0, io.EOF
 	}
 	count := copy(destination, plaintext)
 	connection.decoded = plaintext[count:]
@@ -178,12 +211,6 @@ func closeWrite(conn net.Conn) {
 	}
 }
 
-func closeRead(conn net.Conn) {
-	if tcp, ok := conn.(*net.TCPConn); ok {
-		_ = tcp.CloseRead()
-	}
-}
-
 func prepareTCPClose(conn net.Conn) {
 	if tcp, ok := conn.(*net.TCPConn); ok {
 		// Windows may turn close into RST when the peer still has unread
@@ -223,7 +250,9 @@ func proxyConnection(client net.Conn, targetPort int, key []byte) {
 		if copyErr != nil {
 			log.Printf("[Agent] target-to-secure copy failed: %v", copyErr)
 		}
-		closeRead(target)
+		if err := secure.writeEOF(); err != nil && !isExpectedCloseError(err) {
+			log.Printf("[Agent] target EOF propagation failed: %v", err)
+		}
 		done <- struct{}{}
 	}()
 	// Keep both directions alive until the client or target closes its side.
@@ -897,11 +926,9 @@ func startClient(config *Config) error {
 					} else if copyErr != nil {
 						log.Printf("[Client] local-to-KCP closed: %v", copyErr)
 					}
-					closeWrite(localConnection)
-					// KCP has no half-close primitive.  Propagate a local FIN by
-					// closing this bounded tunnel so the agent can FIN the TCP
-					// target instead of letting Windows abort it with RST.
-					_ = secure.Close()
+					if err := secure.writeEOF(); err != nil && !isExpectedCloseError(err) {
+						log.Printf("[Client] local EOF propagation failed: %v", err)
+					}
 					done <- struct{}{}
 				}()
 				go func() {
@@ -911,9 +938,7 @@ func startClient(config *Config) error {
 					} else if copyErr != nil {
 						log.Printf("[Client] KCP-to-local closed: %v", copyErr)
 					}
-					if tcpConn, ok := localConnection.(*net.TCPConn); ok {
-						_ = tcpConn.CloseRead()
-					}
+					closeWrite(localConnection)
 					done <- struct{}{}
 				}()
 				<-done

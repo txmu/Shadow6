@@ -245,6 +245,12 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             build-essential pkg-config libssl-dev libsodium-dev libunistring-dev \
             gnat gprbuild ldc shellcheck unzip chezscheme
+          # Idris2's compiled Chez images require the exact Chez fasl ABI used
+          # by the producer job. Install the same Homebrew Chez on this Ubuntu
+          # consumer instead of executing with the distro's older ABI.
+          eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+          brew install chez
+          echo "$(brew --prefix chez)/bin" >> "$GITHUB_PATH"
       - name: Download same-commit Gleam Linux builds
         uses: actions/download-artifact@v4
         with:
@@ -266,6 +272,16 @@ jobs:
           cd Core-Idris
           chmod 0755 shadow6-idris shadow6-idris-crosed
           find shadow6-idris_app shadow6-idris-crosed_app -type f -exec chmod 0755 {} +
+          # Chez embeds its absolute interpreter path in the generated Idris
+          # launcher. Rebind only the downloaded runtime to the runner's
+          # installed Chez binary; the compiled Scheme image and support
+          # libraries remain byte-for-byte intact.
+          chez_bin="$(command -v chez || command -v chezscheme || true)"
+          test -x "$chez_bin"
+          for image in shadow6-idris_app/shadow6-idris.so shadow6-idris-crosed_app/shadow6-idris.so; do
+            test -f "$image"
+            sed -i "1c#!$chez_bin --program" "$image"
+          done
           ./shadow6-idris --feature-report >/dev/null
           ./shadow6-idris-crosed --feature-report >/dev/null
           cd ..

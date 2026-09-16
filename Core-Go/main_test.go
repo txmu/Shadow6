@@ -201,6 +201,26 @@ func TestAEADRoundTripAndMalformedFrames(t *testing.T) {
 	if err != nil || string(buffer[:count]) != "authenticated payload" {
 		t.Fatalf("AEAD round trip failed: %v", err)
 	}
+	eofSent := make(chan error, 1)
+	go func() { eofSent <- secureLeft.writeEOF() }()
+	if count, err := secureRight.Read(buffer); count != 0 || err != io.EOF {
+		t.Fatalf("authenticated EOF was not propagated: count=%d err=%v", count, err)
+	}
+	if err := <-eofSent; err != nil {
+		t.Fatalf("authenticated EOF send failed: %v", err)
+	}
+	if _, err := secureLeft.Write([]byte("late frame")); !errors.Is(err, io.ErrClosedPipe) {
+		t.Fatalf("write after authenticated EOF was accepted: %v", err)
+	}
+	reverseSent := make(chan error, 1)
+	go func() { _, err := secureRight.Write([]byte("reverse remains open")); reverseSent <- err }()
+	count, err = secureLeft.Read(buffer)
+	if err != nil || string(buffer[:count]) != "reverse remains open" {
+		t.Fatalf("reverse direction closed with peer EOF: %q %v", buffer[:count], err)
+	}
+	if err := <-reverseSent; err != nil {
+		t.Fatalf("reverse write after peer EOF failed: %v", err)
+	}
 	left.Close()
 	right.Close()
 
