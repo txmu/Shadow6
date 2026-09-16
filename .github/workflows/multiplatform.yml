@@ -129,6 +129,11 @@ jobs:
           (cd "$output_dir" && find . -type f -print | LC_ALL=C sort | while IFS= read -r file; do
             if command -v sha256sum >/dev/null 2>&1; then sha256sum "$file"; else shasum -a 256 "$file"; fi
           done > SHA256SUMS)
+          # Idris2/Chez emits a launcher plus a runtime tree whose links,
+          # modes, and relative layout are part of the executable contract.
+          # Preserve that tree as one archive instead of reconstructing it
+          # from independently downloaded files.
+          tar -C "$output_dir" -czf "$RUNNER_TEMP/core-idris-${RUNNER_OS}.tar.gz" .
           du -ah "$output_dir"
           cat "$output_dir/SHA256SUMS"
       - uses: actions/upload-artifact@v4
@@ -246,26 +251,15 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: shadow6-idris-ubuntu-latest
-          path: Core-Idris
+          path: ${{ runner.temp }}/idris-artifact
       - name: Restore executable modes for downloaded core artifacts
         run: |
+          rm -rf Core-Idris
+          mkdir -p Core-Idris
+          archive=$(find "$RUNNER_TEMP/idris-artifact" -type f -name 'core-idris-*.tar.gz' -print -quit)
+          test -n "$archive"
+          tar -xzf "$archive" -C Core-Idris
           chmod 0755 Core-Gleam/shadow6-gleam Core-Gleam/shadow6-gleam-crosed
-          # actions/download-artifact may retain the producer directory when
-          # the artifact contains both launchers and companion app trees.
-          # Normalize that layout before any wrapper-relative execution.
-          for name in shadow6-idris shadow6-idris-crosed; do
-            if [ ! -f "Core-Idris/$name" ]; then
-              source=$(find Core-Idris -type f -name "$name" -print -quit)
-              test -n "$source"
-              cp "$source" "Core-Idris/$name"
-            fi
-          done
-          for app in shadow6-idris_app shadow6-idris-crosed_app; do
-            source=$(find Core-Idris -type f -name 'shadow6-idris.so' -path "*/$app/*" -print -quit)
-            test -n "$source"
-            mkdir -p "Core-Idris/$app"
-            test "$source" = "Core-Idris/$app/shadow6-idris.so" || cp "$source" "Core-Idris/$app/shadow6-idris.so"
-          done
           cd Core-Idris
           chmod 0755 shadow6-idris shadow6-idris-crosed
           find shadow6-idris_app shadow6-idris-crosed_app -type f -exec chmod 0755 {} +
