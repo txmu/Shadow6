@@ -36,8 +36,37 @@ class Audit:
         print(f"[SKIP] {message}")
 
 
-def run(*command: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(command, cwd=ROOT, text=True, capture_output=True, timeout=30, check=False)
+def _runtime_environment(relative: str) -> dict[str, str] | None:
+    """Return a constrained runtime environment for generated foreign runtimes.
+
+    Idris2's Chez backend loads its checked-in FFI shim by soname.  The
+    infrastructure assistant intentionally strips inherited loader variables
+    before executing a signed audit plan, so relying on the caller's
+    ``LD_LIBRARY_PATH`` makes an otherwise valid audit fail (and would also
+    allow an ambient path to influence a security check).  Reintroduce only
+    the repository-owned Idris directories, never an inherited path.
+    """
+    if not relative.startswith("Core-Idris/"):
+        return None
+    environment = os.environ.copy()
+    for name in ("LD_LIBRARY_PATH", "DYLD_LIBRARY_PATH", "LD_PRELOAD", "DYLD_INSERT_LIBRARIES"):
+        environment.pop(name, None)
+    directories = [
+        ROOT / "Core-Idris",
+        ROOT / "Core-Idris" / "shadow6-idris_app",
+        ROOT / "Core-Idris" / "shadow6-idris-crosed_app",
+        ROOT / "Core-Idris" / "ffi",
+    ]
+    existing = [str(path) for path in directories if path.is_dir() and not path.is_symlink()]
+    if existing:
+        loader_path = os.pathsep.join(existing)
+        environment["LD_LIBRARY_PATH"] = loader_path
+        environment["DYLD_LIBRARY_PATH"] = loader_path
+    return environment
+
+
+def run(*command: str, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(command, cwd=ROOT, env=env, text=True, capture_output=True, timeout=30, check=False)
 
 
 def check_elf(audit: Audit, relative: str, *, static_go: bool = False) -> None:
@@ -190,7 +219,7 @@ def check_core_feature_contract(audit: Audit) -> None:
             try:
                 if path.is_symlink() or not path.is_file() or path.stat().st_mode & 0o022:
                     raise ValueError("unsafe Core binary")
-                completed = run(str(path), "--feature-report")
+                completed = run(str(path), "--feature-report", env=_runtime_environment(relative))
                 if completed.returncode or len(completed.stdout) > 16384:
                     raise ValueError("feature report command failed or exceeded bound")
                 def unique(pairs):
