@@ -898,6 +898,10 @@ func startClient(config *Config) error {
 						log.Printf("[Client] local-to-KCP closed: %v", copyErr)
 					}
 					closeWrite(localConnection)
+					// KCP has no half-close primitive.  Propagate a local FIN by
+					// closing this bounded tunnel so the agent can FIN the TCP
+					// target instead of letting Windows abort it with RST.
+					_ = secure.Close()
 					done <- struct{}{}
 				}()
 				go func() {
@@ -913,10 +917,7 @@ func startClient(config *Config) error {
 					done <- struct{}{}
 				}()
 				<-done
-				select {
-				case <-done:
-				case <-time.After(100 * time.Millisecond):
-				}
+				<-done
 			}()
 		default:
 			localConnection.Close()
