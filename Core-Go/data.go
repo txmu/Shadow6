@@ -17,8 +17,8 @@ import (
 	"net"
 	"os"
 	"os/exec"
-	"sync"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -172,6 +172,18 @@ func copyWithPooledBuffer(destination io.Writer, source io.Reader) (int64, error
 	return io.CopyBuffer(destination, source, *buffer)
 }
 
+func closeWrite(conn net.Conn) {
+	if tcp, ok := conn.(*net.TCPConn); ok {
+		_ = tcp.CloseWrite()
+	}
+}
+
+func closeRead(conn net.Conn) {
+	if tcp, ok := conn.(*net.TCPConn); ok {
+		_ = tcp.CloseRead()
+	}
+}
+
 func proxyConnection(client net.Conn, targetPort int, key []byte) {
 	defer client.Close()
 	target, err := net.DialTimeout("tcp", net.JoinHostPort("127.0.0.1", fmt.Sprint(targetPort)), 5*time.Second)
@@ -191,6 +203,9 @@ func proxyConnection(client net.Conn, targetPort int, key []byte) {
 		if copyErr != nil {
 			log.Printf("[Agent] secure-to-target copy failed: %v", copyErr)
 		}
+		// Propagate an authenticated stream EOF as TCP FIN.  Closing a Windows
+		// TCP socket with unread peer data sends RST and loses a valid exchange.
+		closeWrite(target)
 		done <- struct{}{}
 	}()
 	go func() {
@@ -198,6 +213,7 @@ func proxyConnection(client net.Conn, targetPort int, key []byte) {
 		if copyErr != nil {
 			log.Printf("[Agent] target-to-secure copy failed: %v", copyErr)
 		}
+		closeRead(target)
 		done <- struct{}{}
 	}()
 	// Keep both directions alive until the client or target closes its side.
@@ -232,6 +248,7 @@ func isExpectedCloseError(err error) bool {
 		strings.Contains(errStr, "closed network connection") ||
 		strings.Contains(errStr, "connection reset")
 }
+
 type AgentService struct {
 	config     *AgentConfig
 	privateKey ed25519.PrivateKey
@@ -869,6 +886,7 @@ func startClient(config *Config) error {
 					} else if copyErr != nil {
 						log.Printf("[Client] local-to-KCP closed: %v", copyErr)
 					}
+					closeWrite(localConnection)
 					done <- struct{}{}
 				}()
 				go func() {
