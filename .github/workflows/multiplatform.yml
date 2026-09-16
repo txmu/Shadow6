@@ -252,7 +252,7 @@ jobs:
           chmod 0755 Core-Gleam/shadow6-gleam Core-Gleam/shadow6-gleam-crosed
           chmod 0755 Core-Idris/shadow6-idris Core-Idris/shadow6-idris-crosed
           find Core-Idris/shadow6-idris_app Core-Idris/shadow6-idris-crosed_app -type f -exec chmod 0755 {} +
-          echo "LD_LIBRARY_PATH=$GITHUB_WORKSPACE/Core-Idris/ffi:$GITHUB_WORKSPACE/Core-Idris/ffi" >> "$GITHUB_ENV"
+          echo "LD_LIBRARY_PATH=$GITHUB_WORKSPACE/Core-Idris/ffi:$GITHUB_WORKSPACE/Core-Idris" >> "$GITHUB_ENV"
       - name: Provision pinned Hare toolchain
         timeout-minutes: 15
         run: |

@@ -271,8 +271,17 @@ def terminate(process: subprocess.Popen[str] | None, label: str) -> None:
         process.wait(timeout=5)
     except subprocess.TimeoutExpired:
         process.kill()
-        process.wait(timeout=5)
+        try:
+            process.wait(timeout=5)
+        except OSError:
+            # Windows: WinError 10054 during cleanup after kill
+            if process.poll() is None:
+                raise
         raise RuntimeError(f"{label} did not terminate cleanly")
+    except OSError:
+        # Windows: WinError 10054 can occur during graceful wait
+        if process.poll() is None:
+            raise
 
 
 def wait_for_proxy(client: subprocess.Popen[str], log_path: Path, deadline: float) -> int:
