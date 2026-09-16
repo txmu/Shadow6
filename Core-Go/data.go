@@ -211,15 +211,6 @@ func closeWrite(conn net.Conn) {
 	}
 }
 
-func prepareTCPClose(conn net.Conn) {
-	if tcp, ok := conn.(*net.TCPConn); ok {
-		// Windows may turn close into RST when the peer still has unread
-		// response bytes.  A short bounded linger lets the kernel flush a
-		// graceful FIN without allowing shutdown to block indefinitely.
-		_ = tcp.SetLinger(2)
-	}
-}
-
 func proxyConnection(client net.Conn, targetPort int, key []byte) {
 	defer client.Close()
 	target, err := net.DialTimeout("tcp", net.JoinHostPort("127.0.0.1", fmt.Sprint(targetPort)), 5*time.Second)
@@ -228,7 +219,6 @@ func proxyConnection(client net.Conn, targetPort int, key []byte) {
 		return
 	}
 	defer target.Close()
-	prepareTCPClose(target)
 	secure, err := newAEADConn(client, key)
 	if err != nil {
 		log.Printf("[Agent] secure connection setup failed: %v", err)
@@ -910,7 +900,6 @@ func startClient(config *Config) error {
 		case localSlots <- struct{}{}:
 			go func() {
 				defer func() { <-localSlots }()
-				prepareTCPClose(localConnection)
 				defer localConnection.Close()
 				secure, dialErr := dialSecureKCP(target, key)
 				if dialErr != nil {

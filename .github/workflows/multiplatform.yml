@@ -282,10 +282,15 @@ jobs:
             test -f "$image"
             sed -i "1c#!$chez_bin --program" "$image"
           done
+          # The launcher executes immediately in this shell.  Export both
+          # the extracted artifact root and its optional ffi directory before
+          # the feature reports; writing GITHUB_ENV alone only affects later
+          # workflow steps and made libsodium_ffi.so appear to be missing.
+          export LD_LIBRARY_PATH="$GITHUB_WORKSPACE/Core-Idris:$GITHUB_WORKSPACE/Core-Idris/shadow6-idris_app:$GITHUB_WORKSPACE/Core-Idris/ffi:${LD_LIBRARY_PATH:-}"
           ./shadow6-idris --feature-report >/dev/null
           ./shadow6-idris-crosed --feature-report >/dev/null
           cd ..
-          echo "LD_LIBRARY_PATH=$GITHUB_WORKSPACE/Core-Idris/ffi:$GITHUB_WORKSPACE/Core-Idris" >> "$GITHUB_ENV"
+          echo "LD_LIBRARY_PATH=$LD_LIBRARY_PATH" >> "$GITHUB_ENV"
       - name: Provision pinned Hare toolchain
         timeout-minutes: 15
         run: |
