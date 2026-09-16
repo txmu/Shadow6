@@ -250,8 +250,12 @@ jobs:
       - name: Restore executable modes for downloaded core artifacts
         run: |
           chmod 0755 Core-Gleam/shadow6-gleam Core-Gleam/shadow6-gleam-crosed
-          chmod 0755 Core-Idris/shadow6-idris Core-Idris/shadow6-idris-crosed
-          find Core-Idris/shadow6-idris_app Core-Idris/shadow6-idris-crosed_app -type f -exec chmod 0755 {} +
+          cd Core-Idris
+          chmod 0755 shadow6-idris shadow6-idris-crosed
+          find shadow6-idris_app shadow6-idris-crosed_app -type f -exec chmod 0755 {} +
+          ./shadow6-idris --feature-report >/dev/null
+          ./shadow6-idris-crosed --feature-report >/dev/null
+          cd ..
           echo "LD_LIBRARY_PATH=$GITHUB_WORKSPACE/Core-Idris/ffi:$GITHUB_WORKSPACE/Core-Idris" >> "$GITHUB_ENV"
       - name: Provision pinned Hare toolchain
         timeout-minutes: 15
@@ -310,7 +314,7 @@ jobs:
           test -x Core-Pony/shadow6-pony
           test -x Core-Carp/shadow6-carp
           Core-Gleam/shadow6-gleam --feature-report
-          Core-Idris/shadow6-idris --feature-report
+          (cd Core-Idris && ./shadow6-idris --feature-report)
           test -x Gate/shadow6-gate
           test -x Guard/shadow6-guard
           test -x C11Relay/bridge_relay
@@ -595,6 +599,8 @@ jobs:
             cd ..
             sudo pkg install -y py311-cryptography 2>/dev/null || true
             python3 -m venv --system-site-packages .venv
+            .venv/bin/python -c 'import cryptography' 2>/dev/null || \
+              .venv/bin/pip install --no-cache-dir 'cryptography>=43,<47'
             .venv/bin/pip install --no-deps asyncssh || .venv/bin/pip install asyncssh
       - name: Measure FreeBSD native network chains
         shell: cpa.sh {0}

@@ -278,9 +278,11 @@ def terminate(process: subprocess.Popen[str] | None, label: str) -> None:
             if process.poll() is None:
                 raise
         raise RuntimeError(f"{label} did not terminate cleanly")
-    except OSError:
-        # Windows: WinError 10054 can occur during graceful wait
-        if process.poll() is None:
+    except OSError as exc:
+        # Windows may report WSAECONNRESET while the child is already exiting.
+        # Treat that race as successful cleanup; a still-running child remains
+        # a real failure and is surfaced to the caller.
+        if getattr(exc, "winerror", None) != 10054 and process.poll() is None:
             raise
 
 
