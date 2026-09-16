@@ -50,7 +50,7 @@ NIM_FLAGS ?=
 .PHONY: core-nim nim-crosed-variant test-nim
 core-nim:
 	@if printf '#include <rtc/rtc.h>\n' | $${CC:-cc} -E - >/dev/null 2>&1; then \
-		$(NIM) c --mm:arc --threads:on -d:release --checks:on --assertions:on --stackTrace:on --lineTrace:on --nimcache:Core-Nim/obj/$(NIM_CROSED_LEVEL) -d:CrosedLevel=$(NIM_CROSED_LEVEL) --passC:-fPIE --passL:-pie --passL:-Wl,-z,relro,-z,now --passL:-Wl,-rpath,'$$ORIGIN' $(NIM_FLAGS) -o:Core-Nim/shadow6-nim Core-Nim/src/shadow6_nim.nim; chmod 0755 Core-Nim/shadow6-nim; \
+		$(NIM) c --mm:arc --threads:on -d:release --checks:on --assertions:on --stackTrace:on --lineTrace:on --nimcache:Core-Nim/obj/$(NIM_CROSED_LEVEL) -d:CrosedLevel=$(NIM_CROSED_LEVEL) --passC:-fPIE --passL:-pie --passL:-Wl,-z,relro,-z,now --passL:-Wl,-rpath,'$$ORIGIN' --passL:-Wl,-rpath,'$$ORIGIN/../lib/shadow6' $(NIM_FLAGS) -o:Core-Nim/shadow6-nim Core-Nim/src/shadow6_nim.nim; chmod 0755 Core-Nim/shadow6-nim; \
 	else echo 'libdatachannel unavailable; Core-Nim source contract present'; fi
 
 nim-crosed-variant:

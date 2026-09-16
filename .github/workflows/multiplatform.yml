@@ -286,7 +286,9 @@ jobs:
           test -x "$chez_bin"
           for image in shadow6-idris_app/shadow6-idris.so shadow6-idris-crosed_app/shadow6-idris.so; do
             test -f "$image"
-            sed -i "1c#!$chez_bin --program" "$image"
+            # Use env's portable shebang form so the packaged image does not
+            # retain the producer runner's absolute Homebrew path.
+            sed -i '1c#!/usr/bin/env -S chezscheme --program' "$image"
           done
           # The launcher executes immediately in this shell.  Export both
           # the extracted artifact root and its optional ffi directory before
