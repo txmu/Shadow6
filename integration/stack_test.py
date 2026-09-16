@@ -21,6 +21,7 @@ import sys
 import tempfile
 import threading
 import time
+import traceback
 from pathlib import Path
 
 
@@ -266,6 +267,22 @@ def free_port() -> int:
 def terminate(process: subprocess.Popen[str] | None, label: str) -> None:
     if process is None or process.poll() is not None:
         return
+    def has_exited() -> bool:
+        try:
+            return process.poll() is not None
+        except OSError as exc:
+            if os.name != "nt" or getattr(exc, "winerror", None) != 10054:
+                raise
+            # The Windows socket-reset race can also surface while Popen polls
+            # its handle.  Ask the process handle directly before accepting it.
+            import ctypes
+            exit_code = ctypes.c_ulong()
+            if ctypes.windll.kernel32.GetExitCodeProcess(
+                ctypes.c_void_p(process._handle), ctypes.byref(exit_code)
+            ) and exit_code.value != 259:  # STILL_ACTIVE
+                process.returncode = exit_code.value
+                return True
+            return False
     def reap_after_reset() -> bool:
         """Reap a Windows child after a socket-reset race during termination.
 
@@ -276,10 +293,10 @@ def terminate(process: subprocess.Popen[str] | None, label: str) -> None:
         """
         deadline = time.monotonic() + 2
         while time.monotonic() < deadline:
-            if process.poll() is not None:
+            if has_exited():
                 return True
             time.sleep(0.05)
-        return process.poll() is not None
+        return has_exited()
     try:
         process.terminate()
     except OSError as exc:
@@ -487,6 +504,7 @@ def main() -> int:
                 run_native_core_tests(engine)
         except Exception as exc:
             failures.append(f"{engine}: {exc}")
+            traceback.print_exc()
             print(f"[FAIL] {failures[-1]}", file=sys.stderr)
         else:
             if args.benchmark and benchmark_result is not None:
