@@ -10,12 +10,21 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
 sys.path.insert(0, str(HERE))
 from shadow6_security import (  # noqa: E402
-    SecurityError, append_event, doctor, evaluate_policy, generate_ledger_key,
+    COMPONENTS, SecurityError, append_event, doctor, evaluate_policy, generate_ledger_key,
     generate_sbom, verify_ledger,
 )
 
 
 class SecurityAssistantTests(unittest.TestCase):
+    def test_twelve_cores_are_registered(self):
+        cores = [name for name in COMPONENTS if name.startswith("core-")]
+        self.assertEqual(sorted(cores), [
+            "core-ada", "core-carp", "core-cpp", "core-d", "core-gleam", "core-go",
+            "core-hare", "core-idris", "core-nim", "core-pony", "core-rust", "core-zig",
+        ])
+        for name in cores:
+            self.assertTrue((ROOT / COMPONENTS[name]["source"]).is_file(), name)
+
     def test_doctor_and_offline_sbom(self):
         report = doctor(ROOT)
         self.assertEqual(report["status"], "pass", report)

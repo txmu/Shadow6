@@ -21,7 +21,7 @@ use std::ffi::CString;
 use std::fs;
 use std::io::{Read, Write};
 use std::net::{IpAddr, Ipv6Addr, SocketAddr, SocketAddrV6};
-use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
+use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -450,14 +450,26 @@ fn reserve_crosed_nonce(
         return Err("Crosed replay store requires a valid clock".into());
     }
     let directory = format!("{trust_path}.replay");
-    match std::fs::create_dir(&directory) {
+    let parent = Path::new(&directory)
+        .parent()
+        .filter(|path| !path.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let parent_meta = std::fs::symlink_metadata(parent)
+        .map_err(|error| format!("Crosed replay store unavailable: {error}"))?;
+    if !parent_meta.is_dir() || parent_meta.mode() & 0o022 != 0 {
+        return Err("Crosed replay store must be an owner-controlled directory".into());
+    }
+    match std::fs::DirBuilder::new().mode(0o700).create(&directory) {
         Ok(()) => {}
         Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
         Err(error) => return Err(format!("Crosed replay store unavailable: {error}")),
     }
     let metadata = std::fs::symlink_metadata(&directory)
         .map_err(|error| format!("Crosed replay store unavailable: {error}"))?;
-    if !metadata.is_dir() {
+    if !metadata.is_dir()
+        || metadata.mode() & 0o777 != 0o700
+        || metadata.uid() != parent_meta.uid()
+    {
         return Err("Crosed replay store must be a regular owner-only directory".into());
     }
     crosed_replay_prune(&directory, now)?;
@@ -465,6 +477,7 @@ fn reserve_crosed_nonce(
     match std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
+        .mode(0o600)
         .open(&entry)
     {
         Ok(mut file) => {
@@ -3647,7 +3660,7 @@ mod tests {
         OsRng.fill_bytes(&mut random);
         let directory =
             env::temp_dir().join(format!("shadow6-crosed-test-{}", hex::encode(random)));
-        fs::create_dir(&directory).unwrap();
+        std::fs::DirBuilder::new().mode(0o700).create(&directory).unwrap();
         let request_path = directory.join("request.json");
         let trust_path = directory.join("trust.json");
         write_owner_only(
@@ -3670,10 +3683,24 @@ mod tests {
             assert_eq!(response.status, "denied");
             assert_eq!(response.features.crosed_max_level, 0);
         }
-        fs::remove_file(request_path).unwrap();
-        // The bounded replay store persists beside the trust store, so a used
-        // nonce stays refused for its retention window.
-        fs::remove_dir_all(format!("{}.replay", trust_path.to_str().unwrap())).unwrap();
+        // Default builds deny before reserving a nonce, so the replay store is
+        // only present when this Core was compiled with Crosed.
+        let replay_dir = format!("{}.replay", trust_path.to_str().unwrap());
+        if report.crosed_compiled {
+            assert!(Path::new(&replay_dir).is_dir());
+            let replayed = handle_crosed_request(
+                request_path.to_str().unwrap(),
+                trust_path.to_str().unwrap(),
+            );
+            match replayed {
+                Err(error) if error.contains("replayed Crosed request") => {}
+                other => panic!("replayed Crosed request was not refused: {other:?}"),
+            }
+            fs::remove_dir_all(&replay_dir).unwrap();
+        } else {
+            assert!(!Path::new(&replay_dir).exists());
+        }
+        fs::remove_file(&request_path).unwrap();
         fs::remove_file(&trust_path).unwrap();
         fs::remove_dir(directory).unwrap();
     }

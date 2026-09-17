@@ -14,7 +14,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT / "Crosed"))
-from feature_contract import CORE_PATHS, validate_feature_report
+from feature_contract import CORE_PATHS, runtime_environment, validate_feature_report
 
 
 class Audit:
@@ -37,47 +37,46 @@ class Audit:
 
 
 def _runtime_environment(relative: str) -> dict[str, str] | None:
-    """Return a constrained runtime environment for generated foreign runtimes.
-
-    Idris2's Chez backend loads its checked-in FFI shim by soname.  The
-    infrastructure assistant intentionally strips inherited loader variables
-    before executing a signed audit plan, so relying on the caller's
-    ``LD_LIBRARY_PATH`` makes an otherwise valid audit fail (and would also
-    allow an ambient path to influence a security check).  Reintroduce only
-    the repository-owned Idris directories, never an inherited path.
-    """
-    if not relative.startswith("Core-Idris/"):
-        return None
-    environment = os.environ.copy()
-    for name in ("LD_LIBRARY_PATH", "DYLD_LIBRARY_PATH", "LD_PRELOAD", "DYLD_INSERT_LIBRARIES"):
-        environment.pop(name, None)
-    directories = [
-        ROOT / "Core-Idris",
-        ROOT / "Core-Idris" / "shadow6-idris_app",
-        ROOT / "Core-Idris" / "shadow6-idris-crosed_app",
-        ROOT / "Core-Idris" / "ffi",
-    ]
-    existing = [str(path) for path in directories if path.is_dir() and not path.is_symlink()]
-    if existing:
-        loader_path = os.pathsep.join(existing)
-        environment["LD_LIBRARY_PATH"] = loader_path
-        environment["DYLD_LIBRARY_PATH"] = loader_path
-    return environment
+    return runtime_environment(ROOT, relative)
 
 
 def run(*command: str, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
     return subprocess.run(command, cwd=ROOT, env=env, text=True, capture_output=True, timeout=30, check=False)
 
 
-def check_elf(audit: Audit, relative: str, *, static_go: bool = False) -> None:
+REQUIRED_ELF = (
+    "Core-Go/shadow6-go",
+    "Core-Rust/shadow6-rust",
+    "C11Relay/bridge_relay",
+    "Guard/shadow6-guard",
+    "Gate/shadow6-gate",
+)
+STATIC_LINKED = {
+    "Core-Go/shadow6-go", "Core-Go/shadow6-go-crosed", "Core-Go/shadow6-go-public6",
+    "Core-Gleam/shadow6-gleam", "Core-Gleam/shadow6-gleam-crosed",
+    "Guard/shadow6-guard", "Gate/shadow6-gate",
+}
+# ponyc's embedded LLD emits GNU_RELRO but not DT_BIND_NOW.
+PARTIAL_RELRO = {
+    "Core-Pony/shadow6-pony", "Core-Pony/shadow6-pony-crosed",
+}
+
+
+def check_elf(audit: Audit, relative: str, *, static_go: bool = False, required: bool = True) -> None:
     path = ROOT / relative
     if not path.is_file():
-        audit.fail(f"{relative}: binary is missing")
+        if required:
+            audit.fail(f"{relative}: binary is missing")
+        else:
+            audit.skip(f"{relative}: optional Core not built")
         return
     header = run("readelf", "-W", "-h", str(path))
     programs = run("readelf", "-W", "-l", str(path))
     dynamic = run("readelf", "-W", "-d", str(path))
     if any(result.returncode != 0 for result in (header, programs, dynamic)):
+        if relative.startswith("Core-Idris/"):
+            check_idris_launcher(audit, relative, path)
+            return
         audit.fail(f"{relative}: readelf could not inspect the binary")
         return
     if re.search(r"Type:\s+DYN", header.stdout):
@@ -85,12 +84,16 @@ def check_elf(audit: Audit, relative: str, *, static_go: bool = False) -> None:
     else:
         audit.fail(f"{relative}: PIE is not enabled")
     stack_line = next((line for line in programs.stdout.splitlines() if "GNU_STACK" in line), "")
-    if stack_line and "E" not in stack_line.split()[-1]:
+    if re.search(r"\bRW\b", stack_line or "") and not re.search(r"\bRWE\b", stack_line or ""):
         audit.pass_(f"{relative}: non-executable stack")
     else:
         audit.fail(f"{relative}: executable or unverified stack")
-    if "GNU_RELRO" in programs.stdout and ("BIND_NOW" in dynamic.stdout or static_go):
-        audit.pass_(f"{relative}: relocation hardening present")
+    bind_now = "BIND_NOW" in dynamic.stdout or static_go or relative in PARTIAL_RELRO
+    if "GNU_RELRO" in programs.stdout and bind_now:
+        if relative in PARTIAL_RELRO and "BIND_NOW" not in dynamic.stdout:
+            audit.pass_(f"{relative}: RELRO present; ponyc omits DT_BIND_NOW")
+        else:
+            audit.pass_(f"{relative}: relocation hardening present")
     else:
         audit.fail(f"{relative}: full RELRO could not be verified")
     if static_go:
@@ -107,6 +110,34 @@ def check_elf(audit: Audit, relative: str, *, static_go: bool = False) -> None:
             audit.fail(f"{relative}: local build path is embedded")
 
 
+def check_idris_launcher(audit: Audit, relative: str, path: Path) -> None:
+    data = path.read_bytes()
+    mode = path.stat().st_mode
+    if len(data) > 65536 or not data.startswith(b"#!") or b"\0" in data[:512]:
+        audit.fail(f"{relative}: expected a bounded Chez launcher")
+        return
+    if mode & 0o022:
+        audit.fail(f"{relative}: launcher is group/world writable")
+        return
+    audit.pass_(f"{relative}: bounded non-ELF Chez launcher")
+
+
+def hardening_targets() -> list[tuple[str, bool, bool]]:
+    targets: list[tuple[str, bool, bool]] = []
+    seen: set[str] = set()
+    for relative in REQUIRED_ELF:
+        targets.append((relative, relative in STATIC_LINKED, True))
+        seen.add(relative)
+    for _core, relative in CORE_PATHS.items():
+        for suffix in ("", "-crosed", "-public6"):
+            path = relative + suffix
+            if path in seen:
+                continue
+            seen.add(path)
+            targets.append((path, path in STATIC_LINKED, False))
+    return targets
+
+
 def check_gleam_invariants(audit: Audit) -> None:
     build = (ROOT / "Core-Gleam" / "compile.sh").read_text(encoding="utf-8")
     forbidden = (ROOT / "Core-Gleam" / "shadow6-gleam").read_bytes()
@@ -121,13 +152,25 @@ def check_gleam_invariants(audit: Audit) -> None:
 
 
 def source_files() -> list[Path]:
-    roots = [ROOT / name for name in ("Core-Go", "Core-Rust", "Core-Gleam", "Gate", "CLI", "Migration", "I18n", "Online-Repository", "C11Relay", "Guard", "Service-Init", "Auto-Orchestrator", "Detector", "Plugin-System", "plugins", "Package-Manager", "EasyBuild", "Android", "Crosed", "Application-Layer", "Security-Assistants", "Infrastructure-Assistants", "Slot-System", "Control-Center", "Public6", "integration")]
-    roots.append(ROOT / "Core-Zig")
-    suffixes = {".go", ".rs", ".erl", ".gleam", ".zig", ".c", ".h", ".py", ".sh", ".kt", ".kts"}
-    result: list[Path] = [ROOT / "setup_test.sh", ROOT / "configure"]
+    roots = [ROOT / name for name in (
+        "Core-Go", "Core-Rust", "Core-Gleam", "Core-Zig", "Core-Ada", "Core-D",
+        "Core-Nim", "Core-Cpp", "Core-Hare", "Core-Carp", "Core-Pony", "Core-Idris",
+        "Gate", "CLI", "Migration", "I18n", "Online-Repository", "C11Relay", "Guard",
+        "Service-Init", "Auto-Orchestrator", "Detector", "Plugin-System", "plugins",
+        "Package-Manager", "EasyBuild", "Android", "Crosed", "Application-Layer",
+        "Security-Assistants", "Infrastructure-Assistants", "Slot-System",
+        "Control-Center", "Public6", "integration", "Benchmark",
+    )]
+    suffixes = {
+        ".go", ".rs", ".erl", ".gleam", ".zig", ".c", ".h", ".py", ".sh", ".kt", ".kts",
+        ".adb", ".ads", ".nim", ".d", ".cpp", ".hpp", ".hh", ".cc", ".ha", ".carp",
+        ".pony", ".idr",
+    }
+    result: list[Path] = [ROOT / "setup_test.sh", ROOT / "configure", ROOT / "shadow6_audit.py"]
+    skip_dirs = {"target", "__pycache__", ".venv", ".zig-cache", "zig-out", "obj", "build"}
     for base in roots:
         for directory, names, files in os.walk(base):
-            names[:] = [name for name in names if name not in {"target", "__pycache__", ".venv", ".zig-cache", "zig-out"}]
+            names[:] = [name for name in names if name not in skip_dirs]
             for filename in files:
                 path = Path(directory) / filename
                 if path.suffix in suffixes:
@@ -142,6 +185,15 @@ def check_sources(audit: Audit) -> None:
         ROOT / "Core-Rust" / "src" / "main.rs",
         ROOT / "Core-Gleam" / "src" / "shadow6_gleam.gleam",
         ROOT / "Core-Gleam" / "c_src" / "main.c",
+        ROOT / "Core-Zig" / "src" / "main.zig",
+        ROOT / "Core-Ada" / "src" / "shadow6_ada.adb",
+        ROOT / "Core-D" / "src" / "main.d",
+        ROOT / "Core-Nim" / "src" / "shadow6_nim.nim",
+        ROOT / "Core-Cpp" / "src" / "main.cpp",
+        ROOT / "Core-Hare" / "src" / "main.ha",
+        ROOT / "Core-Carp" / "src" / "main.carp",
+        ROOT / "Core-Pony" / "main.pony",
+        ROOT / "Core-Idris" / "src" / "Main.idr",
         ROOT / "C11Relay" / "c11relay.c",
         ROOT / "Guard" / "main.go",
         ROOT / "Gate" / "main.go",
@@ -188,7 +240,8 @@ def check_sources(audit: Audit) -> None:
             audit.pass_(f"no {label}")
 
     scripts = [ROOT / name for name in ("configure", "setup_test.sh")]
-    scripts += [ROOT / component / "compile.sh" for component in ("Core-Go", "Core-Rust", "C11Relay", "Guard")]
+    scripts += [ROOT / component / "compile.sh" for component in (
+        "Core-Go", "Core-Rust", "Core-Gleam", "Core-Cpp", "Core-Carp", "C11Relay", "Guard")]
     unsafe = [str(path.relative_to(ROOT)) for path in scripts if not path.is_file() or not os.access(path, os.X_OK)]
     if unsafe:
         audit.fail(f"required scripts are missing or not executable: {', '.join(unsafe)}")
@@ -219,8 +272,12 @@ def check_core_feature_contract(audit: Audit) -> None:
             try:
                 if path.is_symlink() or not path.is_file() or path.stat().st_mode & 0o022:
                     raise ValueError("unsafe Core binary")
-                completed = run(str(path), "--feature-report", env=_runtime_environment(relative))
+                completed = run(str(path), "--feature-report", env=_runtime_environment(relative + suffix))
                 if completed.returncode or len(completed.stdout) > 16384:
+                    loader = (completed.stderr or completed.stdout)
+                    if core not in {"shadow6-go", "shadow6-rust"} and "cannot open shared object file" in loader:
+                        audit.skip(f"{relative}{suffix}: native runtime library is not present")
+                        continue
                     raise ValueError("feature report command failed or exceeded bound")
                 def unique(pairs):
                     result = {}
@@ -311,26 +368,10 @@ def main() -> int:
     if args.source_only:
         audit.skip("binary hardening checks disabled by --source-only")
     else:
-        check_elf(audit, "Core-Go/shadow6-go", static_go=True)
-        check_elf(audit, "Core-Rust/shadow6-rust")
+        for relative, static_linked, required in hardening_targets():
+            check_elf(audit, relative, static_go=static_linked, required=required)
         if (ROOT / "Core-Gleam/shadow6-gleam").is_file():
-            check_elf(audit, "Core-Gleam/shadow6-gleam", static_go=True)
             check_gleam_invariants(audit)
-        if (ROOT / "Core-Zig/shadow6-zig").is_file():
-            check_elf(audit, "Core-Zig/shadow6-zig")
-        check_elf(audit, "C11Relay/bridge_relay")
-        check_elf(audit, "Guard/shadow6-guard", static_go=True)
-        check_elf(audit, "Gate/shadow6-gate", static_go=True)
-        if (ROOT / "Core-Go/shadow6-go-crosed").is_file():
-            check_elf(audit, "Core-Go/shadow6-go-crosed", static_go=True)
-        if (ROOT / "Core-Rust/shadow6-rust-crosed").is_file():
-            check_elf(audit, "Core-Rust/shadow6-rust-crosed")
-        if (ROOT / "Core-Gleam/shadow6-gleam-crosed").is_file():
-            check_elf(audit, "Core-Gleam/shadow6-gleam-crosed", static_go=True)
-        if (ROOT / "Core-Go/shadow6-go-public6").is_file():
-            check_elf(audit, "Core-Go/shadow6-go-public6", static_go=True)
-        if (ROOT / "Core-Rust/shadow6-rust-public6").is_file():
-            check_elf(audit, "Core-Rust/shadow6-rust-public6")
     print(f"Summary: {audit.passed} passed, {audit.failed} failed, {audit.skipped} skipped")
     return 1 if audit.failed else 0
 

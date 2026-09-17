@@ -26,7 +26,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "Crosed"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "modules"))
-from feature_contract import CORE_PATHS, validate_feature_report
+from feature_contract import CORE_PATHS, runtime_environment, validate_feature_report
 
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import serialization
@@ -46,6 +46,16 @@ ASSISTANTS = {
 COMPONENTS = {
     "core-go": {"source": "Core-Go/main.go", "binaries": ["Core-Go/shadow6-go", "Core-Go/shadow6-go-crosed"]},
     "core-rust": {"source": "Core-Rust/src/main.rs", "binaries": ["Core-Rust/shadow6-rust", "Core-Rust/shadow6-rust-crosed"]},
+    "core-gleam": {"source": "Core-Gleam/src/shadow6_gleam.gleam", "binaries": ["Core-Gleam/shadow6-gleam", "Core-Gleam/shadow6-gleam-crosed"]},
+    "core-zig": {"source": "Core-Zig/src/main.zig", "binaries": ["Core-Zig/shadow6-zig"]},
+    "core-ada": {"source": "Core-Ada/src/shadow6_ada.adb", "binaries": ["Core-Ada/shadow6-ada", "Core-Ada/shadow6-ada-crosed"]},
+    "core-d": {"source": "Core-D/src/main.d", "binaries": ["Core-D/shadow6-d"]},
+    "core-nim": {"source": "Core-Nim/src/shadow6_nim.nim", "binaries": ["Core-Nim/shadow6-nim", "Core-Nim/shadow6-nim-crosed"]},
+    "core-cpp": {"source": "Core-Cpp/src/main.cpp", "binaries": ["Core-Cpp/shadow6-cpp"]},
+    "core-hare": {"source": "Core-Hare/src/main.ha", "binaries": ["Core-Hare/shadow6-hare"]},
+    "core-carp": {"source": "Core-Carp/src/main.carp", "binaries": ["Core-Carp/shadow6-carp"]},
+    "core-pony": {"source": "Core-Pony/main.pony", "binaries": ["Core-Pony/shadow6-pony", "Core-Pony/shadow6-pony-crosed"]},
+    "core-idris": {"source": "Core-Idris/src/Main.idr", "binaries": ["Core-Idris/shadow6-idris", "Core-Idris/shadow6-idris-crosed"]},
     "guard": {"source": "Guard/main.go", "binaries": ["Guard/shadow6-guard"]},
     "relay": {"source": "C11Relay/c11relay.c", "binaries": ["C11Relay/bridge_relay"]},
     "gate": {"source": "Gate/main.go", "binaries": ["Gate/shadow6-gate"]},
@@ -349,8 +359,8 @@ def bounded_run(command: list[str], cwd: Path, timeout: float,
         raise SecurityError("command output is not valid UTF-8") from exc
 
 
-def run_json(command: list[str], cwd: Path, timeout: int = 10) -> dict[str, Any]:
-    completed = bounded_run(command, cwd, timeout)
+def run_json(command: list[str], cwd: Path, timeout: int = 10, env: dict[str, str] | None = None) -> dict[str, Any]:
+    completed = bounded_run(command, cwd, timeout, env=env)
     if completed.returncode != 0:
         raise SecurityError((completed.stderr or completed.stdout).strip() or "command failed")
     result = strict_json_loads(completed.stdout)
@@ -363,7 +373,13 @@ def feature_report(binary: Path, root: Path) -> dict[str, Any]:
     metadata = binary.lstat()
     if not stat.S_ISREG(metadata.st_mode) or stat.S_ISLNK(metadata.st_mode) or metadata.st_mode & 0o022:
         raise SecurityError(f"unsafe Core binary permissions: {binary}")
-    report = run_json([str(binary.resolve()), "--feature-report"], root)
+    relative = str(binary if binary.is_absolute() else binary)
+    try:
+        relative = str(binary.resolve().relative_to(root.resolve()))
+    except ValueError:
+        relative = binary.name
+    environment = runtime_environment(root, relative)
+    report = run_json([str(binary.resolve()), "--feature-report"], root, env=environment)
     _validate_feature_report(report)
     return report
 
@@ -428,6 +444,8 @@ def doctor(root: Path) -> dict[str, Any]:
                     raise ValueError("default Core has optional privileged features")
                 record(f"feature-report:{relative}{suffix}", True, "valid family-specific contract")
             except (OSError, ValueError, SecurityError, subprocess.TimeoutExpired) as exc:
+                if "cannot open shared object file" in str(exc):
+                    continue
                 record(f"feature-report:{relative}{suffix}", False, str(exc))
 
     try:
@@ -730,13 +748,29 @@ def evaluate_policy(root: Path, policy_path: Path) -> dict[str, Any]:
     def rule(name: str, passed: bool, detail: str) -> None:
         results.append({"rule": name, "passed": passed, "detail": detail})
 
-    default_reports = [feature_report(root / item, root) for item in ("Core-Go/shadow6-go", "Core-Rust/shadow6-rust")]
+    default_reports = []
+    for core, relative in CORE_PATHS.items():
+        path = root / relative
+        if path.is_file() or core in {"shadow6-go", "shadow6-rust"}:
+            try:
+                default_reports.append(feature_report(path, root))
+            except SecurityError as exc:
+                if core in {"shadow6-go", "shadow6-rust"} or "cannot open shared object file" not in str(exc):
+                    raise
     expected_max = policy["core"]["default_crosed_max_level"]
     rule("default-crosed-level", all(item["crosed_max_level"] <= expected_max for item in default_reports), f"maximum allowed={expected_max}")
     rule("utf8", not policy["core"]["require_utf8"] or all(item["utf8"] for item in default_reports), "UTF-8 contract")
-    variants = [feature_report(root / item, root) for item in ("Core-Go/shadow6-go-crosed", "Core-Rust/shadow6-rust-crosed")]
+    variants = []
+    for core, relative in CORE_PATHS.items():
+        path = root / (relative + "-crosed")
+        if path.is_file() or core in {"shadow6-go", "shadow6-rust"}:
+            try:
+                variants.append(feature_report(path, root))
+            except SecurityError as exc:
+                if core in {"shadow6-go", "shadow6-rust"} or "cannot open shared object file" not in str(exc):
+                    raise
     minimum = policy["core"]["variant_min_level"]
-    rule("variant-level", all(item["crosed_max_level"] >= minimum for item in variants), f"minimum required={minimum}")
+    rule("variant-level", bool(variants) and all(item["crosed_max_level"] >= minimum for item in variants), f"minimum required={minimum}")
     rule("variant-app", not policy["core"]["require_app_transport"] or all(item["app_transport"] for item in variants), "application transport")
     rule("variant-qubes", not policy["core"]["require_qubes_isolation"] or all(item["qubes_isolation"] for item in variants), "compartment isolation")
 

@@ -1,5 +1,39 @@
 """Shared, strict feature-report contract for every registered Core family."""
+import os
 import re
+from pathlib import Path
+
+
+def runtime_environment(root, relative):
+    """Constrain loader paths for generated foreign runtimes during audits.
+
+    Idris2's Chez backend and Core-Nim's libdatachannel shim load by soname.
+    Inherited LD_LIBRARY_PATH / LD_PRELOAD would let ambient directories
+    influence a security check, so only repository-owned directories are restored.
+    """
+    relative = str(relative).replace("\\", "/")
+    root = Path(root)
+    if relative.startswith("Core-Idris/"):
+        directories = [
+            root / "Core-Idris",
+            root / "Core-Idris" / "shadow6-idris_app",
+            root / "Core-Idris" / "shadow6-idris-crosed_app",
+            root / "Core-Idris" / "ffi",
+        ]
+    elif relative.startswith("Core-Nim/"):
+        directories = [root / "Core-Nim"]
+    else:
+        directories = []
+    environment = os.environ.copy()
+    for name in ("LD_LIBRARY_PATH", "DYLD_LIBRARY_PATH", "LD_PRELOAD", "DYLD_INSERT_LIBRARIES"):
+        environment.pop(name, None)
+    existing = [str(path) for path in directories if path.is_dir() and not path.is_symlink()]
+    if existing:
+        loader_path = os.pathsep.join(existing)
+        environment["LD_LIBRARY_PATH"] = loader_path
+        environment["DYLD_LIBRARY_PATH"] = loader_path
+    return environment
+
 
 TRANSPORTS = {"shadow6-go": "kcp", "shadow6-rust": "quic", "shadow6-pony": "udp", "shadow6-gleam": "micro-mux", "shadow6-zig": "enet",
               "shadow6-ada": "cell-relay", "shadow6-d": "rle-udp", "shadow6-nim": "webrtc",

@@ -373,9 +373,41 @@ jobs:
           make test-hare
       - name: Verify native dependencies and hardening
         run: |
-          readelf -d Core-Cpp/shadow6-cpp | grep -E 'libssl|libcrypto|libstdc\\+\\+'
-          readelf -W -l Core-Cpp/shadow6-cpp | grep -E 'GNU_STACK.*RW|GNU_RELRO'
-          shellcheck configure Core-Cpp/*.sh C11Relay/*.sh Guard/*.sh Tools/*.sh
+          check_elf() {
+            binary=$1
+            require_bind_now=${2:-1}
+            test -x "$binary"
+            readelf -W -h "$binary" | grep -Eq 'Type:[[:space:]]+DYN'
+            programs=$(readelf -W -l "$binary")
+            stack=$(printf '%s\n' "$programs" | grep GNU_STACK)
+            printf '%s\n' "$programs" | grep -q GNU_RELRO
+            printf '%s\n' "$stack" | grep -qw RW
+            if printf '%s\n' "$stack" | grep -qw RWE; then
+              echo "$binary: executable stack" >&2
+              return 1
+            fi
+            if [ "$require_bind_now" = 1 ]; then
+              readelf -W -d "$binary" | grep -q BIND_NOW
+            fi
+          }
+          check_elf Core-Go/shadow6-go 0
+          check_elf Core-Rust/shadow6-rust
+          check_elf Core-Gleam/shadow6-gleam
+          check_elf Core-Zig/shadow6-zig
+          check_elf Core-Ada/shadow6-ada
+          check_elf Core-D/shadow6-d
+          check_elf Core-Nim/shadow6-nim
+          check_elf Core-Cpp/shadow6-cpp
+          check_elf Core-Hare/shadow6-hare
+          check_elf Core-Carp/shadow6-carp
+          check_elf Core-Pony/shadow6-pony 0
+          check_elf C11Relay/bridge_relay
+          check_elf Guard/shadow6-guard 0
+          check_elf Gate/shadow6-gate 0
+          test -x Core-Idris/shadow6-idris
+          test -x Core-Idris/shadow6-idris-crosed
+          readelf -d Core-Cpp/shadow6-cpp | grep -E 'libssl|libcrypto|libstdc\+\+'
+          shellcheck configure Core-Cpp/*.sh C11Relay/*.sh Guard/*.sh Tools/*.sh Core-Carp/*.sh Core-Gleam/*.sh
       - run: make crosed-variants BUILD_PONY=1
       - run: make test
       - run: make check

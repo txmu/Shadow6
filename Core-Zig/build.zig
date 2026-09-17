@@ -21,7 +21,7 @@ pub fn build(b: *std.Build) void {
         module.addSystemIncludePath(.{ .cwd_relative = b.fmt("{s}/usr/include/{s}", .{ sysroot, triple }) });
     }
     b.installArtifact(exe);
-    module.addCSourceFile(.{ .file = b.path("src/signals.c"), .flags = &.{ "-Wall", "-Wextra", "-Werror" } });
+    module.addCSourceFile(.{ .file = b.path("src/signals.c"), .flags = &.{ "-Wall", "-Wextra", "-Werror", "-fstack-protector-strong" } });
     const tests = if (comptime @hasField(std.Build.TestOptions, "root_module"))
         b.addTest(.{ .root_module = module })
     else

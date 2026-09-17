@@ -107,8 +107,8 @@ PONY_CROSED_LEVEL ?= 0
 core-pony:
 	@test "$(PONY_CROSED_LEVEL)" = 0 -o "$(PONY_CROSED_LEVEL)" = 5 || { echo 'PONY_CROSED_LEVEL must be 0 or 5' >&2; exit 1; }
 	@mkdir -p Core-Pony/obj
-	@$(CC) -std=c11 -Wall -Wextra -Werror -O2 -fPIC -fstack-protector-strong -c Core-Pony/crypto/session.c -o Core-Pony/obj/session.o
-	@$(CXX) -std=c++20 -Wall -Wextra -Werror -O2 -fPIC -fstack-protector-strong -c Core-Pony/crypto/config.cpp -o Core-Pony/obj/config.o
+	@$(CC) -std=c11 -Wall -Wextra -Werror -O2 -fPIC -fPIE -fstack-protector-strong -D_FORTIFY_SOURCE=2 -c Core-Pony/crypto/session.c -o Core-Pony/obj/session.o
+	@$(CXX) -std=c++20 -Wall -Wextra -Werror -O2 -fPIC -fPIE -fstack-protector-strong -D_FORTIFY_SOURCE=2 -c Core-Pony/crypto/config.cpp -o Core-Pony/obj/config.o
 	@ar rcs Core-Pony/obj/libs6p.a Core-Pony/obj/session.o Core-Pony/obj/config.o
 	@$(PONYC) --pic -p Core-Pony/obj $(if $(filter 5,$(PONY_CROSED_LEVEL)),-D crosed_l5,) -D openssl_3.0.x -b shadow6-pony -o Core-Pony Core-Pony
 	@chmod 0755 Core-Pony/shadow6-pony
@@ -129,7 +129,7 @@ endif
 core-hare:
 ifeq ($(BUILD_HARE),1)
 	@command -v hare >/dev/null || { echo 'BUILD_HARE=1 requires the Hare toolchain' >&2; exit 1; }
-	@cd Core-Hare && hare build -l sodium -o shadow6-hare src && chmod 0755 shadow6-hare
+	@cd Core-Hare && LDFLAGS='-Wl,-z,relro,-z,now -Wl,-z,noexecstack' hare build -l sodium -o shadow6-hare src && chmod 0755 shadow6-hare
 else
 	@echo 'Core-Hare disabled; set BUILD_HARE=1 with the Hare toolchain installed to enable it'
 endif
@@ -244,9 +244,9 @@ endif
 core-d:
 	@command -v ldc2 >/dev/null || (echo "ldc2 is required for Core-D" >&2; exit 2)
 	@mkdir -p Core-D/obj
-	@$(CC) -O2 -fPIC -c Core-D/src/platform.c -o Core-D/obj/platform.o
-	@$(CC) -O2 -fPIC -c Core-D/src/launcher.c -o Core-D/obj/launcher.o
-	@ldc2 -betterC -O2 -release -I Core-D/src -of=Core-D/shadow6-d Core-D/src/main.d Core-D/src/benchmark.d Core-D/src/bounded.d Core-D/src/json.d Core-D/src/native.d Core-D/src/packet.d Core-D/src/config.d Core-D/src/websocket.d Core-D/obj/platform.o Core-D/obj/launcher.o -L-lcrypto -L-lssl -L-lsodium
+	@$(CC) -O2 -fPIC -fstack-protector-strong -D_FORTIFY_SOURCE=2 -c Core-D/src/platform.c -o Core-D/obj/platform.o
+	@$(CC) -O2 -fPIC -fstack-protector-strong -D_FORTIFY_SOURCE=2 -c Core-D/src/launcher.c -o Core-D/obj/launcher.o
+	@ldc2 -betterC -O2 -release -relocation-model=pic -I Core-D/src -of=Core-D/shadow6-d Core-D/src/main.d Core-D/src/benchmark.d Core-D/src/bounded.d Core-D/src/json.d Core-D/src/native.d Core-D/src/packet.d Core-D/src/config.d Core-D/src/websocket.d Core-D/obj/platform.o Core-D/obj/launcher.o -L-pie -L-z -Lrelro -L-z -Lnow -L-z -Lnoexecstack -L-lcrypto -L-lssl -L-lsodium
 	@chmod 0755 Core-D/shadow6-d
 
 .PHONY: test-d

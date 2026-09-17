@@ -230,8 +230,11 @@ class SecurityHardeningTests(unittest.TestCase):
         private, _ = security.load_private(private_path)
         public = security.strict_json_loads(public_path.read_bytes())["public_key"]
         self.write("Plugin-System/trusted_signers.json", security.canonical({"signers": {"test-signer": public}}))
+        (self.base / "Plugin-System").chmod(0o755)
         code = b"print('fixture; never executed')\n"
         self.write("plugins/test-plugin/main.py", code)
+        (self.base / "plugins").chmod(0o755)
+        (self.base / "plugins" / "test-plugin").chmod(0o755)
         manifest = {"schema_version": 1, "id": "test-plugin", "name": "Test", "version": "1.0.0",
                     "runtime": "python3", "entrypoint": "main.py", "capabilities": ["game.local"], "hooks": [],
                     "timeout_seconds": 3, "max_output_bytes": 1024, "sha256": hashlib.sha256(code).hexdigest(), "signer": "test-signer"}
