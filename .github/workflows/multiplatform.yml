@@ -152,10 +152,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: Homebrew/actions/setup-homebrew@49d03f1bf5d455a413dfbdf99e6718054a4cd975
-      - name: Install Chez Scheme for Idris runtime
+      - name: Install Chez Scheme and add to PATH
         run: |
           set -euo pipefail
+          eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
           brew install chezscheme
+          echo "$(brew --prefix chezscheme)/bin" >> "$GITHUB_PATH"
           chez_bin="$(command -v chez || command -v chezscheme)"
           test -x "$chez_bin"
           echo "Found Chez at: $chez_bin"
