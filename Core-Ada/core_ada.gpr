@@ -15,8 +15,11 @@ project Core_Ada is
         ("-std=c11", "-O2", "-Wall", "-Wextra", "-Werror", "-fPIE",
          "-fstack-protector-strong", "-D_FORTIFY_SOURCE=2", "-DADA_CROSED_LEVEL=" & Level);
    end Compiler;
+   package Binder is
+      for Default_Switches ("Ada") use ("-static");
+   end Binder;
    package Linker is
       for Default_Switches ("Ada") use
-        ("-pie", "-static-libgnat", "-static-libgcc", "-Wl,-z,relro,-z,now,-z,noexecstack", "-lssl", "-lcrypto", "-l:libsodium.so.23", "-l:libunistring.so.5");
+        ("-pie", "-static-libgcc", "-Wl,-z,relro,-z,now,-z,noexecstack", "-lssl", "-lcrypto", "-l:libsodium.so.23", "-l:libunistring.so.5");
    end Linker;
 end Core_Ada;
