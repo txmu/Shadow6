@@ -236,10 +236,7 @@ jobs:
           
           
           # Create chezscheme symlink for launcher compatibility
-          sudo tee /usr/local/bin/chezscheme > /dev/null << 'EOFWRAPPER'
-#!/bin/bash
-exec /home/linuxbrew/.linuxbrew/bin/chez "$@"
-EOFWRAPPER
+          printf '#!/bin/bash\nexec /home/linuxbrew/.linuxbrew/bin/chez "$@"\n' | sudo tee /usr/local/bin/chezscheme > /dev/null
           sudo chmod 0755 /usr/local/bin/chezscheme
           # Verify executables work
           if [ -f libsodium_ffi.so ]; then
@@ -385,10 +382,7 @@ EOFWRAPPER
           install -m 0755 "$RUNNER_TEMP/shadow6-idris-test_core.py" Core-Idris/test_core.py
           chmod 0755 Core-Gleam/shadow6-gleam Core-Gleam/shadow6-gleam-crosed
           # Create chezscheme symlink for Idris launcher compatibility
-          sudo tee /usr/local/bin/chezscheme > /dev/null << 'EOFWRAPPER'
-#!/bin/bash
-exec /home/linuxbrew/.linuxbrew/bin/chez "$@"
-EOFWRAPPER
+          printf '#!/bin/bash\nexec /home/linuxbrew/.linuxbrew/bin/chez "$@"\n' | sudo tee /usr/local/bin/chezscheme > /dev/null
           sudo chmod 0755 /usr/local/bin/chezscheme
           cd Core-Idris
           chmod 0755 shadow6-idris shadow6-idris-crosed
