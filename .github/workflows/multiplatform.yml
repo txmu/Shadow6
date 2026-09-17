@@ -234,6 +234,9 @@ jobs:
             fi
           done
           
+          
+          # Create chezscheme symlink for launcher compatibility
+          sudo ln -sf /home/linuxbrew/.linuxbrew/bin/chez /usr/local/bin/chezscheme
           # Verify executables work
           if [ -f libsodium_ffi.so ]; then
             echo "✓ Found libsodium_ffi.so"
@@ -377,6 +380,8 @@ jobs:
           tar -xzf "$archive" -C Core-Idris
           install -m 0755 "$RUNNER_TEMP/shadow6-idris-test_core.py" Core-Idris/test_core.py
           chmod 0755 Core-Gleam/shadow6-gleam Core-Gleam/shadow6-gleam-crosed
+          # Create chezscheme symlink for Idris launcher compatibility
+          sudo ln -sf /home/linuxbrew/.linuxbrew/bin/chez /usr/local/bin/chezscheme
           cd Core-Idris
           chmod 0755 shadow6-idris shadow6-idris-crosed
           test -d shadow6-idris_app && test -d shadow6-idris-crosed_app
