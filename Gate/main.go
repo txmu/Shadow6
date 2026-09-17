@@ -62,7 +62,7 @@ func relay(a, b net.Conn, idle time.Duration) {
 	wg.Wait()
 }
 func runTCP(ctx context.Context, c Config, localPort int, until time.Time, state *gateState) error {
-	ln, e := net.Listen("tcp", net.JoinHostPort(c.ListenHost, fmt.Sprint(localPort)))
+	ln, e := listenTCPAnyFamily(c.ListenHost, localPort)
 	if e != nil {
 		return e
 	}

@@ -125,7 +125,7 @@ func udpEnvelope(k ed25519.PrivateKey, payload, responseTo []byte) ([]byte, erro
 // Every transaction owns its buffer and has a bounded lifetime and worker slot.
 // One silent upstream cannot block every client on the public UDP listener.
 func runUDP(ctx context.Context, c Config, localPort int, until time.Time, state *gateState) error {
-	pc, err := net.ListenPacket("udp", net.JoinHostPort(c.ListenHost, fmt.Sprint(localPort)))
+	pc, err := listenUDPAnyFamily(c.ListenHost, localPort)
 	if err != nil {
 		return err
 	}
@@ -183,8 +183,7 @@ func handleUDP(ctx context.Context, c Config, state *gateState, pc net.PacketCon
 		}
 		requestNonce = outbound[13:29]
 	}
-	dialer := net.Dialer{Timeout: 10 * time.Second}
-	conn, err := dialer.DialContext(ctx, "udp", target)
+	conn, err := dialUDPAnyFamily(ctx, target)
 	if err != nil {
 		return
 	}

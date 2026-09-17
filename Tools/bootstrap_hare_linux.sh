@@ -13,14 +13,39 @@ work=$(mktemp -d /tmp/shadow6-hare-toolchain.XXXXXX)
 trap 'rm -rf -- "$work"' EXIT
 
 # Match the release validated by Core-Hare; never build a moving branch.
-curl --fail --location --proto '=https' --tlsv1.2 --retry 3 \
-    --connect-timeout 15 --max-time 120 \
-    https://c9x.me/compile/release/qbe-1.2.tar.xz -o "$work/qbe.tar.xz"
+# Networks may resolve both A and AAAA records while routing only one family.
+# Neither curl nor git performs happy-eyeballs, so probe IPv4 then IPv6.
+fetch() {
+    local url=$1 output=$2 family
+    for family in 4 6; do
+        if timeout 180 curl -"$family" --fail --location --proto '=https' --tlsv1.2 --retry 2 \
+            --connect-timeout 15 --max-time 120 "$url" -o "$output"; then
+            return 0
+        fi
+        rm -f -- "$output"
+    done
+    echo "unable to download $url over IPv4 or IPv6" >&2
+    return 1
+}
+
+clone_pinned() {
+    local url=$1 directory=$2 family
+    for family in 4 6; do
+        if timeout 300 git clone -"$family" --depth 1 --branch 0.24.2 "$url" "$directory"; then
+            return 0
+        fi
+        rm -rf -- "$directory"
+    done
+    echo "unable to clone $url over IPv4 or IPv6" >&2
+    return 1
+}
+
+fetch https://c9x.me/compile/release/qbe-1.2.tar.xz "$work/qbe.tar.xz"
 printf '%s  %s\n' a6d50eb952525a234bf76ba151861f73b7a382ac952d985f2b9af1df5368225d \
     "$work/qbe.tar.xz" | sha256sum -c -
 tar -xJf "$work/qbe.tar.xz" -C "$work"
-git clone --depth 1 --branch 0.24.2 https://git.sr.ht/~sircmpwn/harec "$work/harec"
-git clone --depth 1 --branch 0.24.2 https://git.sr.ht/~sircmpwn/hare "$work/hare"
+clone_pinned https://git.sr.ht/~sircmpwn/harec "$work/harec"
+clone_pinned https://git.sr.ht/~sircmpwn/hare "$work/hare"
 test "$(git -C "$work/harec" rev-parse HEAD)" = aaf2f364c6d9fad452416c0385ccd296541d5661
 test "$(git -C "$work/hare" rev-parse HEAD)" = 66ebb53ef4fa8aea329e883ea21787a74bdcedf9
 

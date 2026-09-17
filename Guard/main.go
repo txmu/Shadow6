@@ -20,6 +20,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -284,21 +285,12 @@ func startSPAShield(ctx context.Context, cfg SPAConfig) error {
 	if host == "" {
 		host = "0.0.0.0"
 	}
-	ip := net.ParseIP(host)
-	network := "udp4"
-	if ip.To4() == nil {
-		network = "udp6"
-	}
-	udp, err := net.ListenUDP(network, &net.UDPAddr{IP: ip, Port: cfg.KnockPort})
+	udp, err := listenUDPAnyFamily(host, cfg.KnockPort)
 	if err != nil {
 		return fmt.Errorf("SPA UDP bind failed: %w", err)
 	}
 	defer udp.Close()
-	tcpNetwork := "tcp4"
-	if network == "udp6" {
-		tcpNetwork = "tcp6"
-	}
-	tcp, err := net.Listen(tcpNetwork, net.JoinHostPort(host, fmt.Sprint(cfg.PublicTCPPort)))
+	tcp, err := listenTCPAnyFamily(host, cfg.PublicTCPPort)
 	if err != nil {
 		return fmt.Errorf("SPA TCP bind failed: %w", err)
 	}
@@ -412,11 +404,7 @@ func serveLPDListener(ctx context.Context, public *net.UDPConn, agentIP net.IP, 
 		case state.slots <- struct{}{}:
 			go func() {
 				defer func() { <-state.slots }()
-				network := "udp4"
-				if agentIP.To4() == nil {
-					network = "udp6"
-				}
-				agent, dialErr := net.DialUDP(network, nil, &net.UDPAddr{IP: agentIP, Port: state.cfg.AgentPort})
+				agent, dialErr := dialUDPAnyFamily(&net.UDPAddr{IP: agentIP, Port: state.cfg.AgentPort})
 				if dialErr != nil {
 					return
 				}
@@ -584,7 +572,7 @@ func startAntiProbe(ctx context.Context, cfg ProbeConfig) error {
 	if port == 0 {
 		port = cfg.LocalPort
 	}
-	listener, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", port))
+	listener, err := listenTCPAnyFamily("0.0.0.0", port)
 	if err != nil {
 		return fmt.Errorf("anti-probe bind failed: %w", err)
 	}
@@ -698,7 +686,15 @@ func startBrokerFortress(ctx context.Context, cfg BrokerConfig) error {
 		}
 		server.TLSConfig.Certificates = []tls.Certificate{pair}
 	}
-	listener, err := net.Listen("tcp", server.Addr)
+	host, portText, splitErr := net.SplitHostPort(server.Addr)
+	if splitErr != nil {
+		return splitErr
+	}
+	port, portErr := strconv.Atoi(portText)
+	if portErr != nil {
+		return fmt.Errorf("invalid broker shield port: %w", portErr)
+	}
+	listener, err := listenTCPAnyFamily(host, port)
 	if err != nil {
 		return err
 	}

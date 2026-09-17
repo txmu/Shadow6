@@ -55,15 +55,23 @@ class CrosedMatrixTests(unittest.TestCase):
                 }
             }
         }
-        trust_path = self.temp / "trust.json"
         request_path = self.temp / "request.json"
-        atomic_owner_write(trust_path, json.dumps(trust, sort_keys=True, separators=(",", ":")).encode())
+        # Every Core keeps its own bounded replay store beside the trust store
+        # (the same contract Ada and Nim already implement), so a single signed
+        # request cannot be granted twice against one trust store. Give each Core
+        # its own trust store so the same request is evaluated once per Core.
+        trust_paths = {}
+        for index, core in enumerate((self.go_core, self.rust_core)):
+            path = self.temp / f"trust-{index}.json"
+            atomic_owner_write(path, json.dumps(trust, sort_keys=True, separators=(",", ":")).encode())
+            trust_paths[core] = path
         request = build_request(
             "matrix-mod", 4, ["observe.version", "transport.application", "identity.assert"],
             {"text": "跨域 UTF-8"}, private, "work-vm", "chat-vm",
         )
         atomic_owner_write(request_path, json.dumps(request, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode())
         for core in (self.go_core, self.rust_core):
+            trust_path = trust_paths[core]
             report = inspect_binary(core)
             self.assertEqual(report["crosed_max_level"], 5)
             self.assertTrue(report["app_transport"])
@@ -81,18 +89,18 @@ class CrosedMatrixTests(unittest.TestCase):
         )
         atomic_owner_write(request_path, json.dumps(compatible, sort_keys=True, separators=(",", ":")).encode())
         for core in (self.go_core, self.rust_core):
-            self.assertEqual(negotiate(core, request_path, trust_path)["status"], "granted")
+            self.assertEqual(negotiate(core, request_path, trust_paths[core])["status"], "granted")
 
         denied = build_request("matrix-mod", 4, ["identity.assert"], {}, private, "work-vm", "vault-vm")
         atomic_owner_write(request_path, json.dumps(denied, sort_keys=True, separators=(",", ":")).encode())
         for core in (self.go_core, self.rust_core):
-            self.assertEqual(negotiate(core, request_path, trust_path)["status"], "denied")
+            self.assertEqual(negotiate(core, request_path, trust_paths[core])["status"], "denied")
 
         denied["signature"] = "00" * 64
         atomic_owner_write(request_path, json.dumps(denied, sort_keys=True, separators=(",", ":")).encode())
         for core in (self.go_core, self.rust_core):
             with self.assertRaises(CrosedError):
-                negotiate(core, request_path, trust_path)
+                negotiate(core, request_path, trust_paths[core])
 
 
 if __name__ == "__main__":

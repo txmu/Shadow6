@@ -16,6 +16,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -591,8 +592,22 @@ func startBroker(config *Config) error {
 		ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 30 * time.Second,
 		WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16 * 1024,
 	}
-	log.Printf("[Broker] Listening on %s; terminate TLS at a trusted reverse proxy", config.Broker.ListenAddr)
-	return server.ListenAndServe()
+	// Bind both families rather than assuming one: the configured host may be a
+	// wildcard or loopback whose counterpart in the other family is routable.
+	host, portText, splitErr := net.SplitHostPort(config.Broker.ListenAddr)
+	if splitErr != nil {
+		return splitErr
+	}
+	port, portErr := strconv.Atoi(portText)
+	if portErr != nil {
+		return fmt.Errorf("invalid broker listen port: %w", portErr)
+	}
+	listener, listenErr := listenTCPAnyFamily(host, port)
+	if listenErr != nil {
+		return listenErr
+	}
+	log.Printf("[Broker] Listening on %s; terminate TLS at a trusted reverse proxy", listener.Addr())
+	return server.Serve(listener)
 }
 
 func routeIP() string {

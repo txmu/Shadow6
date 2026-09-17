@@ -164,12 +164,28 @@ func writePortableJSON(out *strings.Builder, value any, depth int) error {
 	return nil
 }
 
+// denied returns a refusal that reports no partial grant. Ada and Nim clear the
+// requested capability set on denial, so a caller can never read a capability
+// out of a denied response.
+func denied(response CrosedResponse, reason string) (CrosedResponse, error) {
+	response.Status = "denied"
+	response.Reason = reason
+	response.GrantedLevel = 0
+	response.GrantedCapabilities = []string{}
+	return response, nil
+}
+
 func handleCrosedRequest(requestPath, trustPath string, now time.Time) (CrosedResponse, error) {
 	report := compiledFeatureReport()
-	response := CrosedResponse{FeatureReport: report, Status: "denied"}
+	// Serialize an empty grant as [] rather than null so Go and Rust emit an
+	// identical response for the same denied request.
+	response := CrosedResponse{
+		FeatureReport:       report,
+		Status:              "denied",
+		GrantedCapabilities: []string{},
+	}
 	if !report.CrosedCompiled {
-		response.Reason = "crosed is not compiled into this core"
-		return response, nil
+		return denied(response, "crosed is not compiled into this core")
 	}
 	requestData, err := readOwnerOnlyFile(requestPath, 64*1024)
 	if err != nil {
@@ -200,8 +216,7 @@ func handleCrosedRequest(requestPath, trustPath string, now time.Time) (CrosedRe
 		return response, errors.New("untrusted Crosed mod")
 	}
 	if policy.MaxLevel < 1 || policy.MaxLevel > 5 || request.RequestedLevel > policy.MaxLevel {
-		response.Reason = "requested level exceeds the per-Mod policy"
-		return response, nil
+		return denied(response, "requested level exceeds the per-Mod policy")
 	}
 	key, err := parsePublicKey(policy.PubKey)
 	if err != nil {
@@ -213,8 +228,7 @@ func handleCrosedRequest(requestPath, trustPath string, now time.Time) (CrosedRe
 		return response, errors.New("invalid Crosed request signature")
 	}
 	if request.RequestedLevel > report.CrosedMaxLevel {
-		response.Reason = "requested level exceeds this Core build"
-		return response, nil
+		return denied(response, "requested level exceeds this Core build")
 	}
 	seen := map[string]bool{}
 	allowedCapabilities := map[string]bool{}
@@ -228,8 +242,7 @@ func handleCrosedRequest(requestPath, trustPath string, now time.Time) (CrosedRe
 		seen[capability] = true
 		required, known := crosedCapabilityLevels[capability]
 		if !known || !allowedCapabilities[capability] || required > request.RequestedLevel || (capability == "transport.application" && !report.AppTransport) {
-			response.Reason = "capability unavailable at requested level or build"
-			return response, nil
+			return denied(response, "capability unavailable at requested level or build")
 		}
 		response.GrantedCapabilities = append(response.GrantedCapabilities, capability)
 	}
@@ -252,11 +265,33 @@ func handleCrosedRequest(requestPath, trustPath string, now time.Time) (CrosedRe
 				}
 			}
 			if !allowed {
-				response.Reason = "Qubes cross-domain policy denied"
-				return response, nil
+				return denied(response, "Qubes cross-domain policy denied")
 			}
 		}
 	}
+	// A grant is the intersection of build features, the signed request, the
+	// per-Mod level, the capability allowlist and domain policy. With nothing in
+	// that intersection there is no grant to issue, so report the highest level
+	// the granted capabilities actually cover.
+	if len(request.Capabilities) == 0 || len(response.GrantedCapabilities) == 0 {
+		return denied(response, "no requested capability is granted")
+	}
+	granted := 0
+	for _, capability := range response.GrantedCapabilities {
+		if level := crosedCapabilityLevels[capability]; level > granted {
+			granted = level
+		}
+	}
+	if granted < request.RequestedLevel {
+		return denied(response, "granted capabilities do not cover the requested level")
+	}
+
+	// Commit the nonce before releasing the grant so an identical signed request
+	// cannot be replayed for the remainder of its validity window.
+	if err := reserveCrosedNonce(trustPath, request.ModID, request.Nonce, now.Unix()); err != nil {
+		return response, err
+	}
+
 	sortStrings(response.GrantedCapabilities)
 	response.GrantedLevel, response.Status, response.Reason = request.RequestedLevel, "granted", ""
 	return response, nil

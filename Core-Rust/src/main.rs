@@ -274,6 +274,17 @@ fn validate_crosed_payload(value: &serde_json::Value, depth: usize) -> Result<()
     }
 }
 
+// denied returns a refusal that reports no partial grant. Ada and Nim clear the
+// requested capability set on denial, so a caller can never read a capability
+// out of a denied response.
+fn denied(mut response: CrosedResponse, reason: &str) -> Result<CrosedResponse, String> {
+    response.status = "denied".into();
+    response.reason = reason.into();
+    response.granted_level = 0;
+    response.granted_capabilities.clear();
+    Ok(response)
+}
+
 fn handle_crosed_request(request_path: &str, trust_path: &str) -> Result<CrosedResponse, String> {
     let features = feature_report();
     let mut response = CrosedResponse {
@@ -285,8 +296,7 @@ fn handle_crosed_request(request_path: &str, trust_path: &str) -> Result<CrosedR
         reason: String::new(),
     };
     if !response.features.crosed_compiled {
-        response.reason = "crosed is not compiled into this core".into();
-        return Ok(response);
+        return denied(response, "crosed is not compiled into this core");
     }
     let request_data = read_secure_config(Path::new(request_path))?;
     let trust_data = read_secure_config(Path::new(trust_path))?;
@@ -315,8 +325,7 @@ fn handle_crosed_request(request_path: &str, trust_path: &str) -> Result<CrosedR
         .get(&request.mod_id)
         .ok_or("untrusted Crosed mod")?;
     if !(1..=5).contains(&policy.max_level) || request.requested_level > policy.max_level {
-        response.reason = "requested level exceeds the per-Mod policy".into();
-        return Ok(response);
+        return denied(response, "requested level exceeds the per-Mod policy");
     }
     let key_bytes = hex::decode(&policy.pubkey).map_err(|_| "invalid Crosed public key hex")?;
     let key_array: [u8; 32] = key_bytes
@@ -332,8 +341,7 @@ fn handle_crosed_request(request_path: &str, trust_path: &str) -> Result<CrosedR
         .verify(&crosed_signed_payload(&request)?, &signature)
         .map_err(|_| "invalid Crosed request signature")?;
     if request.requested_level > response.features.crosed_max_level {
-        response.reason = "requested level exceeds this Core build".into();
-        return Ok(response);
+        return denied(response, "requested level exceeds this Core build");
     }
     let mut seen = HashSet::new();
     let allowed_capabilities: HashSet<_> = policy.capabilities.iter().collect();
@@ -350,8 +358,7 @@ fn handle_crosed_request(request_path: &str, trust_path: &str) -> Result<CrosedR
             || required > request.requested_level
             || (capability == "transport.application" && !response.features.app_transport)
         {
-            response.reason = "capability unavailable at requested level or build".into();
-            return Ok(response);
+            return denied(response, "capability unavailable at requested level or build");
         }
         response.granted_capabilities.push(capability.clone());
     }
@@ -374,14 +381,138 @@ fn handle_crosed_request(request_path: &str, trust_path: &str) -> Result<CrosedR
                 .iter()
                 .any(|domain| domain == target_domain)
         {
-            response.reason = "Qubes cross-domain policy denied".into();
-            return Ok(response);
+            return denied(response, "Qubes cross-domain policy denied");
         }
     }
+    // A grant is the intersection of build features, the signed request, the
+    // per-Mod level, the capability allowlist and domain policy. With nothing in
+    // that intersection there is no grant to issue, so report the highest level
+    // the granted capabilities actually cover.
+    if request.capabilities.is_empty() || response.granted_capabilities.is_empty() {
+        return denied(response, "no requested capability is granted");
+    }
+    let granted = response
+        .granted_capabilities
+        .iter()
+        .filter_map(|capability| {
+            CROSED_CAPABILITIES
+                .iter()
+                .find(|(name, _)| name == capability)
+                .map(|(_, level)| *level)
+        })
+        .max()
+        .unwrap_or(0);
+    if granted < request.requested_level {
+        return denied(response, "granted capabilities do not cover the requested level");
+    }
+
+    // Commit the nonce before releasing the grant so an identical signed request
+    // cannot be replayed for the remainder of its validity window.
+    if let Err(error) = reserve_crosed_nonce(trust_path, &request.mod_id, &request.nonce, now) {
+        return Err(error);
+    }
+
     response.granted_capabilities.sort_unstable();
     response.granted_level = request.requested_level;
     response.status = "granted";
     Ok(response)
+}
+
+// A Crosed request is signed and short lived, but the same signed request stays
+// valid for its whole window. Without recorded state an identical request can be
+// replayed. Ada and Nim already keep a bounded replay store; Rust records the
+// same nonce commitment so all cores share one contract.
+const CROSED_REPLAY_RETENTION_SECONDS: i64 = 600;
+const CROSED_REPLAY_MAX_ENTRIES: usize = 4096;
+
+// Binding the Mod id into the commitment keeps a valid nonce presented by one
+// Mod from reserving a slot used by another.
+fn crosed_replay_key(mod_id: &str, nonce: &str) -> String {
+    let digest = Sha256::digest(format!("{mod_id}\n{nonce}").as_bytes());
+    hex::encode(digest)
+}
+
+// reserve_crosed_nonce atomically reserves the request nonce in the store beside
+// the trust store. It returns Err when the store cannot be consulted, so the
+// caller fails closed instead of reporting a replay it cannot prove.
+//
+// Each reservation is a single file created with O_EXCL, which makes the check
+// and the commit one atomic operation. The store is bounded and never evicts a
+// live nonce: an entry is only removed once it is older than the retention
+// window, and a saturated store refuses new requests.
+fn reserve_crosed_nonce(
+    trust_path: &str,
+    mod_id: &str,
+    nonce: &str,
+    now: i64,
+) -> Result<(), String> {
+    if now <= 0 {
+        return Err("Crosed replay store requires a valid clock".into());
+    }
+    let directory = format!("{trust_path}.replay");
+    match std::fs::create_dir(&directory) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+        Err(error) => return Err(format!("Crosed replay store unavailable: {error}")),
+    }
+    let metadata = std::fs::symlink_metadata(&directory)
+        .map_err(|error| format!("Crosed replay store unavailable: {error}"))?;
+    if !metadata.is_dir() {
+        return Err("Crosed replay store must be a regular owner-only directory".into());
+    }
+    crosed_replay_prune(&directory, now)?;
+    let entry = std::path::Path::new(&directory).join(crosed_replay_key(mod_id, nonce));
+    match std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&entry)
+    {
+        Ok(mut file) => {
+            use std::io::Write;
+            if let Err(error) = writeln!(file, "{now}") {
+                let _ = std::fs::remove_file(&entry);
+                return Err(format!("Crosed replay store write failed: {error}"));
+            }
+            Ok(())
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+            Err("replayed Crosed request".into())
+        }
+        Err(error) => Err(format!("Crosed replay store unavailable: {error}")),
+    }
+}
+
+// crosed_replay_prune removes entries older than the retention window and refuses
+// to accept a new request while every slot is still live.
+fn crosed_replay_prune(directory: &str, now: i64) -> Result<(), String> {
+    let entries = std::fs::read_dir(directory)
+        .map_err(|error| format!("Crosed replay store unavailable: {error}"))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| format!("Crosed replay store unavailable: {error}"))?;
+    if entries.len() < CROSED_REPLAY_MAX_ENTRIES {
+        return Ok(());
+    }
+    let cutoff = now - CROSED_REPLAY_RETENTION_SECONDS;
+    let mut live = 0usize;
+    for entry in entries {
+        let recent = entry
+            .metadata()
+            .ok()
+            .and_then(|metadata| metadata.modified().ok())
+            .and_then(|modified| modified.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|stamp| stamp.as_secs() as i64 >= cutoff)
+            .unwrap_or(true);
+        if !recent {
+            if std::fs::remove_file(entry.path()).is_ok() {
+                continue;
+            }
+        }
+        live += 1;
+    }
+    if live >= CROSED_REPLAY_MAX_ENTRIES {
+        return Err(format!("Crosed replay store is saturated ({live} live entries)"));
+    }
+    Ok(())
 }
 
 fn valid_crosed_domain(value: &str) -> bool {
@@ -560,6 +691,40 @@ fn mask_ip(ip: &str, stealth: bool) -> String {
     // only the displayed identifier, never the secret or authentication tag.
     let hash = ring::hmac::sign(key, ip.as_bytes());
     format!("IP[MASKED:{}]", hex::encode(&hash.as_ref()[..16]))
+}
+
+// A host may publish both A and AAAA records while routing only one family, and
+// a wildcard bind can succeed on one family but not the other. Binding a single
+// family up front turns an ordinary environment difference into a hard failure,
+// so try the configured family first and then the other one.
+async fn bind_tcp_any_family(address: &str) -> Result<(TcpListener, SocketAddr), String> {
+    let parsed = address
+        .parse::<SocketAddr>()
+        .map_err(|_| format!("invalid listen address: {address}"))?;
+    match TcpListener::bind(parsed).await {
+        Ok(listener) => {
+            let bound = listener.local_addr().unwrap_or(parsed);
+            Ok((listener, bound))
+        }
+        Err(error) => {
+            let complement = SocketAddr::new(
+                match parsed.ip() {
+                    IpAddr::V6(_) => IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED),
+                    IpAddr::V4(_) => IpAddr::V6(Ipv6Addr::UNSPECIFIED),
+                },
+                parsed.port(),
+            );
+            match TcpListener::bind(complement).await {
+                Ok(listener) => {
+                    let bound = listener.local_addr().unwrap_or(complement);
+                    Ok((listener, bound))
+                }
+                Err(fallback) => Err(format!(
+                    "failed to bind {address}: {error}; fallback {complement}: {fallback}"
+                )),
+            }
+        }
+    }
 }
 
 async fn get_route_ip() -> String {
@@ -914,9 +1079,7 @@ async fn start_broker(cfg: Config) -> Result<(), String> {
         Arc::new(RwLock::new(HashMap::new()));
     let agent_generation = Arc::new(AtomicU64::new(1));
 
-    let listener = TcpListener::bind(&addr)
-        .await
-        .map_err(|error| format!("failed to bind {addr}: {error}"))?;
+    let (listener, addr) = bind_tcp_any_family(&addr).await?;
     let connection_limit = Arc::new(Semaphore::new(MAX_CONTROL_CONNECTIONS));
     s6_log(
         "[Broker]",
@@ -3508,7 +3671,10 @@ mod tests {
             assert_eq!(response.features.crosed_max_level, 0);
         }
         fs::remove_file(request_path).unwrap();
-        fs::remove_file(trust_path).unwrap();
+        // The bounded replay store persists beside the trust store, so a used
+        // nonce stays refused for its retention window.
+        fs::remove_dir_all(format!("{}.replay", trust_path.to_str().unwrap())).unwrap();
+        fs::remove_file(&trust_path).unwrap();
         fs::remove_dir(directory).unwrap();
     }
 } // Closes mod tests properly
