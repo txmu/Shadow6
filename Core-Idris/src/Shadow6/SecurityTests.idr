@@ -30,8 +30,10 @@ securityTests = do
     Nothing => check "timing proof" False
     Just _ => pure ()
   check "valid JSON" (success (parseStrictJSON "{\"k\":[true,false,null,-42,\"\\uD83D\\uDE00\"]}"))
+  let invalidDocuments : List String =
+        ["{\"k\":1,\"k\":2}", "{\"k\":1,\"\\u006b\":2}", "[1,]", "{\"a\":1,}", "1.5", "1e2", "01", "9007199254740992", "\"\\uD800\"", "true false"]
   traverse_ (\s => check ("invalid JSON: " ++ s) (not (success (parseStrictJSON s))))
-    ["{\"k\":1,\"k\":2}", "{\"k\":1,\"\\u006b\":2}", "[1,]", "{\"a\":1,}", "1.5", "1e2", "01", "9007199254740992", "\"\\uD800\"", "true false"]
+    invalidDocuments
   check "unknown schema field" (not (success (exactObject ["version"] (JObject [("extra", JNull)]))))
   let tracker = newNonceTracker 1
   let (full, accepted) = checkNonce tracker (replicate 16 1)
