@@ -177,6 +177,14 @@ export
 stringToUtf8 : String -> List Bits8
 stringToUtf8 s = concatMap charToUtf8 (unpack s)
 
+sortStringsJSON : List String -> List String
+sortStringsJSON [] = []
+sortStringsJSON (x :: xs) = insertString x (sortStringsJSON xs)
+  where
+    insertString : String -> List String -> List String
+    insertString y [] = [y]
+    insertString y (z :: zs) = if y <= z then y :: z :: zs else z :: insertString y zs
+
 mutual
   export
   canonicalJSON : StrictJSON -> String
@@ -185,16 +193,13 @@ mutual
   canonicalJSON (JBool False) = "false"
   canonicalJSON (JInteger n) = show n
   canonicalJSON (JString s) = "\"" ++ escape s ++ "\""
-  canonicalJSON (JArray xs) = "[" ++ concat (intersperse "," (map canonicalJSON xs)) ++ "]"
-  canonicalJSON (JObject fields) =
-    let sorted = sortFields fields
-        formatted = map (\(k, v) => "\"" ++ escape k ++ "\":" ++ canonicalJSON v) sorted
-    in "{" ++ concat (intersperse "," formatted) ++ "}"
+  canonicalJSON (JArray xs) = "[" ++ concat (intersperse "," (canonicalArray xs)) ++ "]"
+  canonicalJSON (JObject fields) = "{" ++ concat (intersperse "," (sortStringsJSON (canonicalObject fields))) ++ "}"
 
-  sortFields : List (String, StrictJSON) -> List (String, StrictJSON)
-  sortFields [] = []
-  sortFields (x :: xs) = insertField x (sortFields xs)
+  canonicalArray : List StrictJSON -> List String
+  canonicalArray [] = []
+  canonicalArray (x :: xs) = canonicalJSON x :: canonicalArray xs
 
-  insertField : (String, StrictJSON) -> List (String, StrictJSON) -> List (String, StrictJSON)
-  insertField y [] = [y]
-  insertField y (z :: zs) = if fst y <= fst z then y :: z :: zs else z :: insertField y zs
+  canonicalObject : List (String, StrictJSON) -> List String
+  canonicalObject [] = []
+  canonicalObject ((k, v) :: xs) = ("\"" ++ escape k ++ "\":" ++ canonicalJSON v) :: canonicalObject xs
