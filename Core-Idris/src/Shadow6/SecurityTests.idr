@@ -18,6 +18,13 @@ success : Result e a -> Bool
 success (Ok _) = True
 success (Err _) = False
 
+-- Keep a large negative-test length out of the caller's dependent return type.
+-- Otherwise elaboration constructs a million-element Vect type needlessly.
+checkRandomBound : Nat -> IO ()
+checkRandomBound size = do
+  oversized <- randomBytes size
+  check "random bound" (not (success oversized))
+
 export
 securityTests : IO ()
 securityTests = do
@@ -46,8 +53,7 @@ securityTests = do
     Ok digest => check "SHA256 vector" (bytesHex (toList digest) == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
   random <- randomBytes 32
   check "random allocation" (success random)
-  oversized <- randomBytes 1048577
-  check "random bound" (not (success oversized))
+  checkRandomBound 1048577
   let ctx = MkSecurityContext L0 [] 0 0
   allocated <- allocateBounded ctx 32
   case allocated of
