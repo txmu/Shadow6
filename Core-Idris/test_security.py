@@ -138,8 +138,16 @@ class IdrisExecutables(unittest.TestCase):
                          max_level=5, capabilities=["observe.health"], allowed_domains=["red"], source_domain="red", target_domain="red",
                          domain_policies=[dict(source="red", target="red", allowed=True)], replay_path=str(base / "ledger"))
             def save():
-                signed = {k: v for k, v in request.items() if k != "signature"}
-                request["signature"] = key.sign(json.dumps(signed, sort_keys=True, separators=(",", ":")).encode()).hex()
+                signed = ("{\"capabilities\":[" + ",".join('"' + c + '"' for c in sorted(request["capabilities"])) +
+                          "],\"issued_at\":" + str(request["issued_at"]) +
+                          ",\"mod_id\":\"" + request["mod_id"] +
+                          ",\"nonce\":\"" + request["nonce"] +
+                          "\",\"payload_hash\":\"" + request["payload_hash"] +
+                          "\",\"requested_level\":" + str(request["requested_level"]) +
+                          ",\"source_domain\":\"" + request["source_domain"] +
+                          "\",\"target_domain\":\"" + request["target_domain"] +
+                          "\",\"version\":1}")
+                request["signature"] = key.sign(signed.encode()).hex()
                 for name, doc in (("request", request), ("trust", trust)):
                     path = base / name; path.write_text(json.dumps(doc)); path.chmod(0o600)
             def run(binary, ok):
