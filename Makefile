@@ -583,6 +583,9 @@ ifeq ($(BUILD_IDRIS),1)
 		$(CC) $$lib_flag -fPIC -O2 -fstack-protector-strong $$(pkg-config --cflags libsodium) \
 		Core-Idris/ffi/sodium_ffi.c -pthread -o Core-Idris/ffi/libsodium_ffi.$$lib_ext \
 		$$(pkg-config --libs libsodium)
+	# BuildConfig values can be reduced into downstream TTC files. Recheck all
+	# modules when switching variants; feature-report alone cannot detect stale policy.
+	@cd Core-Idris && $(IDRIS2) --clean shadow6-idris.ipkg
 	@cd Core-Idris && $(IDRIS2) --build shadow6-idris.ipkg
 	@if [ -f Core-Idris/obj/exec/shadow6-idris ]; then \
 		install -m 0755 Core-Idris/obj/exec/shadow6-idris Core-Idris/shadow6-idris; \
