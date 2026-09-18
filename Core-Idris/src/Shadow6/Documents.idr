@@ -57,22 +57,33 @@ rules (JArray xs) = if length xs > 25 then Err "Too many domain rules" else trav
 rules _ = Err "Expected domain policy array"
 
 export
-requestDocument : String -> Result String CrosedRequest
+requestDocument : String -> IO (Result String CrosedRequest)
 requestDocument source = do
-  parsed <- parseStrictJSON source
-  fields <- exactObject ["version", "mod_id", "nonce", "issued_at", "requested_level", "capabilities", "source_domain", "target_domain", "payload_hash", "signature"] parsed
-  version <- field "version" fields >>= integer
-  if version /= 1 then Err "Unknown request version" else do
-    modId <- field "mod_id" fields >>= text
-    nonce <- field "nonce" fields >>= text >>= fixedHex 16
-    issued <- field "issued_at" fields >>= integer
-    requested <- field "requested_level" fields >>= integer >>= level
-    caps <- field "capabilities" fields >>= strings
-    src <- field "source_domain" fields >>= text
-    dst <- field "target_domain" fields >>= text
-    hash <- field "payload_hash" fields >>= text >>= fixedHex 32
-    signature <- field "signature" fields >>= text >>= fixedHex 64
-    Ok (MkCrosedRequest 1 modId nonce issued requested caps (Just src) (Just dst) hash signature)
+  case parseStrictJSON source of
+    Err e => pure (Err e)
+    Ok parsed => case exactObject ["version", "mod_id", "nonce", "issued_at", "requested_level", "capabilities", "source_domain", "target_domain", "payload", "signature"] parsed of
+      Err e => pure (Err e)
+      Ok fields => do
+        let version = field "version" fields >>= integer
+        if version /= Ok 1 then pure (Err "Unknown request version") else do
+          let modId = field "mod_id" fields >>= text
+          let nonce = field "nonce" fields >>= text >>= fixedHex 16
+          let issued = field "issued_at" fields >>= integer
+          let requested = field "requested_level" fields >>= integer >>= level
+          let caps = field "capabilities" fields >>= strings
+          let src = field "source_domain" fields >>= text
+          let dst = field "target_domain" fields >>= text
+          let payload = field "payload" fields
+          let signature = field "signature" fields >>= text >>= fixedHex 64
+          case (modId, nonce, issued, requested, caps, src, dst, payload, signature) of
+            (Ok m, Ok n, Ok i, Ok r, Ok c, Ok s, Ok d, Ok p, Ok sig) => do
+              let payloadStr = canonicalJSON p
+              let (len ** vec) = protocolToVect (stringToUtf8 payloadStr)
+              hashResult <- sha256 vec
+              case hashResult of
+                Err e => pure (Err e)
+                Ok hash => pure (Ok (MkCrosedRequest 1 m n i r c (if s == "" then Nothing else Just s) (if d == "" then Nothing else Just d) hash sig))
+            _ => pure (Err "Invalid request fields")
 
 export
 trustDocument : String -> Result String TrustEntry
@@ -105,9 +116,14 @@ readDocument path = do
 export
 authorizeDocuments : String -> String -> IO (Result String CrosedResponse)
 authorizeDocuments requestPath trustPath = do
-  request <- readDocument requestPath
-  trust <- readDocument trustPath
-  case (request >>= requestDocument, trust >>= trustDocument) of
-    (Ok r, Ok t) => validateCrosedRequest r t
+  requestRes <- readDocument requestPath
+  trustRes <- readDocument trustPath
+  case (requestRes, trustRes) of
+    (Ok reqStr, Ok trustStr) => do
+      reqParsed <- requestDocument reqStr
+      case (reqParsed, trustDocument trustStr) of
+        (Ok r, Ok t) => validateCrosedRequest r t
+        (Err e, _) => pure (Err e)
+        (_, Err e) => pure (Err e)
     (Err e, _) => pure (Err e)
     (_, Err e) => pure (Err e)

@@ -2,6 +2,7 @@ module Shadow6.StrictJSON
 
 import Data.List
 import Data.String
+import Data.Bits
 import Shadow6.Types
 
 %default total
@@ -132,3 +133,68 @@ exactObject keys (JObject fields) =
   if length keys == length fields && all (\entry => elem (fst entry) keys) fields
   then Ok fields else Err "Missing or unknown JSON fields"
 exactObject _ _ = Err "Expected JSON object"
+
+hexDigitOut : Bits8 -> Char
+hexDigitOut n = if n < 10 then chr (ord '0' + cast n) else chr (ord 'a' + cast (n - 10))
+
+escapeChar : Char -> String
+escapeChar '"' = "\\\""
+escapeChar '\\' = "\\\\"
+escapeChar '\b' = "\\b"
+escapeChar '\f' = "\\f"
+escapeChar '\n' = "\\n"
+escapeChar '\r' = "\\r"
+escapeChar '\t' = "\\t"
+escapeChar c =
+  let n = ord c
+  in if n < 32 then
+       let b : Bits8 = cast n
+       in "\\u00" ++ pack [hexDigitOut (b `shiftR` 4), hexDigitOut (b .&. 15)]
+     else pack [c]
+
+escape : String -> String
+escape s = concat (map escapeChar (unpack s))
+
+charToUtf8 : Char -> List Bits8
+charToUtf8 c =
+  let n = ord c
+  in if n <= 0x7F then
+       [cast n]
+     else if n <= 0x7FF then
+       [cast (0xC0 .|. (n `shiftR` 6)),
+        cast (0x80 .|. (n .&. 0x3F))]
+     else if n <= 0xFFFF then
+       [cast (0xE0 .|. (n `shiftR` 12)),
+        cast (0x80 .|. ((n `shiftR` 6) .&. 0x3F)),
+        cast (0x80 .|. (n .&. 0x3F))]
+     else
+       [cast (0xF0 .|. (n `shiftR` 18)),
+        cast (0x80 .|. ((n `shiftR` 12) .&. 0x3F)),
+        cast (0x80 .|. ((n `shiftR` 6) .&. 0x3F)),
+        cast (0x80 .|. (n .&. 0x3F))]
+
+export
+stringToUtf8 : String -> List Bits8
+stringToUtf8 s = concatMap charToUtf8 (unpack s)
+
+mutual
+  export
+  canonicalJSON : StrictJSON -> String
+  canonicalJSON JNull = "null"
+  canonicalJSON (JBool True) = "true"
+  canonicalJSON (JBool False) = "false"
+  canonicalJSON (JInteger n) = show n
+  canonicalJSON (JString s) = "\"" ++ escape s ++ "\""
+  canonicalJSON (JArray xs) = "[" ++ concat (intersperse "," (map canonicalJSON xs)) ++ "]"
+  canonicalJSON (JObject fields) =
+    let sorted = sortFields fields
+        formatted = map (\(k, v) => "\"" ++ escape k ++ "\":" ++ canonicalJSON v) sorted
+    in "{" ++ concat (intersperse "," formatted) ++ "}"
+
+  sortFields : List (String, StrictJSON) -> List (String, StrictJSON)
+  sortFields [] = []
+  sortFields (x :: xs) = insertField x (sortFields xs)
+
+  insertField : (String, StrictJSON) -> List (String, StrictJSON) -> List (String, StrictJSON)
+  insertField y [] = [y]
+  insertField y (z :: zs) = if fst y <= fst z then y :: z :: zs else z :: insertField y zs
