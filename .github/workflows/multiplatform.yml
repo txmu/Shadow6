@@ -268,12 +268,16 @@ jobs:
           # before replacing the build directory so the full-stack test still
           # exercises the downloaded binary instead of silently skipping it.
           cp Core-Idris/test_core.py "$RUNNER_TEMP/shadow6-idris-test_core.py"
+          # Keep the checked-in Idris sources available to the Linux component
+          # doctor after replacing this directory with the runtime artifact.
+          cp -a Core-Idris/src "$RUNNER_TEMP/shadow6-idris-src"
           rm -rf Core-Idris
           mkdir -p Core-Idris
           archive=$(find "$RUNNER_TEMP/idris-artifact" -type f -name 'core-idris-*.tar.gz' -print -quit)
           test -n "$archive"
           tar -xzf "$archive" -C Core-Idris
           install -m 0755 "$RUNNER_TEMP/shadow6-idris-test_core.py" Core-Idris/test_core.py
+          cp -a "$RUNNER_TEMP/shadow6-idris-src" Core-Idris/src
           chmod 0755 Core-Gleam/shadow6-gleam Core-Gleam/shadow6-gleam-crosed
           # Create chezscheme symlink for Idris launcher compatibility
           printf '#!/bin/bash\nexec /home/linuxbrew/.linuxbrew/bin/chez "$@"\n' | sudo tee /usr/local/bin/chezscheme > /dev/null
