@@ -56,34 +56,46 @@ rules : StrictJSON -> Result String (List DomainPolicy)
 rules (JArray xs) = if length xs > 25 then Err "Too many domain rules" else traverse rule xs
 rules _ = Err "Expected domain policy array"
 
+record PendingRequest where
+  constructor MkPending
+  m : String
+  n : Vect 16 Bits8
+  i : Integer
+  r : CrosedLevel
+  c : List String
+  s : String
+  d : String
+  p : StrictJSON
+  sig : Vect 64 Bits8
+
+parsePending : String -> Result String PendingRequest
+parsePending source = do
+  parsed <- parseStrictJSON source
+  fields <- exactObject ["version", "mod_id", "nonce", "issued_at", "requested_level", "capabilities", "source_domain", "target_domain", "payload", "signature"] parsed
+  version <- field "version" fields >>= integer
+  if version /= 1 then Err "Unknown request version" else do
+    modId <- field "mod_id" fields >>= text
+    nonce <- field "nonce" fields >>= text >>= fixedHex 16
+    issued <- field "issued_at" fields >>= integer
+    requested <- field "requested_level" fields >>= integer >>= level
+    caps <- field "capabilities" fields >>= strings
+    src <- field "source_domain" fields >>= text
+    dst <- field "target_domain" fields >>= text
+    payload <- field "payload" fields
+    signature <- field "signature" fields >>= text >>= fixedHex 64
+    Ok (MkPending modId nonce issued requested caps src dst payload signature)
+
 export
 requestDocument : String -> IO (Result String CrosedRequest)
-requestDocument source = do
-  case parseStrictJSON source of
-    Err e => pure (Err e)
-    Ok parsed => case exactObject ["version", "mod_id", "nonce", "issued_at", "requested_level", "capabilities", "source_domain", "target_domain", "payload", "signature"] parsed of
+requestDocument source = case parsePending source of
+  Err e => pure (Err e)
+  Ok pending => do
+    let payloadStr = canonicalJSON pending.p
+    let (len ** vec) = protocolToVect (stringToUtf8 payloadStr)
+    hashResult <- sha256 vec
+    case hashResult of
       Err e => pure (Err e)
-      Ok fields => do
-        let version = field "version" fields >>= integer
-        if version /= Ok 1 then pure (Err "Unknown request version") else do
-          let modId = field "mod_id" fields >>= text
-          let nonce = field "nonce" fields >>= text >>= fixedHex 16
-          let issued = field "issued_at" fields >>= integer
-          let requested = field "requested_level" fields >>= integer >>= level
-          let caps = field "capabilities" fields >>= strings
-          let src = field "source_domain" fields >>= text
-          let dst = field "target_domain" fields >>= text
-          let payload = field "payload" fields
-          let signature = field "signature" fields >>= text >>= fixedHex 64
-          case (modId, nonce, issued, requested, caps, src, dst, payload, signature) of
-            (Ok m, Ok n, Ok i, Ok r, Ok c, Ok s, Ok d, Ok p, Ok sig) => do
-              let payloadStr = canonicalJSON p
-              let (len ** vec) = protocolToVect (stringToUtf8 payloadStr)
-              hashResult <- sha256 vec
-              case hashResult of
-                Err e => pure (Err e)
-                Ok hash => pure (Ok (MkCrosedRequest 1 m n i r c (if s == "" then Nothing else Just s) (if d == "" then Nothing else Just d) hash sig))
-            _ => pure (Err "Invalid request fields")
+      Ok hash => pure (Ok (MkCrosedRequest 1 pending.m pending.n pending.i pending.r pending.c (if pending.s == "" then Nothing else Just pending.s) (if pending.d == "" then Nothing else Just pending.d) hash pending.sig))
 
 export
 trustDocument : String -> Result String TrustEntry
