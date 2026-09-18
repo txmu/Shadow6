@@ -6,6 +6,7 @@ import Data.List
 import Shadow6.Types
 import Shadow6.Crypto
 import Shadow6.Documents
+import Shadow6.Protocol
 import Shadow6.Features
 import Shadow6.SecurityTests
 
