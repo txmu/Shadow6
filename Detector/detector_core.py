@@ -93,7 +93,7 @@ def open_validated_model(path: str | Path):
         raise PermissionError("model file must not be group/world writable")
     if before.st_size > MAX_MODEL_BYTES:
         raise ValueError("model file is too large")
-    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
     descriptor = os.open(model_path, flags)
     try:
         opened = os.fstat(descriptor)

@@ -3,7 +3,8 @@ module Shadow6.Security.Policy
 import Data.List
 import Data.Vect
 import Shadow6.Types
-import System.File
+import Shadow6.Crypto
+import Shadow6.StrictJSON
 
 %default total
 
@@ -35,6 +36,7 @@ record SecureFileDescriptor where
   isNotSymlink : Bool
   ownerOnly : Bool
   mode : Bits32
+  contents : List Bits8
 
 public export
 MODE_0600 : Bits32
@@ -44,12 +46,19 @@ public export
 MODE_0644 : Bits32
 MODE_0644 = 0o644
 
+%foreign "C:idris_read_secure_hex,libsodium_ffi"
+prim__readSecure : String -> PrimIO String
+
 public export
 validateSecureFile : String -> IO (Result String SecureFileDescriptor)
-validateSecureFile path = do
-  Right _ <- openFile path Read
-    | Left err => pure (Err ("Cannot open file: " ++ show err))
-  pure (Ok (MkSecureFile path True True True MODE_0600))
+validateSecureFile path =
+  if length path == 0 || length path > 4095 || elem '\0' (unpack path)
+  then pure (Err "Invalid secure file path")
+  else do
+    raw <- primIO (prim__readSecure path)
+    pure $ case hexBytes raw of
+      Err _ => Err "File must be bounded, regular, owner-controlled, unlinked and mode 0600"
+      Ok bytes => Ok (MkSecureFile path True True True MODE_0600 bytes)
 
 public export
 record DomainPolicy where
@@ -86,20 +95,20 @@ defaultDomainPolicies = [
 
 public export
 validateStrictJSON : String -> Result String ()
-validateStrictJSON json =
-  if isInfixOf (unpack "$$") (unpack json) || isInfixOf (unpack "__proto__") (unpack json) then Err "JSON contains suspicious patterns"
-  else if length json > 1048576 then Err "JSON too large" else Ok ()
+validateStrictJSON json = case parseStrictJSON json of
+  Err e => Err e
+  Ok _ => Ok ()
 
 public export
 validateUTF8 : String -> Bool
-validateUTF8 str = all (\c => ord c >= 0 && ord c <= 0x10ffff) (unpack str)
+validateUTF8 str = all (\c => ord c >= 0 && ord c <= 0x10ffff && not (ord c >= 0xd800 && ord c <= 0xdfff)) (unpack str)
 
 public export
 sanitizeForLog : String -> String
 sanitizeForLog str = pack (map sanitizeChar (unpack str))
   where
     sanitizeChar : Char -> Char
-    sanitizeChar c = if c == '\n' || c == '\r' || c == '\0' then ' ' else c
+    sanitizeChar c = if ord c < 32 || ord c == 127 || (ord c >= 0x202a && ord c <= 0x202e) || (ord c >= 0x2066 && ord c <= 0x2069) then ' ' else c
 
 public export
 record NonceTracker where
@@ -110,8 +119,8 @@ record NonceTracker where
 public export
 checkNonce : NonceTracker -> Vect 16 Bits8 -> (NonceTracker, Bool)
 checkNonce tracker nonce =
-  if nonce `elem` tracker.seenNonces then (tracker, False)
-  else ({ seenNonces := take tracker.maxSize (nonce :: tracker.seenNonces) } tracker, True)
+  if nonce `elem` tracker.seenNonces || length tracker.seenNonces >= tracker.maxSize then (tracker, False)
+  else ({ seenNonces := nonce :: tracker.seenNonces } tracker, True)
 
 public export
 newNonceTracker : Nat -> NonceTracker

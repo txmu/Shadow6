@@ -12,6 +12,9 @@ depends = base >= 0.6.0
         , network
 
 modules = Shadow6.Types
+        , Shadow6.StrictJSON
+        , Shadow6.Documents
+        , Shadow6.SecurityTests
         , Shadow6.Security
         , Shadow6.Crypto
         , Shadow6.Protocol

@@ -1,0 +1,85 @@
+name: Idris security regressions
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  idris:
+    name: Core-Idris (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Homebrew/actions/setup-homebrew@49d03f1bf5d455a413dfbdf99e6718054a4cd975
+      - name: Install Core-Idris prerequisites (Ubuntu)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends build-essential chezscheme libsodium-dev pkg-config
+      - name: Install Core-Idris prerequisites (macOS)
+        if: runner.os == 'macOS'
+        run: brew install libsodium pkg-config
+      - name: Configure Core-Idris FFI library path
+        shell: bash
+        run: |
+          ffi_dir="$GITHUB_WORKSPACE/Core-Idris/ffi"
+          echo "LD_LIBRARY_PATH=$ffi_dir:${LD_LIBRARY_PATH:-}" >> "$GITHUB_ENV"
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            echo "DYLD_LIBRARY_PATH=$ffi_dir:$(brew --prefix libsodium)/lib:${DYLD_LIBRARY_PATH:-}" >> "$GITHUB_ENV"
+          fi
+      - name: Install Idris2 binary package
+        shell: bash
+        run: |
+          brew install idris2
+          idris2="$(brew --prefix idris2)/bin/idris2"
+          test -x "$idris2"
+          echo "$(dirname "$idris2")" >> "$GITHUB_PATH"
+          echo "IDRIS2=$idris2" >> "$GITHUB_ENV"
+      - name: Check Idris modules sequentially
+        shell: bash
+        run: |
+          set -euo pipefail
+          sources=(
+            Core-Idris/src/Shadow6/Types.idr
+            Core-Idris/src/Shadow6/StrictJSON.idr
+            Core-Idris/src/Shadow6/Security/Context.idr
+            Core-Idris/src/Shadow6/Security/Policy.idr
+            Core-Idris/src/Shadow6/Security/Operations.idr
+            Core-Idris/src/Shadow6/Security/Socket.idr
+            Core-Idris/src/Shadow6/Security/Lifecycle.idr
+            Core-Idris/src/Shadow6/Security/Allocation.idr
+            Core-Idris/src/Shadow6/Security.idr
+            Core-Idris/src/Shadow6/Crypto.idr
+            Core-Idris/src/Shadow6/Protocol.idr
+            Core-Idris/src/Shadow6/Features.idr
+            Core-Idris/src/Shadow6/Documents.idr
+            Core-Idris/src/Shadow6/SecurityTests.idr
+            Core-Idris/src/Main.idr
+          )
+          for source in "${sources[@]}"; do
+            echo "::group::Checking $source"
+            "$IDRIS2" --check "$source" --source-dir Core-Idris/src \
+              --build-dir "$RUNNER_TEMP/idris-check" -p contrib -p network
+            echo "::endgroup::"
+          done
+      - name: Build and test Core-Idris
+        run: make test-idris PYTHON=python3
+      - name: Exercise real bounded UDP event loop
+        run: |
+          set -euo pipefail
+          test -x Core-Idris/shadow6-idris
+          Core-Idris/shadow6-idris --udp-loopback 0 1
+      - name: Run real loopback integration
+        run: |
+          export LD_LIBRARY_PATH="$GITHUB_WORKSPACE/Core-Idris/ffi:${LD_LIBRARY_PATH:-}"
+          Core-Idris/shadow6-idris --loopback-test
+          test "$(${GITHUB_WORKSPACE}/Core-Idris/shadow6-idris --feature-report | python3 -c 'import json,sys; print(json.load(sys.stdin)["crosed_max_level"])')" = 0
+      - name: Build and test Crosed variant
+        run: make idris-crosed-variant PYTHON=python3 && python3 Core-Idris/test_core.py
+      - name: Focused security regressions (both variants)
+        run: |
+          python3 -m venv "$RUNNER_TEMP/idris-test-env"
+          "$RUNNER_TEMP/idris-test-env/bin/pip" install 'cryptography>=43,<47'
+          IDRIS_SECURITY_BINARIES=1 "$RUNNER_TEMP/idris-test-env/bin/python" Core-Idris/test_security.py

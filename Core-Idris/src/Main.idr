@@ -1,252 +1,75 @@
 module Main
 
 import System
-import System.File
 import Data.String
 import Data.List
-import Data.Vect
 import Shadow6.Types
-import Shadow6.Security
 import Shadow6.Crypto
-import Shadow6.Protocol
+import Shadow6.Documents
 import Shadow6.Features
+import Shadow6.SecurityTests
 
 %default total
 
--- | Command-line argument parsing
-data Command = FeatureReport | Version | Help | Run | LoopbackTest | UdpLoopback Bits16 Bits32 | Unknown String
+data Command = FeatureReport | Version | Help | Run | LoopbackTest
+             | UdpLoopback Bits16 Bits32 | Authorize String String | SecurityTest | Unknown
+
+unsigned : String -> Maybe Integer
+unsigned s = if null (unpack s) || not (all (\c => c >= '0' && c <= '9') (unpack s)) || length s > 10
+  then Nothing else Just (cast s)
 
 parseArgs : List String -> Command
-parseArgs [] = Run  -- Default: run daemon
-parseArgs ("--feature-report" :: _) = FeatureReport
-parseArgs ("--version" :: _) = Version
-parseArgs ("-h" :: _) = Help
-parseArgs ("--help" :: _) = Help
-parseArgs ("run" :: _) = Run
-parseArgs ("--loopback-test" :: _) = LoopbackTest
-parseArgs ("--udp-loopback" :: port :: limit :: _) =
-  case (parsePositive port, parsePositive limit) of
-    (Just p, Just n) => UdpLoopback (cast p) (cast n)
-    _ => Unknown "--udp-loopback"
-parseArgs (x :: _) = Unknown x
+parseArgs [] = Run
+parseArgs ["run"] = Run
+parseArgs ["--feature-report"] = FeatureReport
+parseArgs ["--version"] = Version
+parseArgs ["--help"] = Help
+parseArgs ["-h"] = Help
+parseArgs ["--loopback-test"] = LoopbackTest
+parseArgs ["--security-test"] = SecurityTest
+parseArgs ["--authorize", request, trust] = Authorize request trust
+parseArgs ["--udp-loopback", port, limit] = case (unsigned port, unsigned limit) of
+  (Just p, Just n) => if p <= 65535 && n > 0 && n <= 10000 then UdpLoopback (cast p) (cast n) else Unknown
+  _ => Unknown
+parseArgs _ = Unknown
 
-parsePositive : String -> Maybe Nat
-parsePositive s = case stringToNatOrZ s of
-  n => if n > 0 then Just n else Nothing
+reportError : String -> IO ()
+reportError message = putStrLn ("Error: " ++ message) >> exitFailure
 
--- | Display feature report
-showFeatureReport : IO ()
-showFeatureReport = do
-  let report = featureReport
-  putStrLn (serializeFeatureReport report)
+runLoopback : IO ()
+runLoopback = do
+  result <- secureLoopbackTest
+  case result of
+    Ok () => putStrLn "secure loopback integration: PASS"
+    Err e => reportError e
 
--- | Display version information
-showVersion : IO ()
-showVersion = do
-  putStrLn ("Shadow6 Core-Idris " ++ CORE_VERSION)
-  putStrLn "Formally verified implementation with dependent types"
-  putStrLn ""
-  putStrLn "Type System Guarantees:"
-  putStrLn "  ✓ Buffer bounds proven at compile time"
-  putStrLn "  ✓ Privilege escalation impossible without proofs"
-  putStrLn "  ✓ Resource limits enforced by types"
-  putStrLn "  ✓ No null pointers, no buffer overflows"
-  putStrLn "  ✓ Timing-channel UDP validation"
-  putStrLn ""
-  putStrLn "Copyright (c) 2024-2026 Shadow6 Project"
+runUDP : Bits16 -> Bits32 -> IO ()
+runUDP port limit = do
+  result <- daemonLoop port limit
+  case result of
+    Ok n => putStrLn ("udp loopback handled " ++ show n ++ " datagrams")
+    Err e => reportError e
 
--- | Display help message
-showHelp : IO ()
-showHelp = do
-  putStrLn "Shadow6 Core-Idris - Formally Verified Core"
-  putStrLn ""
-  putStrLn "Usage: shadow6-idris [OPTIONS]"
-  putStrLn ""
-  putStrLn "Options:"
-  putStrLn "  run                 Run daemon (default)"
-  putStrLn "  --feature-report    Display feature configuration as JSON"
-  putStrLn "  --version           Display version information"
-  putStrLn "  --loopback-test     Run bounded authenticated loopback exchange"
-  putStrLn "  --udp-loopback P N  Run loopback UDP daemon for at most N datagrams"
-  putStrLn "  -h, --help          Display this help message"
-  putStrLn ""
-  putStrLn "Security Features:"
-  putStrLn "  - Dependent types prove buffer bounds at compile time"
-  putStrLn "  - Timing-channel UDP with modular arithmetic validation"
-  putStrLn "  - Privilege levels enforced by type system (L0-L5)"
-  putStrLn "  - Ed25519 signatures with libsodium FFI"
-  putStrLn "  - AES-256-GCM with proven nonce uniqueness"
-  putStrLn "  - Resource bounds checked at compilation"
-  putStrLn ""
-  putStrLn "Build Variants:"
-  putStrLn "  shadow6-idris         - Default L0 build (least privilege)"
-  putStrLn "  shadow6-idris-crosed  - L5 build (full Crosed capabilities)"
-
--- | Initialize daemon state
-record DaemonState where
-  constructor MkDaemonState
-  nonceTracker : NonceTracker
-  activeConnections : Nat
-  totalRequests : Nat
-  startTime : Integer
-
--- | Create initial daemon state
-initDaemonState : IO DaemonState
-initDaemonState = do
-  -- Current timestamp (simplified)
-  let startTime = 0  -- In production: use FFI to get time(NULL)
-  pure (MkDaemonState (newNonceTracker 10000) 0 0 startTime)
-
--- | Process single Crosed request
-processCrosedRequest : DaemonState -> 
-                       CrosedRequest -> 
-                       TrustEntry -> 
-                       IO (DaemonState, Result String CrosedResponse)
-processCrosedRequest state req trust = do
-  -- Check nonce for replay attack
-  let (newTracker, nonceValid) = checkNonce state.nonceTracker req.nonce
-  
-  if not nonceValid
-    then do
-      let errResp = Err "Replay attack detected: nonce already seen"
-      pure (state, errResp)
-    else do
-      -- Validate request
-      result <- validateCrosedRequest req trust
-      
-      let newState = { nonceTracker := newTracker,
-                       totalRequests := S state.totalRequests } state
-      
-      pure (newState, result)
-
--- | Main daemon event loop (simplified)
-partial
-runEventLoop : DaemonState -> IO ()
-runEventLoop state = do
-  -- In production: select()/epoll() on network sockets
-  putStrLn ("Processed " ++ show state.totalRequests ++ " requests")
-  
-  -- Sleep briefly
-  -- In production: usleep(100000) via FFI
-  
-  -- Continue loop
-  runEventLoop state
-
--- | Run core daemon with proven security context
-partial
-runDaemon : IO ()
-runDaemon = do
-  putStrLn "========================================="
-  putStrLn "Shadow6 Core-Idris - Formally Verified"
-  putStrLn "========================================="
-  putStrLn ""
-  
-  -- Initialize cryptography
-  cryptoResult <- initCrypto
-  case cryptoResult of
-    Err e => do
-      putStrLn ("FATAL: Cryptography initialization failed: " ++ e)
-      putStrLn "Ensure libsodium is installed"
-      exitFailure
-    Ok () => putStrLn "✓ Cryptography initialized (libsodium)"
-  
-  -- Display build configuration
-  let report = featureReport
-  putStrLn ""
-  putStrLn "Build Configuration:"
-  putStrLn ("  Core:            " ++ report.core)
-  putStrLn ("  Version:         " ++ report.version)
-  putStrLn ("  Crosed Level:    L" ++ show report.crosedMaxLevel)
-  putStrLn ("  App Transport:   " ++ show report.appTransport)
-  putStrLn ("  Qubes Isolation: " ++ show report.qubesIsolation)
-  putStrLn ("  UTF-8:           " ++ show report.utf8)
-  putStrLn ("  Capabilities:    " ++ show (length report.crosedCapabilities))
-  
-  -- Create security context based on compiled level
-  let level = COMPILED_CROSED_LEVEL
-  let caps = compiledCapabilities level
-  let ctx = MkSecurityContext level caps 0 0
-  
-  putStrLn ""
-  putStrLn "Security Context:"
-  putStrLn ("  Privilege Level: L" ++ show (levelToNat level))
-  putStrLn ("  Capabilities:    " ++ show (length caps))
-  putStrLn ("  Memory Limit:    1 GiB")
-  putStrLn ("  Connection Limit: 512")
-  putStrLn ""
-  
-  -- Display type system guarantees
-  putStrLn "Type System Guarantees Active:"
-  putStrLn "  ✓ All buffer accesses proven safe at compile time"
-  putStrLn "  ✓ Privilege escalation requires type-level proof"
-  putStrLn "  ✓ Resource allocations bounded by dependent types"
-  putStrLn "  ✓ AEAD nonce counters proven not to overflow"
-  putStrLn "  ✓ Timing-channel validation with modular arithmetic"
-  putStrLn ""
-  
-  -- Initialize daemon state
-  state <- initDaemonState
-  putStrLn ("✓ Daemon state initialized")
-  putStrLn ("✓ Nonce tracker ready (capacity: 10000)")
-  putStrLn ""
-  
-  -- Example: Create socket at L3+ (only compiles if level >= L3)
-  case level of
-    L0 => putStrLn "Note: L0 build - network operations require L3+"
-    L1 => putStrLn "Note: L1 build - network operations require L3+"
-    L2 => putStrLn "Note: L2 build - network operations require L3+"
-    _ => do
-      -- This proves level >= L3 at compile time
-      putStrLn "Initializing network stack (L3+ privilege proven)..."
-      -- socketResult <- createSocket ctx
-      -- In production: bind, listen, etc.
-      putStrLn "✓ Network stack ready"
-  
-  putStrLn ""
-  putStrLn "========================================="
-  putStrLn "Core-Idris daemon ready"
-  putStrLn "========================================="
-  putStrLn ""
-  
-  -- Note: Full daemon implementation would:
-  -- 1. Create UDP/TCP sockets
-  -- 2. Register timing windows for UDP timing-channel
-  -- 3. Accept Crosed requests and validate signatures
-  -- 4. Process requests with proven privilege checks
-  -- 5. Enforce resource bounds via dependent types
-  -- 6. Log sanitized events
-  
-  putStrLn "Listening: loopback-only bounded TCP control channel"
-  putStrLn "Use --loopback-test to verify the authenticated data path"
-
-runLoopbackTest : IO ()
-runLoopbackTest = do
-  c <- initCrypto
-  case c of
-    Err e => putStrLn ("FAIL: " ++ e) >> exitFailure
-    Ok () => do
-      result <- secureLoopbackTest
-      case result of
-        Ok () => putStrLn "secure loopback integration: PASS"
-        Err e => putStrLn ("secure loopback integration: FAIL (" ++ e ++ ")") >> exitFailure
-
--- | Main entry point
-partial
 main : IO ()
 main = do
   args <- getArgs
-  case parseArgs (drop 1 args) of
-    FeatureReport => showFeatureReport
-    Version => showVersion
-    Help => showHelp
-    Run => runDaemon
-    LoopbackTest => runLoopbackTest
-    UdpLoopback port limit => do
-      result <- daemonLoop port limit
-      case result of
-        Ok n => putStrLn ("udp loopback daemon handled " ++ show n ++ " datagrams")
-        Err e => putStrLn ("udp loopback daemon failed: " ++ e) >> exitFailure
-    Unknown cmd => do
-      putStrLn ("Unknown command: " ++ cmd)
-      putStrLn "Use --help for usage information"
-      exitFailure
+  initialized <- initCrypto
+  case initialized of
+    Err e => reportError e
+    Ok () => case parseArgs (drop 1 args) of
+      FeatureReport => putStrLn (serializeFeatureReport featureReport)
+      Version => putStrLn ("Shadow6 Core-Idris " ++ CORE_VERSION ++ "\nDependent-type checks with libsodium cryptography")
+      Help => do
+        putStrLn "Shadow6 Core-Idris"
+        putStrLn "run | --feature-report | --version | --loopback-test | --security-test"
+        putStrLn "--udp-loopback PORT PACKET_LIMIT | --authorize REQUEST_FILE TRUST_FILE"
+      Run => runUDP 0 10000
+      LoopbackTest => runLoopback
+      UdpLoopback port limit => runUDP port limit
+      SecurityTest => securityTests
+      Authorize request trust => do
+        result <- authorizeDocuments request trust
+        case result of
+          Err e => reportError e
+          Ok response => putStrLn ("granted " ++ response.modId ++ " L" ++ show (levelToNat response.grantedLevel))
+      Unknown => reportError "Invalid arguments; use --help"

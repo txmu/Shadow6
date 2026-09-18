@@ -43,6 +43,7 @@ Ord CrosedLevel where
   compare L4 L3 = GT
   compare L4 L4 = EQ
   compare L4 _ = LT
+  compare L5 L5 = EQ
   compare L5 _ = GT
 
 public export
@@ -94,15 +95,23 @@ record TimingWindow where
   slotId : Fin modulus  -- Slot ID must be < modulus
   toleranceMicros : Nat  -- Jitter tolerance in microseconds
 
--- | Timestamp with modular arithmetic proof
+-- The proposition covers the circular tolerance window, not exact slot equality.
+public export
+timingValid : Integer -> TimingWindow -> Bool
+timingValid timestamp window =
+  let m : Integer = cast window.modulus
+      slot : Integer = cast (finToNat window.slotId)
+      tolerance : Integer = cast window.toleranceMicros
+  in if m <= 0 || timestamp < 0 || tolerance * 2 >= m then False
+     else let distance = abs ((timestamp `mod` m) - slot)
+          in min distance (m - distance) <= tolerance
+
 public export
 record TimestampProof where
   constructor MkTimestampProof
   timestampMicros : Integer
   window : TimingWindow
-  -- Proof that timestamp mod modulus == slotId
-  valid : (timestampMicros `mod` the Integer (cast window.modulus) =
-           the Integer (cast (finToNat window.slotId)))
+  valid : timingValid timestampMicros window = True
 
 -- | Safe index into bounded buffer - prevents out-of-bounds access
 public export

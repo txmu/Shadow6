@@ -2,295 +2,147 @@ module Shadow6.Crypto
 
 import Data.Vect
 import Data.Fin
+import Data.Bits
 import Data.Buffer
+import Decidable.Equality
 import Shadow6.Types
 
 %default total
 
--- | FFI bindings to our C wrapper (which calls libsodium)
 %foreign "C:idris_sodium_init,libsodium_ffi"
-prim__sodium_init : PrimIO Int
-
-%foreign "C:idris_sodium_memzero,libsodium_ffi"
-prim__sodium_memzero : Ptr Bits8 -> Bits64 -> PrimIO ()
-
-%foreign "C:idris_ed25519_verify,libsodium_ffi"
-prim__ed25519_verify : Ptr Bits8 -> Ptr Bits8 -> Bits64 -> Ptr Bits8 -> PrimIO Int
-
-%foreign "C:idris_aes256gcm_available,libsodium_ffi"
-prim__aes256gcm_available : PrimIO Int
-
-%foreign "C:idris_aes256gcm_encrypt,libsodium_ffi"
-prim__aes256gcm_encrypt : Ptr Bits8 -> Ptr Bits64 -> Ptr Bits8 -> Bits64 -> 
-                          Ptr Bits8 -> Bits64 -> Ptr Bits8 -> Ptr Bits8 -> 
-                          Ptr Bits8 -> PrimIO Int
-
-%foreign "C:idris_aes256gcm_decrypt,libsodium_ffi"
-prim__aes256gcm_decrypt : Ptr Bits8 -> Ptr Bits64 -> Ptr Bits8 -> Ptr Bits8 ->
-                          Bits64 -> Ptr Bits8 -> Bits64 -> Ptr Bits8 ->
-                          Ptr Bits8 -> PrimIO Int
-
-%foreign "C:idris_sha256,libsodium_ffi"
-prim__sha256 : Ptr Bits8 -> Ptr Bits8 -> Bits64 -> PrimIO Int
-
-%foreign "C:idris_random_bytes,libsodium_ffi"
-prim__random_bytes : Ptr Bits8 -> Bits64 -> PrimIO ()
-
-%foreign "C:idris_loopback_exchange,libsodium_ffi"
-prim__loopback_exchange : Ptr Bits8 -> Bits64 -> Ptr Bits8 -> Bits64 -> PrimIO Int
+prim__init : PrimIO Int
+%foreign "C:idris_crypto_hex,libsodium_ffi"
+prim__crypto : Int -> String -> String -> String -> String -> PrimIO String
+%foreign "C:idris_random_hex,libsodium_ffi"
+prim__random : Bits32 -> PrimIO String
+%foreign "C:idris_now,libsodium_ffi"
+prim__now : PrimIO Bits64
 %foreign "C:idris_secure_loopback_test,libsodium_ffi"
-prim__secure_loopback_test : PrimIO Int
-
+prim__loopback : PrimIO Int
 %foreign "C:idris_daemon_loop,libsodium_ffi"
-prim__daemon_loop : Bits16 -> Bits32 -> PrimIO Int
+prim__daemon : Bits16 -> Bits32 -> PrimIO Int
 
 public export
-daemonLoop : Bits16 -> Bits32 -> IO (Result String Int)
-daemonLoop port limit = do
-  result <- primIO (prim__daemon_loop port limit)
-  if result < 0 then pure (Err "loopback UDP daemon failed") else pure (Ok result)
-
--- Helper functions for Buffer manipulation
-%foreign "scheme:blodwen-buffer-getbyte"
-         "RefC:getBufferByte"
-prim__getByte : Buffer -> Int -> PrimIO Int
-
-%foreign "scheme:blodwen-buffer-setbyte"
-         "RefC:setBufferByte"
-prim__setByte : Buffer -> Int -> Bits8 -> PrimIO ()
-
--- Convert Vect to Buffer
-vectToBuffer : {n : Nat} -> Vect n Bits8 -> IO Buffer
-vectToBuffer {n} vec = do
-  result <- newBuffer (cast n)
-  case result of
-    Nothing => pure (believe_me ())
-    Just buf => do
-      copyToBuffer buf 0 (toList vec)
-      pure buf
+bytesHex : List Bits8 -> String
+bytesHex bytes = concat (map encode bytes)
   where
-    copyToBuffer : Buffer -> Int -> List Bits8 -> IO ()
-    copyToBuffer buf idx [] = pure ()
-    copyToBuffer buf idx (x :: xs) = do
-      primIO $ prim__setByte buf idx x
-      copyToBuffer buf (idx + 1) xs
+    digit : Bits8 -> Char
+    digit n = if n < 10 then chr (ord '0' + cast n) else chr (ord 'a' + cast n - 10)
+    encode : Bits8 -> String
+    encode b = pack [digit (b `shiftR` 4), digit (b .&. 15)]
 
--- Convert Buffer to Vect
-bufferToVect : Buffer -> (n : Nat) -> IO (Vect n Bits8)
-bufferToVect buf Z = pure []
-bufferToVect buf n = readAt 0 n
+public export
+hexBytes : String -> Result String (List Bits8)
+hexBytes value = decode (unpack value)
   where
-    readAt : Int -> (remaining : Nat) -> IO (Vect remaining Bits8)
-    readAt idx Z = pure []
-    readAt idx (S k) = do
-      byte <- primIO $ prim__getByte buf idx
-      rest <- readAt (idx + 1) k
-      pure (cast byte :: rest)
+    digit : Char -> Maybe Bits8
+    digit c = if c >= '0' && c <= '9' then Just (cast (ord c - ord '0'))
+              else if c >= 'a' && c <= 'f' then Just (cast (ord c - ord 'a' + 10))
+              else Nothing
+    decode : List Char -> Result String (List Bits8)
+    decode [] = Ok []
+    decode (a :: b :: rest) = case (digit a, digit b, decode rest) of
+      (Just hi, Just lo, Ok xs) => Ok ((hi * 16 + lo) :: xs)
+      _ => Err "Invalid hex or cryptographic operation failed"
+    decode _ = Err "Invalid hex length"
 
--- Get buffer raw pointer
-%foreign "RefC:getBufferData"
-prim__bufferData : Buffer -> Ptr Bits8
+public export
+listVect : List a -> (n : Nat ** Vect n a)
+listVect [] = (0 ** [])
+listVect (x :: xs) = let (n ** rest) = listVect xs in (S n ** x :: rest)
 
--- | Initialize libsodium
+public export
+fixedHex : (n : Nat) -> String -> Result String (Vect n Bits8)
+fixedHex n text = case hexBytes text of
+  Err e => Err e
+  Ok bytes => case listVect bytes of
+    (m ** values) => case decEq m n of
+      Yes Refl => Ok values
+      No _ => Err "Cryptographic output length mismatch"
+
 export
 initCrypto : IO (Result String ())
 initCrypto = do
-  result <- primIO prim__sodium_init
-  if result >= 0
-    then pure (Ok ())
-    else pure (Err "Failed to initialize libsodium")
+  rc <- primIO prim__init
+  pure (if rc >= 0 then Ok () else Err "libsodium initialization failed")
 
--- | Securely zero memory
+-- Wipe the supplied mutable buffer itself, not a copy of an immutable Vect.
 export
-secureZero : {n : Nat} -> Vect n Bits8 -> IO ()
-secureZero {n} vec = do
-  buf <- vectToBuffer vec
-  primIO $ prim__sodium_memzero (prim__bufferData buf) (cast n)
-  pure ()
+secureZero : Buffer -> IO ()
+secureZero buf = do
+  size <- rawSize buf
+  clear 0 (cast size)
+  where
+    clear : Int -> Nat -> IO ()
+    clear offset Z = pure ()
+    clear offset (S n) = setByte buf offset 0 >> clear (offset + 1) n
 
--- | Verify Ed25519 signature
 export
-verifyEd25519 : {msgLen : Nat} ->
-                Ed25519Signature -> 
-                Vect msgLen Bits8 -> 
-                Ed25519PublicKey -> 
-                IO (Result String ())
-verifyEd25519 sig msg pubkey = do
-  sigBuf <- vectToBuffer sig
-  msgBuf <- vectToBuffer msg
-  keyBuf <- vectToBuffer pubkey
-  
-  result <- primIO $ prim__ed25519_verify 
-    (prim__bufferData sigBuf)
-    (prim__bufferData msgBuf)
-    (cast msgLen)
-    (prim__bufferData keyBuf)
-  
-  if result == 0
-    then pure (Ok ())
-    else pure (Err "Ed25519 signature verification failed")
+currentTime : IO Integer
+currentTime = map cast (primIO prim__now)
 
--- | Timing-channel validation
+export
+verifyEd25519 : {msgLen : Nat} -> Ed25519Signature -> Vect msgLen Bits8 -> Ed25519PublicKey -> IO (Result String ())
+verifyEd25519 sig msg key =
+  if msgLen > MAX_AEAD_PLAINTEXT then pure (Err "Signed message too large")
+  else do
+    result <- primIO (prim__crypto 1 (bytesHex (toList key)) "" (bytesHex (toList msg)) (bytesHex (toList sig)))
+    pure (if result == "ok" then Ok () else Err "Ed25519 signature verification failed")
+
 export
 validateTimingChannel : Integer -> TimingWindow -> Maybe TimestampProof
-validateTimingChannel timestamp window =
-  let modulus = cast (modulus window)
-      slotNat = finToNat (slotId window)
-      tolerance = cast (toleranceMicros window)
-      modResult = timestamp `mod` modulus
-      slotInt = cast slotNat
-      lowerBound = slotInt - tolerance
-      upperBound = slotInt + tolerance
-      inWindow = if lowerBound < 0
-                 then (modResult >= (modulus + lowerBound) || modResult <= upperBound)
-                 else if upperBound >= modulus
-                 then (modResult >= lowerBound || modResult <= (upperBound - modulus))
-                 else (modResult >= lowerBound && modResult <= upperBound)
-  in if inWindow
-     then Just (MkTimestampProof timestamp window (believe_me ()))
-     else Nothing
+validateTimingChannel timestamp window = case decEq (timingValid timestamp window) True of
+  Yes proof => Just (MkTimestampProof timestamp window proof)
+  No _ => Nothing
 
--- | Parse network frame
 export
 parseFrame : List Bits8 -> Result String NetworkFrame
-parseFrame bytes =
-  let len = length bytes
-  in if len > MAX_FRAME_SIZE
-     then Err ("Frame too large: " ++ show len ++ " > " ++ show MAX_FRAME_SIZE)
-     else case toVect len bytes of
-            (n ** vec) => 
-              case isLTE n MAX_FRAME_SIZE of
-                Yes prf => Ok (n ** (prf, vec))
-                No _ => Err "Frame size validation failed"
-  where
-    toVect : (n : Nat) -> List Bits8 -> (m : Nat ** Vect m Bits8)
-    toVect n [] = (0 ** [])
-    toVect n (x :: xs) = 
-      let (k ** v) = toVect n xs
-      in (S k ** x :: v)
+parseFrame bytes = if length bytes > MAX_FRAME_SIZE || null bytes then Err "Invalid frame length"
+  else case listVect bytes of
+    (n ** vec) => case isLTE n MAX_FRAME_SIZE of
+      Yes proof => Ok (n ** (proof, vec))
+      No _ => Err "Frame too large"
 
--- | AES-256-GCM encryption
 export
-encryptAES256GCM : {ptLen : Nat} ->
-                   AES256Key ->
-                   Vect 12 Bits8 ->
-                   Vect ptLen Bits8 ->
-                   IO (Result String (n : Nat ** Vect n Bits8))
-encryptAES256GCM key nonce plaintext = do
-  if ptLen > MAX_AEAD_PLAINTEXT
-    then pure (Err "Plaintext exceeds maximum size")
-    else do
-      keyBuf <- vectToBuffer key
-      nonceBuf <- vectToBuffer nonce
-      ptBuf <- vectToBuffer plaintext
-      
-      let ctLen = ptLen + 16
-      Just ctBuf <- newBuffer (cast ctLen)
-        | Nothing => pure (Err "Failed to allocate ciphertext buffer")
-      
-      Just ctLenBuf <- newBuffer 8
-        | Nothing => pure (Err "Failed to allocate length buffer")
-      
-      -- Call encryption (no additional data, no secret nonce)
-      result <- primIO $ prim__aes256gcm_encrypt
-        (prim__bufferData ctBuf)
-        (believe_me $ prim__bufferData ctLenBuf)
-        (prim__bufferData ptBuf)
-        (cast ptLen)
-        (believe_me prim__getNullAnyPtr)
-        0
-        (believe_me prim__getNullAnyPtr)
-        (prim__bufferData nonceBuf)
-        (prim__bufferData keyBuf)
-      
-      if result /= 0
-        then pure (Err "AES-256-GCM encryption failed")
-        else do
-          ct <- bufferToVect ctBuf ctLen
-          pure (Ok (ctLen ** ct))
+encryptAES256GCM : {ptLen : Nat} -> AES256Key -> Vect 12 Bits8 -> Vect ptLen Bits8 -> IO (Result String (n : Nat ** Vect n Bits8))
+encryptAES256GCM key nonce plaintext =
+  if ptLen > MAX_AEAD_PLAINTEXT then pure (Err "Plaintext too large")
+  else do
+    result <- primIO (prim__crypto 2 (bytesHex (toList key)) (bytesHex (toList nonce)) (bytesHex (toList plaintext)) "")
+    pure $ case fixedHex (ptLen + 16) result of
+      Err e => Err e
+      Ok bytes => Ok (ptLen + 16 ** bytes)
 
--- | AES-256-GCM decryption  
 export
-decryptAES256GCM : {ctLen : Nat} ->
-                   AES256Key ->
-                   Vect 12 Bits8 ->
-                   Vect ctLen Bits8 ->
-                   IO (Result String (n : Nat ** Vect n Bits8))
-decryptAES256GCM key nonce ciphertext = do
-  if ctLen < 16
-    then pure (Err "Ciphertext too short (missing authentication tag)")
-    else do
-      keyBuf <- vectToBuffer key
-      nonceBuf <- vectToBuffer nonce
-      ctBuf <- vectToBuffer ciphertext
-      
-      let ptLen = minus ctLen 16
-      Just ptBuf <- newBuffer (cast ptLen)
-        | Nothing => pure (Err "Failed to allocate plaintext buffer")
-      
-      Just ptLenBuf <- newBuffer 8
-        | Nothing => pure (Err "Failed to allocate length buffer")
-      
-      result <- primIO $ prim__aes256gcm_decrypt
-        (prim__bufferData ptBuf)
-        (believe_me $ prim__bufferData ptLenBuf)
-        (believe_me prim__getNullAnyPtr)
-        (prim__bufferData ctBuf)
-        (cast ctLen)
-        (believe_me prim__getNullAnyPtr)
-        0
-        (prim__bufferData nonceBuf)
-        (prim__bufferData keyBuf)
-      
-      if result /= 0
-        then pure (Err "AES-256-GCM decryption failed (authentication failure)")
-        else do
-          pt <- bufferToVect ptBuf ptLen
-          pure (Ok (ptLen ** pt))
+decryptAES256GCM : {ctLen : Nat} -> AES256Key -> Vect 12 Bits8 -> Vect ctLen Bits8 -> IO (Result String (n : Nat ** Vect n Bits8))
+decryptAES256GCM key nonce ciphertext =
+  if ctLen < 16 || ctLen > MAX_AEAD_PLAINTEXT + 16 then pure (Err "Invalid ciphertext length")
+  else do
+    result <- primIO (prim__crypto 3 (bytesHex (toList key)) (bytesHex (toList nonce)) (bytesHex (toList ciphertext)) "")
+    pure $ case fixedHex (minus ctLen 16) result of
+      Err e => Err e
+      Ok bytes => Ok (minus ctLen 16 ** bytes)
 
--- | SHA-256 hash
 export
-sha256 : {n : Nat} -> Vect n Bits8 -> IO (Vect 32 Bits8)
-sha256 input = do
-  inBuf <- vectToBuffer input
-  Just outBuf <- newBuffer 32
-    | Nothing => pure (replicate 32 0)
-  
-  result <- primIO $ prim__sha256
-    (prim__bufferData outBuf)
-    (prim__bufferData inBuf)
-    (cast n)
-  
-  if result == 0
-    then bufferToVect outBuf 32
-    else pure (replicate 32 0)
+sha256 : {n : Nat} -> Vect n Bits8 -> IO (Result String (Vect 32 Bits8))
+sha256 input = if n > MAX_AEAD_PLAINTEXT then pure (Err "Hash input too large") else do
+  result <- primIO (prim__crypto 0 "" "" (bytesHex (toList input)) "")
+  pure (fixedHex 32 result)
 
--- | Generate random bytes
 export
-randomBytes : (n : Nat) -> IO (Vect n Bits8)
-randomBytes n = do
-  Just buf <- newBuffer (cast n)
-    | Nothing => pure (replicate n 0)
-  primIO $ prim__random_bytes (prim__bufferData buf) (cast n)
-  bufferToVect buf n
-
--- Real TCP loopback exchange used by integration tests and health checks.
-export
-loopbackExchange : {n : Nat} -> Vect n Bits8 -> IO (Result String (Vect n Bits8))
-loopbackExchange input = do
-  inBuf <- vectToBuffer input
-  Just outBuf <- newBuffer (cast n)
-    | Nothing => pure (Err "loopback response allocation failed")
-  rc <- primIO $ prim__loopback_exchange (prim__bufferData inBuf) (cast n)
-        (prim__bufferData outBuf) (cast n)
-  if rc == cast n
-    then do
-      bytes <- bufferToVect outBuf n
-      pure (Ok bytes)
-    else pure (Err ("loopback exchange failed: " ++ show rc))
+randomBytes : (n : Nat) -> IO (Result String (Vect n Bits8))
+randomBytes n = if n > MAX_AEAD_PLAINTEXT then pure (Err "Random output too large") else do
+  result <- primIO (prim__random (cast n))
+  pure (fixedHex n result)
 
 export
 secureLoopbackTest : IO (Result String ())
 secureLoopbackTest = do
-  rc <- primIO prim__secure_loopback_test
-  if rc == 0 then pure (Ok ()) else pure (Err ("secure loopback failed: " ++ show rc))
+  rc <- primIO prim__loopback
+  pure (if rc == 0 then Ok () else Err ("Secure loopback failed: " ++ show rc))
+
+export
+daemonLoop : Bits16 -> Bits32 -> IO (Result String Int)
+daemonLoop port limit = do
+  rc <- primIO (prim__daemon port limit)
+  pure (if rc < 0 then Err "Loopback UDP operation failed" else Ok rc)

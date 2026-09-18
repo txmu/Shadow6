@@ -49,13 +49,14 @@ request_enabled(RequestPath, TrustPath) ->
     16=byte_size(shadow6_config:unhex(maps:get(<<"nonce">>,R1))),
     Issued=maps:get(<<"issued_at">>,R1), true=abs(erlang:system_time(second)-Issued)=<300,
     Level=maps:get(<<"requested_level">>,R1), true=Level>=1 andalso Level=<5,
-    #{<<"mods">>:=Mods}=T, true=map_size(T)=:=1, Policy=maps:get(Mod,Mods),
-    exact(Policy,[<<"pubkey">>,<<"max_level">>,<<"capabilities">>,<<"allowed_domains">>]),
+    #{<<"mods">>:=Mods}=T, exact(maps:remove(<<"domain">>,T),[<<"mods">>]), Policy=maps:get(Mod,Mods),
+    exact(maps:remove(<<"source_domain">>,Policy),[<<"pubkey">>,<<"max_level">>,<<"capabilities">>,<<"allowed_domains">>]),
     true=Level=<maps:get(<<"max_level">>,Policy), true=Level=<shadow6_build:crosed_level(),
-    Requested=maps:get(<<"capabilities">>,R1), true=length(Requested)=:=length(lists:usort(Requested)),
+    Requested=maps:get(<<"capabilities">>,R1), true=length(Requested)>0,
+    true=length(Requested)=:=length(lists:usort(Requested)),
     Granted=grant(shadow6_build:crosed_level(),Level,maps:get(<<"max_level">>,Policy),Requested,
                   maps:get(<<"capabilities">>,Policy)), true=lists:sort(Granted)=:=lists:sort(Requested),
-    ok=domain_check(R1,Policy),
+    ok=domain_check(R1,Policy,T),
     Digest=hex(shadow6_sodium:sha256(json:encode(maps:get(<<"payload">>,R1)))),
     Signed=iolist_to_binary([integer_to_binary(1),$\n,Mod,$\n,maps:get(<<"nonce">>,R1),$\n,
       integer_to_binary(Issued),$\n,integer_to_binary(Level),$\n,
@@ -63,6 +64,10 @@ request_enabled(RequestPath, TrustPath) ->
       maps:get(<<"target_domain">>,R1)]),
     true=shadow6_sodium:verify_ed25519(shadow6_config:unhex(maps:get(<<"signature">>,R1)),Signed,
       shadow6_config:unhex(maps:get(<<"pubkey">>,Policy))),
+    %% Hash decoded bytes so hexadecimal case cannot evade replay detection.
+    NonceKey=shadow6_sodium:sha256([shadow6_config:unhex(maps:get(<<"pubkey">>,Policy)),
+                                  shadow6_config:unhex(maps:get(<<"nonce">>,R1))]),
+    true=shadow6_sodium:reserve_nonce(TrustPath,NonceKey),
     maps:merge(feature_report(),#{mod_id=>Mod,granted_level=>Level,
       granted_capabilities=>lists:sort(Granted),status=><<"granted">>,reason=><<>>}).
 
@@ -70,11 +75,14 @@ exact(Map,Keys)->true=lists:sort(maps:keys(Map))=:=lists:sort(Keys).
 valid_name(B) when is_binary(B),byte_size(B)>0,byte_size(B)=<64 ->
     lists:all(fun(C)->C>=$a andalso C=<$z orelse C>=$0 andalso C=<$9 orelse C==$- orelse C==$_ end,binary_to_list(B));
 valid_name(_)->false.
-domain_check(R,P) ->
+domain_check(R,P,T) ->
     case shadow6_build:qubes_isolation() of
       false->ok;
       true->S=maps:get(<<"source_domain">>,R),D=maps:get(<<"target_domain">>,R),
-        true=valid_name(S),true=valid_name(D),true=(S=:=D orelse lists:member(D,maps:get(<<"allowed_domains">>,P))),ok
+        true=valid_name(S),true=valid_name(D),
+        true=S=:=maps:get(<<"source_domain">>,P,<<"default">>),
+        true=D=:=maps:get(<<"domain">>,T,<<"default">>),
+        true=(S=:=D orelse lists:member(D,maps:get(<<"allowed_domains">>,P))),ok
     end.
 hex(B)-> << <<(digit(N bsr 4)),(digit(N band 15))>> || <<N>><=B >>.
 digit(N) when N<10->$0+N; digit(N)->$a+N-10.

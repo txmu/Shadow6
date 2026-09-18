@@ -581,7 +581,7 @@ ifeq ($(BUILD_IDRIS),1)
 		printf 'module Shadow6.BuildConfig\n\nimport Shadow6.Types\n\n%%default total\n\npublic export\nBUILD_CROSED_LEVEL : CrosedLevel\nBUILD_CROSED_LEVEL = %s\n\npublic export\nBUILD_APP_TRANSPORT : Bool\nBUILD_APP_TRANSPORT = %s\n\npublic export\nBUILD_QUBES_ISOLATION : Bool\nBUILD_QUBES_ISOLATION = %s\n' "$$level" "$(if $(filter 1,$(IDRIS_APP_TRANSPORT)),True,False)" "$(if $(filter 1,$(IDRIS_QUBES_ISOLATION)),True,False)" > Core-Idris/src/Shadow6/BuildConfig.idr
 	@lib_ext=so; lib_flag=-shared; case "$$(uname -s)" in Darwin) lib_ext=dylib; lib_flag=-dynamiclib;; esac; \
 		$(CC) $$lib_flag -fPIC -O2 -fstack-protector-strong $$(pkg-config --cflags libsodium) \
-		Core-Idris/ffi/sodium_ffi.c -o Core-Idris/ffi/libsodium_ffi.$$lib_ext \
+		Core-Idris/ffi/sodium_ffi.c -pthread -o Core-Idris/ffi/libsodium_ffi.$$lib_ext \
 		$$(pkg-config --libs libsodium)
 	@cd Core-Idris && $(IDRIS2) --build shadow6-idris.ipkg
 	@if [ -f Core-Idris/obj/exec/shadow6-idris ]; then \

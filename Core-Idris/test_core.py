@@ -85,7 +85,7 @@ def test_version_output():
     
     output = run_command("./shadow6-idris --version")
     assert "Shadow6 Core-Idris 1.1.0" in output, "Version string mismatch"
-    assert "Formally verified" in output, "Missing verification claim"
+    assert "Dependent-type checks" in output, "Missing implementation description"
     
     print("✓ Version output validated")
     return True

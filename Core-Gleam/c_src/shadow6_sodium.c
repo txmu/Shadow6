@@ -10,6 +10,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <sys/file.h>
+#include <time.h>
 #include <unistd.h>
 
 static ERL_NIF_TERM atom(ErlNifEnv *env, const char *name) { return enif_make_atom(env, name); }
@@ -142,9 +144,10 @@ static ERL_NIF_TERM read_secure(ErlNifEnv *env, int argc, const ERL_NIF_TERM arg
         input.size == 0 || input.size >= sizeof(path) || memchr(input.data, 0, input.size) != NULL)
         return enif_make_badarg(env);
     memcpy(path, input.data, input.size); path[input.size] = 0;
-    fd = open(path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
+    /* A FIFO must reach fstat instead of blocking a dirty IO scheduler. */
+    fd = open(path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK);
     if (fd < 0 || fstat(fd, &before) != 0 || !S_ISREG(before.st_mode) ||
-        before.st_uid != geteuid() || (before.st_mode & 0777) != 0600 ||
+        before.st_uid != geteuid() || (before.st_mode & 07777) != 0600 ||
         before.st_size <= 0 || before.st_size > 1048576 ||
         !enif_alloc_binary((size_t)before.st_size, &out)) goto fail;
     size_t used = 0;
@@ -164,6 +167,53 @@ fail:
     return enif_make_tuple2(env, atom(env, "error"), atom(env, "unsafe_file"));
 }
 
+/* A bounded persistent nonce ledger, committed before a Crosed grant. */
+static ERL_NIF_TERM reserve_nonce(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[]) {
+    ErlNifBinary path, digest;
+    char parent[4096], name[256];
+    unsigned char records[256][72] = {{0}}, zero[72] = {0};
+    struct stat info;
+    int directory = -1, fd = -1, slot = -1, ok = 0;
+    time_t now = time(NULL);
+    if (argc != 2 || !enif_inspect_iolist_as_binary(env, argv[0], &path) ||
+        !enif_inspect_binary(env, argv[1], &digest) || digest.size != 32 ||
+        path.size == 0 || path.size >= sizeof(parent) || memchr(path.data, 0, path.size) || now <= 0)
+        return enif_make_badarg(env);
+    memcpy(parent, path.data, path.size); parent[path.size] = 0;
+    char *slash = strrchr(parent, '/');
+    const char *base = slash ? slash + 1 : parent;
+    size_t length = strlen(base);
+    if (!length || length + sizeof(".replay") > sizeof(name)) goto done;
+    memcpy(name, base, length); memcpy(name + length, ".replay", sizeof(".replay"));
+    if (slash) { if (slash == parent) slash[1] = 0; else *slash = 0; }
+    else strcpy(parent, ".");
+    directory = open(parent, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+    if (directory < 0 || fstat(directory, &info) || info.st_uid != geteuid() || (info.st_mode & 0022)) goto done;
+    fd = openat(directory, name, O_RDWR | O_CREAT | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC, 0600);
+    if (fd < 0 || flock(fd, LOCK_EX | LOCK_NB) || fstat(fd, &info) ||
+        !S_ISREG(info.st_mode) || info.st_uid != geteuid() || (info.st_mode & 07777) != 0600 ||
+        info.st_nlink != 1 || (info.st_size != 0 && info.st_size != sizeof(records))) goto done;
+    if (info.st_size && pread(fd, records, sizeof(records), 0) != sizeof(records)) goto done;
+    for (int i = 0; i < 256; ++i) {
+        unsigned char checksum[32]; uint64_t stamp = 0;
+        if (memcmp(records[i], zero, sizeof(zero)) &&
+            (!SHA256(records[i], 40, checksum) || memcmp(checksum, records[i] + 40, 32))) goto done;
+        for (int j = 0; j < 8; ++j) stamp = (stamp << 8) | records[i][j];
+        if (stamp && (stamp > (uint64_t)now || (uint64_t)now - stamp <= 600)) {
+            if (!sodium_memcmp(records[i] + 8, digest.data, 32)) goto done;
+        } else if (slot < 0) slot = i;
+    }
+    if (slot < 0) goto done;
+    for (int j = 0; j < 8; ++j) records[slot][7-j] = (uint64_t)now >> (8*j);
+    memcpy(records[slot] + 8, digest.data, 32);
+    if (!SHA256(records[slot], 40, records[slot] + 40)) goto done;
+    ok = pwrite(fd, records, sizeof(records), 0) == sizeof(records) && !fsync(fd) && !fsync(directory);
+done:
+    if (fd >= 0) close(fd);
+    if (directory >= 0) close(directory);
+    return atom(env, ok ? "true" : "false");
+}
+
 static int load(ErlNifEnv *env, void **priv, ERL_NIF_TERM info) {
     (void)env; (void)priv; (void)info;
     return sodium_init() < 0 ? -1 : 0;
@@ -180,6 +230,7 @@ static ErlNifFunc functions[] = {
   {"sha1", 1, sha1, ERL_NIF_DIRTY_JOB_CPU_BOUND},
   {"random_bytes", 1, random_bytes, 0},
   {"sign_ed25519", 2, sign_ed25519, ERL_NIF_DIRTY_JOB_CPU_BOUND},
-  {"read_secure", 1, read_secure, ERL_NIF_DIRTY_JOB_IO_BOUND}
+  {"read_secure", 1, read_secure, ERL_NIF_DIRTY_JOB_IO_BOUND},
+  {"reserve_nonce", 2, reserve_nonce, ERL_NIF_DIRTY_JOB_IO_BOUND}
 };
 ERL_NIF_INIT(shadow6_sodium, functions, load, NULL, NULL, NULL)

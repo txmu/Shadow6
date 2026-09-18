@@ -302,7 +302,7 @@ func readOwnerOnlyFile(path string, limit int64) ([]byte, error) {
 	if err != nil || !secureConfigFile(info) || !secureConfigPath(path) {
 		return nil, errors.New("Crosed file must be regular and mode 0600")
 	}
-	file, err := os.Open(path)
+	file, err := openConfigFile(path)
 	if err != nil {
 		return nil, err
 	}
@@ -317,6 +317,11 @@ func readOwnerOnlyFile(path string, limit int64) ([]byte, error) {
 	}
 	if int64(len(data)) > limit {
 		return nil, errors.New("Crosed file exceeds size limit")
+	}
+	after, err := file.Stat()
+	if err != nil || !secureConfigFile(after) || opened.Size() != after.Size() ||
+		!opened.ModTime().Equal(after.ModTime()) {
+		return nil, errors.New("Crosed file changed during read")
 	}
 	return data, nil
 }

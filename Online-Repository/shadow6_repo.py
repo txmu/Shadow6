@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Signed bounded Shadow6 online repository builder, verifier, fetcher and server."""
 from __future__ import annotations
-import argparse,hashlib,json,os,re,ssl,stat,tempfile,threading,urllib.parse,urllib.request
-from http.server import ThreadingHTTPServer,SimpleHTTPRequestHandler
+import argparse,hashlib,json,os,re,socket,ssl,stat,tempfile,threading,urllib.parse,urllib.request
+from http.server import ThreadingHTTPServer,BaseHTTPRequestHandler
 from pathlib import Path
 from typing import Any
 from cryptography.hazmat.primitives import serialization
@@ -180,14 +180,117 @@ def sync(url:str,trust:Path,destination:Path,names:list[str])->dict:
   if len(payload)!=item["size"] or hashlib.sha256(payload).hexdigest()!=item["sha256"]:raise ValueError("download digest mismatch")
   target=destination/item["name"];_atomic_write(target,payload);downloaded.append(str(target))
  return {"source":base,"downloaded":downloaded,"signer":doc["signer"]}
+class RepositoryHandler(BaseHTTPRequestHandler):
+    """Expose only index.json and flat package names, never a directory tree."""
+    def do_GET(self):
+        self._send_file(body=True)
+
+    def do_HEAD(self):
+        self._send_file(body=False)
+
+    def _send_file(self, *, body):
+        descriptor = None
+        try:
+            # Do not normalize traversal, percent escapes, or ambiguous paths.
+            name = self.path[1:] if self.path.startswith("/") else ""
+            limit = MAX_INDEX if name == "index.json" else MAX_PACKAGE
+            if name != "index.json":
+                _package_name(name)
+            descriptor = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC,
+                                 dir_fd=self.server.root_fd)
+            info = os.fstat(descriptor)
+            if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1
+                    or not 0 < info.st_size <= limit):
+                raise ValueError("not a bounded publication file")
+        except (OSError, ValueError):
+            if descriptor is not None:
+                os.close(descriptor)
+            self.send_error(404, "publication not found")
+            return
+        with os.fdopen(descriptor, "rb") as stream:
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json" if name == "index.json" else "application/octet-stream")
+            self.send_header("Content-Length", str(info.st_size))
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            remaining = info.st_size if body else 0
+            while remaining:
+                chunk = stream.read(min(65536, remaining))
+                if not chunk:
+                    break
+                self.wfile.write(chunk)
+                remaining -= len(chunk)
+
+
+class RepositoryServer(ThreadingHTTPServer):
+    """Bound threads and the entire connection lifetime, including TLS/header reads."""
+    max_connections = 16
+    connection_timeout = 30
+    request_queue_size = 16
+    daemon_threads = False
+
+    def __init__(self, address, root, context=None):
+        self.context = context
+        self.slots = threading.BoundedSemaphore(self.max_connections)
+        self.root_fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+        self.address_family = socket.AF_INET6 if ":" in address[0] else socket.AF_INET
+        try:
+            super().__init__(address, RepositoryHandler)
+        except BaseException:
+            os.close(self.root_fd)
+            raise
+
+    def process_request(self, request, client_address):
+        if not self.slots.acquire(blocking=False):
+            self.shutdown_request(request)
+            return
+        try:
+            super().process_request(request, client_address)
+        except BaseException:
+            self.slots.release()
+            raise
+
+    def process_request_thread(self, request, client_address):
+        timer = None
+        try:
+            request.settimeout(self.connection_timeout)
+            # Never perform a TLS handshake on the accept loop.
+            if self.context is not None:
+                request = self.context.wrap_socket(request, server_side=True, do_handshake_on_connect=False)
+            timer = threading.Timer(self.connection_timeout, self.shutdown_request, args=(request,))
+            timer.daemon = True
+            timer.start()
+            if self.context is not None:
+                request.do_handshake()
+            self.finish_request(request, client_address)
+        except (OSError, ValueError):
+            pass
+        finally:
+            if timer is not None:
+                timer.cancel()
+            self.shutdown_request(request)
+            self.slots.release()
+
+    def server_close(self):
+        super().server_close()
+        if self.root_fd is not None:
+            os.close(self.root_fd)
+            self.root_fd = None
+
+
 def serve(root:Path,host:str,port:int,cert:Path|None,key:Path|None):
- if host not in {"127.0.0.1","::1","localhost"} and (not cert or not key):raise ValueError("public repository serving requires explicit TLS certificate and key")
- class Handler(SimpleHTTPRequestHandler):
-  def __init__(self,*a,**kw):super().__init__(*a,directory=str(root),**kw)
-  def log_message(self,fmt,*args):super().log_message(fmt,*args)
- server=ThreadingHTTPServer((host,port),Handler)
- if cert and key:ctx=ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER);ctx.load_cert_chain(cert,key);server.socket=ctx.wrap_socket(server.socket,server_side=True)
- server.serve_forever()
+    if bool(cert) != bool(key):
+        raise ValueError("provide both TLS certificate and key")
+    if host not in {"127.0.0.1","::1","localhost"} and (not cert or not key):
+        raise ValueError("public repository serving requires explicit TLS certificate and key")
+    context = None
+    if cert and key:
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        context.minimum_version = ssl.TLSVersion.TLSv1_2
+        context.load_cert_chain(cert, key)
+    with RepositoryServer(("127.0.0.1" if host == "localhost" else host, port), root, context) as server:
+        server.serve_forever()
 def main():
  p=argparse.ArgumentParser();s=p.add_subparsers(dest="command",required=True)
  q=s.add_parser("build");q.add_argument("--root",type=Path,required=True);q.add_argument("--output",type=Path,required=True);q.add_argument("--private-key",type=Path,required=True);q.add_argument("--signer",required=True)

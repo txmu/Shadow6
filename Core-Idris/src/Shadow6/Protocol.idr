@@ -8,6 +8,9 @@ import Data.String
 import Data.SortedMap
 import Shadow6.Types
 import Shadow6.Crypto
+import Shadow6.Features
+import Shadow6.Security.Policy
+import Shadow6.StrictJSON
 
 %default total
 
@@ -31,9 +34,14 @@ public export
 record TrustEntry where
   constructor MkTrustEntry
   pubkey : Ed25519PublicKey
+  modId : String
   maxLevel : CrosedLevel
   allowedCapabilities : List String
   allowedDomains : List String
+  sourceDomain : String
+  targetDomain : String
+  domainPolicies : List DomainPolicy
+  replayPath : String
 
 -- | Crosed response
 public export
@@ -87,81 +95,80 @@ protocolToVect (x :: xs) =
   let (n ** rest) = protocolToVect xs
   in (S n ** x :: rest)
 
-protocolExtendHash : Vect 32 Bits8 -> IO (Vect 256 Bits8)
-protocolExtendHash hash = pure (hash ++ replicate 224 0)
+-- Signed identifiers are deliberately ASCII, making their JSON spelling and
+-- UTF-8/NFC representation unique across implementations.
+validName : String -> Bool
+validName name = length name > 0 && length name <= 64 &&
+  all (\c => (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '_') (unpack name)
 
--- | Compute canonical signed payload for Crosed request
-computeSignedPayload : CrosedRequest -> IO (Vect 256 Bits8)
-computeSignedPayload req = do
-  let sortedCaps = sortStrings req.capabilities
-  let capsStr = concat (intersperse "," sortedCaps)
-  
-  -- Build canonical string: version|modId|nonce|issuedAt|level|caps|hash
-  let nonceHex = protocolToHex req.nonce
-  let hashHex = protocolToHex req.payloadHash
-  
-  let canonical = show req.version ++ "|" ++
-                  req.modId ++ "|" ++
-                  nonceHex ++ "|" ++
-                  show req.issuedAt ++ "|" ++
-                  show (levelToNat req.requestedLevel) ++ "|" ++
-                  capsStr ++ "|" ++
-                  hashHex
-  
-  -- SHA-256 hash of canonical representation
-  let bytes = map cast (unpack canonical)
-  case protocolToVect bytes of
-    (n ** vec) => sha256 vec >>= protocolExtendHash
+quote : String -> String
+quote s = "\"" ++ s ++ "\""
 
--- | Validate Crosed request with full signature verification
+-- Sorted, portable JSON with domains covered by the signature. The previous
+-- delimiter/hash/padding format is intentionally not accepted.
 export
-validateCrosedRequest : CrosedRequest -> 
-                        TrustEntry -> 
-                        IO (Result String CrosedResponse)
+computeSignedPayload : CrosedRequest -> String
+computeSignedPayload req =
+  "{\"capabilities\":[" ++ concat (intersperse "," (map quote (sortStrings req.capabilities))) ++
+  "],\"issued_at\":" ++ show req.issuedAt ++ ",\"mod_id\":" ++ quote req.modId ++
+  ",\"nonce\":" ++ quote (protocolToHex req.nonce) ++
+  ",\"payload_hash\":" ++ quote (protocolToHex req.payloadHash) ++
+  ",\"requested_level\":" ++ show (levelToNat req.requestedLevel) ++
+  ",\"source_domain\":" ++ maybe "null" quote req.sourceDomain ++
+  ",\"target_domain\":" ++ maybe "null" quote req.targetDomain ++ ",\"version\":1}"
+
+%foreign "C:idris_reserve_nonce,libsodium_ffi"
+prim__reserve : String -> String -> String -> PrimIO Int
+
+label : String -> Maybe DomainLabel
+label "red" = Just RedDomain
+label "orange" = Just OrangeDomain
+label "yellow" = Just YellowDomain
+label "green" = Just GreenDomain
+label "blue" = Just BlueDomain
+label _ = Nothing
+
+domainsAllowed : CrosedRequest -> TrustEntry -> Bool
+domainsAllowed req trust = case (req.sourceDomain, req.targetDomain) of
+  (Just source, Just target) =>
+    validName source && validName target && source == trust.sourceDomain && target == trust.targetDomain &&
+    elem target trust.allowedDomains &&
+    (if COMPILED_QUBES_ISOLATION then case (label source, label target) of
+       (Just src, Just dst) => checkDomainPolicy trust.domainPolicies src dst
+       _ => False
+     else source == target)
+  _ => False
+
+export
+validateCrosedRequest : CrosedRequest -> TrustEntry -> IO (Result String CrosedResponse)
 validateCrosedRequest req trust = do
-  -- Check timestamp freshness (5 minute window)
-  -- In production: get current time and check |now - issuedAt| < 300
-  
-  -- Compute canonical signed payload
-  signedData <- computeSignedPayload req
-  
-  -- Verify Ed25519 signature
-  sigResult <- verifyEd25519 req.signature signedData trust.pubkey
-  
-  case sigResult of
-    Err e => pure (Err ("Signature verification failed: " ++ e))
-    Ok () => do
-      -- Grant intersection of requested and allowed
-      let grantedLevel = minLevel req.requestedLevel trust.maxLevel
-      let grantedCaps = filter (\c => elem c trust.allowedCapabilities) req.capabilities
-      
-      -- Validate all granted capabilities meet level requirement
-      let validCaps = filter (meetsLevelReq grantedLevel) grantedCaps
-      
-      -- Check domain policy if specified
-      case req.targetDomain of
-        Just target => 
-          if not (elem target trust.allowedDomains)
-          then pure (Err ("Target domain not allowed: " ++ target))
-          else buildResponse validCaps grantedLevel
-        Nothing => buildResponse validCaps grantedLevel
+  now <- currentTime
+  if req.version /= 1 || not (validName req.modId) || req.modId /= trust.modId || now <= 0 ||
+     req.issuedAt < 0 || req.issuedAt > 9007199254740991 || abs (now - req.issuedAt) > 300
+    then pure (Err "Invalid version, Mod identity or expired timestamp")
+    else if req.requestedLevel == L0 || req.requestedLevel > COMPILED_CROSED_LEVEL || req.requestedLevel > trust.maxLevel
+    then pure (Err "Requested level exceeds build or Mod policy")
+    else if null req.capabilities || length req.capabilities > 10 ||
+            length (nub req.capabilities) /= length req.capabilities ||
+            not (all (allowed req trust) req.capabilities) || not (domainsAllowed req trust)
+    then pure (Err "Capability or domain policy denied")
+    else if length trust.replayPath == 0 || length trust.replayPath > 4095 || elem '\0' (unpack trust.replayPath)
+    then pure (Err "Invalid replay state path")
+    else case protocolToVect (map (cast . ord) (unpack (computeSignedPayload req))) of
+      (n ** signedData) => do
+        result <- verifyEd25519 req.signature signedData trust.pubkey
+        case result of
+          Err e => pure (Err e)
+          Ok () => do
+            reserved <- primIO (prim__reserve trust.replayPath (protocolToHex trust.pubkey) (protocolToHex req.nonce))
+            pure (if reserved /= 0 then Err "Replay detected or replay ledger unavailable"
+                  else Ok (MkCrosedResponse req.modId req.requestedLevel (sortStrings req.capabilities) "granted" Nothing))
   where
-    minLevel : CrosedLevel -> CrosedLevel -> CrosedLevel
-    minLevel a b = if a <= b then a else b
-    
-    meetsLevelReq : CrosedLevel -> String -> Bool
-    meetsLevelReq level cap =
+    allowed : CrosedRequest -> TrustEntry -> String -> Bool
+    allowed r t cap = elem cap t.allowedCapabilities && elem cap featureReport.crosedCapabilities &&
       case capabilityMinLevel cap of
+        Just level => r.requestedLevel >= level
         Nothing => False
-        Just reqLevel => level >= reqLevel
-    
-    buildResponse : List String -> CrosedLevel -> IO (Result String CrosedResponse)
-    buildResponse caps level = pure (Ok (MkCrosedResponse
-      req.modId
-      level
-      (sortStrings caps)
-      "granted"
-      Nothing))
 
 -- | UDP packet with timing channel validation
 public export

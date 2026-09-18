@@ -50,8 +50,9 @@ rpc_loop(S,Id,Kind,Allowed) ->
 rpc(Id,agent,_,<<"Broker.UpdateIP">>,P) ->
     exact(P,[<<"agent_id">>,<<"ipv6">>]),Id=maps:get(<<"agent_id">>,P),
     #{<<"result">>=>#{<<"status">>=><<"ok">>}};
-rpc(_,client,Allowed,<<"Broker.RequestAccess">>,P) ->
+rpc(Id,client,Allowed,<<"Broker.RequestAccess">>,P) ->
     exact(P,[<<"client_id">>,<<"target_agent">>,<<"client_ipv6">>,<<"e2ee_pubkey">>,<<"client_signature">>]),
+    Id=maps:get(<<"client_id">>,P),
     true=lists:member(maps:get(<<"target_agent">>,P),Allowed),
     #{<<"result">>=>#{<<"status">>=><<"accepted">>}};
 rpc(_,_,_,_,_) -> #{<<"error">>=>#{<<"code">>=>-32601,<<"message">>=><<"method denied">>}}.
@@ -71,9 +72,9 @@ header([H|T],Name)->L=lower(H),case starts(L,Name) of true->trim(binary:part(H,b
 trim(<<$\s,R/binary>>)->trim(R);trim(B)->B.
 
 recv_frame(S)->
-    {ok,<<Fin:1,_:3,Opcode:4,1:1,Len0:7>>}=gen_tcp:recv(S,2,10000),1=Fin,
+    {ok,<<Fin:1,0:3,Opcode:4,1:1,Len0:7>>}=gen_tcp:recv(S,2,10000),1=Fin,
     Len=case Len0 of 126->{ok,<<N:16>>}=gen_tcp:recv(S,2,5000),N;127->erlang:error(frame_too_large);N->N end,
-    true=Len=< ?MAX_FRAME,{ok,Mask}=gen_tcp:recv(S,4,5000),{ok,Data}=gen_tcp:recv(S,Len,5000),
+    true=Len>0 andalso Len=< ?MAX_FRAME,{ok,Mask}=gen_tcp:recv(S,4,5000),{ok,Data}=gen_tcp:recv(S,Len,5000),
     {Opcode,unmask(Data,Mask,0,<<>>)}.
 unmask(<<>>,_,_,A)->A;
 unmask(<<B,R/binary>>,M,I,A)->K=binary:at(M,I band 3),unmask(R,M,I+1,<<A/binary,(B bxor K)>>).

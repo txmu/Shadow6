@@ -55,9 +55,10 @@ int idris_aes256gcm_encrypt(unsigned char *ciphertext,
                             const unsigned char *nsec,
                             const unsigned char *nonce,
                             const unsigned char *key) {
-    if (!ciphertext || !plaintext || !nonce || !key) return -1;
+    if (!ciphertext || !plaintext || !nonce || !key || plaintext_len > 1048576 ||
+        !crypto_aead_aes256gcm_is_available()) return -1;
     
-    unsigned long long clen;
+    unsigned long long clen = 0;
     int result = crypto_aead_aes256gcm_encrypt(
         ciphertext, &clen,
         plaintext, plaintext_len,
@@ -84,9 +85,10 @@ int idris_aes256gcm_decrypt(unsigned char *plaintext,
                             uint64_t ad_len,
                             const unsigned char *nonce,
                             const unsigned char *key) {
-    if (!plaintext || !ciphertext || !nonce || !key) return -1;
+    if (!plaintext || !ciphertext || !nonce || !key || ciphertext_len < 16 ||
+        ciphertext_len > 1048592 || !crypto_aead_aes256gcm_is_available()) return -1;
     
-    unsigned long long plen;
+    unsigned long long plen = 0;
     int result = crypto_aead_aes256gcm_decrypt(
         plaintext, &plen,
         nsec,
@@ -136,8 +138,12 @@ int idris_loopback_exchange(const unsigned char *request, uint64_t request_len,
     if (bind(s, (struct sockaddr*)&a, sizeof(a)) || listen(s, 1)) { close(s); return -3; }
     socklen_t alen = sizeof(a); if (getsockname(s, (struct sockaddr*)&a, &alen)) { close(s); return -4; }
     int c = socket(AF_INET, SOCK_STREAM, 0); if (c < 0) { close(s); return -5; }
+    if (setsockopt(c, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv) ||
+        setsockopt(c, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof tv)) { close(c); close(s); return -5; }
     if (connect(c, (struct sockaddr*)&a, sizeof(a))) { close(c); close(s); return -6; }
     int p = accept(s, NULL, NULL); if (p < 0) { close(c); close(s); return -7; }
+    if (setsockopt(p, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv) ||
+        setsockopt(p, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof tv)) { close(p); close(c); close(s); return -7; }
     uint32_t n = htonl((uint32_t)request_len); if (send(c, &n, 4, MSG_NOSIGNAL) != 4 || send(c, request, request_len, MSG_NOSIGNAL) != (ssize_t)request_len) { close(p); close(c); close(s); return -8; }
     uint32_t rn = 0; unsigned char frame[1200];
     if (recv(p, &rn, 4, MSG_WAITALL) != 4) { close(p); close(c); close(s); return -9; }
@@ -177,9 +183,13 @@ int idris_secure_loopback_test(void) {
     ct[0] ^= 1;
     if (crypto_aead_xchacha20poly1305_ietf_decrypt(out, &plen, NULL, ct, clen,
         msg, sizeof(msg), nonce, shared) == 0) return -7;
-    const unsigned char request[] = "ping"; unsigned char response[sizeof(request)];
-    int exchanged = idris_loopback_exchange(request, sizeof(request) - 1, response, sizeof(response));
-    if (exchanged != (int)(sizeof(request) - 1) || memcmp(request, response, sizeof(request) - 1)) return -8;
+    ct[0] ^= 1;
+    unsigned char response[128];
+    int exchanged = idris_loopback_exchange(ct, clen, response, sizeof response);
+    if (exchanged != (int)clen || crypto_aead_xchacha20poly1305_ietf_decrypt(out, &plen, NULL,
+        response, clen, msg, sizeof msg, nonce, shared) || plen != sizeof text || memcmp(out, text, plen)) return -8;
+    sodium_memzero(ask, sizeof ask); sodium_memzero(bsk, sizeof bsk);
+    sodium_memzero(ax, sizeof ax); sodium_memzero(bx, sizeof bx); sodium_memzero(shared, sizeof shared);
     return 0;
 }
 
@@ -194,14 +204,18 @@ int idris_daemon_loop(unsigned short port, unsigned int max_packets) {
     if (inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr) != 1 ||
         bind(fd, (struct sockaddr *)&addr, sizeof addr) != 0) { close(fd); return -1; }
     struct timeval tv = { .tv_sec = 0, .tv_usec = 100000 };
-    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv);
+    if (setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv)) { close(fd); return -1; }
+    struct timespec started, current;
+    if (clock_gettime(CLOCK_MONOTONIC, &started)) { close(fd); return -1; }
     unsigned int handled = 0; unsigned char frame[1200];
     while (handled < max_packets) {
+        if (clock_gettime(CLOCK_MONOTONIC, &current) || current.tv_sec - started.tv_sec >= 2) break;
         ssize_t n = recv(fd, frame, sizeof frame, 0);
         if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) break;
         if (n < 0) { close(fd); return -1; }
-        if (n == 0) continue;
         ++handled;
     }
     close(fd); return (int)handled;
 }
+
+#include "security_ffi.c"
