@@ -379,7 +379,8 @@ def feature_report(binary: Path, root: Path) -> dict[str, Any]:
     except ValueError:
         relative = binary.name
     environment = runtime_environment(root, relative)
-    report = run_json([str(binary.resolve()), "--feature-report"], root, env=environment)
+    command_cwd = binary.resolve().parent if relative.startswith("Core-Idris/") else root
+    report = run_json([str(binary.resolve()), "--feature-report"], command_cwd, env=environment)
     _validate_feature_report(report)
     return report
 

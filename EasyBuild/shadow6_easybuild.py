@@ -101,7 +101,8 @@ def verify_core_reports(dry_run: bool) -> None:
     for core in ("Zig", "Ada", "D", "Nim", "Cpp", "Pony", "Hare", "Carp", "Gleam", "Idris"):
         path = ROOT / f"Core-{core}/shadow6-{core.lower()}"
         if path.is_file():
-            result = subprocess.run([str(path), "--feature-report"], cwd=ROOT, capture_output=True, text=True, timeout=10, check=False)
+            report_cwd = path.resolve().parent if core == "Idris" else ROOT
+            result = subprocess.run([str(path), "--feature-report"], cwd=report_cwd, capture_output=True, text=True, timeout=10, check=False)
             if result.returncode != 0:
                 raise EasyBuildError(f"feature report failed for {core}: {result.stderr.strip()}")
     for name, path in {
@@ -115,7 +116,7 @@ def verify_core_reports(dry_run: bool) -> None:
         if not path.is_file():
             raise EasyBuildError(f"expected Core binary is missing: {path}")
         completed = subprocess.run(
-            [str(path), "--feature-report"], cwd=ROOT, capture_output=True,
+            [str(path), "--feature-report"], cwd=path.resolve().parent if "Core-Idris" in str(path) else ROOT, capture_output=True,
             text=True, timeout=10, check=False,
         )
         if completed.returncode != 0:
@@ -168,6 +169,7 @@ def verify_core_reports(dry_run: bool) -> None:
 def verify_signed_plugins() -> None:
     """Verify every bundled plugin before claiming a complete installation."""
     module_path = ROOT / "Plugin-System" / "shadow6_plugins.py"
+    _secure_regular(module_path, 2 * 1024 * 1024, private=False)
     namespace: dict[str, Any] = {"__file__": str(module_path), "__name__": "shadow6_plugins"}
     code = compile(module_path.read_text(encoding="utf-8"), str(module_path), "exec")
     exec(code, namespace)
@@ -294,8 +296,13 @@ def main() -> int:
         for core in ("go", "rust"):
             shutil.copy2(ROOT / f"Core-{core.capitalize()}/shadow6-{core}-crosed", binary_dir / f"shadow6-{core}-crosed")
             shutil.copy2(ROOT / f"Core-{core.capitalize()}/shadow6-{core}-public6", binary_dir / f"shadow6-{core}-public6")
+        if args.state_dir.exists() and args.state_dir.is_symlink():
+            raise EasyBuildError("state directory must not be a symlink")
         args.state_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
         args.state_dir.chmod(0o700)
+        state_metadata = args.state_dir.stat()
+        if not args.state_dir.is_dir() or state_metadata.st_uid != os.geteuid():
+            raise EasyBuildError("state directory must be an owner-controlled directory")
         generate_identities(args.state_dir / "identities.json")
         private_key, trust = args.state_dir / "package-signing.pem", args.state_dir / "package-trust.json"
         if not private_key.exists() and not trust.exists():
@@ -308,6 +315,7 @@ def main() -> int:
             write_profile_path = args.state_dir / "termux-capabilities.json"
             write_profile_path.write_text(json.dumps({"schema_version": 1, "components": termux_capabilities()}, indent=2) + "\n", encoding="utf-8")
             write_profile_path.chmod(0o600)
+            _secure_regular(write_profile_path, 16_384)
     print("EasyBuild complete. Full L5 and Public6 cores are installed with explicit suffixes; least-privileged core names remain the defaults.")
     if compliance:
         print("Compliance was selected but not applied. Review and explicitly run 中国内地用户必须执行.sh if appropriate.")
