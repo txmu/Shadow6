@@ -92,7 +92,7 @@ verifyEd25519 sig msg key =
 export
 validateTimingChannel : Integer -> TimingWindow -> Maybe TimestampProof
 validateTimingChannel timestamp window = case decEq (timingValid timestamp window) True of
-  Yes proof => Just (MkTimestampProof timestamp window proof)
+  Yes prf => Just (MkTimestampProof timestamp window prf)
   No _ => Nothing
 
 export
@@ -100,7 +100,7 @@ parseFrame : List Bits8 -> Result String NetworkFrame
 parseFrame bytes = if length bytes > MAX_FRAME_SIZE || null bytes then Err "Invalid frame length"
   else case listVect bytes of
     (n ** vec) => case isLTE n MAX_FRAME_SIZE of
-      Yes proof => Ok (n ** (proof, vec))
+      Yes prf => Ok (n ** (prf, vec))
       No _ => Err "Frame too large"
 
 export
