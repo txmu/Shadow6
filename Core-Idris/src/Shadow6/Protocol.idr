@@ -89,6 +89,7 @@ protocolByteToHex b =
 protocolToHex : {n : Nat} -> Vect n Bits8 -> String
 protocolToHex vec = concat (map protocolByteToHex (toList vec))
 
+export
 protocolToVect : List Bits8 -> (n : Nat ** Vect n Bits8)
 protocolToVect [] = (0 ** [])
 protocolToVect (x :: xs) =
