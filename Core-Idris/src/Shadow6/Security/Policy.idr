@@ -119,7 +119,7 @@ record NonceTracker where
 public export
 checkNonce : NonceTracker -> Vect 16 Bits8 -> (NonceTracker, Bool)
 checkNonce tracker nonce =
-  if nonce `elem` tracker.seenNonces || length tracker.seenNonces >= tracker.maxSize then (tracker, False)
+  if (nonce `elem` tracker.seenNonces) || (length tracker.seenNonces >= tracker.maxSize) then (tracker, False)
   else ({ seenNonces := nonce :: tracker.seenNonces } tracker, True)
 
 public export

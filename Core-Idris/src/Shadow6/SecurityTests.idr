@@ -51,8 +51,8 @@ securityTests = do
   case allocated of
     Err e => check e False
     Ok (_, buffer) => do
-      setByte buffer 0 123
+      setBits8 buffer 0 123
       secureZero buffer
-      byte <- getByte buffer 0
+      byte <- getBits8 buffer 0
       check "wipe original buffer" (byte == 0)
   putStrLn "Idris security checks: PASS"

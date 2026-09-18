@@ -75,7 +75,7 @@ secureZero buf = do
   where
     clear : Int -> Nat -> IO ()
     clear offset Z = pure ()
-    clear offset (S n) = setByte buf offset 0 >> clear (offset + 1) n
+    clear offset (S n) = setBits8 buf offset 0 >> clear (offset + 1) n
 
 export
 currentTime : IO Integer
