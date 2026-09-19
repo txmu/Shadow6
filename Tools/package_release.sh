@@ -4,6 +4,9 @@ set -euo pipefail
 project_dir=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 parent_dir=$(dirname -- "$project_dir")
 project_name=$(basename -- "$project_dir")
+python=${SHADOW6_PYTHON:-$project_dir/.venv/bin/python}
+if ! [[ -x "$python" ]]; then python=$(command -v python3); fi
+[[ -x "$python" ]] || { echo "python3 is required" >&2; exit 2; }
 package_tmp_root=${SHADOW6_PACKAGE_TMPDIR:-$parent_dir}
 package_tmp=$(mktemp -d "$package_tmp_root/.${project_name}.package.XXXXXX")
 package_output_dir=${SHADOW6_PACKAGE_OUTPUT_DIR:-$parent_dir}
@@ -56,6 +59,8 @@ if [[ "$apk_included" == 1 ]]; then
         exit 1
     }
 fi
+
+"$python" "$project_dir/Tools/archive_preflight.py" --tar "$tar_tmp"
 
 mkdir -p "$zip_stage"
 cd "$parent_dir"
@@ -110,9 +115,10 @@ tar --exclude="$project_name/.venv" \
 # ZIP is a text-only source exchange artifact. Strict UTF-8 text files receive
 # the .txt suffix; PNG/APK/ELF/archive/font and every other binary are removed
 # from the staging tree. The source tree and tar archive are never renamed.
-"$project_dir/.venv/bin/python" "$project_dir/Tools/prepare_text_zip.py" "$zip_stage/$project_name"
+"$python" "$project_dir/Tools/prepare_text_zip.py" "$zip_stage/$project_name"
 cd "$zip_stage"
 zip -rq -X "$zip_tmp" "$project_name"
+"$python" "$project_dir/Tools/archive_preflight.py" --zip "$zip_tmp"
 
 mv -f -- "$tar_tmp" "$package_output_dir/$project_name.tar.gz"
 mv -f -- "$zip_tmp" "$package_output_dir/$project_name.zip"

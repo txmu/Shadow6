@@ -37,8 +37,8 @@ shadow6 control -- --help
 ```
 
 The doctor only observes the local tree. It does not change services, firewall
-rules or routes. For the full build and verification sequence, follow the
-repository `AGENTS.md`.
+rules or routes. For a quick check or the full release sequence, follow the
+[verification and release guide](verification.md).
 
 [阅读中文指南](getting-started.zh-CN.md)
 

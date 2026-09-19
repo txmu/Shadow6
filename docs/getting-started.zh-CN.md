@@ -33,8 +33,8 @@ shadow6 features
 shadow6 control -- --help
 ```
 
-Doctor 只观察本地项目，不会改服务、防火墙或路由。需要完整构建与验证时，
-请按仓库 `AGENTS.md` 的流程执行。慢慢来，每一步都有明确的失败提示。
+Doctor 只观察本地项目，不会改服务、防火墙或路由。日常快速检查和完整发布
+流程见[验证与发布指南](verification.md)。慢慢来，每一步都有明确的失败提示。
 
 [Read this guide in English](getting-started.en.md)
 

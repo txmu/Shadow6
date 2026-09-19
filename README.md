@@ -196,8 +196,9 @@ exact running processes, then detects drift against a saved snapshot.
 Mutating operations are restricted to fixed build/test/check/audit/integration/
 package runbooks. A hand requires a short-lived Ed25519-signed plan bound to the
 exact repository and a single-use nonce; plans cannot carry commands or shell
-arguments. See the two assistant README files and repository `AGENTS.md` for
-the complete release workflow.
+arguments. See the two assistant README files and the
+[verification and release guide](docs/verification.md). For a read-only
+source check before a full build, run `Tools/security_preflight.sh`.
 
 ## Service integration and one-stop control
 
@@ -216,7 +217,9 @@ definitions/call outputs, and GUI/Web UI backends can use the bearer-authenticat
 loopback-only `/v1` HTTP API. MCP, LSP, OpenAI and HTTP mutations are disabled
 by default. See `Control-Center/README.md`.
 
-For staged installation, use for example:
+For staged installation, use for example; the
+[verification and release guide](docs/verification.md) also validates the
+installed entrypoints:
 
 ```sh
 make install DESTDIR=/tmp/shadow6-package PREFIX=/usr/local
