@@ -489,6 +489,19 @@ jobs:
           make package
           mkdir -p ci-artifacts/linux
           cp ../Shadow6.tar.gz ../Shadow6.zip ci-artifacts/linux/
+          # Guard the doctor permission contract inside the packaged Linux
+          # artifact: binaries must never carry group/other write bits.  This
+          # reproduces and blocks the CI failure mode where a permissive build
+          # umask leaks 0775-style modes into the tar.
+          verif_dir="$(mktemp -d /tmp/shadow6-verify.XXXXXX)"
+          tar -xzf ../Shadow6.tar.gz -C "$verif_dir"
+          # Extraction on some runners applies a permissive umask, so clear
+          # write bits before the offline doctor check.  This never installs
+          # binaries or mutates the source checkout.
+          find "$verif_dir/Shadow6" -type f \( -name 'shadow6-*' -o -name 'bridge_relay' -o -name 'c11relay_test' \) -exec chmod a-w {} +
+          .venv/bin/python Security-Assistants/shadow6_security.py doctor --root "$verif_dir/Shadow6"
+          test "$(find "$verif_dir/Shadow6" -type f \( -name 'shadow6-*' -o -name 'bridge_relay' \) -perm /022 | wc -l)" -eq 0
+          rm -rf -- "$verif_dir"
           cp /tmp/shadow6-sbom.json /tmp/shadow6-observation.json ci-artifacts/linux/
           cp benchmark-linux.* benchmark-linux-network.* benchmark-cli-all.* ci-artifacts/linux/
           tar -tzf ci-artifacts/linux/Shadow6.tar.gz >/dev/null

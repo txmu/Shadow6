@@ -85,7 +85,17 @@ cd "$(dirname -- "$project_dir")"
 # preserved exactly; the tree is replaced wholesale to avoid stale components.
 find "$destination" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
 printf 'shadow6-installed-tree\n' > "$marker"
-tar "${tar_arguments[@]}" -cf - "$project_name" | tar -xf - -C "$destination" --strip-components=1
+# Normalize modes on extraction so a permissive checkout umask (for example
+# group-writable build outputs) can never install binaries the deployment
+# doctor would reject (it refuses any Core binary with mode & 0o022 set).
+u_mask=$(umask)
+umask "$u_mask"
+tar "${tar_arguments[@]}" -cf - "$project_name" | tar --mode=go-w -xf - -C "$destination" --strip-components=1
+# Enforce non-writable Core binaries explicitly; extraction has already
+# preserved their execute bits while clearing group/other write.
+find "$destination" \
+    \( -name "shadow6-*" -o -name "bridge_relay" -o -name "c11relay_test" \) \
+    -type f -exec chmod a-w {} +
 
 staged_makefile="$destination/Makefile"
 if [[ ! -f "$staged_makefile" ]]; then

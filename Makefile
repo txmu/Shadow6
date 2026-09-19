@@ -266,7 +266,7 @@ endif
 
 detector:
 ifeq ($(BUILD_DETECTOR),1)
-	@$(PYTHON) -m py_compile Detector/detector_core.py Detector/shadow6_detector.py Detector/shadow6_detector_neo.py Detector/watch.py
+	@$(PYTHON) -m py_compile Detector/detector_core.py Detector/shadow6_detector.py Detector/shadow6_detector_neo.py Detector/watch.py Detector/counterstrike.py
 endif
 
 plugins:
@@ -521,7 +521,9 @@ ifeq ($(BUILD_DETECTOR),1)
 	@install -m 0644 Detector/shadow6_detector.py "$(DESTDIR)$(PREFIX)/bin/shadow6_detector.py"
 	@install -m 0644 Detector/shadow6_detector_neo.py "$(DESTDIR)$(PREFIX)/bin/shadow6_detector_neo.py"
 	@install -m 0755 Detector/watch.py "$(DESTDIR)$(PREFIX)/bin/shadow6-watch"
+	@install -m 0755 Detector/counterstrike.py "$(DESTDIR)$(PREFIX)/bin/shadow6-counterstrike"
 	@install -m 0644 Detector/detector_core.py "$(DESTDIR)$(PREFIX)/bin/detector_core.py"
+	@install -m 0644 Detector/counterstrike.py "$(DESTDIR)$(PREFIX)/bin/counterstrike.py"
 endif
 ifeq ($(BUILD_PLUGINS),1)
 	@install -m 0755 Plugin-System/shadow6_plugins.py "$(DESTDIR)$(PREFIX)/bin/shadow6-plugins"

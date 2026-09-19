@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "enabled": false,
+  "global_actions_per_minute": 120,
+  "attack_decay_seconds": 3600,
+  "tiers": {
+    "deception": {
+      "enabled": false,
+      "hold_seconds": 60,
+      "max_clients": 64,
+      "listeners": [
+        {"host": "0.0.0.0", "port": 2222, "template": "ssh"},
+        {"host": "0.0.0.0", "port": 8080, "template": "admin"},
+        {"host": "0.0.0.0", "port": 8443, "template": "generic"}
+      ],
+      "templates": {}
+    },
+    "engagement": {
+      "enabled": false,
+      "hold_seconds": 120,
+      "max_concurrent": 16,
+      "per_source_per_hour": 4
+    },
+    "throttle": {
+      "enabled": false,
+      "rate_kbps": 16,
+      "window_seconds": 300,
+      "per_source_per_hour": 8
+    },
+    "rotation": {
+      "enabled": false
+    }
+  }
+}

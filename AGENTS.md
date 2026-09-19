@@ -7,25 +7,43 @@ unbounded listeners/resources.
 
 ## Architecture invariants
 
-- Core-Go and Core-Rust are alternative complete stacks. They are not
-  wire-compatible halves and must expose matching feature contracts.
-- Default `shadow6-go` and `shadow6-rust` builds keep Crosed, application
-  transport, and Qubes-inspired domain policy disabled.
-- `shadow6-go-crosed` and `shadow6-rust-crosed` are explicit L5 variants. A
-  Crosed Mod grant is always the intersection of build features, signed request,
-  per-Mod level, capability allowlist, and domain policy.
+- Shadow6 maintains twelve independently compiled Core implementations that
+  share the feature-report and security-contract vocabulary but are not
+  implicitly wire-compatible. Only the full stack families (Core-Go and
+  Core-Rust) expose the broker/agent/client data path and matching feature
+  contracts; use one family consistently across a broker, agent, and client
+  path, and consult each Core's README for its transport and platform limits.
+- Default `shadow6-*` builds keep Crosed, application transport, and
+  Qubes-inspired domain policy disabled (`CROSED_LEVEL=0`, `APP_TRANSPORT=0`,
+  `QUBES_ISOLATION=0`).
+- `shadow6-*-crosed` and `shadow6-*-public6` binaries are explicit level-5
+  variants. A Crosed Mod grant is always the intersection of build features,
+  signed request, per-Mod level, capability allowlist, and domain policy.
+- Every variant build flow restores the default level-0 Core binary afterward.
+  `make crosed-variants` (and `ada-crosed-variant`, `nim-crosed-variant`,
+  `pony-crosed-variant`, `idris-crosed-variant`) rebuild and preserve the
+  level-5 binary under the variant name, then rebuild the default L0 binary.
 - Plugins remain separate, signed, out-of-process, resource-bounded, and
   network-isolated. Never load plugin code into a Core process.
-- Application frames are versioned, bounded, authenticated, UTF-8/NFC, and
-  fail closed on unknown schemas.
+- Slots are typed contracts whose providers remain signed, isolated Plugins.
+  Do not turn Slots into in-Core loading, arbitrary callbacks, or host
+  commands.
+- Application frames are versioned, bounded, authenticated, UTF-8/NFC, and fail
+  closed on unknown schemas.
 - Qubes-inspired labels complement real Qubes OS/qrexec/VM boundaries; never
   claim that an application policy replaces hypervisor isolation.
 - Security and infrastructure assistants use fixed commands and signed plans.
   Do not add arbitrary shell or command execution to assistant inputs.
-- Slots are typed contracts whose providers remain signed, isolated Plugins.
-  Do not turn Slots into in-Core loading, arbitrary callbacks, or host commands.
-- The Control Center Web API remains loopback-only, bearer-authenticated,
-  bounded, and read-only unless mutations are explicitly enabled.
+- The Control Center Web API (`/v1`) remains loopback-only, bearer-
+  authenticated, bounded, and read-only; MCP, LSP, OpenAI function-calling, and
+  HTTP mutations stay disabled unless explicitly enabled.
+- Gate is compiled but its runtime configuration starts with `enabled: false`.
+  An enabled Gate can sit in front of a Client, behind an Agent or Broker, or
+  between them as an authenticated middle hop; it must never be enabled
+  silently by a build or install step.
+- Public6 capability negotiation exchanges bounded, strict-parsed,
+  Ed25519-signed offers; floats are rejected and identifiers/strings/groups are
+  bounded.
 - Init content must use context-specific shell/systemd/XML/Scheme escaping.
   Guix System reconfiguration and runit activation remain explicit operator
   actions rather than implicit remote mutations.
@@ -49,9 +67,11 @@ unbounded listeners/resources.
 
 ## Toolchain and environment
 
-Expected tools are Go, Rust/Cargo, GCC, Make, Python 3, `zip`, `tar`,
-`readelf`, and ShellCheck. Python commands should use `.venv/bin/python` when
-the virtual environment exists.
+Required native tools are Go, Rust/Cargo, GCC/G++, Make, and Python 3. Optional
+Cores additionally need Gleam, Zig, Ada/GNAT, Nim (with libdatachannel), Pony
+(`ponyc`), Hare, D, Idris 2/Chez, and Carp; vendored copies live under `.tools`
+and are enabled automatically when present. Python commands should use
+`.venv/bin/python` when the virtual environment exists.
 
 Initial setup when dependencies are not already installed:
 
@@ -61,14 +81,20 @@ python3 -m venv .venv
 ./configure --enable-all
 ```
 
-Do not download or upgrade dependencies during an ordinary verification run.
-Request authorization if network access or system package installation is
-actually required.
+`configure` writes `config.mk` with per-component `BUILD_*` toggles and
+feature flags (`CROSED_LEVEL`, `APP_TRANSPORT`, `QUBES_ISOLATION`,
+`BUILD_COMPLIANCE`). The Makefile reads these and also auto-detects optional
+toolchains (Gleam/Pony/Carp under `.tools`, system Hare/Idris); Zig and Ada
+default to disabled. Do not download or upgrade dependencies during an
+ordinary verification run. Request authorization if network access or system
+package installation is actually required.
 
 ## Canonical build, test, audit, and package workflow
 
 Run from the repository root. Stop on the first failure, fix the cause, then
-restart at the narrowest affected stage before repeating the full workflow.
+restart at the narrowest affected stage before repeating the full workflow. The
+unified CLI can drive the same fixed stages in order via
+`shadow6 workflow release`.
 
 1. Build default least-privileged artifacts:
 
@@ -76,14 +102,18 @@ restart at the narrowest affected stage before repeating the full workflow.
    make build
    ```
 
-2. Build and preserve full Crosed variants, then automatically restore default
-   Core binaries:
+2. Build and preserve full Crosed variants for the Go/Rust/Gleam cores (and
+   any enabled optional cores), then automatically restore default Core
+   binaries:
 
    ```sh
    make crosed-variants
    ```
 
-3. Verify feature contracts:
+3. Verify feature contracts. Default binaries must report Crosed level 0 with
+   optional features false; Crosed variants must report level 5, application
+   transport true, and capability lists valid for their declared level (each
+   capability must not exceed the reported level):
 
    ```sh
    Core-Go/shadow6-go --feature-report
@@ -92,9 +122,12 @@ restart at the narrowest affected stage before repeating the full workflow.
    Core-Rust/shadow6-rust-crosed --feature-report
    ```
 
-   Default binaries must report Crosed level 0 with optional features false.
-   Crosed variants must both report level 5, application transport true, Qubes
-   isolation true, UTF-8 true, and identical capability lists.
+   For any enabled optional Crosed core (Gleam/Pony/Nim/Ada/Idris), run the
+   same pair of reports. `shadow6 features` and `shadow6_audit.py` validate
+   the shared schema. Note: Qubes isolation is only forced on for Public6
+   variants (`make public6-variants` uses `QUBES_ISOLATION=1`); Crosed variants
+   use `CROSED_VARIANT_QUBES`, so assert the value actually compiled in rather
+   than assuming it.
 
 4. Run every unit, component, ML, plugin, assistant, build-matrix, and local
    end-to-end test:
@@ -103,11 +136,14 @@ restart at the narrowest affected stage before repeating the full workflow.
    make test
    ```
 
-   This stage creates local TCP/UDP/KCP/QUIC listeners and Linux namespaces.
-   In a restricted execution environment, obtain permission for loopback
-   sockets and namespace creation; never weaken or skip the tests silently.
+   This stage runs `test_compliance.py`, the Tools unittests, per-Core tests,
+   the Detector/ML tests, assistant tests, and (when build flags allow)
+   `make integration-test`. It creates local loopback TCP/UDP/KCP/QUIC
+   listeners and Linux namespaces. In a restricted environment, obtain
+   permission for loopback sockets and namespace creation; never weaken or
+   skip the tests silently.
 
-5. Run static checks and offline hardening audit:
+5. Run static checks and the offline hardening audit:
 
    ```sh
    make check
@@ -116,7 +152,8 @@ restart at the narrowest affected stage before repeating the full workflow.
      C11Relay/*.sh Guard/*.sh Tools/*.sh
    ```
 
-6. Run the read-only component doctor and generate the offline CycloneDX SBOM:
+6. Run the read-only component doctor, generate the offline CycloneDX SBOM,
+   and capture an infrastructure observation:
 
    ```sh
    .venv/bin/python Security-Assistants/shadow6_security.py doctor
@@ -145,15 +182,29 @@ restart at the narrowest affected stage before repeating the full workflow.
    make package
    ```
 
-   `../Shadow6.tar.gz` contains source, documentation, scripts, and all compiled
-   products while preserving Unix modes. `../Shadow6.zip` is source-only and
-   excludes binaries, dependency environments, caches, generated credentials,
-   and Rust `target` output. Every regular file in the ZIP has `.txt` appended
-   to its complete original name (`README.md` becomes `README.md.txt`), whether
-   or not it originally had a suffix. This transformation occurs only inside
-   the packaging temporary directory: never rename the working tree or alter
-   the tar layout. Packaging is atomic and replaces existing archive names only
-   after both temporary archives are successfully created.
+   `make package` runs `Tools/package_release.sh` and emits the archives into
+   `SHADOW6_PACKAGE_OUTPUT_DIR` (default the repository parent directory,
+   `../Shadow6.tar.gz` and `../Shadow6.zip`).
+
+   - The tar (`Shadow6.tar.gz`) contains source, documentation, scripts, and
+     compiled products while preserving Unix modes. When an Android debug APK
+     exists it is copied to `Android/dist/shadow6-android-debug.apk` so it is
+     included. The tar excludes `.venv`, `.git`, `.tools`, any
+     `.android-toolchain`, `.tmp`, `.runtime`, Rust `target`, Gleam/Nim/Ada
+     build objects, Zig caches, Android build/`.gradle`/JNI output, generated
+     credentials, and `__pycache__`.
+   - The zip (`Shadow6.zip`) is a source-only text exchange artifact. It
+     excludes every compiled binary (Core/Guard/Gate/Relay binaries, the APK,
+     `Android/dist`, `Android/app/src/main/jniLibs`), the dependency
+     environments, `config.mk`, and caches. `Tools/prepare_text_zip.py` then
+     keeps only strict UTF-8 text files and appends `.txt` to each kept file's
+     complete original name (`README.md` becomes `README.md.txt`); every non-
+     text/binary file is removed. This transformation happens only in the
+     packaging temp directory; the working tree and tar layout are never
+     renamed.
+   - Packaging is atomic: both temporary archives are built first and replace
+     the existing archive names only after both are created, then the temp
+     directory is removed.
 
 9. Inspect archives:
 
@@ -162,36 +213,37 @@ restart at the narrowest affected stage before repeating the full workflow.
    unzip -Z1 ../Shadow6.zip
    ```
 
-   Confirm the tar contains both default and Crosed Core binaries. When the
-   Android APK build has been run, also confirm it contains
-   `Android/dist/shadow6-android-debug.apk`. Confirm the zip contains no Android
-   APK, Core/Guard/Relay executable, `.venv`, `.tools`, Rust target,
-   generated configuration, or `__pycache__` entry, and confirm every non-
-   directory ZIP entry ends in `.txt`.
+   Confirm the tar contains both default and Crosed Core binaries, and (when
+   the Android APK build ran) `Android/dist/shadow6-android-debug.apk`. Confirm
+   the zip contains no APK, Core/Guard/Gate/Relay executable, `.venv`, `.tools`,
+   Rust target, generated configuration, or `__pycache__` entry, and confirm
+   every non-directory zip entry ends in `.txt`.
 
-`./setup_test.sh` remains the compact build/test/check/audit entry point, but a
-release run must additionally execute `make crosed-variants`, assistant checks,
-staged installation when relevant, and `make package` as listed above.
+`./setup_test.sh` remains the compact build/test/check/audit entry point, but
+a release run must additionally execute `make crosed-variants`, assistant
+checks, staged installation when relevant, and `make package` as listed above.
 
 ## Android APK build contract
 
 The supported headless Android build uses JDK 17, Android command-line tools,
-platform `android-36`, Build Tools `36.0.0`, NDK `28.2.13676358`, and Gradle
-`9.4.1`. Install only these packages plus the Rust Android targets
-`aarch64-linux-android` and `x86_64-linux-android`; do not install Android
-Studio or an emulator for CI. After accepting SDK licenses, set
-`ANDROID_SDK_ROOT`, `ANDROID_NDK`, and optionally `ANDROID_GRADLE` to absolute
-tool paths, then run `make android-apk`. The target cross-builds both Go/Rust
-cores for `arm64-v8a` and `x86_64`, assembles the debug APK, and leaves it at
+platform `android-36`, the Android Gradle Plugin defined in
+`Android/build.gradle.kts`, and Go/Rust Android targets `aarch64-linux-android`
+and `x86_64-linux-android` (matching `arm64-v8a` and `x86_64` ABIs). Install
+only the minimal command-line toolchain (no Android Studio or emulator for
+CI). After accepting SDK licenses, set `ANDROID_SDK_ROOT`, `ANDROID_NDK`, and
+optionally `ANDROID_GRADLE` to absolute tool paths, then run `make android-apk`.
+The target cross-builds the Go/Rust cores for both ABIs
+(`Android/build_android_cores.py`), assembles the debug APK, and leaves it at
 `Android/app/build/outputs/apk/debug/app-debug.apk`. `make package` copies an
 existing APK to `Android/dist/shadow6-android-debug.apk` so it is included in
-`../Shadow6.tar.gz`; the source-only ZIP always excludes APKs and generated
+`../Shadow6.tar.gz`; the source-only zip always excludes APKs and generated
 native libraries. Local Android toolchains may reside in `.android-toolchain`;
 release packaging must exclude that directory from both archives.
 
 ## Completion report
 
-Report exactly which build variants and test stages ran, any warnings or tools
-that were unavailable, audit totals, archive paths/sizes, and remaining known
-limitations. Never state that software is guaranteed vulnerability-free;
-describe the verified controls and residual platform/deployment assumptions.
+Report exactly which build variants and test stages ran, which optional cores
+and toolchains were enabled or unavailable, any warnings, audit totals, archive
+paths/sizes, and remaining known limitations. Never state that software is
+guaranteed vulnerability-free; describe the verified controls and residual
+platform/deployment assumptions.

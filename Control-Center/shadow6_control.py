@@ -39,6 +39,7 @@ for directory in (
     ROOT / "Online-Repository", ROOT / "Gate",
     ROOT / "Service-Init",
     ROOT / "CLI",
+    ROOT / "Detector",
     HERE.parent / "share" / "shadow6" / "modules",
     HERE.parent / "share" / "shadow6" / "assistants",
 ):
@@ -57,6 +58,11 @@ from shadow6_public import negotiate as public6_negotiate, offer_from_feature_re
 from shadow6_migrate import export as migration_export, import_bundle as migration_import, plan as migration_plan  # noqa: E402
 from shadow6_repo import build as repository_build, sync as repository_sync, verify as repository_verify, regular as repository_read  # noqa: E402
 from portmap import generate as portmap_generate, validate as portmap_validate  # noqa: E402
+try:  # Optional graduated active-defense engine.
+    from counterstrike import CounterstrikeError, CounterstrikePolicy, run_self_test as counterstrike_self_test  # noqa: E402
+except ImportError:  # pragma: no cover - defensive guard for trimmed installs
+    CounterstrikeError = CounterstrikePolicy = None
+    counterstrike_self_test = None
 
 VERSION = "1.3.0"
 API_VERSION = "v1"
@@ -164,6 +170,9 @@ METHOD_SPECS: dict[str, dict[str, Any]] = {
     "vcore.invoke": _method("Translate a bounded read-only request to a signed Core process.",
         {"root": _PATH, "manifest": _PATH, "public_key": _PATH, "request": _OBJECT},
         ("manifest", "public_key", "request")),
+    "counterstrike.validate": _method("Strictly validate a mode-0600 graduated active-defense policy.", {"policy": _PATH}, ("policy",)),
+    "counterstrike.status": _method("Return the effective counterstrike policy summary without opening listeners.", {"policy": _PATH}, ("policy",)),
+    "counterstrike.self-test": _method("Run the loopback-only counterstrike tier self-test.", {}),
     "result.validate": _method("Validate a bounded Control API result envelope.", {"result":_OBJECT}, ("result",)),
 }
 
@@ -216,7 +225,7 @@ def schema() -> dict[str, Any]:
             **{flag: {"type": "boolean", "default": flag != "build_compliance"} for flag in BUILD_FLAGS},
         },
         "init_systems": ["systemd", "openrc", "runit", "sysv", "rc.d", "procd", "launchd", "guix"],
-        "config_kinds": ["core-go", "core-rust", "core-cpp", "topology", "security-policy", "plugin", "package", "slots", "public6-offer"],
+        "config_kinds": ["core-go", "core-rust", "core-cpp", "topology", "security-policy", "plugin", "package", "slots", "public6-offer", "counterstrike-policy"],
         "methods": METHOD_SPECS,
         "transport": {
             "jsonl": {"max_request_bytes": MAX_REQUEST, "mutations_default": False},
@@ -410,6 +419,10 @@ def dispatch(method: str, raw_params: Any = None) -> Any:
         elif kind == "slots":
             registry = _plugin_registry(params, root)
             value = {"bindings": load_bindings(path, registry)}
+        elif kind == "counterstrike-policy":
+            if CounterstrikePolicy is None:
+                raise ValueError("counterstrike engine is unavailable in this install")
+            value = CounterstrikePolicy.load(path).summary()
         elif kind == "public6-offer":
             value = public6_read_offer(path)
         else:
@@ -542,6 +555,18 @@ def dispatch(method: str, raw_params: Any = None) -> Any:
         _only(params, {"root", "manifest", "public_key", "request"})
         from shadow6_vcore import invoke
         return invoke(_root(params), params["request"], params["manifest"], params["public_key"])
+    if method in {"counterstrike.validate","counterstrike.status"}:
+        _only(params,{"policy"})
+        if CounterstrikePolicy is None:
+            raise ValueError("counterstrike engine is unavailable in this install")
+        policy=CounterstrikePolicy.load(Path(params["policy"]))
+        return {"valid":True,"policy":policy.summary()}
+    if method=="counterstrike.self-test":
+        _only(params,set())
+        if counterstrike_self_test is None:
+            raise ValueError("counterstrike engine is unavailable in this install")
+        counterstrike_self_test()
+        return {"valid":True,"self_test":"passed"}
     if method=="result.validate":
         _only(params,{"result"});result=params.get("result")
         if not isinstance(result,dict) or set(result)-{"id","ok","result","error"} or not isinstance(result.get("ok"),bool):raise ValueError("invalid result envelope")

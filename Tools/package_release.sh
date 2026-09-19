@@ -24,7 +24,8 @@ if [[ -f "$apk_source" ]]; then
     install -m 0644 "$apk_source" "$apk_archive_path"
     apk_included=1
 fi
-tar --exclude="$project_name/.venv" \
+tar --mode=go-w \
+    --exclude="$project_name/.venv" \
 	--exclude="$project_name/.git" \
     --exclude="$project_name/.tools" \
     --exclude='*/.android-toolchain' \

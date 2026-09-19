@@ -24,6 +24,16 @@ import ipaddress
 import json
 from datetime import datetime
 
+# Optional graduated active-defense layer.  Imported lazily so a checkout
+# without counterstrike.py keeps the previous bounded-sentinel behavior.
+try:
+    from counterstrike import CounterstrikeEngine, CounterstrikeError, CounterstrikePolicy
+except ImportError:  # pragma: no cover - defensive import guard
+    CounterstrikeEngine = CounterstrikePolicy = None
+
+    class CounterstrikeError(ValueError):
+        pass
+
 # --- Tree resolution ---------------------------------------------------------
 def _tree_root():
     """Return the Shadow6 tree this watcher should drive.
@@ -98,6 +108,7 @@ class ShadowSentinel:
         self.state_lock = threading.Lock()
         self.alert_pending = threading.Event()
         self.stop_event = threading.Event()
+        self.counterstrike = None
 
     def log(self, message, color=NC):
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -231,6 +242,25 @@ class ShadowSentinel:
             self.alert_pending.set()
             return True
 
+    def attach_counterstrike(self, policy_path):
+        """Opt in to the graduated active-defense engine from a policy file.
+
+        With no policy the sentinel behaves exactly as before.  The engine's
+        highest tier only *requests* rotation through schedule_rotation, which
+        still enforces multi-source/port diversity and the rotation budget.
+        """
+        if CounterstrikePolicy is None:
+            self.log("Counterstrike module unavailable; continuing with MTD only.", YELLOW)
+            return
+        policy = CounterstrikePolicy.load(policy_path)
+        self.counterstrike = CounterstrikeEngine(policy, on_rotation=self.schedule_rotation)
+        self.counterstrike.start()
+        self.log(
+            f"Counterstrike armed (decay={policy.attack_decay_seconds}s, "
+            f"tiers={[name for name in ('deception', 'engagement', 'throttle', 'rotation') if policy.tier_enabled(name)]}).",
+            CYAN,
+        )
+
     def schedule_rotation(self, reason):
         """Aggregate alerts and coalesce bursts into one rotation worker."""
         reason = clean_output(reason)
@@ -270,6 +300,8 @@ class ShadowSentinel:
                 if not clean_line:
                     continue
                 print(f"  [DETECTOR] {clean_line}")
+                if self.counterstrike is not None and "SHADOW6_THREAT " in clean_line:
+                    self.counterstrike.handle_event(clean_line)
                 if "SHADOW6_THREAT " in clean_line or any(key in clean_line for key in ATTACK_KEYWORDS):
                     self.schedule_rotation(clean_line)
             return_code = self.detector_proc.wait()
@@ -298,6 +330,8 @@ def main():
     parser.add_argument("--interface", default="any", help="Sniffing interface")
     parser.add_argument("--model", default="dpi_model.json", help="Path to RF JSON or Neo LSTM model")
     parser.add_argument("--neo", action="store_true", help="Use the new experimental LSTM detector")
+    parser.add_argument("--counterstrike-policy", default=None,
+                        help="Path to a mode-0600 graduated active-defense policy JSON (opt-in)")
 
     args = parser.parse_args()
 
@@ -310,6 +344,9 @@ def main():
     for label, path in (("detector", args.detector), ("orchestrator", args.auto), ("topology", args.topo)):
         if not os.path.isfile(path):
             parser.error(f"{label} file does not exist: {path}")
+    if args.counterstrike_policy is not None:
+        if not os.path.isfile(args.counterstrike_policy):
+            parser.error(f"counterstrike policy file does not exist: {args.counterstrike_policy}")
 
     if args.neo:
         # Check if new version exists in same dir
@@ -336,7 +373,16 @@ def main():
         rotation_interval=args.rotation_interval,
     )
 
-    sentinel.start_monitoring()
+    if args.counterstrike_policy is not None:
+        try:
+            sentinel.attach_counterstrike(args.counterstrike_policy)
+        except CounterstrikeError as exc:
+            parser.error(f"invalid counterstrike policy: {exc}")
+    try:
+        sentinel.start_monitoring()
+    finally:
+        if sentinel.counterstrike is not None:
+            sentinel.counterstrike.stop()
 
 if __name__ == "__main__":
     main()

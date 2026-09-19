@@ -23,3 +23,20 @@ of independent attackers. The rotation budget bounds disruption even when an
 attacker can manufacture enough detector evidence. These settings do not apply
 Guard firewall rules or automatically quarantine a source. The host firewall
 and any operator-authorized Guard policy remain separate deployment controls.
+
+## Counterstrike: graduated active defense
+
+Beyond the single bounded decoy, `counterstrike.py` provides an opt-in,
+graduated active-defense ladder (deception → engagement → throttle → rotation)
+driven by the same `SHADOW6_THREAT` v1 events. It is pure Python, requires no
+Core rebuild, is fail-closed without a mode-`0600` policy, and never initiates
+outbound connections. The rotation tier only *requests* MTD through the
+Sentinel above, which retains full diversity and token-budget control. Run the
+loopback self-test with:
+
+```sh
+.venv/bin/python Detector/counterstrike.py --test
+```
+
+See `docs/counterstrike.en.md` and `docs/counterstrike.zh-CN.md`, and
+`Detector/counterstrike.policy.example.json` for the operator configuration.
