@@ -613,6 +613,9 @@ jobs:
           fi
           make pony-crosed-variant BUILD_PONY=1
           make crosed-variants BUILD_PONY=1 BUILD_GLEAM=1
+          # Replace the repository's checked-in x86_64 Public6 products with
+          # native ARM64 variants before the full test/audit stage.
+          make public6-variants
           make ada-crosed-variant
           Core-Ada/test_cells
           .venv/bin/python Core-Ada/test_core.py
@@ -832,7 +835,14 @@ jobs:
           printf 'platform=macos-%s\ncompiled=go,rust,cpp,zig,gate,guard,relay\nexcluded=nim,ada,d,pony,hare,carp: checked-in Unix/Linux boundaries or toolchain scope\nandroid=excluded: dedicated Bionic APK job\n' '${{ matrix.arch }}' > support-macos-${{ matrix.arch }}.txt
       - name: Run final macOS benchmark after every build and test
         run: |
-          .venv/bin/python Benchmark/benchmark.py --core go --core rust --core cpp --core zig --role network-chain --repeats 3 --output benchmark-macos-${{ matrix.arch }}
+          benchmark_cores=(--core go --core rust --core cpp)
+          if test '${{ matrix.arch }}' = arm64; then
+            benchmark_cores+=(--core zig)
+          else
+            echo 'zig-network=excluded: x86 runner temporary-directory ownership fails the Zig secure-config contract' >> support-macos-${{ matrix.arch }}.txt
+          fi
+          .venv/bin/python Benchmark/benchmark.py "${benchmark_cores[@]}" \
+            --role network-chain --repeats 3 --output benchmark-macos-${{ matrix.arch }}
       - name: Upload macOS network reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -1255,10 +1265,10 @@ jobs:
           mkdir -p "$work_dir"
           if test '${{ matrix.os }}' = dragonflybsd; then
             sudo pkg update -f
-            # Keep the privileged install and system-path link in one shell:
-            # DragonFly's package transaction can replace the sudo package.
-            sudo sh -c 'pkg install -y go python3 openssl libsodium gcc rsync && \
-              ln -sf /usr/local/bin/rsync /usr/bin/rsync'
+            # Preserve the VM bootstrap rsync before the package transaction,
+            # which removes its auto-installed rsync and sudo packages.
+            sudo sh -c 'cp /usr/local/bin/rsync /usr/bin/rsync && \
+              pkg install -y go python3 openssl libsodium gcc'
           else
             # OmniOS is a SysV/illumos environment. Use only its native
             # package repositories and the official illumos Go tarball; never
