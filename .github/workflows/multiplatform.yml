@@ -4,6 +4,7 @@ permissions:
 on:
   push:
   pull_request:
+  workflow_dispatch:
 jobs:
   pony-only:
     name: Core-Pony focused contract
@@ -539,8 +540,243 @@ jobs:
             C11Relay/bridge_relay
             C11Relay/c11relay_test
           if-no-files-found: error
+  linux-arm64:
+    name: Linux ARM64 complete component matrix
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 120
+    env:
+      BUILD_HARE: '0'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: {go-version-file: Core-Go/go.mod}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: goto-bus-stop/setup-zig@v2
+        with: {version: '0.16.0'}
+      - uses: jiro4989/setup-nim-action@v2
+        timeout-minutes: 15
+        with: {nim-version: '2.2.10'}
+      - name: Install Linux ARM64 native dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential pkg-config libssl-dev libsodium-dev libunistring-dev \
+            gnat gprbuild ldc musl-tools shellcheck unzip autoconf m4 \
+            libncurses-dev zlib1g-dev
+          if apt-cache show libdatachannel-dev >/dev/null 2>&1; then
+            sudo apt-get install -y --no-install-recommends libdatachannel-dev
+          else
+            echo 'libdatachannel-dev unavailable; Core-Nim will be recorded as an explicit ARM64 exclusion'
+          fi
+      - name: Provision the native ARM64 Gleam toolchain
+        run: |
+          bash Core-Gleam/tools/fetch_toolchain.sh
+          bash Core-Gleam/tools/build_toolchain.sh
+      - name: Provision the ARM64 Pony toolchain
+        run: |
+          set -euo pipefail
+          mkdir -p .tools/ponyc-0.72.0
+          curl --fail --location --retry 3 \
+            --output /tmp/ponyc.tar.gz \
+            https://github.com/ponylang/ponyc/releases/download/0.72.0/ponyc-arm64-unknown-linux-ubuntu24.04.tar.gz
+          tar -xzf /tmp/ponyc.tar.gz --strip-components=1 -C .tools/ponyc-0.72.0
+          test -x .tools/ponyc-0.72.0/bin/ponyc
+      - name: Probe optional ARM64 toolchains and record explicit exclusions
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/shadow6-arm64"
+          {
+            echo 'platform=linux-arm64'
+            echo 'compiled=go,rust,cpp,zig,ada,d,pony,gleam,gate,guard,relay,offline-python'
+            echo 'android=excluded: Android is covered by its dedicated APK job and receives no additional cores'
+            echo 'hare=excluded: repository bootstrap script is x86_64-only'
+            echo 'carp=excluded: pinned Carp release is x86_64 Linux only'
+            echo 'idris=excluded: no verified ARM64 Chez/Idris runtime is provisioned by this workflow'
+          } | tee "$RUNNER_TEMP/shadow6-arm64/support.txt"
+      - name: Build Linux ARM64 cores and restore default policy
+        run: |
+          set -euo pipefail
+          python3 -m venv .venv
+          .venv/bin/pip install -r requirements.txt
+          ./configure --enable-all
+          make core-go core-rust core-cpp BUILD_HARE=0 BUILD_ZIG=1 BUILD_ADA=1 BUILD_D=1 BUILD_PONY=1 BUILD_GLEAM=1
+          if printf '#include <rtc/rtc.h>\n' | ${CC:-cc} -E - >/dev/null 2>&1; then
+            make core-nim
+            make nim-crosed-variant
+            echo 'nim=compiled-and-tested' >> "$RUNNER_TEMP/shadow6-arm64/support.txt"
+          else
+            echo 'nim=excluded: libdatachannel headers are unavailable on this ARM64 runner'
+            echo 'nim=excluded: libdatachannel headers are unavailable on this ARM64 runner' >> "$RUNNER_TEMP/shadow6-arm64/support.txt"
+          fi
+          make pony-crosed-variant BUILD_PONY=1
+          make crosed-variants BUILD_PONY=1 BUILD_GLEAM=1
+          make ada-crosed-variant
+          Core-Ada/test_cells
+          .venv/bin/python Core-Ada/test_core.py
+          make test-zig BUILD_ZIG=1
+          if test -x Core-Nim/shadow6-nim; then make test-nim; fi
+          make test-d
+          make test-pony BUILD_PONY=1
+          make test-gleam BUILD_GLEAM=1
+          test -x Core-Go/shadow6-go
+          test -x Core-Go/shadow6-go-crosed
+          test -x Core-Rust/shadow6-rust
+          test -x Core-Rust/shadow6-rust-crosed
+          test -x Core-Cpp/shadow6-cpp
+          test -x Core-Zig/shadow6-zig
+          test -x Core-Ada/shadow6-ada
+          test -x Core-Ada/shadow6-ada-crosed
+          test -x Core-D/shadow6-d
+          if test -e Core-Nim/shadow6-nim; then
+            test -x Core-Nim/shadow6-nim
+            test -x Core-Nim/shadow6-nim-crosed
+          fi
+          test -x Core-Pony/shadow6-pony
+          test -x Core-Pony/shadow6-pony-crosed
+          test -x Core-Gleam/shadow6-gleam
+          test -x Core-Gleam/shadow6-gleam-crosed
+      - name: Build Linux ARM64 non-Core components
+        run: |
+          set -euo pipefail
+          make gate guard relay auto detector plugins package-manager easybuild crosed app-layer extension-system assistants slots control-center public6-contract
+          test -x Gate/shadow6-gate
+          test -x Guard/shadow6-guard
+          test -x C11Relay/bridge_relay
+          make test
+          make check
+          make audit
+      - name: Run ARM64 feature and loopback contracts
+        run: |
+          set -euo pipefail
+          for binary in Core-Go/shadow6-go Core-Go/shadow6-go-crosed Core-Rust/shadow6-rust Core-Rust/shadow6-rust-crosed Core-Cpp/shadow6-cpp Core-Zig/shadow6-zig Core-Ada/shadow6-ada Core-D/shadow6-d Core-Pony/shadow6-pony Core-Gleam/shadow6-gleam; do
+            test -x "$binary"
+            "$binary" --feature-report >/dev/null
+          done
+          benchmark_cores=(go rust cpp zig ada d pony gleam)
+          if test -x Core-Nim/shadow6-nim; then
+            Core-Nim/shadow6-nim --feature-report >/dev/null
+            benchmark_cores+=(nim)
+          fi
+          benchmark_args=()
+          for core in "${benchmark_cores[@]}"; do benchmark_args+=(--core "$core"); done
+          .venv/bin/python Benchmark/benchmark.py "${benchmark_args[@]}" --role network-chain --repeats 3 --require-network --output benchmark-linux-arm64
+      - name: Collect Linux ARM64 support manifest and artifacts
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/shadow6-linux-arm64"
+          mkdir -p "$out"
+          cp "$RUNNER_TEMP/shadow6-arm64/support.txt" "$out/"
+          cp benchmark-linux-arm64.* "$out/"
+          for path in Core-Go/shadow6-go* Core-Rust/shadow6-rust* Core-Cpp/shadow6-cpp Core-Zig/shadow6-zig Core-Ada/shadow6-ada* Core-D/shadow6-d Core-Nim/shadow6-nim* Core-Pony/shadow6-pony* Core-Gleam/shadow6-gleam* Gate/shadow6-gate Guard/shadow6-guard C11Relay/bridge_relay; do
+            test -e "$path" && cp -a "$path" "$out/"
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shadow6-linux-arm64-components
+          path: ${{ runner.temp }}/shadow6-linux-arm64
+          if-no-files-found: error
+  linux-musl:
+    name: Alpine musl ${{ matrix.arch }} component boundary
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-latest
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    container:
+      image: alpine:3.23
+    timeout-minutes: 90
+    steps:
+      - name: Bootstrap Alpine checkout dependencies
+        shell: sh
+        run: apk add --no-cache bash ca-certificates git nodejs
+      - uses: actions/checkout@v4
+      - name: Install Alpine musl toolchain and dependencies
+        shell: sh
+        run: |
+          apk add --no-cache bash build-base ca-certificates cargo curl git go \
+            libsodium-dev libunistring-dev make openssl-dev pkgconf python3 \
+            py3-pip rust
+          update-ca-certificates
+      - name: Provision the matching Alpine Pony release
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$(uname -m)" in
+            x86_64) pony_arch=x86-64 ;;
+            aarch64) pony_arch=arm64 ;;
+            *) echo "unsupported Alpine architecture: $(uname -m)" >&2; exit 2 ;;
+          esac
+          mkdir -p .tools/ponyc-0.72.0
+          curl --fail --location --retry 3 \
+            --output /tmp/ponyc.tar.gz \
+            "https://github.com/ponylang/ponyc/releases/download/0.72.0/ponyc-${pony_arch}-unknown-linux-alpine3.23.tar.gz"
+          tar -xzf /tmp/ponyc.tar.gz --strip-components=1 -C .tools/ponyc-0.72.0
+          test -x .tools/ponyc-0.72.0/bin/ponyc
+      - name: Build musl-compatible cores and restore L0
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PONYC="$GITHUB_WORKSPACE/.tools/ponyc-0.72.0/bin/ponyc"
+          export BUILD_GLEAM=0 BUILD_HARE=0 BUILD_CARP=0 BUILD_ADA=0 BUILD_D=0 BUILD_NIM=0
+          ./configure --enable-all
+          make core-go core-rust core-cpp BUILD_PONY=1
+          make pony-crosed-variant BUILD_PONY=1
+          make crosed-variants BUILD_PONY=1 BUILD_GLEAM=0
+          (cd Core-Go && go test ./...)
+          (cd Core-Rust && cargo test --all-targets -- --test-threads=1)
+          (cd Core-Cpp && bash ./test.sh)
+          python3 -m py_compile CLI/*.py Gate/*.py
+          for binary in Core-Go/shadow6-go Core-Go/shadow6-go-crosed Core-Rust/shadow6-rust Core-Rust/shadow6-rust-crosed Core-Cpp/shadow6-cpp Core-Pony/shadow6-pony Core-Pony/shadow6-pony-crosed; do
+            test -x "$binary"
+            "$binary" --feature-report >/dev/null
+          done
+      - name: Build musl support components and write exclusions
+        shell: bash
+        run: |
+          set -euo pipefail
+          make gate guard relay auto detector plugins package-manager easybuild crosed app-layer extension-system assistants slots control-center public6-contract
+          mkdir -p "$RUNNER_TEMP/shadow6-musl"
+          {
+            echo "platform=linux-musl-${{ matrix.arch }}"
+            echo 'supported=go,rust,cpp,pony,gate,guard,relay,offline-python'
+            echo 'gleam=covered-by-linux-gleam-musl-toolchain-job'
+            echo 'excluded=ada,d,nim,hare,carp,idris: no verified Alpine/musl toolchain in this workflow'
+            echo 'android=excluded: Android uses the dedicated Bionic APK job and no additional cores'
+          } > "$RUNNER_TEMP/shadow6-musl/support.txt"
+          cp "$RUNNER_TEMP/shadow6-musl/support.txt" .
+          test -x Gate/shadow6-gate
+          test -x Guard/shadow6-guard
+          test -x C11Relay/bridge_relay
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shadow6-linux-musl-${{ matrix.arch }}-components
+          path: |
+            support.txt
+            Core-Go/shadow6-go*
+            Core-Rust/shadow6-rust*
+            Core-Cpp/shadow6-cpp
+            Core-Pony/shadow6-pony*
+            Gate/shadow6-gate
+            Guard/shadow6-guard
+            C11Relay/bridge_relay
+          if-no-files-found: error
   macos:
-    runs-on: macos-latest
+    name: macOS ${{ matrix.arch }} native components
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15-intel
+            arch: x86_64
+          - os: macos-15
+            arch: arm64
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -552,11 +788,11 @@ jobs:
             ~/go/pkg/mod
             ~/.cargo/registry
             ~/.cargo/git
-          key: macos-${{ hashFiles('**/go.sum', '**/Cargo.lock') }}
+          key: macos-${{ matrix.arch }}-${{ hashFiles('**/go.sum', '**/Cargo.lock') }}
       - uses: dtolnay/rust-toolchain@stable
       - name: Install macOS native core dependencies
         run: |
-          brew install openssl@3 libsodium libunistring zig nim ldc
+          brew install openssl@3 libsodium libunistring zig epoll-shim
           python3 -m venv .venv
           .venv/bin/pip install -r requirements.txt
       - run: |
@@ -580,31 +816,39 @@ jobs:
           zig build -Doptimize=ReleaseSafe
           zig build test -Doptimize=ReleaseSafe
           test -x zig-out/bin/shadow6-zig
-          if test -f "$(brew --prefix openssl@3)/include/rtc/rtc.h"; then
-            cd ../Core-Nim
-            nim c --mm:arc --threads:on -d:release -o:shadow6-nim src/shadow6_nim.nim
-            test -x shadow6-nim
-          else
-            echo 'libdatachannel unavailable; Core-Nim source contract present'
-          fi
-          cd ../Core-Rust
+          # Core-Nim's checked-in native.c uses Linux-only accept4/st_mtim
+          # interfaces. Keep the exclusion explicit and auditable rather than
+          # treating an unrelated Darwin dependency as a successful build.
+          echo 'Core-Nim: excluded on Darwin by its checked-in POSIX C boundary'
+          cd ..
+          # C11Relay is exercised with epoll-shim's kqueue implementation;
+          # no source rewrite or preload interposition is allowed.
+          relay_inc="$(brew --prefix epoll-shim)/include"
+          relay_lib="$(brew --prefix epoll-shim)/lib"
+          cc -std=c11 -O2 -fPIE -pie -D_GNU_SOURCE -I"$relay_inc" \
+            C11Relay/c11relay.c -L"$relay_lib" -lepoll-shim \
+            -o C11Relay/bridge_relay
+          test -x C11Relay/bridge_relay
+          cd Core-Rust
           bash ./compile.sh
           CROSED_LEVEL=5 APP_TRANSPORT=1 QUBES_ISOLATION=1 bash ./compile.sh
           mv shadow6-rust shadow6-rust-crosed
           CROSED_LEVEL=0 APP_TRANSPORT=0 QUBES_ISOLATION=0 bash ./compile.sh
           cd ..
+          printf 'platform=macos-%s\ncompiled=go,rust,cpp,zig,gate,guard,relay\nexcluded=nim,ada,d,pony,hare,carp: checked-in Unix/Linux boundaries or toolchain scope\nandroid=excluded: dedicated Bionic APK job\n' '${{ matrix.arch }}' > support-macos-${{ matrix.arch }}.txt
       - name: Run final macOS benchmark after every build and test
         run: |
-          .venv/bin/python Benchmark/benchmark.py --core go --core rust --core cpp --core zig --role network-chain --repeats 3 --output benchmark-macos.json
+          .venv/bin/python Benchmark/benchmark.py --core go --core rust --core cpp --core zig --role network-chain --repeats 3 --output benchmark-macos-${{ matrix.arch }}
       - name: Upload macOS network reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: shadow6-macos-network-benchmark
+          name: shadow6-macos-network-benchmark-${{ matrix.arch }}
           path: |
-            benchmark-macos.json
-            benchmark-macos.txt
-            benchmark-macos.md
+            benchmark-macos-${{ matrix.arch }}.json
+            benchmark-macos-${{ matrix.arch }}.txt
+            benchmark-macos-${{ matrix.arch }}.md
+            support-macos-${{ matrix.arch }}.txt
           if-no-files-found: error
       - name: Dump macOS environment and benchmark diagnostics
         if: always()
@@ -613,7 +857,7 @@ jobs:
           for report in benchmark-*.json benchmark-*.txt benchmark-*.md; do test -f "$report" && { echo "===== $report ====="; cat "$report"; }; done
       - uses: actions/upload-artifact@v4
         with:
-          name: shadow6-macos-core-go
+          name: shadow6-macos-${{ matrix.arch }}-components
           path: |
             Core-Go/shadow6-go
             Core-Go/shadow6-go-crosed
@@ -621,15 +865,24 @@ jobs:
             Core-Rust/shadow6-rust-crosed
             Core-Cpp/shadow6-cpp
             Core-Zig/zig-out/bin/shadow6-zig
-            Core-Nim/shadow6-nim
+            C11Relay/bridge_relay
             Gate/shadow6-gate
             Guard/shadow6-guard
-            benchmark-macos.json
-            benchmark-macos.txt
-            benchmark-macos.md
+            benchmark-macos-${{ matrix.arch }}.json
+            benchmark-macos-${{ matrix.arch }}.txt
+            benchmark-macos-${{ matrix.arch }}.md
           if-no-files-found: error
   windows:
-    runs-on: windows-latest
+    name: Windows ${{ matrix.arch }} Go-family components
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            arch: amd64
+          - os: windows-11-arm
+            arch: arm64
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -643,10 +896,10 @@ jobs:
           path: |
             ~/go/pkg/mod
             ~/AppData/Local/go-build
-          key: windows-${{ hashFiles('**/go.sum') }}
+          key: windows-${{ matrix.arch }}-${{ hashFiles('**/go.sum') }}
       - shell: bash
         run: |
-          echo 'Windows native matrix: Go, Gate and Guard. POSIX-only C++/Rust/Zig/Nim/D/Ada cores are intentionally excluded on native Windows.'
+          echo 'Windows native matrix: Go, Gate and Guard. Rust/C++/Zig/Nim/D/Ada remain excluded by checked-in POSIX source boundaries.'
           cd Core-Go
           go test ./...
           bash ./compile.sh
@@ -655,18 +908,20 @@ jobs:
           CROSED_LEVEL=0 APP_TRANSPORT=0 QUBES_ISOLATION=0 bash ./compile.sh
           cd ../Gate && go test ./... && go build -trimpath -o shadow6-gate .
           cd ../Guard && go test ./... && bash ./compile.sh
+          cd ..
+          printf 'platform=windows-%s\ncompiled=go,gate,guard\nexcluded=rust,cpp,zig,nim,ada,d,pony,hare,carp,gleam,idris: checked-in POSIX boundaries or native toolchain scope\nandroid=separate APK job\n' '${{ matrix.arch }}' > support-windows-${{ matrix.arch }}.txt
       - name: Measure native Windows Go network chain
         shell: bash
-        run: python Benchmark/benchmark.py --core go --role network-chain --repeats 3 --require-network --output benchmark-windows
+        run: python Benchmark/benchmark.py --core go --role network-chain --repeats 3 --require-network --output benchmark-windows-${{ matrix.arch }}
       - name: Upload Windows network reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: shadow6-windows-network-benchmark
+          name: shadow6-windows-network-benchmark-${{ matrix.arch }}
           path: |
-            benchmark-windows.json
-            benchmark-windows.txt
-            benchmark-windows.md
+            benchmark-windows-${{ matrix.arch }}.json
+            benchmark-windows-${{ matrix.arch }}.txt
+            benchmark-windows-${{ matrix.arch }}.md
           if-no-files-found: error
       - name: Dump Windows environment and benchmark diagnostics
         if: always()
@@ -677,27 +932,35 @@ jobs:
           true
       - uses: actions/upload-artifact@v4
         with:
-          name: shadow6-windows-core-go
+          name: shadow6-windows-${{ matrix.arch }}-components
           path: |
             Core-Go/shadow6-go*
             Gate/shadow6-gate*
             Guard/shadow6-guard*
+            support-windows-${{ matrix.arch }}.txt
           if-no-files-found: error
   freebsd:
     runs-on: ubuntu-latest
-    name: FreeBSD native tests
+    name: FreeBSD ${{ matrix.arch }} native tests
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86-64
+          - arch: arm64
     steps:
       - uses: actions/checkout@v4
-      - uses: cross-platform-actions/action@24ef01df165c76df1ed2b9f9e9212e78dc2fc963 # v1.4.0
+      - uses: cross-platform-actions/action@e0b9770014ba65d5e0815f15b74031c3a635f641 # v1.6.0
         with:
           operating_system: freebsd
           version: '14.4'
+          architecture: ${{ matrix.arch }}
       - name: Test FreeBSD components
         shell: cpa.sh {0}
         run: |
             sudo pkg update -f
             # rust includes Cargo; the base system supplies Clang.
-            sudo pkg install -y go rust python3 openssl libsodium libunistring zig nim ldc
+            sudo pkg install -y go rust python3 openssl libsodium libunistring zig nim ldc libepoll-shim
             export PYTHON="$(command -v python3 || command -v python3.12)"
             for tool in go cargo c++ "$PYTHON"; do command -v "$tool" || exit 1; done
             cd Core-Go
@@ -717,34 +980,45 @@ jobs:
             cd ../Gate
             go test ./...
             go build -trimpath -o shadow6-gate .
-            # C11Relay uses Linux epoll and is covered by the Linux job.
-            cd ../Core-Cpp
+            # C11Relay is built through epoll-shim's kqueue implementation;
+            # the checked-in source remains unchanged.
+            cd ..
+            relay_inc=/usr/local/include
+            relay_lib=/usr/local/lib
+            cc -std=c11 -O2 -fPIE -pie -D_GNU_SOURCE -I"$relay_inc" \
+              C11Relay/c11relay.c -L"$relay_lib" -lepoll-shim \
+              -o C11Relay/bridge_relay
+            test -x C11Relay/bridge_relay
+            cd Core-Cpp
             bash ./compile.sh
             bash ./test.sh
-            echo 'FreeBSD Zig 0.16 translate-c currently fails in the system headers; Zig remains covered by Linux/macOS'
-            if test -f /usr/local/include/rtc/rtc.h || pkg info -e libdatachannel; then cd ../Core-Nim && nim c --mm:arc --threads:on -d:release -o:shadow6-nim src/shadow6_nim.nim; else echo 'libdatachannel unavailable; Core-Nim source contract present'; fi
+            echo 'Core-Zig: excluded on FreeBSD until the pinned translate-c/system-header combination passes'
+            echo 'Core-Nim: excluded on FreeBSD when libdatachannel is unavailable; native.c remains Linux-oriented'
+            if test -f /usr/local/include/rtc/rtc.h || pkg info -e libdatachannel; then cd ../Core-Nim && nim c --mm:arc --threads:on -d:release -o:shadow6-nim src/shadow6_nim.nim; fi
             cd ..
             sudo pkg install -y py312-cryptography 2>/dev/null || true
             python3 -m venv --system-site-packages .venv
             .venv/bin/python -c 'import cryptography' 2>/dev/null || \
               .venv/bin/pip install --no-cache-dir --only-binary=:all: 'cryptography>=43,<47'
             .venv/bin/pip install --no-deps asyncssh || .venv/bin/pip install asyncssh
+            printf 'platform=freebsd-%s\ncompiled=go,rust,cpp,gate,guard,relay\nexcluded=zig,nim,ada,d,pony,hare,carp,gleam,idris: explicit toolchain/source boundaries\nandroid=separate APK job\n' '${{ matrix.arch }}' > support-freebsd-${{ matrix.arch }}.txt
       - name: Measure FreeBSD native network chains
         shell: cpa.sh {0}
-        run: .venv/bin/python Benchmark/benchmark.py --core go --core rust --role network-chain --repeats 3 --require-network --output benchmark-freebsd
+        run: .venv/bin/python Benchmark/benchmark.py --core go --core rust --role network-chain --repeats 3 --require-network --output benchmark-freebsd-${{ matrix.arch }}
       - name: Upload FreeBSD network reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: shadow6-freebsd-network-benchmark
+          name: shadow6-freebsd-network-benchmark-${{ matrix.arch }}
           path: |
-            benchmark-freebsd.json
-            benchmark-freebsd.txt
-            benchmark-freebsd.md
+            benchmark-freebsd-${{ matrix.arch }}.json
+            benchmark-freebsd-${{ matrix.arch }}.txt
+            benchmark-freebsd-${{ matrix.arch }}.md
+            support-freebsd-${{ matrix.arch }}.txt
           if-no-files-found: warn
       - uses: actions/upload-artifact@v4
         with:
-          name: shadow6-freebsd-release
+          name: shadow6-freebsd-${{ matrix.arch }}-release
           path: |
             Core-Go/shadow6-go*
             Core-Rust/shadow6-rust*
@@ -752,27 +1026,32 @@ jobs:
             Gate/shadow6-gate
             C11Relay/bridge_relay
             Core-Cpp/shadow6-cpp
-            Core-Zig/zig-out/bin/shadow6-zig
-            Core-Nim/shadow6-nim
-            benchmark-freebsd.json
-            benchmark-freebsd.txt
-            benchmark-freebsd.md
+            benchmark-freebsd-${{ matrix.arch }}.json
+            benchmark-freebsd-${{ matrix.arch }}.txt
+            benchmark-freebsd-${{ matrix.arch }}.md
           if-no-files-found: error
   openbsd:
     runs-on: ubuntu-latest
-    name: OpenBSD native tests
+    name: OpenBSD ${{ matrix.arch }} native tests
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86-64
+          - arch: arm64
     steps:
       - uses: actions/checkout@v4
-      - uses: cross-platform-actions/action@24ef01df165c76df1ed2b9f9e9212e78dc2fc963 # v1.4.0, Node 24
+      - uses: cross-platform-actions/action@e0b9770014ba65d5e0815f15b74031c3a635f641 # v1.6.0
         with:
           operating_system: openbsd
           version: '7.9'
+          architecture: ${{ matrix.arch }}
           cpu_count: 2
           memory: 6G
       - name: Test OpenBSD components
         shell: cpa.sh {0}
         run: |
-            sudo pkg_add go rust python%3.13 libsodium zig nim openssl-3.5.6v0
+            sudo pkg_add go rust python%3.13 libsodium nim epoll-shim openssl-3.5.6v0
             export PYTHON="$(command -v python3.13 || command -v python3)"
             for tool in go cargo c++ "$PYTHON"; do command -v "$tool" || exit 1; done
             export CPPFLAGS='-I/usr/local/include/eopenssl35'
@@ -789,42 +1068,66 @@ jobs:
             CROSED_LEVEL=5 APP_TRANSPORT=1 QUBES_ISOLATION=1 bash ./compile.sh
             mv shadow6-go shadow6-go-crosed
             CROSED_LEVEL=0 APP_TRANSPORT=0 QUBES_ISOLATION=0 bash ./compile.sh
+            cd ../Core-Rust
+            bash ./compile.sh
+            CROSED_LEVEL=5 APP_TRANSPORT=1 QUBES_ISOLATION=1 bash ./compile.sh
+            mv shadow6-rust shadow6-rust-crosed
+            CROSED_LEVEL=0 APP_TRANSPORT=0 QUBES_ISOLATION=0 bash ./compile.sh
             cd ../Guard
             go test ./...
-            cd ../Core-Cpp
+            bash ./compile.sh
+            cd ../Gate
+            go test ./...
+            go build -trimpath -o shadow6-gate .
+            cd ..
+            cc -std=c11 -O2 -fPIE -pie -D_GNU_SOURCE -I/usr/local/include \
+              C11Relay/c11relay.c -L/usr/local/lib -lepoll-shim \
+              -o C11Relay/bridge_relay
+            test -x C11Relay/bridge_relay
+            cd Core-Cpp
             bash ./compile.sh
             bash ./test.sh
             if test -f /usr/local/include/rtc/rtc.h; then cd ../Core-Nim && nim c --mm:arc --threads:on -d:release -o:shadow6-nim src/shadow6_nim.nim; else echo 'libdatachannel unavailable; Core-Nim source contract present'; fi
             cd ..
+            printf 'platform=openbsd-%s\ncompiled=go,rust,cpp,gate,guard,relay\nexcluded=zig,nim,ada,d,pony,hare,carp,gleam,idris: explicit toolchain/source boundaries\nandroid=separate APK job\n' '${{ matrix.arch }}' > support-openbsd-${{ matrix.arch }}.txt
       - name: Measure OpenBSD native network chains
         shell: cpa.sh {0}
-        run: .venv/bin/python Benchmark/benchmark.py --core go --core cpp --role network-chain --repeats 3 --output benchmark-openbsd
+        run: .venv/bin/python Benchmark/benchmark.py --core go --core rust --core cpp --role network-chain --repeats 3 --output benchmark-openbsd-${{ matrix.arch }}
       - name: Upload OpenBSD network reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: shadow6-openbsd-network-benchmark
+          name: shadow6-openbsd-network-benchmark-${{ matrix.arch }}
           path: |
-            benchmark-openbsd.json
-            benchmark-openbsd.txt
-            benchmark-openbsd.md
+            benchmark-openbsd-${{ matrix.arch }}.json
+            benchmark-openbsd-${{ matrix.arch }}.txt
+            benchmark-openbsd-${{ matrix.arch }}.md
+            support-openbsd-${{ matrix.arch }}.txt
           if-no-files-found: error
       - uses: actions/upload-artifact@v4
         with:
-          name: shadow6-openbsd-release
+          name: shadow6-openbsd-${{ matrix.arch }}-release
           path: |
             Core-Go/shadow6-go*
+            Core-Rust/shadow6-rust*
+            Guard/shadow6-guard
+            Gate/shadow6-gate
+            C11Relay/bridge_relay
             Core-Cpp/shadow6-cpp
-            Core-Zig/zig-out/bin/shadow6-zig
-            Core-Nim/shadow6-nim
-            benchmark-openbsd.json
-            benchmark-openbsd.txt
-            benchmark-openbsd.md
+            benchmark-openbsd-${{ matrix.arch }}.json
+            benchmark-openbsd-${{ matrix.arch }}.txt
+            benchmark-openbsd-${{ matrix.arch }}.md
           if-no-files-found: error
   netbsd:
     runs-on: ubuntu-latest
-    name: NetBSD native tests
+    name: NetBSD ${{ matrix.arch }} native tests
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86-64
+          - arch: arm64
     steps:
       - uses: actions/checkout@v4
         with:
@@ -835,16 +1138,19 @@ jobs:
           check-latest: true
           cache: false
       - name: Prepare verified NetBSD Go toolchain
+        if: matrix.arch == 'x86-64'
         timeout-minutes: 5
         run: python3 Tools/prepare_netbsd_go.py "$(go env GOVERSION)" .tmp/netbsd-go
-      # v1.4.0 disables AMX on NetBSD guests and fixes VM startup error handling.
+      # v1.6.0 supports the x86-64 and ARM64 guests and fixes VM startup
+      # error handling.
       # https://github.com/cross-platform-actions/action/issues/158
       - name: Boot and test NetBSD
-        uses: cross-platform-actions/action@24ef01df165c76df1ed2b9f9e9212e78dc2fc963 # v1.4.0
+        uses: cross-platform-actions/action@e0b9770014ba65d5e0815f15b74031c3a635f641 # v1.6.0
         timeout-minutes: 20
         with:
           operating_system: netbsd
           version: '10.1'
+          architecture: ${{ matrix.arch }}
           cpu_count: 2
           memory: 4G
       - name: Test NetBSD components
@@ -852,7 +1158,25 @@ jobs:
         run: |
           sudo pkgin -y install python311
           export PYTHON=/usr/pkg/bin/python3.11
-          bash Tools/test_netbsd.sh
+          if test '${{ matrix.arch }}' = x86-64; then
+            bash Tools/test_netbsd.sh
+          else
+            # NetBSD's verified host archive is amd64-only. On ARM64 use the
+            # native pkgsrc Go toolchain and keep the same variant contract.
+            sudo pkgin -y install go
+            for component in Core-Go Guard Gate; do
+              (cd "$component" && go test -buildvcs=false -count=1 -timeout=5m ./...)
+            done
+            (cd Core-Go && bash ./compile.sh && \
+              CROSED_LEVEL=5 APP_TRANSPORT=1 QUBES_ISOLATION=1 bash ./compile.sh && \
+              mv shadow6-go shadow6-go-crosed && \
+              CROSED_LEVEL=0 APP_TRANSPORT=0 QUBES_ISOLATION=0 bash ./compile.sh)
+          fi
+          # Tools/test_netbsd.sh deliberately tests Gate/Guard but does not
+          # publish their binaries; build them for both architectures here.
+          (cd Guard && bash ./compile.sh)
+          (cd Gate && go build -trimpath -o shadow6-gate .)
+          printf 'platform=netbsd-%s\ncompiled=go,gate,guard\nexcluded=rust,cpp,zig,nim,ada,d,pony,hare,carp,gleam,idris: explicit guest/toolchain boundaries\nandroid=separate APK job\n' '${{ matrix.arch }}' > support-netbsd-${{ matrix.arch }}.txt
           test -x Core-Go/shadow6-go
           test -x Core-Go/shadow6-go-crosed
       - name: Measure NetBSD native Go network chain
@@ -866,16 +1190,17 @@ jobs:
           /usr/pkg/bin/python3.11 -m venv --system-site-packages .venv
           # stack_test imports only cryptography; aiohttp and the UI packages
           # have no compatible NetBSD wheels and are not used by this check.
-          .venv/bin/python Benchmark/benchmark.py --core go --role network-chain --repeats 3 --require-network --output benchmark-netbsd
+          .venv/bin/python Benchmark/benchmark.py --core go --role network-chain --repeats 3 --require-network --output benchmark-netbsd-${{ matrix.arch }}
       - name: Upload NetBSD network reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: shadow6-netbsd-network-benchmark
+          name: shadow6-netbsd-network-benchmark-${{ matrix.arch }}
           path: |
-            benchmark-netbsd.json
-            benchmark-netbsd.txt
-            benchmark-netbsd.md
+            benchmark-netbsd-${{ matrix.arch }}.json
+            benchmark-netbsd-${{ matrix.arch }}.txt
+            benchmark-netbsd-${{ matrix.arch }}.md
+            support-netbsd-${{ matrix.arch }}.txt
           if-no-files-found: warn
       - name: NetBSD boot diagnostics
         if: failure()
@@ -886,10 +1211,107 @@ jobs:
           fi
       - uses: actions/upload-artifact@v4
         with:
-          name: shadow6-netbsd-release
+          name: shadow6-netbsd-${{ matrix.arch }}-release
           path: |
             Core-Go/shadow6-go
             Core-Go/shadow6-go-crosed
+            Gate/shadow6-gate
+            Guard/shadow6-guard
+            benchmark-netbsd-${{ matrix.arch }}.json
+            benchmark-netbsd-${{ matrix.arch }}.txt
+            benchmark-netbsd-${{ matrix.arch }}.md
+          if-no-files-found: error
+  unix-extra:
+    name: ${{ matrix.os }} ${{ matrix.arch }} portable component boundary
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: dragonflybsd
+            version: '6.4.2'
+            arch: x86-64
+          - os: omnios
+            version: 'r151058'
+            arch: x86-64
+    steps:
+      - uses: actions/checkout@v4
+      - name: Boot ${{ matrix.os }} VM
+        uses: cross-platform-actions/action@e0b9770014ba65d5e0815f15b74031c3a635f641 # v1.6.0
+        with:
+          operating_system: ${{ matrix.os }}
+          version: ${{ matrix.version }}
+          architecture: ${{ matrix.arch }}
+          cpu_count: 2
+          memory: 6G
+      - name: Build portable Unix components
+        shell: cpa.sh {0}
+        run: |
+          set -euo pipefail
+          work_dir="$GITHUB_WORKSPACE/.tmp/shadow6-${{ matrix.os }}"
+          mkdir -p "$work_dir"
+          if test '${{ matrix.os }}' = dragonflybsd; then
+            sudo pkg update -f
+            sudo pkg install -y go python3 openssl libsodium gcc
+          else
+            # OmniOS is a SysV/illumos environment. Use only its native
+            # package repositories and the official illumos Go tarball; never
+            # claim Linux binaries are native OmniOS artifacts.
+            sudo pkg refresh --full
+            sudo pkg install --accept -v developer/gcc14 developer/build/make \
+              system/library/security/openssl developer/versioning/git curl
+            go_version=1.25.0
+            curl --fail --location --retry 3 \
+              "https://go.dev/dl/go${go_version}.illumos-amd64.tar.gz" \
+              -o "$work_dir/go-illumos.tar.gz"
+            sudo rm -rf /usr/local/go
+            sudo mkdir -p /usr/local
+            sudo tar -xzf "$work_dir/go-illumos.tar.gz" -C /usr/local
+            export PATH=/usr/local/go/bin:$PATH
+          fi
+          command -v go
+          go version
+          for component in Core-Go Gate Guard; do
+            (cd "$component" && go test -buildvcs=false -count=1 -timeout=5m ./...)
+          done
+          (cd Core-Go && bash ./compile.sh && \
+            CROSED_LEVEL=5 APP_TRANSPORT=1 QUBES_ISOLATION=1 bash ./compile.sh && \
+            mv shadow6-go shadow6-go-crosed && \
+            CROSED_LEVEL=0 APP_TRANSPORT=0 QUBES_ISOLATION=0 bash ./compile.sh)
+          (cd Gate && go build -trimpath -o shadow6-gate .)
+          (cd Guard && bash ./compile.sh)
+          if command -v c++ >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1 && command -v pkg-config >/dev/null 2>&1 && pkg-config --exists openssl; then
+            cxxflags="$(pkg-config --cflags openssl)"
+            ldflags="$(pkg-config --libs openssl)"
+            (cd Core-Cpp && c++ -std=c++20 -O2 -fPIE -pie -fno-exceptions -fno-rtti -pthread $cxxflags src/main.cpp $ldflags -o shadow6-cpp && \
+              c++ -std=c++20 -O1 -fno-exceptions -fno-rtti -pthread $cxxflags tests.cpp $ldflags -o "$work_dir/cpp-probe" && \
+              "$work_dir/cpp-probe" && SHADOW6_CPP_PROBE="$work_dir/cpp-probe" python3 test_core.py)
+          else
+            echo 'cpp=excluded: native C++/OpenSSL development files unavailable'
+          fi
+          if command -v cargo >/dev/null 2>&1; then
+            (cd Core-Rust && bash ./compile.sh)
+          else
+            echo 'rust=excluded: native Cargo toolchain unavailable'
+          fi
+          mkdir -p "$work_dir/artifact"
+          cp Core-Go/shadow6-go* Gate/shadow6-gate Guard/shadow6-guard \
+            "$work_dir/artifact/"
+          for optional in Core-Rust/shadow6-rust* Core-Cpp/shadow6-cpp C11Relay/bridge_relay; do
+            test -e "$optional" && cp -a "$optional" "$work_dir/artifact/"
+          done
+          test -x "$work_dir/artifact/shadow6-go"
+          {
+            echo "platform=${{ matrix.os }}-${{ matrix.arch }}"
+            echo 'go,gate,guard=compiled-and-tested'
+            echo 'rust,cpp,relay,gleam,ada,d,nim,pony,hare,carp,idris=individual-toolchain-boundary'
+            echo 'android=excluded: Android receives no additional Core binaries'
+          } > "$work_dir/artifact/support.txt"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shadow6-${{ matrix.os }}-${{ matrix.arch }}-components
+          path: .tmp/shadow6-${{ matrix.os }}/artifact
           if-no-files-found: error
   android:
     runs-on: ubuntu-latest
@@ -958,6 +1380,9 @@ jobs:
         env:
           SHADOW6_ANDROID_BUILD_JOBS: '16'
         run: |
+          # Android intentionally keeps the existing App contract: Go, Rust,
+          # D, Nim and Gate only. Other desktop cores may be evaluated on
+          # Linux/Unix jobs but are not added to the APK or its selectors.
           ndk_dir="${ANDROID_SDK_ROOT:-$ANDROID_HOME}/ndk/28.2.13676358"
           test -d "$ndk_dir"
           python3 Android/build_android_cores.py --ndk "$ndk_dir"
@@ -972,4 +1397,70 @@ jobs:
         with:
           name: shadow6-android-debug
           path: Android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+  platform-summary:
+    name: Cross-platform support summary
+    if: always()
+    needs:
+      - pony-only
+      - idris
+      - linux-gleam
+      - linux
+      - linux-arm64
+      - linux-musl
+      - macos
+      - windows
+      - freebsd
+      - openbsd
+      - netbsd
+      - unix-extra
+      - android
+    runs-on: ubuntu-latest
+    steps:
+      - name: Write platform result matrix
+        env:
+          PONY: ${{ needs['pony-only'].result }}
+          IDRIS: ${{ needs.idris.result }}
+          GLEAM: ${{ needs['linux-gleam'].result }}
+          LINUX: ${{ needs.linux.result }}
+          LINUX_ARM64: ${{ needs['linux-arm64'].result }}
+          LINUX_MUSL: ${{ needs['linux-musl'].result }}
+          MACOS: ${{ needs.macos.result }}
+          WINDOWS: ${{ needs.windows.result }}
+          FREEBSD: ${{ needs.freebsd.result }}
+          OPENBSD: ${{ needs.openbsd.result }}
+          NETBSD: ${{ needs.netbsd.result }}
+          UNIX_EXTRA: ${{ needs['unix-extra'].result }}
+          ANDROID: ${{ needs.android.result }}
+        run: |
+          set -u
+          mkdir -p support-summary
+          {
+            echo '{'
+            printf '  "pony-only": "%s",\n' "$PONY"
+            printf '  "idris": "%s",\n' "$IDRIS"
+            printf '  "linux-gleam": "%s",\n' "$GLEAM"
+            printf '  "linux": "%s",\n' "$LINUX"
+            printf '  "linux-arm64": "%s",\n' "$LINUX_ARM64"
+            printf '  "linux-musl": "%s",\n' "$LINUX_MUSL"
+            printf '  "macos": "%s",\n' "$MACOS"
+            printf '  "windows": "%s",\n' "$WINDOWS"
+            printf '  "freebsd": "%s",\n' "$FREEBSD"
+            printf '  "openbsd": "%s",\n' "$OPENBSD"
+            printf '  "netbsd": "%s",\n' "$NETBSD"
+            printf '  "unix-extra": "%s",\n' "$UNIX_EXTRA"
+            printf '  "android": "%s"\n' "$ANDROID"
+            echo '}'
+          } > support-summary/platform-results.json
+          cat support-summary/platform-results.json
+          for status in "$PONY" "$IDRIS" "$GLEAM" "$LINUX" "$LINUX_ARM64" "$LINUX_MUSL" "$MACOS" "$WINDOWS" "$FREEBSD" "$OPENBSD" "$NETBSD" "$UNIX_EXTRA" "$ANDROID"; do
+            case "$status" in
+              failure|cancelled) exit 1 ;;
+            esac
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: shadow6-platform-results
+          path: support-summary/platform-results.json
           if-no-files-found: error
