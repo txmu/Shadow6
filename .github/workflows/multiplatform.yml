@@ -1255,8 +1255,10 @@ jobs:
           mkdir -p "$work_dir"
           if test '${{ matrix.os }}' = dragonflybsd; then
             sudo pkg update -f
-            sudo pkg install -y go python3 openssl libsodium gcc rsync
-            sudo ln -sf /usr/local/bin/rsync /usr/bin/rsync
+            # Keep the privileged install and system-path link in one shell:
+            # DragonFly's package transaction can replace the sudo package.
+            sudo sh -c 'pkg install -y go python3 openssl libsodium gcc rsync && \
+              ln -sf /usr/local/bin/rsync /usr/bin/rsync'
           else
             # OmniOS is a SysV/illumos environment. Use only its native
             # package repositories and the official illumos Go tarball; never
