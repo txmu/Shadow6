@@ -641,7 +641,14 @@ jobs:
       - name: Build Linux ARM64 non-Core components
         run: |
           set -euo pipefail
-          make gate guard relay auto detector plugins package-manager easybuild crosed app-layer extension-system assistants slots control-center public6-contract
+          make gate guard relay auto detector package-manager easybuild crosed app-layer extension-system assistants slots control-center public6-contract
+          python3 -m py_compile Plugin-System/shadow6_plugins.py \
+            Plugin-System/sign_plugin.py plugins/*/main.py
+          cp -R plugins /tmp/shadow6-plugins
+          cp Plugin-System/trusted_signers.json /tmp/shadow6-trusted-signers.json
+          python3 Plugin-System/shadow6_plugins.py \
+            --plugin-root /tmp/shadow6-plugins \
+            --trust-store /tmp/shadow6-trusted-signers.json list
           test -x Gate/shadow6-gate
           test -x Guard/shadow6-guard
           test -x C11Relay/bridge_relay
@@ -975,7 +982,8 @@ jobs:
             cd ..
             relay_inc=/usr/local/include/libepoll-shim
             relay_lib=/usr/local/lib
-            cc -std=c11 -O2 -fPIE -pie -D_GNU_SOURCE -I"$relay_inc" \
+            cc -std=c11 -O2 -fPIE -pie -D_GNU_SOURCE \
+              -include netinet/in.h -I"$relay_inc" \
               C11Relay/c11relay.c -L"$relay_lib" -lepoll-shim \
               -o C11Relay/bridge_relay
             test -x C11Relay/bridge_relay
@@ -1243,7 +1251,7 @@ jobs:
           mkdir -p "$work_dir"
           if test '${{ matrix.os }}' = dragonflybsd; then
             sudo pkg update -f
-            sudo pkg install -y go python3 openssl libsodium gcc
+            sudo pkg install -y go python3 openssl libsodium gcc rsync
           else
             # OmniOS is a SysV/illumos environment. Use only its native
             # package repositories and the official illumos Go tarball; never
