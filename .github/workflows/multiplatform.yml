@@ -745,8 +745,8 @@ jobs:
           {
             echo "platform=linux-musl-${{ matrix.arch }}"
             echo 'supported=go,rust,cpp,pony,gate,guard,relay,offline-python'
-            echo 'gleam=covered-by-linux-gleam-musl-toolchain-job'
-            echo 'excluded=ada,d,nim,hare,carp,idris: no verified Alpine/musl toolchain in this workflow'
+            echo 'gleam=excluded: no verified Alpine/musl Gleam/BEAM runtime in this workflow'
+            echo 'excluded=ada,d,nim,hare,carp,idris,gleam: no verified Alpine/musl toolchain in this workflow'
             echo 'android=excluded: Android uses the dedicated Bionic APK job and no additional cores'
           } > "$RUNNER_TEMP/shadow6-musl/support.txt"
           cp "$RUNNER_TEMP/shadow6-musl/support.txt" .
