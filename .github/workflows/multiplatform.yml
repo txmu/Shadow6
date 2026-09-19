@@ -1040,7 +1040,7 @@ jobs:
       - name: Test OpenBSD components
         shell: cpa.sh {0}
         run: |
-            sudo pkg_add go rust python-3.13 libsodium epoll-shim openssl-3.5.6v0
+            sudo pkg_add go rust python-3.13.13 libsodium epoll-shim openssl-3.5.6v0
             export PYTHON="$(command -v python3.13 || command -v python3)"
             for tool in go cargo c++ "$PYTHON"; do command -v "$tool" || exit 1; done
             export CPPFLAGS='-I/usr/local/include/eopenssl35'
@@ -1250,15 +1250,15 @@ jobs:
             # package repositories and the official illumos Go tarball; never
             # claim Linux binaries are native OmniOS artifacts.
             sudo pkg refresh --full
-            sudo pkg install --accept -v developer/gcc14 developer/build/make \
-              developer/versioning/git curl
+            sudo pkg install --accept -v archiver/gnu-tar developer/gcc14 \
+              developer/build/make developer/versioning/git curl
             go_version=1.25.0
             curl --fail --location --retry 3 \
               "https://go.dev/dl/go${go_version}.illumos-amd64.tar.gz" \
               -o "$work_dir/go-illumos.tar.gz"
             sudo rm -rf /usr/local/go
             sudo mkdir -p /usr/local
-            sudo tar -xzf "$work_dir/go-illumos.tar.gz" -C /usr/local
+            sudo /usr/bin/gtar -xzf "$work_dir/go-illumos.tar.gz" -C /usr/local
             export PATH=/usr/local/go/bin:$PATH
           fi
           command -v go
