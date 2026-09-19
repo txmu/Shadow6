@@ -1147,9 +1147,8 @@ jobs:
         run: |
           sudo pkgin -y install go python311
           export PYTHON=/usr/pkg/bin/python3.11
-          go_bin=$(pkg_info -L go | awk '/\/bin\/go$/ {print; exit}')
-          test -x "$go_bin"
-          export PATH="$(dirname "$go_bin"):$PATH"
+          export PATH="/usr/pkg/bin:/usr/pkg/sbin:$PATH"
+          test -x /usr/pkg/bin/go
           if test '${{ matrix.arch }}' = x86-64; then
             bash Tools/test_netbsd.sh
           else
