@@ -278,7 +278,7 @@ fn validate_crosed_payload(value: &serde_json::Value, depth: usize) -> Result<()
 // requested capability set on denial, so a caller can never read a capability
 // out of a denied response.
 fn denied(mut response: CrosedResponse, reason: &str) -> Result<CrosedResponse, String> {
-    response.status = "denied".into();
+    response.status = "denied";
     response.reason = reason.into();
     response.granted_level = 0;
     response.granted_capabilities.clear();
@@ -408,9 +408,7 @@ fn handle_crosed_request(request_path: &str, trust_path: &str) -> Result<CrosedR
 
     // Commit the nonce before releasing the grant so an identical signed request
     // cannot be replayed for the remainder of its validity window.
-    if let Err(error) = reserve_crosed_nonce(trust_path, &request.mod_id, &request.nonce, now) {
-        return Err(error);
-    }
+    reserve_crosed_nonce(trust_path, &request.mod_id, &request.nonce, now)?;
 
     response.granted_capabilities.sort_unstable();
     response.granted_level = request.requested_level;
@@ -515,10 +513,8 @@ fn crosed_replay_prune(directory: &str, now: i64) -> Result<(), String> {
             .and_then(|modified| modified.duration_since(std::time::UNIX_EPOCH).ok())
             .map(|stamp| stamp.as_secs() as i64 >= cutoff)
             .unwrap_or(true);
-        if !recent {
-            if std::fs::remove_file(entry.path()).is_ok() {
-                continue;
-            }
+        if !recent && std::fs::remove_file(entry.path()).is_ok() {
+            continue;
         }
         live += 1;
     }
