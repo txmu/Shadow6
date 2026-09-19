@@ -31,6 +31,7 @@ tar --mode=go-w \
     --exclude="$project_name/.venv" \
 	--exclude="$project_name/.git" \
     --exclude="$project_name/.tools" \
+    --exclude="$project_name/.nim_runtime" \
     --exclude='*/.android-toolchain' \
     --exclude='*/.tmp' \
     --exclude="$project_name/.runtime" \
@@ -52,6 +53,14 @@ tar --mode=go-w \
     --exclude='*/erl_crash.dump' \
     --exclude="$project_name/Auto-Orchestrator/generated" \
     --exclude="$project_name/Auto-Orchestrator/generated-rust" \
+    --exclude='*/.pytest_cache' \
+    --exclude='*/.mypy_cache' \
+    --exclude='*/.ruff_cache' \
+    --exclude='*/.hypothesis' \
+    --exclude='*/.tox' \
+    --exclude='*/.nox' \
+    --exclude='*/.cache' \
+    --exclude='*/.coverage*' \
     -czpf "$tar_tmp" "$project_name"
 if [[ "$apk_included" == 1 ]]; then
     tar -tzf "$tar_tmp" "$apk_archive_path" >/dev/null || {
@@ -67,6 +76,7 @@ cd "$parent_dir"
 tar --exclude="$project_name/.venv" \
 	--exclude="$project_name/.git" \
     --exclude="$project_name/.tools" \
+    --exclude="$project_name/.nim_runtime" \
     --exclude='*/.android-toolchain' \
     --exclude='*/.tmp' \
     --exclude="$project_name/.runtime" \
@@ -96,6 +106,14 @@ tar --exclude="$project_name/.venv" \
     --exclude='*/erl_crash.dump' \
     --exclude="$project_name/Auto-Orchestrator/generated" \
     --exclude="$project_name/Auto-Orchestrator/generated-rust" \
+    --exclude='*/.pytest_cache' \
+    --exclude='*/.mypy_cache' \
+    --exclude='*/.ruff_cache' \
+    --exclude='*/.hypothesis' \
+    --exclude='*/.tox' \
+    --exclude='*/.nox' \
+    --exclude='*/.cache' \
+    --exclude='*/.coverage*' \
     --exclude="$project_name/Core-Go/shadow6-go" \
     --exclude="$project_name/Core-Go/shadow6-go-crosed" \
     --exclude="$project_name/Core-Go/shadow6-go-public6" \

@@ -11,7 +11,8 @@ from pathlib import PurePosixPath
 
 
 FORBIDDEN_ZIP_DIRS = {
-    ".venv", ".tools", ".android-toolchain", "__pycache__", "target",
+    ".venv", ".tools", ".nim_runtime", ".android-toolchain", "__pycache__", "target",
+    ".pytest_cache", ".mypy_cache", ".ruff_cache", ".hypothesis", ".tox", ".nox", ".cache",
     ".gradle", "build", "dist", ".zig-cache", "zig-out",
 }
 FORBIDDEN_ZIP_FILES = {"config.mk"}
