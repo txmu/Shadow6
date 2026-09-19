@@ -14,9 +14,13 @@ shadow6 control -- status
 In a source checkout, replace `shadow6` with `.venv/bin/python CLI/shadow6.py`.
 If a component is missing, run `make build` from the repository root and retry.
 
-Go and Rust are separate, complete stacks. Pick one family for a connection and
-use it at every hop. Default builds keep Crosed, application transport and domain
-policy disabled. The explicit `*-crosed` binaries enable the L5 feature contract.
+Shadow6 ships twelve Core implementations: Go, Rust, Gleam, Ada, Nim, Pony,
+Idris, Zig, D, C++, Hare, and Carp. Go and Rust are the two complete reference
+stacks; the other Cores are independently documented profiles with their own
+toolchain and platform requirements. Pick one family for a connection and use
+it at every hop. Default builds keep Crosed, application transport and domain
+policy disabled. The explicit `*-crosed` binaries enable the L5 feature contract
+where that Core provides it.
 
 The Control Center starts read-only. Its HTTP API listens only on loopback and
 requires a bearer token stored in a regular, owner-controlled `0600` file. Keep

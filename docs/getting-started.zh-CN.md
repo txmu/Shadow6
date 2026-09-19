@@ -14,9 +14,11 @@ shadow6 control -- status
 `.venv/bin/python CLI/shadow6.py` 即可。若提示组件缺失，请在仓库根目录运行
 `make build`，完成后再试。
 
-Go 与 Rust 各是一套完整协议栈。一条连接从头到尾应使用同一种 Core。
-默认构建关闭 Crosed、应用传输和域策略；带 `-crosed` 后缀的独立二进制才启用
-L5 功能契约。
+Shadow6 现有十二套 Core 实现：Go、Rust、Gleam、Ada、Nim、Pony、Idris、Zig、
+D、C++、Hare 和 Carp。Go 与 Rust 是两套完整参考协议栈，其余 Core 也各自独立、
+拥有单独的工具链和平台说明。一条连接从头到尾应使用同一种 Core。默认构建关闭
+Crosed、应用传输和域策略；在该 Core 支持的范围内，带 `-crosed` 后缀的独立二进制
+才启用 L5 功能契约。
 
 Control Center 默认只读。它的 HTTP API 只监听本机回环地址，并要求从普通、
 仅所有者可读写的 `0600` 文件加载 bearer token。在你确认具体操作前，请保留

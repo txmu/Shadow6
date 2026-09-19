@@ -11,8 +11,8 @@ Shadow6 is a multi-component remote-access and UDP-relay project with
 deterministic builds, strict configuration validation, bounded resource use,
 and offline tests.
 
-The shortest way in is the unified CLI. `shadow6 features` shows what the two
-Core builds and Gate actually contain; `shadow6 <component> -- <arguments>`
+The shortest way in is the unified CLI. `shadow6 features` shows what the
+available Core builds and Gate actually contain; `shadow6 <component> -- <arguments>`
 passes arguments to a known component without invoking a shell. The same entry
 point exposes Control Center's MCP, LSP, OpenAI function-calling, JSONL RPC and
 loopback Web API transports. `shadow6 workflow release` runs the fixed release
@@ -30,6 +30,33 @@ and checked by size and SHA-256 before the Package Manager performs the package'
 separate signature check. See [Online-Repository/README.md](Online-Repository/README.md).
 
 ## Components
+
+### The twelve Core implementations
+
+Shadow6 maintains twelve independently compiled Core implementations. They
+share the feature-report and security-contract vocabulary, but they are not
+implicitly wire-compatible: use one family consistently across a broker,
+agent, and client path, and consult that Core's README for its transport and
+platform limits.
+
+| Core | Primary profile | Build/availability note |
+| --- | --- | --- |
+| Core-Go | full broker/agent/client stack | default Linux build; L0 and explicit Crosed/Public6 variants |
+| Core-Rust | full broker/agent/client stack | default Linux/Unix build; L0 and explicit Crosed/Public6 variants |
+| Core-Gleam | BEAM UDP micro-mux stack | Linux x86_64/aarch64; L0 and Crosed variants |
+| Core-Ada | SPARK-oriented authenticated stack | native Unix build; L0 and Crosed variants |
+| Core-Nim | bounded UDP stack | optional native toolchain; L0 and Crosed variants |
+| Core-Pony | reference-capability UDP stack | optional `ponyc`; L0 and Crosed variants |
+| Core-Idris | dependent-type checked security core | optional Idris 2/Chez toolchain; not built by default |
+| Core-Zig | ENet-style reliable UDP stack | optional Zig toolchain; L0 profile |
+| Core-D | BetterC authenticated UDP driver | optional D toolchain; L0 profile |
+| Core-Cpp | standalone WSS/UDP stack | optional C++ toolchain; L0 profile |
+| Core-Hare | small emergency UDP proxy | optional Hare toolchain; L0 profile |
+| Core-Carp | compact authenticated UDP driver | optional Carp toolchain; L0 profile |
+
+The twelve-core catalog is a capability matrix, not a promise that every
+binary is present in every installation. `shadow6 features`, the component
+doctor, and the release SBOM report the exact locally installed subset.
 
 | Component | Implemented role | Protocol / important boundary |
 | --- | --- | --- |
