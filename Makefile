@@ -34,7 +34,7 @@ PREFIX ?= /usr/local
 DESTDIR ?=
 PYTHON ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python3)
 
-.PHONY: all build benchmark benchmark-test core-go core-rust core-gleam test-gleam core-cpp core-hare test-hare core-carp test-carp core-pony test-pony pony-crosed-variant gate migration i18n crosed-variants public6 public6-variants public6-contract relay guard service-init auto detector plugins package-manager easybuild crosed app-layer extension-system assistants slots control-center android-preflight android-cores android-apk integration-test test check audit package install clean distclean
+.PHONY: all build benchmark benchmark-test core-go core-rust core-gleam test-gleam core-cpp core-hare test-hare core-carp test-carp core-pony test-pony pony-crosed-variant gate migration i18n crosed-variants public6 public6-variants public6-contract relay guard service-init auto detector plugins package-manager easybuild crosed app-layer extension-system assistants slots control-center android-preflight android-cores android-apk integration-test test check audit package install install-tree clean distclean
 
 all: build
 
@@ -385,6 +385,7 @@ endif
 ifeq ($(BUILD_CROSED),1)
 	@$(PYTHON) -m unittest -v Crosed/test_crosed.py
 	@PYTHONPATH=Crosed $(PYTHON) -m unittest -v Crosed/test_feature_contract.py
+	@PYTHONPATH=Crosed $(PYTHON) -m unittest -v Crosed/test_install_layout.py
 endif
 ifeq ($(BUILD_ASSISTANTS),1)
 	@$(PYTHON) -m unittest -v Security-Assistants/test_security.py Infrastructure-Assistants/test_infra.py
@@ -479,6 +480,34 @@ endif
 		case "$$name" in d) directory=D;; nim) directory=Nim;; pony) directory=Pony;; hare) directory=Hare;; carp) directory=Carp;; esac; \
 		if test -x "Core-$$directory/shadow6-$$name"; then install -m 0755 "Core-$$directory/shadow6-$$name" "$(DESTDIR)$(PREFIX)/bin/"; fi; \
 	done
+# Install the L5 and Public6 variants as well: the deployment doctor and the
+# feature-contract checks require them, so an installation that omits them
+# cannot satisfy its own verification.
+	@for variant in \
+		go:Go:-crosed go:Go:-public6 rust:Rust:-crosed rust:Rust:-public6 \
+		gleam:Gleam:-crosed ada:Ada:-crosed nim:Nim:-crosed pony:Pony:-crosed \
+		idris:Idris:-crosed idris:Idris:-public6; do \
+		name=$${variant%%:*}; rest=$${variant#*:}; directory=$${rest%%:*}; suffix=$${rest#*:}; \
+		source="Core-$$directory/shadow6-$$name$$suffix"; \
+		if test -x "$$source"; then install -m 0755 "$$source" "$(DESTDIR)$(PREFIX)/bin/shadow6-$$name$$suffix"; fi; \
+	done
+# The generated Idris launcher adds only its own directory to the loader path,
+# so the sodium FFI library ships beside the compiled image to keep the
+# installed Core-Idris self-contained.
+	@for launcher in Core-Idris/shadow6-idris Core-Idris/shadow6-idris-crosed; do \
+		if test -x "$$launcher"; then \
+			install -m 0755 "$$launcher" "$(DESTDIR)$(PREFIX)/bin/"; \
+			app="$${launcher}_app"; \
+			if test -d "$$app"; then \
+				basename_app=$$(basename "$$app"); \
+				install -d -m 0755 "$(DESTDIR)$(PREFIX)/bin/$$basename_app"; \
+				cp -a "$$app/." "$(DESTDIR)$(PREFIX)/bin/$$basename_app/"; \
+				if test -f Core-Idris/libsodium_ffi.so; then \
+					install -m 0755 Core-Idris/libsodium_ffi.so "$(DESTDIR)$(PREFIX)/bin/$$basename_app/"; \
+				fi; \
+			fi; \
+		fi; \
+	done
 	@install -m 0755 Online-Repository/shadow6_repo.py "$(DESTDIR)$(PREFIX)/bin/shadow6-repo"
 	@install -m 0755 Gate/portmap.py "$(DESTDIR)$(PREFIX)/bin/shadow6-portmap"
 	@install -d -m 0755 "$(DESTDIR)$(PREFIX)/share/shadow6/i18n"
@@ -508,7 +537,9 @@ ifeq ($(BUILD_CROSED),1)
 endif
 	@install -d -m 0755 "$(DESTDIR)$(PREFIX)/share/shadow6/modules"
 	@install -m 0644 Crosed/feature_contract.py "$(DESTDIR)$(PREFIX)/bin/feature_contract.py"
+	@install -m 0644 Crosed/install_layout.py "$(DESTDIR)$(PREFIX)/bin/install_layout.py"
 	@install -m 0644 Crosed/feature_contract.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/feature_contract.py"
+	@install -m 0644 Crosed/install_layout.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/install_layout.py"
 ifeq ($(BUILD_APP),1)
 	@install -d -m 0755 "$(DESTDIR)$(PREFIX)/share/shadow6/application"
 	@install -m 0644 Application-Layer/shadow_protocols.py "$(DESTDIR)$(PREFIX)/share/shadow6/application/shadow_protocols.py"
@@ -554,7 +585,12 @@ endif
 ifeq ($(BUILD_COMPLIANCE),1)
 	@echo "Compliance changes require explicit manual execution; see 中国内地用户必须执行.sh"
 endif
+	@$(MAKE) install-tree DESTDIR="$(DESTDIR)" PREFIX="$(PREFIX)"
 	@echo "Installed selected Shadow6 components under $(DESTDIR)$(PREFIX)"
+	@echo "Installed the Shadow6 tree at $(DESTDIR)$(PREFIX)/share/shadow6/tree"
+
+install-tree:
+	@bash Tools/install_tree.sh "$(DESTDIR)$(PREFIX)/share/shadow6/tree"
 
 clean:
 	@rm -f Core-Hare/shadow6-hare Core-Go/shadow6-go Core-Go/shadow6-go-crosed Core-Go/shadow6-go-public6 Core-Rust/shadow6-rust Core-Rust/shadow6-rust-crosed Core-Rust/shadow6-rust-public6 Core-Gleam/shadow6-gleam Core-Gleam/shadow6-gleam-crosed Core-Cpp/shadow6-cpp C11Relay/bridge_relay C11Relay/c11relay_test Guard/shadow6-guard Gate/shadow6-gate

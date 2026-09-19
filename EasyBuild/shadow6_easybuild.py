@@ -16,7 +16,15 @@ from typing import Any
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-ROOT = Path(__file__).resolve().parents[1]
+_HERE = Path(__file__).resolve().parent
+for _candidate in (_HERE, _HERE.parent / "Crosed", _HERE.parent / "share" / "shadow6" / "modules", _HERE.parent / "modules"):
+    if (_candidate / "install_layout.py").is_file():
+        sys.path.insert(0, str(_candidate))
+        break
+else:
+    raise ImportError("install_layout.py is missing from this Shadow6 installation")
+from install_layout import tree_root  # noqa: E402
+ROOT = tree_root(__file__)
 for module_dir in (ROOT / "Package-Manager", ROOT / "Public6", Path(__file__).resolve().parent.parent / "share/shadow6/modules"):
     if module_dir.is_dir():
         sys.path.insert(0, str(module_dir))

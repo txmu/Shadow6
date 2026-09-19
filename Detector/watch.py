@@ -24,6 +24,29 @@ import ipaddress
 import json
 from datetime import datetime
 
+# --- Tree resolution ---------------------------------------------------------
+def _tree_root():
+    """Return the Shadow6 tree this watcher should drive.
+
+    A source checkout keeps the watcher inside the tree, while "make install"
+    places it in <prefix>/bin next to the tree at <prefix>/share/shadow6/tree.
+    SHADOW6_ROOT overrides both so an operator can pin an explicit tree.
+    """
+    override = os.environ.get("SHADOW6_ROOT", "").strip()
+    if override:
+        return os.path.abspath(os.path.expanduser(override))
+    here = os.path.dirname(os.path.abspath(__file__))
+    candidates = []
+    if os.path.isdir(os.path.join(here, "..", "Auto-Orchestrator")):
+        candidates.append(os.path.join(here, ".."))
+    prefix = os.path.dirname(here)
+    candidates.append(os.path.join(prefix, "share", "shadow6", "tree"))
+    for candidate in candidates:
+        if os.path.isfile(os.path.join(candidate, "Makefile")):
+            return os.path.abspath(candidate)
+    return os.path.abspath(candidates[0])
+
+
 # --- Configuration & Styling ---
 RED = '\033[0;31m'
 GREEN = '\033[0;32m'
@@ -260,7 +283,10 @@ def main():
     
     # Environment discovery to avoid hardcoding
     default_detector = os.path.join(os.path.dirname(__file__), "shadow6_detector.py")
-    default_orchestrator = os.path.join(os.path.dirname(__file__), "..", "Auto-Orchestrator", "shadow6_auto.py")
+    # An installed watcher lives in <prefix>/bin while the orchestrator ships in
+    # the installed tree, so resolve the tree instead of walking "..".
+    tree = _tree_root()
+    default_orchestrator = os.path.join(tree, "Auto-Orchestrator", "shadow6_auto.py")
 
     parser.add_argument("--detector", default=default_detector, help="Path to the detector script")
     parser.add_argument("--auto", default=default_orchestrator, help="Path to the shadow6_auto.py script")

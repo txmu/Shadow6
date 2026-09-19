@@ -13,7 +13,18 @@ import unicodedata
 from pathlib import Path
 from typing import Any
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "Crosed"))
+_HERE = Path(__file__).resolve().parent
+for _candidate in (_HERE, _HERE.parent / "Crosed", _HERE.parent / "share" / "shadow6" / "modules", _HERE.parent / "modules"):
+    if (_candidate / "install_layout.py").is_file():
+        sys.path.insert(0, str(_candidate))
+        break
+else:
+    raise ImportError("install_layout.py is missing from this Shadow6 installation")
+from install_layout import tree_root  # noqa: E402
+for _shared in (tree_root(__file__) / "Crosed", _HERE.parent / "share" / "shadow6" / "modules"):
+    if (_shared / "feature_contract.py").is_file():
+        sys.path.insert(0, str(_shared))
+        break
 from feature_contract import TRANSPORTS, validate_feature_report
 
 

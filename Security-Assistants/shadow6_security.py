@@ -24,6 +24,14 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+_HERE = Path(__file__).resolve().parent
+for _candidate in (_HERE, _HERE.parent / "Crosed", _HERE.parent / "share" / "shadow6" / "modules", _HERE.parent / "modules"):
+    if (_candidate / "install_layout.py").is_file():
+        sys.path.insert(0, str(_candidate))
+        break
+else:
+    raise ImportError("install_layout.py is missing from this Shadow6 installation")
+from install_layout import tree_root  # noqa: E402
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "Crosed"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "modules"))
 from feature_contract import CORE_PATHS, runtime_environment, validate_feature_report
@@ -812,10 +820,10 @@ def main() -> int:
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("list")
     doctor_parser = commands.add_parser("doctor")
-    doctor_parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[1])
+    doctor_parser.add_argument("--root", type=Path, default=tree_root(__file__))
     doctor_parser.add_argument("--output", type=Path)
     sbom = commands.add_parser("sbom")
-    sbom.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[1])
+    sbom.add_argument("--root", type=Path, default=tree_root(__file__))
     sbom.add_argument("--output", type=Path)
     keygen = commands.add_parser("ledger-keygen")
     keygen.add_argument("--private-key", type=Path, required=True)
@@ -830,7 +838,7 @@ def main() -> int:
     verify.add_argument("--ledger", type=Path, required=True)
     verify.add_argument("--public-key", type=Path, required=True)
     policy = commands.add_parser("policy-check")
-    policy.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[1])
+    policy.add_argument("--root", type=Path, default=tree_root(__file__))
     policy.add_argument("--policy", type=Path, required=True)
     policy.add_argument("--output", type=Path)
     args = parser.parse_args()

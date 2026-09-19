@@ -12,7 +12,15 @@ from pathlib import Path
 from typing import Any
 
 HERE = Path(__file__).resolve().parent
-ROOT = HERE.parent
+_HERE = Path(__file__).resolve().parent
+for _candidate in (_HERE, _HERE.parent / "Crosed", _HERE.parent / "share" / "shadow6" / "modules", _HERE.parent / "modules"):
+    if (_candidate / "install_layout.py").is_file():
+        sys.path.insert(0, str(_candidate))
+        break
+else:
+    raise ImportError("install_layout.py is missing from this Shadow6 installation")
+from install_layout import tree_root  # noqa: E402
+ROOT = tree_root(__file__)
 for candidate in (
     ROOT / "Crosed", ROOT / "Application-Layer", ROOT / "Plugin-System",
     ROOT / "Slot-System", ROOT / "Security-Assistants",

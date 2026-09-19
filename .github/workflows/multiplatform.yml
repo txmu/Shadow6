@@ -449,6 +449,20 @@ jobs:
           "$stage_dir/usr/local/bin/shadow6-security" list >/dev/null
           "$stage_dir/usr/local/bin/shadow6-control" schema >/tmp/shadow6-staged-schema.json
           "$stage_dir/usr/local/bin/shadow6-slots" catalog >/tmp/shadow6-staged-slots.json
+          # The installed entry points resolve their tree through
+          # <prefix>/share/shadow6/tree, so the doctor, the SBOM and the
+          # component observation must work from the installed layout alone,
+          # without a hard-coded /usr/local prefix or the source checkout.
+          installed_tree="$stage_dir/usr/local/share/shadow6/tree"
+          test -f "$installed_tree/Makefile"
+          test -x "$installed_tree/Core-Go/shadow6-go"
+          test -x "$stage_dir/usr/local/bin/shadow6-go-crosed"
+          test -x "$stage_dir/usr/local/bin/shadow6-rust-public6"
+          unset SHADOW6_ROOT
+          ( cd / && "$stage_dir/usr/local/bin/shadow6-security" doctor ) >/tmp/shadow6-staged-doctor.json
+          python3 -c 'import json,sys; report=json.load(open("/tmp/shadow6-staged-doctor.json")); assert report["status"] == "pass", report; print("installed doctor", report["score"])'
+          "$stage_dir/usr/local/bin/shadow6-security" sbom --output /tmp/shadow6-staged-sbom.json
+          "$stage_dir/usr/local/bin/shadow6-infra" observe --output /tmp/shadow6-staged-observation.json
       - name: Run final benchmarks after all Linux builds and tests
         run: |
           # Exercise every compiled core's real loopback transport.  Keep this

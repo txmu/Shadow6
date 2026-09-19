@@ -17,7 +17,15 @@ from typing import Any
 
 
 HERE = Path(__file__).resolve().parent
-ROOT = HERE.parent
+_HERE = Path(__file__).resolve().parent
+for _candidate in (_HERE, _HERE.parent / "Crosed", _HERE.parent / "share" / "shadow6" / "modules", _HERE.parent / "modules"):
+    if (_candidate / "install_layout.py").is_file():
+        sys.path.insert(0, str(_candidate))
+        break
+else:
+    raise ImportError("install_layout.py is missing from this Shadow6 installation")
+from install_layout import tree_root  # noqa: E402
+ROOT = tree_root(__file__)
 SECURITY_MODULE_DIR = ROOT / "Security-Assistants"
 if not SECURITY_MODULE_DIR.is_dir():
     SECURITY_MODULE_DIR = ROOT / "share" / "shadow6" / "assistants"
