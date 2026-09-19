@@ -960,7 +960,7 @@ jobs:
         run: |
             sudo pkg update -f
             # rust includes Cargo; the base system supplies Clang.
-            sudo pkg install -y go rust python3 openssl libsodium libunistring zig nim ldc libepoll-shim
+            sudo pkg install -y go rust python3 openssl libsodium libunistring libepoll-shim
             export PYTHON="$(command -v python3 || command -v python3.12)"
             for tool in go cargo c++ "$PYTHON"; do command -v "$tool" || exit 1; done
             cd Core-Go
@@ -993,8 +993,7 @@ jobs:
             bash ./compile.sh
             bash ./test.sh
             echo 'Core-Zig: excluded on FreeBSD until the pinned translate-c/system-header combination passes'
-            echo 'Core-Nim: excluded on FreeBSD when libdatachannel is unavailable; native.c remains Linux-oriented'
-            if test -f /usr/local/include/rtc/rtc.h || pkg info -e libdatachannel; then cd ../Core-Nim && nim c --mm:arc --threads:on -d:release -o:shadow6-nim src/shadow6_nim.nim; fi
+            echo 'Core-Nim: excluded on FreeBSD because its checked-in native.c uses Linux-oriented interfaces'
             cd ..
             sudo pkg install -y py312-cryptography 2>/dev/null || true
             python3 -m venv --system-site-packages .venv
@@ -1051,7 +1050,7 @@ jobs:
       - name: Test OpenBSD components
         shell: cpa.sh {0}
         run: |
-            sudo pkg_add go rust python%3.13 libsodium nim epoll-shim openssl-3.5.6v0
+            sudo pkg_add go rust python%3.13 libsodium epoll-shim openssl-3.5.6v0
             export PYTHON="$(command -v python3.13 || command -v python3)"
             for tool in go cargo c++ "$PYTHON"; do command -v "$tool" || exit 1; done
             export CPPFLAGS='-I/usr/local/include/eopenssl35'
@@ -1087,7 +1086,7 @@ jobs:
             cd Core-Cpp
             bash ./compile.sh
             bash ./test.sh
-            if test -f /usr/local/include/rtc/rtc.h; then cd ../Core-Nim && nim c --mm:arc --threads:on -d:release -o:shadow6-nim src/shadow6_nim.nim; else echo 'libdatachannel unavailable; Core-Nim source contract present'; fi
+            echo 'Core-Nim: excluded on OpenBSD because its checked-in native.c uses Linux-oriented interfaces'
             cd ..
             printf 'platform=openbsd-%s\ncompiled=go,rust,cpp,gate,guard,relay\nexcluded=zig,nim,ada,d,pony,hare,carp,gleam,idris: explicit toolchain/source boundaries\nandroid=separate APK job\n' '${{ matrix.arch }}' > support-openbsd-${{ matrix.arch }}.txt
       - name: Measure OpenBSD native network chains
