@@ -244,10 +244,16 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             build-essential pkg-config libssl-dev libsodium-dev libunistring-dev \
-            gnat gprbuild ldc shellcheck unzip chezscheme
+            gnat gprbuild ldc shellcheck unzip
           # Idris2's compiled Chez images require the exact Chez fasl ABI used
           # by the producer job. Install the same Homebrew Chez on this Ubuntu
           # consumer instead of executing with the distro's older ABI.
+          #
+          # Never install the distro chezscheme package in this job: the signed
+          # audit runbook executes with PATH=/usr/bin:/bin:/usr/local/bin, so an
+          # apt interpreter in /usr/bin shadows the ABI-matched Homebrew Chez
+          # and every Idris feature report fails with
+          # "incompatible fasl-object version".
           eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
           brew install chezscheme
           echo "$(brew --prefix chezscheme)/bin" >> "$GITHUB_PATH"
@@ -279,9 +285,17 @@ jobs:
           install -m 0755 "$RUNNER_TEMP/shadow6-idris-test_core.py" Core-Idris/test_core.py
           cp -a "$RUNNER_TEMP/shadow6-idris-src" Core-Idris/src
           chmod 0755 Core-Gleam/shadow6-gleam Core-Gleam/shadow6-gleam-crosed
-          # Create chezscheme symlink for Idris launcher compatibility
-          printf '#!/bin/bash\nexec /home/linuxbrew/.linuxbrew/bin/chez "$@"\n' | sudo tee /usr/local/bin/chezscheme > /dev/null
+          # Resolve the ABI-matched Chez before creating the /usr/local/bin
+          # shim. The compiled image is executed through "env chezscheme", and
+          # the signed audit runbook pins PATH=/usr/bin:/bin:/usr/local/bin, so
+          # this shim is what the audit actually resolves. Refuse to fall back
+          # to a distro interpreter: a mismatched fasl ABI would surface as an
+          # Idris feature-report failure rather than an explicit error.
+          chez_bin="$(/home/linuxbrew/.linuxbrew/bin/brew --prefix chezscheme)/bin/chez"
+          test -x "$chez_bin"
+          printf '#!/bin/bash\nexec "%s" "$@"\n' "$chez_bin" | sudo tee /usr/local/bin/chezscheme > /dev/null
           sudo chmod 0755 /usr/local/bin/chezscheme
+          test "$(PATH=/usr/bin:/bin:/usr/local/bin command -v chezscheme)" = /usr/local/bin/chezscheme
           cd Core-Idris
           chmod 0755 shadow6-idris shadow6-idris-crosed
           test -d shadow6-idris_app && test -d shadow6-idris-crosed_app
@@ -290,8 +304,6 @@ jobs:
           # launcher. Rebind only the downloaded runtime to the runner's
           # installed Chez binary; the compiled Scheme image and support
           # libraries remain byte-for-byte intact.
-          chez_bin="$(command -v chez || command -v chezscheme || true)"
-          test -x "$chez_bin"
           for image in shadow6-idris_app/shadow6-idris.so shadow6-idris-crosed_app/shadow6-idris.so; do
             test -f "$image"
             # Use env's portable shebang form so the packaged image does not
@@ -303,8 +315,14 @@ jobs:
           # the feature reports; writing GITHUB_ENV alone only affects later
           # workflow steps and made libsodium_ffi.so appear to be missing.
           export LD_LIBRARY_PATH="$GITHUB_WORKSPACE/Core-Idris:$GITHUB_WORKSPACE/Core-Idris/shadow6-idris_app:$GITHUB_WORKSPACE/Core-Idris/ffi:${LD_LIBRARY_PATH:-}"
-          ./shadow6-idris --feature-report >/dev/null
-          ./shadow6-idris-crosed --feature-report >/dev/null
+          # Reproduce the signed audit runbook's fixed PATH (SAFE_EXECUTION_PATH
+          # in Infrastructure-Assistants/shadow6_infra.py).  "make test" runs
+          # that runbook, so an interpreter that only resolves under the
+          # runner's Homebrew-first PATH would pass here and then fail the
+          # Idris feature reports inside "make test".
+          audit_path=/usr/bin:/bin:/usr/local/bin
+          PATH="$audit_path" ./shadow6-idris --feature-report >/dev/null
+          PATH="$audit_path" ./shadow6-idris-crosed --feature-report >/dev/null
           cd ..
           echo "LD_LIBRARY_PATH=$LD_LIBRARY_PATH" >> "$GITHUB_ENV"
       - name: Provision pinned Hare toolchain
