@@ -34,7 +34,7 @@ PREFIX ?= /usr/local
 DESTDIR ?=
 PYTHON ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python3)
 
-.PHONY: all build benchmark performance-matrix benchmark-test core-go core-rust core-gleam test-gleam core-cpp core-hare test-hare core-carp test-carp core-pony test-pony pony-crosed-variant gate migration i18n crosed-variants public6 public6-variants public6-contract relay guard service-init auto detector plugins package-manager easybuild crosed app-layer extension-system assistants slots control-center android-preflight android-cores android-apk integration-test test check audit package install install-tree clean distclean
+.PHONY: all build benchmark performance-matrix benchmark-test network-adapter-test network-adapter-benchmark core-go core-rust core-gleam test-gleam core-cpp core-hare test-hare core-carp test-carp core-pony test-pony pony-crosed-variant gate migration i18n crosed-variants public6 public6-variants public6-contract relay guard service-init auto detector plugins package-manager easybuild crosed app-layer extension-system assistants slots control-center android-preflight android-cores android-apk integration-test test check audit package install install-tree clean distclean
 
 all: build
 
@@ -46,6 +46,13 @@ performance-matrix:
 
 benchmark-test:
 	@PYTHONPATH=Benchmark $(PYTHON) -m unittest Benchmark/test_benchmark.py
+
+network-adapter-test:
+	@PYTHONPATH=Network-Adapter $(PYTHON) -m unittest Network-Adapter/test_network.py Network-Adapter/test_conformance.py
+	@node --test Network-Adapter/test_node.mjs
+
+network-adapter-benchmark:
+	@PYTHONPATH=Network-Adapter $(PYTHON) Network-Adapter/benchmark_backends.py
 
 NIM ?= nim
 NIM_CROSED_LEVEL ?= 0
@@ -477,10 +484,12 @@ endif
 	@install -m 0755 Migration/shadow6_migrate.py "$(DESTDIR)$(PREFIX)/bin/shadow6-migrate"
 	@install -m 0755 CLI/shadow6.py "$(DESTDIR)$(PREFIX)/bin/shadow6"
 	@install -m 0755 Network-Adapter/shadow6_network.py "$(DESTDIR)$(PREFIX)/bin/shadow6-network"
+	@install -m 0755 Network-Adapter/shadow6_network.mjs "$(DESTDIR)$(PREFIX)/bin/shadow6-network-node"
 	@install -m 0644 CLI/shadow6_vcore.py CLI/vcore_adapters.py "$(DESTDIR)$(PREFIX)/bin/"
 	@install -d -m 0755 "$(DESTDIR)$(PREFIX)/share/shadow6/modules"
 	@install -m 0644 CLI/shadow6_vcore.py CLI/vcore_adapters.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/"
 	@install -m 0644 Network-Adapter/shadow6_network.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/"
+	@install -m 0644 Network-Adapter/shadow6_network.mjs "$(DESTDIR)$(PREFIX)/share/shadow6/modules/"
 	@for name in d nim pony hare carp; do \
 		case "$$name" in d) directory=D;; nim) directory=Nim;; pony) directory=Pony;; hare) directory=Hare;; carp) directory=Carp;; esac; \
 		if test -x "Core-$$directory/shadow6-$$name"; then install -m 0755 "Core-$$directory/shadow6-$$name" "$(DESTDIR)$(PREFIX)/bin/"; fi; \

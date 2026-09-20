@@ -104,8 +104,9 @@ class ReliableAdapter:
         policy=POLICIES[core]; self.codec=Codec(key,policy.payload,side); self.policy=policy; self.clock=clock
         self.extensions=frozenset(extensions)
         if len(self.extensions)>16 or any(not isinstance(x,str) or not x or len(x)>64 for x in self.extensions): raise ValueError("invalid extension allowlist")
-        self.next_message=[0]*MAX_STREAMS; self.pending={}; self.queued=collections.deque(); self.incoming={}; self.buffered=0
+        self.next_message=[0]*MAX_STREAMS; self.pending={}; self.queues=[collections.deque() for _ in range(MAX_STREAMS)]; self.cursor=0; self.incoming={}; self.buffered=0
         self.completed=set(); self.completed_order=collections.deque()
+        self.srtt=None; self.rttvar=None; self.rto=.2
     def _remember(self,key):
         self.completed.add(key); self.completed_order.append(key)
         if len(self.completed_order)>4096: self.completed.discard(self.completed_order.popleft())
@@ -121,13 +122,22 @@ class ReliableAdapter:
         now=self.clock()
         for index,chunk in enumerate(chunks):
             wire=self.codec.encode(DATA,stream,message,index,len(chunks),chunk)
-            self.queued.append(((stream,message,index),wire,len(chunk)))
+            self.queues[stream].append(((stream,message,index),wire,len(chunk)))
         self.buffered+=len(data); return self.outbound(now)
     def outbound(self,now=None):
         now=self.clock() if now is None else now; frames=[]
-        while self.queued and len(self.pending)<self.policy.window:
-            key,wire,size=self.queued.popleft(); self.pending[key]=[wire,now+.2,0,size]; frames.append(wire)
+        empty=0
+        while len(self.pending)<self.policy.window and empty<MAX_STREAMS:
+            queue=self.queues[self.cursor]
+            if queue:
+                key,wire,size=queue.popleft(); self.pending[key]=[wire,now+self.rto,0,size,now,False]; frames.append(wire); empty=0
+            else: empty+=1
+            self.cursor=(self.cursor+1)%MAX_STREAMS
         return frames
+    def _sample(self,rtt):
+        if self.srtt is None: self.srtt,self.rttvar=rtt,rtt/2
+        else: self.rttvar=.75*self.rttvar+.25*abs(self.srtt-rtt); self.srtt=.875*self.srtt+.125*rtt
+        self.rto=max(.05,min(5.0,self.srtt+4*self.rttvar))
     def extension(self,stream,name,value):
         if type(stream) is not int or not 0<=stream<MAX_STREAMS: raise ValueError("invalid stream")
         if name not in self.extensions: raise PermissionError("extension is not enabled")
@@ -139,7 +149,9 @@ class ReliableAdapter:
         kind,stream,message,index,count,payload=self.codec.decode(wire)
         if kind==ACK:
             item=self.pending.pop((stream,message,index),None)
-            if item: self.buffered-=item[3]
+            if item:
+                self.buffered-=item[3]
+                if not item[5]: self._sample(max(0,self.clock()-item[4]))
             return [],[],[]
         ack=self.codec.encode(ACK,stream,message,index,count)
         if kind==EXTENSION:
@@ -152,11 +164,11 @@ class ReliableAdapter:
                     result[name]=item
                 return result
             value=json.loads(payload,object_pairs_hook=pairs,parse_float=lambda _:(_ for _ in ()).throw(ValueError("floats forbidden")),parse_constant=lambda _:(_ for _ in ()).throw(ValueError("constant forbidden")))
-            if not isinstance(value,dict) or set(value)!={"name","value"} or value["name"] not in self.extensions:
+            if _portable(value)!=payload or not isinstance(value,dict) or set(value)!={"name","value"} or value["name"] not in self.extensions:
                 raise PermissionError("received extension is not enabled")
             self._remember(key)
             return [ack],[],[(stream,value["name"],value["value"])]
-        key=(stream,message); state=self.incoming.setdefault(key,{"count":count,"parts":{},"bytes":0})
+        key=(stream,message); state=self.incoming.setdefault(key,{"count":count,"parts":{},"bytes":0,"deadline":self.clock()+30})
         if key in self.completed: return [ack],[],[]
         if state["count"]!=count: raise ValueError("contradictory chunk count")
         if index not in state["parts"]:
@@ -170,12 +182,14 @@ class ReliableAdapter:
         return [ack],completed,[]
     def retransmit(self):
         now=self.clock(); frames=[]
+        for key,state in list(self.incoming.items()):
+            if now>=state["deadline"]: del self.incoming[key]
         for key,item in list(self.pending.items()):
-            wire,deadline,attempts,size=item
+            wire,deadline,attempts,size,sent,retried=item
             if now<deadline: continue
             if attempts>=8:
                 raise TimeoutError(f"retransmission limit reached for stream {key[0]} message {key[1]}")
-            item[2]+=1; item[1]=now+min(5.0,.2*(2**item[2])); frames.append(wire)
+            item[2]+=1; item[5]=True; item[1]=now+min(5.0,self.rto*(2**item[2])); frames.append(wire)
         return frames+self.outbound(now)
 
 class DatagramEndpoint:
@@ -204,15 +218,15 @@ class DatagramEndpoint:
         if not 0<=timeout<=5: raise ValueError("invalid poll timeout")
         self.socket.settimeout(timeout)
         completed=[]; events=[]
-        try:
-            wire,address=self.socket.recvfrom(HEADER.size+65536+TAG_BYTES+1)
-        except (socket.timeout,BlockingIOError):
-            wire=None
-        if wire is not None:
+        for packet in range(64):
+            if packet: self.socket.setblocking(False)
+            try: wire,address=self.socket.recvfrom(HEADER.size+65536+TAG_BYTES+1)
+            except (socket.timeout,BlockingIOError): break
             if address[:2]!=self.peer: raise PermissionError("datagram from unpinned peer")
-            acks,completed,events=self.adapter.receive(wire)
+            acks,done,received_events=self.adapter.receive(wire); completed+=done; events+=received_events
             for ack in acks:self.socket.sendto(ack,self.peer)
             for frame in self.adapter.outbound(): self.socket.sendto(frame,self.peer)
+        self.socket.setblocking(True)
         for frame in self.adapter.retransmit(): self.socket.sendto(frame,self.peer)
         return completed,events
 

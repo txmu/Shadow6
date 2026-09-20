@@ -226,6 +226,7 @@ def schema() -> dict[str, Any]:
             **{flag: {"type": "boolean", "default": flag != "build_compliance"} for flag in BUILD_FLAGS},
         },
         "init_systems": ["systemd", "openrc", "runit", "sysv", "rc.d", "procd", "launchd", "guix"],
+        "network_adapter_backends": ["python", "node"],
         "config_kinds": [*sorted("core-" + core.removeprefix("shadow6-") for core in CONFIGURABLE_CORES), "topology", "security-policy", "plugin", "package", "slots", "public6-offer", "counterstrike-policy"],
         "methods": METHOD_SPECS,
         "transport": {
