@@ -23,10 +23,26 @@ data class CoreStatus(
     val detail: String = "",
 ) {
     val endpoint: String get() = if (port > 0) "$host:$port" else host
+    val access: String get() = if (isLoopbackHost(host)) "loopback" else "network"
 
     companion object {
         const val LOOPBACK_HOST = "127.0.0.1"
         const val DEFAULT_PORT = 4433
+
+        private fun isLoopbackHost(value: String): Boolean {
+            val trimmed = value.trim()
+            val host = if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+                trimmed.substring(1, trimmed.length - 1)
+            } else {
+                trimmed
+            }
+            if (host.equals("::1", ignoreCase = true) || host.equals("localhost", ignoreCase = true)) return true
+            val octets = host.split('.')
+            return octets.size == 4 && octets[0] == "127" && octets.all { octet ->
+                val number = octet.toIntOrNull()
+                octet.isNotEmpty() && octet.all(Char::isDigit) && number != null && number in 0..255
+            }
+        }
     }
 }
 

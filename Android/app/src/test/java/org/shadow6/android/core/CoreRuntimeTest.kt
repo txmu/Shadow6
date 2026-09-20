@@ -19,4 +19,14 @@ class CoreRuntimeTest {
         assertNull(CoreRuntime.parseClientProxyPort("listening on 0.0.0.0:4433"))
         assertNull(CoreRuntime.parseClientProxyPort("[Client] Secure local proxy listening on 127.0.0.1:70000"))
     }
+
+    @Test
+    fun classifiesIpv4AndIpv6LoopbackAccess() {
+        for (host in listOf("127.0.0.1", "127.255.0.7", "::1", "[::1]", "localhost")) {
+            assertEquals("loopback", CoreStatus(host = host).access)
+        }
+        for (host in listOf("0.0.0.0", "::", "192.0.2.1", "2001:db8::1", "example.test")) {
+            assertEquals("network", CoreStatus(host = host).access)
+        }
+    }
 }

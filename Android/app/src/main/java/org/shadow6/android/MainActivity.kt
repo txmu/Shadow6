@@ -836,7 +836,8 @@ private fun executeMobileTool(context: Context, name: String, arguments: org.jso
     val status = CoreController.runtime(context).status()
     return when (name) {
         "shadow6_core_status" -> org.json.JSONObject().put("running", status.running).put("engine", status.engine.name.lowercase())
-            .put("role", status.role.name.lowercase()).put("access", status.mode.name.lowercase()).put("endpoint", status.endpoint).put("detail", status.detail.take(1024))
+            .put("role", status.role.name.lowercase()).put("access", status.access)
+            .put("endpoint", status.endpoint).put("detail", status.detail.take(1024))
         "shadow6_config_summary" -> {
             val prefs = context.getSharedPreferences("core", Context.MODE_PRIVATE)
             org.json.JSONObject().put("role", prefs.getString("role", "BROKER")?.lowercase())
