@@ -788,8 +788,31 @@ func dialSecureKCP(target string, key []byte) (*aeadConn, error) {
 	if err != nil {
 		return nil, err
 	}
-	session, err := kcp.DialWithOptions(target, block, kcpDataShards, kcpParityShards)
+	remote, err := net.ResolveUDPAddr("udp", target)
 	if err != nil {
+		return nil, err
+	}
+	network := "udp4"
+	local := &net.UDPAddr{IP: net.IPv4zero}
+	if remote.IP.To4() == nil {
+		network = "udp6"
+		local = &net.UDPAddr{IP: net.IPv6unspecified}
+	}
+	packet, err := net.ListenUDP(network, local)
+	if err != nil {
+		return nil, err
+	}
+	var conversation uint32
+	if err := binary.Read(rand.Reader, binary.LittleEndian, &conversation); err != nil {
+		packet.Close()
+		return nil, err
+	}
+	// NewConn4 lets us select udp4/udp6 explicitly and transfers ownership of
+	// the packet socket to the session, avoiding both OpenBSD's generic-bind
+	// IPv4 default and a socket leak on close.
+	session, err := kcp.NewConn4(conversation, remote, block, kcpDataShards, kcpParityShards, true, packet)
+	if err != nil {
+		packet.Close()
 		return nil, err
 	}
 	configureKCP(session)

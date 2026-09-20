@@ -23,6 +23,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	kcp "github.com/xtaci/kcp-go/v5"
 )
 
 type testKeys struct {
@@ -436,6 +438,63 @@ func TestBrokerAgentClientEndToEnd(t *testing.T) {
 	}
 }
 
+func TestDialSecureKCPDualStack(t *testing.T) {
+	key := bytes.Repeat([]byte{0x5a}, 32)
+	for _, host := range []string{"127.0.0.1", "::1"} {
+		t.Run(host, func(t *testing.T) {
+			block, err := kcp.NewAESBlockCrypt(key)
+			if err != nil {
+				t.Fatal(err)
+			}
+			listener, err := kcp.ListenWithOptions(net.JoinHostPort(host, "0"), block, kcpDataShards, kcpParityShards)
+			if err != nil {
+				if host == "::1" {
+					t.Skipf("IPv6 loopback unavailable: %v", err)
+				}
+				t.Fatal(err)
+			}
+			defer listener.Close()
+			accepted := make(chan error, 1)
+			go func() {
+				session, acceptErr := listener.AcceptKCP()
+				if acceptErr != nil {
+					accepted <- acceptErr
+					return
+				}
+				configureKCP(session)
+				secure, wrapErr := newAEADConn(session, key)
+				if wrapErr != nil {
+					accepted <- wrapErr
+					return
+				}
+				defer secure.Close()
+				payload := make([]byte, 4)
+				_, readErr := io.ReadFull(secure, payload)
+				if readErr == nil {
+					_, readErr = secure.Write(payload)
+				}
+				accepted <- readErr
+			}()
+			client, err := dialSecureKCP(listener.Addr().String(), key)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer client.Close()
+			_ = client.SetDeadline(time.Now().Add(5 * time.Second))
+			if _, err := client.Write([]byte("dual")); err != nil {
+				t.Fatal(err)
+			}
+			reply := make([]byte, 4)
+			if _, err := io.ReadFull(client, reply); err != nil || string(reply) != "dual" {
+				t.Fatalf("dual-stack KCP exchange failed: %q %v", reply, err)
+			}
+			if err := <-accepted; err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
 func TestAgentRejectsBrokerForgedAccessRequest(t *testing.T) {
 	agentKeys, clientKeys := generateTestKeys(t), generateTestKeys(t)
 	service, err := newAgentService(&AgentConfig{
@@ -609,6 +668,16 @@ func TestStrictSchemasAndWriteProgress(t *testing.T) {
 	}
 	if _, err := parsePeerIP("192.0.2.1%eth0"); err == nil {
 		t.Fatal("IPv4 scope zone was accepted")
+	}
+	for _, rejected := range []string{"::1", "fe80::1", "127.0.0.1", "169.254.1.1", "224.0.0.1", "0.0.0.0"} {
+		if usableRouteIP(net.ParseIP(rejected)) {
+			t.Fatalf("non-routable data-plane address accepted: %s", rejected)
+		}
+	}
+	for _, accepted := range []string{"fd00::1", "2001:db8::1", "10.0.0.1", "192.0.2.1", "203.0.113.1"} {
+		if !usableRouteIP(net.ParseIP(accepted)) {
+			t.Fatalf("usable data-plane address rejected: %s", accepted)
+		}
 	}
 	if err := writeFull(zeroWriter{}, []byte("data")); !errors.Is(err, io.ErrShortWrite) {
 		t.Fatalf("zero-progress writer returned %v", err)

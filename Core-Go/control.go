@@ -611,18 +611,49 @@ func startBroker(config *Config) error {
 }
 
 func routeIP() string {
-	// UDP connect sends no packet; it asks the kernel which source address it
-	// would select for the route. A loopback destination can only discover a
-	// loopback source, so prefer a global IPv6 route and retain an IPv4 fallback.
-	for _, destination := range []string{"[2606:4700:4700::1111]:53", "1.1.1.1:53"} {
-		connection, err := net.DialTimeout("udp", destination, time.Second)
+	// UDP connect sends no packet; it asks the kernel for the selected source.
+	// Probe both families explicitly so the result matches a usable socket on
+	// platforms where a generic UDP bind otherwise defaults to IPv4.
+	for _, candidate := range []struct{ network, destination string }{
+		{"udp6", "[2606:4700:4700::1111]:53"},
+		{"udp4", "1.1.1.1:53"},
+	} {
+		connection, err := net.DialTimeout(candidate.network, candidate.destination, time.Second)
 		if err == nil {
 			address, ok := connection.LocalAddr().(*net.UDPAddr)
 			connection.Close()
-			if ok && !address.IP.IsUnspecified() && !address.IP.IsLoopback() {
+			if ok && usableRouteIP(address.IP) {
 				return address.IP.String()
 			}
 		}
 	}
+	// A host without an Internet default route may still have a usable private
+	// LAN address. Prefer IPv6 consistently, then IPv4, while excluding scopes
+	// that cannot identify a peer beyond the local host/link.
+	interfaces, err := net.Interfaces()
+	if err != nil {
+		return ""
+	}
+	for _, wantIPv4 := range []bool{false, true} {
+		for _, networkInterface := range interfaces {
+			if networkInterface.Flags&net.FlagUp == 0 || networkInterface.Flags&net.FlagLoopback != 0 {
+				continue
+			}
+			addresses, addressErr := networkInterface.Addrs()
+			if addressErr != nil {
+				continue
+			}
+			for _, candidate := range addresses {
+				ip, _, parseErr := net.ParseCIDR(candidate.String())
+				if parseErr == nil && (ip.To4() != nil) == wantIPv4 && usableRouteIP(ip) {
+					return ip.String()
+				}
+			}
+		}
+	}
 	return ""
+}
+
+func usableRouteIP(ip net.IP) bool {
+	return ip != nil && ip.IsGlobalUnicast() && !ip.IsLoopback() && !ip.IsLinkLocalUnicast()
 }
