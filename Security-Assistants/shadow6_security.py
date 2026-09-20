@@ -72,6 +72,7 @@ COMPONENTS = {
     "plugins": {"source": "Plugin-System/shadow6_plugins.py", "binaries": []},
     "crosed": {"source": "Crosed/crosedctl.py", "binaries": []},
     "application": {"source": "Application-Layer/shadow_protocols.py", "binaries": []},
+    "network-adapter": {"source": "Network-Adapter/shadow6_network.py", "binaries": []},
     "security-assistants": {"source": "Security-Assistants/shadow6_security.py", "binaries": []},
     "infrastructure-assistants": {"source": "Infrastructure-Assistants/shadow6_infra.py", "binaries": []},
     "control-center": {"source": "Control-Center/shadow6_control.py", "binaries": []},

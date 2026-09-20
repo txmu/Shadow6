@@ -216,7 +216,7 @@ def schema() -> dict[str, Any]:
         "encoding": "UTF-8",
         "components": [
             *sorted("core-" + core.removeprefix("shadow6-") for core in CORE_PATHS), "relay", "guard", "orchestrator", "detector",
-            "plugins", "crosed", "application-layer", "security-assistants",
+            "plugins", "crosed", "application-layer", "network-adapter", "security-assistants",
             "infrastructure-assistants", "slots", "extension-system", "package-manager", "online-repository", "migration", "gate", "i18n", "unified-cli", "public6", "easybuild", "control-center",
         ],
         "features": {

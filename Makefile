@@ -476,9 +476,11 @@ ifeq ($(BUILD_GATE),1)
 endif
 	@install -m 0755 Migration/shadow6_migrate.py "$(DESTDIR)$(PREFIX)/bin/shadow6-migrate"
 	@install -m 0755 CLI/shadow6.py "$(DESTDIR)$(PREFIX)/bin/shadow6"
+	@install -m 0755 Network-Adapter/shadow6_network.py "$(DESTDIR)$(PREFIX)/bin/shadow6-network"
 	@install -m 0644 CLI/shadow6_vcore.py CLI/vcore_adapters.py "$(DESTDIR)$(PREFIX)/bin/"
 	@install -d -m 0755 "$(DESTDIR)$(PREFIX)/share/shadow6/modules"
 	@install -m 0644 CLI/shadow6_vcore.py CLI/vcore_adapters.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/"
+	@install -m 0644 Network-Adapter/shadow6_network.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/"
 	@for name in d nim pony hare carp; do \
 		case "$$name" in d) directory=D;; nim) directory=Nim;; pony) directory=Pony;; hare) directory=Hare;; carp) directory=Carp;; esac; \
 		if test -x "Core-$$directory/shadow6-$$name"; then install -m 0755 "Core-$$directory/shadow6-$$name" "$(DESTDIR)$(PREFIX)/bin/"; fi; \
@@ -600,7 +602,7 @@ install-tree:
 clean:
 	@rm -f Core-Hare/shadow6-hare Core-Go/shadow6-go Core-Go/shadow6-go-crosed Core-Go/shadow6-go-public6 Core-Rust/shadow6-rust Core-Rust/shadow6-rust-crosed Core-Rust/shadow6-rust-public6 Core-Gleam/shadow6-gleam Core-Gleam/shadow6-gleam-crosed Core-Cpp/shadow6-cpp C11Relay/bridge_relay C11Relay/c11relay_test Guard/shadow6-guard Gate/shadow6-gate
 	@$(MAKE) -C Core-Gleam clean
-	@find Service-Init Auto-Orchestrator Detector Plugin-System Package-Manager EasyBuild Android plugins integration Crosed Application-Layer Security-Assistants Infrastructure-Assistants Slot-System Control-Center Public6 -type d -name __pycache__ -prune -exec rm -rf {} +
+	@find Service-Init Auto-Orchestrator Detector Plugin-System Package-Manager EasyBuild Android plugins integration Crosed Application-Layer Network-Adapter Security-Assistants Infrastructure-Assistants Slot-System Control-Center Public6 -type d -name __pycache__ -prune -exec rm -rf {} +
 
 distclean: clean
 	@rm -f config.mk
