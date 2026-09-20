@@ -137,6 +137,23 @@ class GleamSecurityTests(unittest.TestCase):
         call = 'shadow6_control:handle_message(self(),' + peer + ',' + message + ',#{},#{})'
         self.erl_eval('true=(try ' + call + ' of _ -> false catch _:_ -> true end)')
 
+    def test_control_addresses_are_loopback_ip_tuples_without_dns(self):
+        self.erl_eval('{{127,0,0,1},<<"127.0.0.1">>,4433}=shadow6_control:parse_ws(<<"ws://127.0.0.1:4433/ws">>)')
+        self.erl_eval('{{127,0,0,1},<<"localhost">>,4433}=shadow6_control:parse_ws(<<"ws://localhost:4433/ws">>)')
+        self.erl_eval('{{0,0,0,0,0,0,0,1},<<"[::1]">>,4433}=shadow6_control:parse_ws(<<"ws://[::1]:4433/ws">>)')
+        rejected = (
+            'ws://127.0.0.1.example:4433/ws',
+            'ws://127.0.0.1@evil.example:4433/ws',
+            'ws://127.0.0.1:4433/ws?target=evil',
+            'ws://127.0.0.1:0/ws',
+            'wss://127.0.0.1:4433/ws',
+        )
+        for address in rejected:
+            self.erl_eval(
+                'true=(try shadow6_control:parse_ws(<<"' + address + '">>) '
+                'of _ -> false catch _:_ -> true end)'
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

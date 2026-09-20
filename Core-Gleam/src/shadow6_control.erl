@@ -89,8 +89,9 @@ server_read(S,Broker)->
 server_session(S,BrokerPid,Broker)->put(shadow6_broker,BrokerPid),server_session(S,Broker).
 
 dial(Section)->
-    [URL|_]=maps:get(<<"broker_addrs">>,Section),{Host,Port}=parse_ws(URL),
-    {ok,S}=gen_tcp:connect(binary_to_list(Host),Port,[binary,{active,false},{packet,raw}],10000),
+    [URL|_]=maps:get(<<"broker_addrs">>,Section),{Address,Host,Port}=parse_ws(URL),
+    Family=case tuple_size(Address) of 8->[inet6];4->[] end,
+    {ok,S}=gen_tcp:connect(Address,Port,Family++[binary,{active,false},{packet,raw}],10000),
     Key=base64:encode(shadow6_sodium:random_bytes(16)),
     ok=gen_tcp:send(S,["GET /ws HTTP/1.1\r\nHost: ",Host,"\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: ",Key,"\r\n\r\n"]),
     {ok,Response}=recv_http(S),true=starts(Response,<<"HTTP/1.1 101 ">>),
@@ -127,10 +128,13 @@ recv_http(S)->recv_http(S,<<>>).
 recv_http(_,Data) when byte_size(Data)>8192->{error,oversized_http};
 recv_http(S,Data)->case binary:match(Data,<<"\r\n\r\n">>) of nomatch->{ok,More}=gen_tcp:recv(S,1,5000),recv_http(S,<<Data/binary,More/binary>>);_->{ok,Data} end.
 
-parse_ws(<<"ws://",Rest/binary>>)->
-    [Authority,<<>>]=binary:split(Rest,<<"/ws">>),
-    case Authority of <<"[",Tail/binary>>->[Host,Port]=binary:split(Tail,<<"]:">>),{Host,binary_to_integer(Port)};
-      _->[Host,Port]=binary:split(Authority,<<":">>),true=Host=:=<<"127.0.0.1">> orelse Host=:=<<"::1">> orelse Host=:=<<"localhost">>,{Host,binary_to_integer(Port)} end.
+parse_ws(<<"ws://127.0.0.1:",Rest/binary>>)->parse_ws_tail(Rest,{127,0,0,1},<<"127.0.0.1">>);
+parse_ws(<<"ws://localhost:",Rest/binary>>)->parse_ws_tail(Rest,{127,0,0,1},<<"localhost">>);
+parse_ws(<<"ws://[::1]:",Rest/binary>>)->parse_ws_tail(Rest,{0,0,0,0,0,0,0,1},<<"[::1]">>);
+parse_ws(_)->erlang:error(invalid_broker_address).
+parse_ws_tail(Rest,Address,Host)->
+    [PortText,<<>>]=binary:split(Rest,<<"/ws">>),Port=binary_to_integer(PortText),
+    true=Port>=1 andalso Port=<65535,{Address,Host,Port}.
 
 recv_frame(S,ExpectMasked)->
     {ok,<<Fin:1,0:3,Opcode:4,Masked:1,Len0:7>>}=gen_tcp:recv(S,2,10000),1=Fin,Masked=case ExpectMasked of true->1;false->0 end,
