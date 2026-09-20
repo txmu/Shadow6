@@ -23,8 +23,8 @@ Crosed、应用传输和域策略；在该 Core 支持的范围内，带 `-crose
 
 统一网络适配器提供地位相同、线缆兼容的 Python 与 Node.js 后端，并隐藏报文大小限制。运行 `shadow6 network catalog`
 可查看各 Core 是使用原生流、需要分块/可靠性补足，还是使用经过认证的 companion
-数据面。D 与 Idris 的原生程序没有生产流接口，因此由 companion carrier 提供真实
-传输；文档会明确这一归属，不会把诊断功能包装成原生数据面。安全与部署要求见
+数据面。D 的原生程序没有生产流接口，因此由 companion carrier 提供真实传输；
+Idris 可独立运行原生认证 UDP 中继，也可选接入 companion 获得可靠分段与多路复用。安全与部署要求见
 `Network-Adapter/README.md`。
 两种后端都必须遵循 `Network-Adapter/SPEC.md`；可分别运行
 `shadow6 network catalog` 与 `shadow6 network-node catalog` 明确选择。

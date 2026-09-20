@@ -14,11 +14,10 @@ seconds, and non-retransmitted ACKs update a bounded SRTT/RTTVAR-based RTO.
 Policies are capability-based. Ada, Pony, Hare and Carp require the adapter;
 Gleam may enable it for shared concurrency/backpressure behavior. Go, Rust,
 Zig, Nim and C++ normally retain their native reliable stream/fragmentation.
-D and Idris use `companion-required`. D's installed executable proves only its
-fixed 4-byte benchmark input; Idris has authorization and diagnostic loopbacks
-but no production broker/agent/client data plane. For both, `DatagramEndpoint`
-provides the adapter-owned authenticated, pinned-peer UDP carrier rather than
-pretending that the native Core implements a transport it does not have.
+D uses `companion-required`: its installed executable proves only its fixed
+4-byte benchmark input. Idris uses `optional`: it has a bounded authenticated
+native UDP agent/client relay, while `DatagramEndpoint` adds reliable
+segmentation, multiplexing and larger caller-visible messages.
 
 Frames use a versioned strict header and ChaCha20-Poly1305 AEAD. Directional
 keys are independently derived from the 32-byte master key, so equal stream and

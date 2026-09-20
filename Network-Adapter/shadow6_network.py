@@ -29,7 +29,7 @@ POLICIES={
  "hare":Policy("required",896,16,"978-byte application datagrams lack stream semantics"),
  "carp":Policy("required",960,16,"UDP byte-stream adapter is not itself reliable"),
  "gleam":Policy("optional",4096,32,"micro-mux benefits from common backpressure and concurrency"),
- "idris":Policy("companion-required",1200,32,"Core has diagnostics/authorization but no production data plane"),
+ "idris":Policy("optional",1024,32,"native authenticated UDP agent/client relay; companion adds reliable segmentation and multiplexing"),
 }
 
 def load_key(path:Path):

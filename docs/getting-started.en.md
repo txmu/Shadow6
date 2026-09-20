@@ -26,9 +26,9 @@ contract where that Core provides it.
 The unified network adapter has equal Python and Node.js backends and removes caller-visible packet sizing.
 Run `shadow6 network catalog` to see whether a Core uses its native stream,
 requires segmentation/reliability, or needs the authenticated companion data
-plane. D and Idris are supported through that companion carrier because their
-native executables do not expose a production stream; this is stated explicitly
-rather than treating diagnostics as a native data plane. See
+plane. D requires that carrier because its native executable does not expose a
+production stream. Idris can instead run its native authenticated UDP relay;
+its optional companion adds reliability, segmentation and multiplexing. See
 `Network-Adapter/README.md` for security and deployment requirements.
 Both backends implement the normative `Network-Adapter/SPEC.md`; use
 `shadow6 network catalog` or `shadow6 network-node catalog` explicitly.

@@ -24,9 +24,10 @@ use their three-role paths. D/Gleam use native relay/crypto loopbacks, Carp uses
 its paired authenticated byte-stream channels, and Pony/Hare use authenticated
 datagrams at their real 1,024-byte and 978-byte application limits. Unsupported
 payload or impairment combinations remain explicit `not_applicable` rows with
-reasons. D and Idris are likewise represented explicitly with their fixed
-4-byte diagnostics (D uses up to 100,000 requests), but those results are not
-mislabeled as variable-payload throughput. This is capability-aware equality,
+reasons. D remains represented by its fixed 4-byte diagnostic. Idris now runs
+its real encrypted native client/agent/echo path at the 1,024-byte datagram
+limit for the complete long-flow byte budget; the companion backend separately
+exercises 4 KiB, 64 KiB and 1 MiB reliable messages. This is capability-aware equality,
 not a preferred-core list and not fabricated comparability.
 
 Use `--require-network` for a release gate: every selected core must complete

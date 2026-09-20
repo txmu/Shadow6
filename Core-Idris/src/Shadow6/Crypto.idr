@@ -21,6 +21,10 @@ prim__now : PrimIO Bits64
 prim__loopback : PrimIO Int
 %foreign "C:idris_daemon_loop,libsodium_ffi"
 prim__daemon : Bits16 -> Bits32 -> PrimIO Int
+%foreign "C:idris_native_relay,libsodium_ffi"
+prim__nativeRelay : Int -> String -> Bits32 -> String -> Bits32 -> String -> Bits32 -> String -> Bits32 -> PrimIO Int
+%foreign "C:idris_native_selftest,libsodium_ffi"
+prim__nativeSelfTest : PrimIO Int
 
 public export
 bytesHex : List Bits8 -> String
@@ -146,3 +150,15 @@ daemonLoop : Bits16 -> Bits32 -> IO (Result String Int)
 daemonLoop port limit = do
   rc <- primIO (prim__daemon port limit)
   pure (if rc < 0 then Err "Loopback UDP operation failed" else Ok rc)
+
+export
+nativeRelay : Int -> String -> Bits32 -> String -> Bits32 -> String -> Bits32 -> String -> Bits32 -> IO (Result String Int)
+nativeRelay role bindIP bindPort peerIP peerPort targetIP targetPort keyPath limit = do
+  rc <- primIO (prim__nativeRelay role bindIP bindPort peerIP peerPort targetIP targetPort keyPath limit)
+  pure (if rc < 0 then Err "Native relay rejected configuration or failed closed" else Ok rc)
+
+export
+nativeSelfTest : IO (Result String ())
+nativeSelfTest = do
+  rc <- primIO prim__nativeSelfTest
+  pure (if rc == 0 then Ok () else Err "Native authenticated framing self-test failed")

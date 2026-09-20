@@ -57,7 +57,7 @@ payloads above 4 KiB. Extensions default off.
 ## Core policy
 
 Native reliable Cores may use S6NA for uniform message semantics. Ada, Pony,
-Hare and Carp require it to hide frame/datagram limits. D and Idris use the
-companion carrier because their native executables do not expose a proven
-production stream. This supplies a real data path without misrepresenting it
-as native Core functionality.
+Hare and Carp require it to hide frame/datagram limits. D uses the companion
+carrier because its native executable does not expose a proven production
+stream. Idris has an independent authenticated UDP relay and uses S6NA only
+when reliable segmentation, multiplexing, or larger logical messages are wanted.

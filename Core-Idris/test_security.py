@@ -4,9 +4,11 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 
@@ -32,6 +34,10 @@ class SecurityFFI(unittest.TestCase):
         cls.lib.idris_read_secure_hex.restype = ctypes.c_char_p
         cls.lib.idris_reserve_nonce.argtypes = [ctypes.c_char_p] * 3
         cls.lib.idris_socket_op.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint]
+        cls.lib.idris_native_relay.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_uint,
+                                               ctypes.c_char_p, ctypes.c_uint, ctypes.c_char_p,
+                                               ctypes.c_uint, ctypes.c_char_p, ctypes.c_uint]
+        cls.lib.idris_native_relay.restype = ctypes.c_int
         assert cls.lib.idris_sodium_init() >= 0
 
     def test_hash_and_signature(self):
@@ -107,6 +113,45 @@ class SecurityFFI(unittest.TestCase):
         for h in handles:
             self.assertEqual(self.lib.idris_socket_op(h, 2, b"", 0), 0)
 
+    def test_native_authenticated_relay(self):
+        self.assertEqual(self.lib.idris_native_selftest(), 0)
+        sockets = [socket.socket(socket.AF_INET, socket.SOCK_DGRAM) for _ in range(4)]
+        for sock in sockets:
+            sock.bind(("127.0.0.1", 0))
+        client_port, agent_port, app_port, target_port = [s.getsockname()[1] for s in sockets]
+        for sock in sockets:
+            sock.close()
+        key = self.directory / "native.key"
+        key.write_bytes(os.urandom(32)); key.chmod(0o600)
+        echo = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        echo.bind(("127.0.0.1", target_port)); echo.settimeout(5)
+        echo_error = []
+        def echo_once():
+            try:
+                data, source = echo.recvfrom(2048)
+                echo.sendto(data, source)
+            except Exception as exc:
+                echo_error.append(exc)
+        echo_thread = threading.Thread(target=echo_once)
+        echo_thread.start()
+        results = {}
+        def relay(name, role, bind_port, peer_port, target):
+            results[name] = self.lib.idris_native_relay(role, b"127.0.0.1", bind_port,
+                b"127.0.0.1", peer_port, b"127.0.0.1", target, os.fsencode(key), 1)
+        agent = threading.Thread(target=relay, args=("agent", 2, agent_port, client_port, target_port))
+        client = threading.Thread(target=relay, args=("client", 1, client_port, agent_port, app_port))
+        agent.start(); client.start(); time.sleep(0.1)
+        application = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); application.settimeout(5)
+        application.sendto(b"native-idris", ("127.0.0.1", app_port))
+        self.assertEqual(application.recvfrom(2048)[0], b"native-idris")
+        application.close(); agent.join(5); client.join(5); echo_thread.join(5); echo.close()
+        self.assertFalse(echo_error)
+        self.assertEqual(results, {"agent": 1, "client": 1})
+
+        key.chmod(0o644)
+        self.assertLess(self.lib.idris_native_relay(1, b"127.0.0.1", client_port,
+            b"127.0.0.1", agent_port, b"127.0.0.1", app_port, os.fsencode(key), 1), 0)
+
     def test_z_shutdown(self):
         h = self.lib.idris_socket_create()
         self.lib.idris_shutdown()
@@ -124,6 +169,34 @@ class IdrisExecutables(unittest.TestCase):
         for name in ("shadow6-idris", "shadow6-idris-crosed"):
             result = subprocess.run([str(ROOT / name), "--security-test"], capture_output=True, text=True, timeout=30)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            native = subprocess.run([str(ROOT / name), "--native-self-test"], capture_output=True, text=True, timeout=30)
+            self.assertEqual(native.returncode, 0, native.stdout + native.stderr)
+
+    def test_native_cli_relay(self):
+        holders = [socket.socket(socket.AF_INET, socket.SOCK_DGRAM) for _ in range(4)]
+        for holder in holders: holder.bind(("127.0.0.1", 0))
+        client_port, agent_port, app_port, target_port = [h.getsockname()[1] for h in holders]
+        for holder in holders: holder.close()
+        with tempfile.TemporaryDirectory(prefix="shadow6-idris-native.") as directory:
+            key = Path(directory) / "key"; key.write_bytes(os.urandom(32)); key.chmod(0o600)
+            echo = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); echo.bind(("127.0.0.1", target_port)); echo.settimeout(5)
+            thread = threading.Thread(target=lambda: (lambda item: echo.sendto(item[0], item[1]))(echo.recvfrom(2048)))
+            thread.start()
+            agent = subprocess.Popen([str(ROOT / "shadow6-idris"), "--native-agent", "127.0.0.1", str(agent_port),
+                "127.0.0.1", str(client_port), "127.0.0.1", str(target_port), str(key), "1"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            client = subprocess.Popen([str(ROOT / "shadow6-idris"), "--native-client", "127.0.0.1", str(client_port),
+                "127.0.0.1", str(agent_port), str(app_port), str(key), "1"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            application = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); application.settimeout(5); time.sleep(.1)
+            try:
+                application.sendto(b"idris-cli", ("127.0.0.1", app_port))
+                self.assertEqual(application.recvfrom(2048)[0], b"idris-cli")
+                for process in (client, agent):
+                    output, error = process.communicate(timeout=5)
+                    self.assertEqual(process.returncode, 0, (error or output).decode(errors="replace"))
+            finally:
+                application.close(); echo.close(); thread.join(5)
+                for process in (client, agent):
+                    if process.poll() is None: process.kill()
 
     def test_authorization(self):
         from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey

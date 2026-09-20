@@ -100,7 +100,7 @@ PATHS={
  'carp':'two authenticated native UDP channels, forward and reverse',
  'd':'native packet codec over TCP/UDP relay sockets (in-process driver)',
  'gleam':'native crypto over TCP/UDP relay sockets (in-process driver)',
- 'idris':'authenticated native loopback self-test; includes process startup',
+ 'idris':'UDP application -> authenticated native client -> agent -> UDP echo target',
 }
 def run(c):
  defaults=_load_config(None);defaults.update(c);c=validate_config(defaults)

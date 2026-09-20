@@ -1,6 +1,6 @@
 import os, tempfile, unittest
 from pathlib import Path
-from shadow6_network import DatagramEndpoint, ReliableAdapter, load_key
+from shadow6_network import DatagramEndpoint, POLICIES, ReliableAdapter, load_key
 
 class AdapterTests(unittest.TestCase):
     def test_large_message_reorders_deduplicates_and_retransmits(self):
@@ -36,6 +36,8 @@ class AdapterTests(unittest.TestCase):
             path.chmod(0o644)
             with self.assertRaises(PermissionError): load_key(path)
     def test_idris_companion_carrier_uses_pinned_authenticated_peer(self):
+        self.assertEqual(POLICIES["idris"].mode,"optional")
+        self.assertEqual(POLICIES["idris"].payload,1024)
         key=os.urandom(32)
         first=DatagramEndpoint("idris",key,("127.0.0.1",0),("127.0.0.1",9),0)
         second=DatagramEndpoint("idris",key,("127.0.0.1",0),first.address,1)

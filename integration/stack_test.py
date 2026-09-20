@@ -156,13 +156,39 @@ def run_carp_engine(benchmark: dict) -> dict:
                 except subprocess.TimeoutExpired:process.kill();process.communicate()
 
 def run_idris_engine(benchmark: dict) -> dict:
-    if benchmark["payload_bytes"] != 4: raise ValueError("shadow6-idris benchmark payload is fixed at 4 bytes")
-    binary=CORE_BINARIES["shadow6-idris"];payload=b"ping";latencies=[];started=time.perf_counter()
-    for _ in range(benchmark["requests"]):
-        request=time.perf_counter();result=subprocess.run([str(binary),"--loopback-test"],cwd=binary.parent,capture_output=True,timeout=10)
-        if result.returncode or b"PASS" not in result.stdout:raise RuntimeError(f"shadow6-idris loopback failed: {result.stderr[-2048:]!r}")
-        latencies.append(time.perf_counter()-request)
-    return benchmark_metrics(payload,latencies,time.perf_counter()-started)
+    size=benchmark["payload_bytes"];requests=benchmark["requests"]
+    if size<1 or size>1024: raise ValueError("shadow6-idris native datagrams are bounded to 1..1024 bytes; use its companion for larger payloads")
+    if requests<1 or requests>1000000: raise ValueError("shadow6-idris request count exceeds its native bound")
+    binary=CORE_BINARIES["shadow6-idris"];ports=reserve_udp(socket.AF_INET,4)
+    client_port,agent_port,app_port,target_port=ports;payload=os.urandom(size);stop=threading.Event();echo_error=[]
+    echo=socket.socket(socket.AF_INET,socket.SOCK_DGRAM);echo.bind(("127.0.0.1",target_port));echo.settimeout(.2)
+    def echo_loop():
+        try:
+            while not stop.is_set():
+                try:data,source=echo.recvfrom(2048)
+                except socket.timeout:continue
+                echo.sendto(data,source)
+        except Exception as exc:echo_error.append(exc)
+    thread=threading.Thread(target=echo_loop,daemon=True);thread.start()
+    with tempfile.TemporaryDirectory(prefix="shadow6-idris-bench-") as directory:
+        key=Path(directory)/"native.key";key.write_bytes(os.urandom(32));key.chmod(0o600)
+        agent=subprocess.Popen([str(binary),"--native-agent","127.0.0.1",str(agent_port),"127.0.0.1",str(client_port),"127.0.0.1",str(target_port),str(key),str(requests)],cwd=binary.parent,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+        client=subprocess.Popen([str(binary),"--native-client","127.0.0.1",str(client_port),"127.0.0.1",str(agent_port),str(app_port),str(key),str(requests)],cwd=binary.parent,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+        application=socket.socket(socket.AF_INET,socket.SOCK_DGRAM);application.settimeout(10);time.sleep(.1);latencies=[];started=time.perf_counter()
+        try:
+            for _ in range(requests):
+                request=time.perf_counter();application.sendto(payload,("127.0.0.1",app_port))
+                if application.recvfrom(2048)[0]!=payload:raise AssertionError("shadow6-idris native relay corrupted payload")
+                latencies.append(time.perf_counter()-request)
+            for process in (client,agent):
+                output,error=process.communicate(timeout=10)
+                if process.returncode:raise RuntimeError(f"shadow6-idris native relay failed: {(error or output)[-2048:]!r}")
+            if echo_error:raise echo_error[0]
+            return benchmark_metrics(payload,latencies,time.perf_counter()-started)
+        finally:
+            application.close();stop.set();echo.close();thread.join(1)
+            for process in (client,agent):
+                if process.poll() is None:process.terminate()
 
 def run_native_loopback_engine(engine: str, benchmark: dict) -> dict:
     binary=ROOT/CORE_BINARIES[engine]

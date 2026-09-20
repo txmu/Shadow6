@@ -10,6 +10,9 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <errno.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <sys/select.h>
 #include <string.h>
 #include <time.h>
 #include <sys/time.h>
@@ -216,6 +219,80 @@ int idris_daemon_loop(unsigned short port, unsigned int max_packets) {
         ++handled;
     }
     close(fd); return (int)handled;
+}
+
+/* Native Idris agent/client data plane. The C boundary performs only bounded
+ * fixed-peer UDP I/O and libsodium framing; Idris owns CLI policy. */
+#define IDRIS_NATIVE_MAX 1024u
+#define IDRIS_NATIVE_HEADER 34u
+#define IDRIS_NATIVE_FRAME (IDRIS_NATIVE_HEADER + IDRIS_NATIVE_MAX + crypto_aead_xchacha20poly1305_ietf_ABYTES)
+static void put64(unsigned char *p, uint64_t n) { for (int i=7;i>=0;--i){p[i]=(unsigned char)n;n>>=8;} }
+static uint64_t get64(const unsigned char *p) { uint64_t n=0; for(int i=0;i<8;++i)n=(n<<8)|p[i]; return n; }
+static int load_native_key(const char *path, unsigned char key[32]) {
+    struct stat a,b; int fd=-1,rc=-1; ssize_t n; unsigned char extra;
+    if (!path || !*path || strnlen(path,4096)>=4096) return -1;
+    fd=open(path,O_RDONLY|O_NOFOLLOW|O_CLOEXEC|O_NONBLOCK);
+    if(fd<0||fstat(fd,&a)||!S_ISREG(a.st_mode)||a.st_uid!=geteuid()||(a.st_mode&07777)!=0600||a.st_nlink!=1||a.st_size!=32)goto done;
+    n=read(fd,key,32); if(n!=32||read(fd,&extra,1)!=0||fstat(fd,&b)||a.st_dev!=b.st_dev||a.st_ino!=b.st_ino||a.st_size!=b.st_size||a.st_mtime!=b.st_mtime||a.st_ctime!=b.st_ctime)goto done;
+#if defined(__APPLE__)
+    if(a.st_mtimespec.tv_nsec!=b.st_mtimespec.tv_nsec||a.st_ctimespec.tv_nsec!=b.st_ctimespec.tv_nsec)goto done;
+#else
+    if(a.st_mtim.tv_nsec!=b.st_mtim.tv_nsec||a.st_ctim.tv_nsec!=b.st_ctim.tv_nsec)goto done;
+#endif
+    rc=0;
+done: if(fd>=0)close(fd);if(rc)sodium_memzero(key,32);return rc;
+}
+static int native_addr(const char *text,unsigned int port,struct sockaddr_in *out,int bind_addr){
+    memset(out,0,sizeof *out);out->sin_family=AF_INET;out->sin_port=htons((uint16_t)port);
+    if(!text||!port||port>65535||inet_pton(AF_INET,text,&out->sin_addr)!=1)return -1;
+    uint32_t host=ntohl(out->sin_addr.s_addr);
+    if((!bind_addr&&host==0)||(host&0xf0000000u)==0xe0000000u||host==0xffffffffu)return -1;
+    return 0;
+}
+static int same_addr(const struct sockaddr_in *a,const struct sockaddr_in *b){return a->sin_port==b->sin_port&&a->sin_addr.s_addr==b->sin_addr.s_addr;}
+static int native_seal(unsigned char *out,size_t *outn,const unsigned char *plain,size_t n,unsigned char direction,uint64_t seq,const unsigned char session[16],const unsigned char key[32]){
+    if(!out||!outn||!plain||!session||!n||n>IDRIS_NATIVE_MAX||!seq||(direction!=1&&direction!=2))return -1;
+    memcpy(out,"S6I1",4);out[4]=1;out[5]=direction;out[6]=out[7]=0;put64(out+8,seq);memcpy(out+16,session,16);out[32]=(unsigned char)(n>>8);out[33]=(unsigned char)n;
+    unsigned char nonce[crypto_aead_xchacha20poly1305_ietf_NPUBBYTES];unsigned long long clen=0;
+    if(crypto_generichash(nonce,sizeof nonce,out,IDRIS_NATIVE_HEADER,key,32)||crypto_aead_xchacha20poly1305_ietf_encrypt(out+IDRIS_NATIVE_HEADER,&clen,plain,n,out,IDRIS_NATIVE_HEADER,NULL,nonce,key))return -1;
+    *outn=IDRIS_NATIVE_HEADER+(size_t)clen;return 0;
+}
+static int native_open(unsigned char *plain,size_t *plainn,const unsigned char *frame,size_t n,unsigned char direction,uint64_t *last,unsigned char session[16],int *session_set,const unsigned char key[32]){
+    if(!plain||!plainn||!frame||n<IDRIS_NATIVE_HEADER+crypto_aead_xchacha20poly1305_ietf_ABYTES||n>IDRIS_NATIVE_FRAME||memcmp(frame,"S6I1",4)||frame[4]!=1||frame[5]!=direction||frame[6]||frame[7])return -1;
+    uint64_t seq=get64(frame+8);size_t claimed=((size_t)frame[32]<<8)|frame[33];if(!seq||seq<=*last||seq-*last>1024||claimed<1||claimed>IDRIS_NATIVE_MAX||n!=IDRIS_NATIVE_HEADER+claimed+crypto_aead_xchacha20poly1305_ietf_ABYTES||(*session_set&&sodium_memcmp(session,frame+16,16)))return -1;
+    unsigned char nonce[crypto_aead_xchacha20poly1305_ietf_NPUBBYTES];unsigned long long outn=0;
+    if(crypto_generichash(nonce,sizeof nonce,frame,IDRIS_NATIVE_HEADER,key,32)||crypto_aead_xchacha20poly1305_ietf_decrypt(plain,&outn,NULL,frame+IDRIS_NATIVE_HEADER,n-IDRIS_NATIVE_HEADER,frame,IDRIS_NATIVE_HEADER,nonce,key)||outn!=claimed)return -1;
+    if(!*session_set){memcpy(session,frame+16,16);*session_set=1;}*last=seq;*plainn=(size_t)outn;return 0;
+}
+int idris_native_relay(int role,const char *bind_ip,unsigned int bind_port,const char *peer_ip,unsigned int peer_port,const char *target_ip,unsigned int target_port,const char *key_path,unsigned int max_packets){
+    if((role!=1&&role!=2)||max_packets<1||max_packets>1000000||sodium_init()<0)return -1;
+    unsigned char key[32],plain[IDRIS_NATIVE_MAX+1],frame[IDRIS_NATIVE_FRAME],send_session[16],receive_session[16]={0};struct sockaddr_in bind_sa,peer_sa,target_sa,from,app_peer={0};
+    if(load_native_key(key_path,key))return -1;
+    if(native_addr(bind_ip,bind_port,&bind_sa,1)||native_addr(peer_ip,peer_port,&peer_sa,0)||native_addr(target_ip,target_port,&target_sa,0)){sodium_memzero(key,sizeof key);return -1;}
+    randombytes_buf(send_session,sizeof send_session);int receive_session_set=0;
+    int net=socket(AF_INET,SOCK_DGRAM,0),local=socket(AF_INET,SOCK_DGRAM,0),rc=-1;uint64_t sent=0,received=0;unsigned int handled=0;socklen_t flen;
+    if(net<0||local<0)goto done;
+    struct timeval tv={.tv_sec=1,.tv_usec=0};
+    if(setsockopt(net,SOL_SOCKET,SO_RCVTIMEO,&tv,sizeof tv)||setsockopt(local,SOL_SOCKET,SO_RCVTIMEO,&tv,sizeof tv))goto done;
+    if(bind(net,(struct sockaddr*)&bind_sa,sizeof bind_sa))goto done;
+    if(role==1){struct sockaddr_in app={0};app.sin_family=AF_INET;app.sin_addr.s_addr=htonl(INADDR_LOOPBACK);app.sin_port=target_sa.sin_port;if(bind(local,(struct sockaddr*)&app,sizeof app))goto done;}
+    else if(connect(local,(struct sockaddr*)&target_sa,sizeof target_sa))goto done;
+    struct timespec activity,now;if(clock_gettime(CLOCK_MONOTONIC,&activity))goto done;
+    while(handled<max_packets){fd_set set;FD_ZERO(&set);FD_SET(net,&set);FD_SET(local,&set);int top=net>local?net:local;struct timeval wait={.tv_sec=1,.tv_usec=0};int ready=select(top+1,&set,NULL,NULL,&wait);if(ready<0&&errno==EINTR)continue;if(clock_gettime(CLOCK_MONOTONIC,&now)||ready<0||now.tv_sec-activity.tv_sec>=30)break;
+        if(FD_ISSET(net,&set)){flen=sizeof from;ssize_t n=recvfrom(net,frame,sizeof frame,0,(struct sockaddr*)&from,&flen);size_t pn=0;if(n>0&&same_addr(&from,&peer_sa)&&native_open(plain,&pn,frame,(size_t)n,role==1?2:1,&received,receive_session,&receive_session_set,key)==0){if(role==1){if(app_peer.sin_port&&sendto(local,plain,pn,0,(struct sockaddr*)&app_peer,sizeof app_peer)==(ssize_t)pn)handled++;}else if(send(local,plain,pn,0)!=(ssize_t)pn)break;clock_gettime(CLOCK_MONOTONIC,&activity);}}
+        if(FD_ISSET(local,&set)){ssize_t n;if(role==1){flen=sizeof from;n=recvfrom(local,plain,sizeof plain,0,(struct sockaddr*)&from,&flen);if(n>0&&ntohl(from.sin_addr.s_addr)==INADDR_LOOPBACK)app_peer=from;else n=-1;}else n=recv(local,plain,sizeof plain,0);size_t wn=0;if(n>0&&native_seal(frame,&wn,plain,(size_t)n,role==1?1:2,++sent,send_session,key)==0){if(sendto(net,frame,wn,0,(struct sockaddr*)&peer_sa,sizeof peer_sa)==(ssize_t)wn){if(role==2)handled++;clock_gettime(CLOCK_MONOTONIC,&activity);}else break;}}
+    }
+    rc=(int)handled;
+done: if(net>=0)close(net);if(local>=0)close(local);sodium_memzero(key,sizeof key);sodium_memzero(plain,sizeof plain);sodium_memzero(send_session,sizeof send_session);sodium_memzero(receive_session,sizeof receive_session);return rc;
+}
+
+int idris_native_selftest(void){
+    unsigned char key[32],plain[32],out[32],frame[IDRIS_NATIVE_FRAME],send_session[16],receive_session[16]={0};size_t fn=0,on=0;uint64_t last=0;int session_set=0,rc=-1;
+    randombytes_buf(key,sizeof key);randombytes_buf(plain,sizeof plain);randombytes_buf(send_session,sizeof send_session);
+    if(native_seal(frame,&fn,plain,sizeof plain,1,1,send_session,key)||native_open(out,&on,frame,fn,1,&last,receive_session,&session_set,key)||on!=sizeof plain||sodium_memcmp(out,plain,sizeof plain))goto done;
+    if(native_open(out,&on,frame,fn,1,&last,receive_session,&session_set,key)==0||native_open(out,&on,frame,fn,2,&last,receive_session,&session_set,key)==0)goto done;
+    frame[fn-1]^=1;last=0;if(native_open(out,&on,frame,fn,1,&last,receive_session,&session_set,key)==0)goto done;rc=0;
+done: sodium_memzero(key,sizeof key);sodium_memzero(plain,sizeof plain);sodium_memzero(out,sizeof out);sodium_memzero(send_session,sizeof send_session);sodium_memzero(receive_session,sizeof receive_session);return rc;
 }
 
 #include "security_ffi.c"

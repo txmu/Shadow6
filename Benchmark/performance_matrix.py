@@ -10,7 +10,7 @@ PAYLOADS = (4096, 65536, 1048576)
 CONDITIONS = ((0, 0), (20, 0), (80, 1), (150, 3))
 STREAM_BYTES = 16 * 1024 * 1024
 BASELINE_ONLY = frozenset(("carp", "gleam"))
-FIXED_PAYLOADS = {"d": 4, "pony": 1024, "hare": 978, "idris": 4}
+FIXED_PAYLOADS = {"d": 4, "pony": 1024, "hare": 978, "idris": 1024}
 
 def cases(stream_bytes: int = STREAM_BYTES):
     if type(stream_bytes) is not int or not 1048576 <= stream_bytes <= 1073741824:
@@ -36,7 +36,7 @@ def run(engines, stream_bytes=STREAM_BYTES, targets=None):
             raise ValueError("invalid external target")
         if engine in FIXED_PAYLOADS:
             payload = FIXED_PAYLOADS[engine]
-            requests = 32 if engine == "idris" else min(100000, max(1, stream_bytes // payload))
+            requests = min(100000, max(1, stream_bytes // payload))
             engine_cases = ({"payload_bytes":payload,"requests":requests,"stream_bytes":payload*requests,"rtt_ms":0,"loss_percent":0},)
         else:
             engine_cases = cases(stream_bytes)

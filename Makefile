@@ -678,6 +678,8 @@ ifeq ($(BUILD_IDRIS),1)
 	@if [ -x Core-Idris/shadow6-idris ]; then \
 		echo "Testing Core-Idris feature contract..."; \
 		LD_LIBRARY_PATH="$(CURDIR)/Core-Idris/ffi:$${LD_LIBRARY_PATH:-}" $(PYTHON) Core-Idris/test_core.py; \
+		LD_LIBRARY_PATH="$(CURDIR)/Core-Idris/ffi:$${LD_LIBRARY_PATH:-}" Core-Idris/shadow6-idris --native-self-test; \
+		$(PYTHON) Core-Idris/test_security.py; \
 	else \
 		echo "Core-Idris binary not found; tests skipped"; \
 	fi
