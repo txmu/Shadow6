@@ -34,9 +34,9 @@ signed request is rejected when it would invalidate the authorization binding.
 | ENet-style v2 (`S6EN`) | Zig | Custom reliable UDP with authenticated channels, ordering and congestion bounds; not upstream ENet wire format |
 | D secure stream (`S6DHEL02`, `S6DUDP02`) | D | Signed X25519 hello and directional ChaCha20-Poly1305 records |
 | TLS/SCTP tunnel | C++ | TLS-protected SCTP association per tunnel with TCP half-close semantics |
-| Fixed-peer authenticated UDP relay | Idris | One configured client/agent pair; no native broker or multi-client routing |
-| Fixed-peer authenticated UDP proxy | Hare | One pinned peer/session; no broker discovery or multiplexing |
-| Carp online adapter | Carp | Fixed-frame authenticated UDP byte stream; no broker topology |
+| Signed fixed-route UDP (`S6I2` admission, `S6I1` data) | Idris | Native broker/agent/client; broker verifies endpoint signatures without data keys; legacy PSK relay retained |
+| Fixed-peer authenticated UDP proxy | Hare | Native broker/agent/client on IPv6 loopback; one pinned route/session, no discovery or multiplexing |
+| Carp three-role `T` contract and legacy A/B/C adapter | Carp | Native fixed-route broker and bidirectional UDP application sockets; legacy online/offline modes retained |
 
 Native paths are independently deployable and intentionally retain different
 transport limits. The Network Adapter can normalize messages above these paths,

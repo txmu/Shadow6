@@ -30,3 +30,13 @@ Core identity keys in an owner-controlled `0600` secret file. Python and Node
 are cross-tested against the same vectors; a backend is conforming only when it
 decodes the other backend's records and applies the same failure rules. The
 normative record format and limits are in [`Network-Adapter/SPEC.md`](../Network-Adapter/SPEC.md).
+
+All Benchmark entrypoints default to twelve cores × native/Python/Node paths,
+regardless of deployment enablement. Companion rows run the actual library at
+both application ends and carry S6NA/1 through the corresponding native trio.
+The test driver gives Python and Node equal subprocess isolation and includes
+local IPC overhead in the measurement. It neither inserts benchmark commands
+into a Core nor modifies installed enablement settings. Missing dependencies
+produce visible failing rows. [Pressure tests](../Benchmark/README.md) apply
+identical workload cases; independent-trio concurrency is not advertised as
+multi-client multiplexing within a single native process.

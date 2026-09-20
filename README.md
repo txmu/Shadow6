@@ -47,12 +47,12 @@ platform limits.
 | Core-Ada | SPARK-oriented broker/agent/client cell stack | native Unix build; L0 and Crosed variants |
 | Core-Nim | broker/agent/client authenticated UDP stack | optional libdatachannel/toolchain; L0 and Crosed variants |
 | Core-Pony | reference-capability broker/agent/client UDP stack | optional `ponyc`; L0 and Crosed variants |
-| Core-Idris | dependent-type checked agent/client UDP relay | optional Idris 2/Chez toolchain; broker is not implemented |
+| Core-Idris | dependent-type checked broker/agent/client UDP path | optional Idris 2/Chez; legacy two-endpoint mode retained |
 | Core-Zig | ENet-style reliable UDP stack | optional Zig toolchain; L0 profile |
 | Core-D | BetterC authenticated broker/agent/client stream | optional D toolchain; L0 profile |
 | Core-Cpp | C++20 TLS/WebSocket control and SCTP data stack | optional C++ toolchain; L0 profile |
-| Core-Hare | small authenticated agent/client UDP proxy | optional Hare toolchain; L0 profile |
-| Core-Carp | compact authenticated UDP adapter | optional Carp toolchain; L0 profile |
+| Core-Hare | small authenticated broker/agent/client UDP path | optional Hare; L0 and legacy endpoint modes |
+| Core-Carp | compact authenticated broker/agent/client UDP path | optional Carp; L0 and legacy codec/adapter modes |
 
 The twelve-core catalog is a capability matrix, not a promise that every
 binary is present in every installation. `shadow6 features`, the component
@@ -74,9 +74,9 @@ in [`docs/protocols.md`](docs/protocols.md).
 | Core-Zig | broker, agent, client | Go/Rust control dialects plus authenticated reliable UDP data plane |
 | Core-D | broker, agent, client | Authenticated WebSocket control and X25519/ChaCha20-Poly1305 stream |
 | Core-Cpp | broker, agent, client | Mutually authenticated TLS 1.3 WebSocket control and SCTP tunnel data |
-| Core-Idris | agent, client | Fixed-peer authenticated UDP relay; no native broker or multi-client routing |
-| Core-Hare | agent, client | One pinned peer/session authenticated UDP proxy; no broker or multiplexing |
-| Core-Carp | adapter/peer endpoint | Fixed-frame authenticated UDP byte-stream adapter; no broker or role topology |
+| Core-Idris | broker, agent, client | Signed ephemeral admission; fixed-route UDP; legacy PSK relay retained |
+| Core-Hare | broker, agent, client | Signed fixed-route IPv6-loopback UDP; one peer/session, no native retransmission |
+| Core-Carp | broker, agent, client, codec/adapter | Signed fixed-route IPv4-loopback UDP; separate directional layer keys |
 | Guard | agent SPA/LPD/probe monitor, client TLS cover traffic, broker reverse proxy | Bounded maps/concurrency; public broker binds require TLS |
 | C11Relay | multi-client bidirectional UDP relay | Normal/high-speed pass-through; data-saving mode requires a paired relay |
 | Auto-Orchestrator | topology validation, key/config generation, SSH deployment, MTD rotation, RPC/TUI | SSH host-key verification is mandatory for remote nodes |
@@ -99,12 +99,18 @@ in [`docs/protocols.md`](docs/protocols.md).
 
 Each Core's native transport is independently deployable, but Core families
 are not wire-compatible halves of one stack. One topology must use the same
-Core family at every hop. Go, Rust, Gleam, Ada, Nim, Pony, Zig, D and C++
-provide native broker/agent/client paths. Idris and Hare intentionally stop at
-an authenticated agent/client relay, while Carp remains a compact peer/adapter
-transport. No Core requires the Network Adapter or another Companion to obtain
+Core family at every hop. All twelve provide native broker/agent/client paths.
+Hare, Carp and Idris retain their older modes and bounded datagram semantics;
+three roles do not imply identical reliability or multiplexing.
+No Core requires the Network Adapter or another Companion to obtain
 its native network capability; the adapter is an optional uniform semantics
 layer. C11Relay does not translate between Core protocols.
+
+The [Benchmark suite](Benchmark/README.md) evaluates twelve cores × three paths
+(native, Python Companion, Node.js Companion) through actual native trios.
+Every path receives the same application workload and pressure cases, regardless
+of deployment enablement. Missing binaries/runtime support are reported as
+failures, not omitted or replaced with internal benchmark loopbacks.
 
 Public6 packages both alternatives but does not translate between them. Peers
 using the same Core family and exact Core version remain base-compatible even

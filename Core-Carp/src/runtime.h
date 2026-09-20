@@ -25,6 +25,10 @@ static uint64_t previous_sequence;
 static unsigned long packets;
 static time_t session_deadline;
 static int endpoint_mode;
+static int application_fd = -1, chain_role;
+static struct sockaddr_in application_peer;
+static unsigned char receive_keys[96];
+static uint64_t send_sequence;
 /* A=simplex, B=bidirectional, C=full duplex contract.  The mode is
  * authenticated as part of the session transcript and packet AD. */
 static unsigned char link_mode = 'A';
@@ -107,7 +111,11 @@ static int packet_finish(struct packet *p, bool accepted) {
             if (sequence <= previous_sequence) ok = 0;
             else previous_sequence = sequence;
         }
-        if (ok) ok = write(STDOUT_FILENO, body + COMMAND + 10, n - 8) == (ssize_t)(n - 8);
+        if (ok && chain_role) {
+            if (chain_role == 2) ok = send(application_fd, body + COMMAND + 10, n - 8, 0) == (ssize_t)(n - 8);
+            else ok = application_peer.sin_port && sendto(application_fd, body + COMMAND + 10, n - 8, 0,
+                (struct sockaddr *)&application_peer, sizeof application_peer) == (ssize_t)(n - 8);
+        } else if (ok) ok = write(STDOUT_FILENO, body + COMMAND + 10, n - 8) == (ssize_t)(n - 8);
     } else if (ok) ok = fwrite(body + COMMAND + 2, 1, n, stdout) == n && fflush(stdout) == 0;
     sodium_memzero(p, sizeof *p);
     return ok ? 0 : 2;
@@ -202,13 +210,101 @@ static void sender_loop(int fd) {
     }
     sodium_memzero(&p, sizeof p); sodium_memzero(session_keys, sizeof session_keys); close(fd);
 }
+
+static int chain_application(int port, int client) {
+    int fd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (fd < 0) return -1;
+    struct sockaddr_in a = {0}; a.sin_family = AF_INET;
+    a.sin_addr.s_addr = htonl(INADDR_LOOPBACK); a.sin_port = htons((uint16_t)port);
+    int rc = client ? bind(fd, (struct sockaddr *)&a, sizeof a) : connect(fd, (struct sockaddr *)&a, sizeof a);
+    if (rc) { close(fd); return -1; }
+    return fd;
+}
+
+/* New full-duplex application roles retain the Carp schema check on every
+ * received packet. Domain-separated keys prevent reflection between directions. */
+static struct packet chain_receive(void) {
+    struct packet p = {0};
+    struct pollfd f[2] = {{.fd=udp_fd,.events=POLLIN}, {.fd=application_fd,.events=POLLIN}};
+    if (poll(f, 2, 1000) <= 0) return p;
+    if (f[1].revents & POLLIN) {
+        unsigned char *body = p.bytes + 3 * HEADER;
+        unsigned char input[BODY - COMMAND - 10 + 1];
+        struct sockaddr_in source = {0}; socklen_t sl = sizeof source;
+        ssize_t n = recvfrom(application_fd, input, sizeof input, 0, (struct sockaddr *)&source, &sl);
+        if (n < 0 || n > BODY - COMMAND - 10) return p;
+        if (chain_role == 1) {
+            if (source.sin_addr.s_addr != htonl(INADDR_LOOPBACK) ||
+                (application_peer.sin_port && (application_peer.sin_port != source.sin_port ||
+                 application_peer.sin_addr.s_addr != source.sin_addr.s_addr))) return p;
+            application_peer = source;
+        }
+        if (++send_sequence > 1000000) exit(2);
+        memcpy(body, operation, COMMAND);
+        size_t total = (size_t)n + 8;
+        body[COMMAND] = (unsigned char)(total >> 8); body[COMMAND + 1] = (unsigned char)total;
+        for (int i = 0; i < 8; ++i) body[COMMAND + 2 + i] = (unsigned char)(send_sequence >> (56 - 8*i));
+        memcpy(body + COMMAND + 10, input, (size_t)n);
+        memcpy(p.keys, session_keys, 96);
+        if (wrap(&p, total) || send(udp_fd, p.bytes, WIRE, 0) != WIRE) exit(2);
+        sodium_memzero(input, sizeof input); sodium_memzero(&p, sizeof p);
+    }
+    if (f[0].revents & POLLIN) {
+        unsigned char input[WIRE + 1];
+        ssize_t n = recv(udp_fd, input, sizeof input, 0);
+        if (n == WIRE) { memcpy(p.bytes, input, WIRE); memcpy(p.keys, receive_keys, 96); p.valid = 1; }
+        sodium_memzero(input, sizeof input);
+    }
+    return p;
+}
+
+/* Fixed broker route. CONFIG is reserved-zero[32], client pin[32], agent
+ * pin[32]. Only authenticated handshake admission; data stays encrypted. */
+static int chain_broker(const char *path, int local, int client, int agent) {
+    unsigned char pins[96], frame[WIRE + 1], challenge[64];
+    if (secure_keys(path, pins) || sodium_is_zero(pins, 32) != 1) return 2;
+    int fd = chain_application(local, 1);
+    if (fd < 0) return 2;
+    int phase = 0, rc = 0;
+    time_t started = monotonic_seconds(), activity = started;
+    puts("broker ready");
+    for (unsigned count = 0; count < 1000000; ++count) {
+        time_t now = monotonic_seconds();
+        if (now - started >= 300 || now - activity >= (phase == 2 ? 60 : 5)) break;
+        struct pollfd poller = {.fd=fd,.events=POLLIN};
+        if (poll(&poller, 1, 1000) <= 0) continue;
+        struct sockaddr_in source; socklen_t sl = sizeof source;
+        ssize_t n = recvfrom(fd, frame, sizeof frame, 0, (struct sockaddr *)&source, &sl);
+        if (n < 0 || source.sin_addr.s_addr != htonl(INADDR_LOOPBACK)) continue;
+        int port = ntohs(source.sin_port), destination = 0;
+        if (phase == 0 && port == client && n == 128) {
+            if (crypto_sign_verify_detached(frame + 64, frame, 64, pins + 32)) continue;
+            memcpy(challenge, frame, 64); phase = 1; destination = agent;
+        } else if (phase == 1 && port == agent && n == 192) {
+            if (sodium_memcmp(challenge, frame, 64) || crypto_sign_verify_detached(frame + 128, frame, 128, pins + 64)) continue;
+            phase = 2; destination = client;
+        } else if (phase == 2 && n == WIRE) {
+            if (port == client) destination = agent;
+            else if (port == agent) destination = client;
+        }
+        if (!destination) continue;
+        source.sin_port = htons((uint16_t)destination);
+        if (sendto(fd, frame, (size_t)n, 0, (struct sockaddr *)&source, sizeof source) != n) { rc = 2; break; }
+        activity = now;
+    }
+    close(fd); sodium_memzero(pins, sizeof pins); return rc;
+}
 /* Offline codec and bounded loopback UDP endpoint share the same checked path. */
 static struct packet packet_receive(void) {
     struct packet p = {0};
     if (endpoint_mode) {
         if (++packets > 1000000 || monotonic_seconds() >= session_deadline) {
-            sodium_memzero(session_keys, sizeof session_keys); close(udp_fd); exit(0);
+            sodium_memzero(session_keys, sizeof session_keys);
+            sodium_memzero(receive_keys, sizeof receive_keys);
+            if (application_fd >= 0) close(application_fd);
+            close(udp_fd); exit(0);
         }
+        if (chain_role) return chain_receive();
         unsigned char incoming[WIRE + 1];
         int n = receive_timeout(udp_fd, incoming, sizeof incoming, 1000);
         if (n == WIRE) { memcpy(p.bytes, incoming, WIRE); memcpy(p.keys, session_keys, 96); p.valid = 1; }
@@ -220,6 +316,28 @@ static struct packet packet_receive(void) {
     setvbuf(stdin, NULL, _IONBF, 0);
     setvbuf(stdout, NULL, _IONBF, 0);
     alarm(300);
+    if (argc == 6 && (!strcmp(argv[1], "--broker") || !strcmp(argv[1], "--agent") || !strcmp(argv[1], "--client"))) {
+        int local = port_number(argv[3]), peer = port_number(argv[4]), application = port_number(argv[5]);
+        if (local < 0 || peer < 0 || application < 0 || local == peer || local == application || peer == application) exit(2);
+        if (!strcmp(argv[1], "--broker")) exit(chain_broker(argv[2], local, peer, application));
+        chain_role = !strcmp(argv[1], "--client") ? 1 : 2;
+        link_mode = 'T'; /* Separate contract; legacy A/B/C remains unchanged. */
+        if (secure_keys(argv[2], p.keys)) exit(2);
+        udp_fd = udp_open(local, peer);
+        application_fd = chain_application(application, chain_role == 1);
+        if (udp_fd < 0 || application_fd < 0) exit(2);
+        puts("control ready");
+        if (establish(udp_fd, p.keys, chain_role == 1)) exit(2);
+        unsigned char base[96]; memcpy(base, session_keys, 96);
+        for (int i = 0; i < 3; ++i) {
+            unsigned char tx[2] = {(unsigned char)i, (unsigned char)chain_role};
+            unsigned char rx[2] = {(unsigned char)i, (unsigned char)(3-chain_role)};
+            crypto_generichash(session_keys + i*32, 32, tx, 2, base + i*32, 32);
+            crypto_generichash(receive_keys + i*32, 32, rx, 2, base + i*32, 32);
+        }
+        sodium_memzero(base, sizeof base); endpoint_mode = 1;
+        puts("session ready"); return packet_receive();
+    }
     if ((argc == 5 || argc == 6) && (!strcmp(argv[1], "--listen") || !strcmp(argv[1], "--send"))) {
         int local = port_number(argv[3]), peer = port_number(argv[4]);
         if (argc == 6 && parse_mode(argv[5]) < 0) exit(2);

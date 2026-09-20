@@ -30,7 +30,45 @@ shadow6-idris --native-client 0.0.0.0 41000 AGENT_IP 41001 8000 idris-native.key
 
 The client exposes UDP port 8000 only on loopback and the agent forwards only to the fixed numeric target. Each datagram is 1–1024 bytes and uses a direction-bound, sequence-numbered XChaCha20-Poly1305 frame. A fresh 128-bit sender session is authenticated and included in nonce derivation on every process start; the receiver pins the first authenticated session. It also pins the configured source IP/port and rejects unknown versions, directions, sizes, peers, in-process replay, excessive sequence gaps and authentication failures. The 32-byte key file must be a current-user-owned, non-symlink, single-link regular file of mode `0600`; it is rechecked after reading. Idle relays stop after 30 seconds and packet limits are mandatory.
 
-This deliberately small native path is not wire-compatible with another Core, is UDP rather than a reliable stream, supports one fixed client/target pair per process, and does not claim broker or three-role parity. Deployments needing loss recovery, segmentation up to 1 MiB, concurrent logical streams, durable replay state across process restarts, or extension coordination should enable the optional Python or Node.js companion. Native mode remains usable without it. Network exposure still requires operator-managed host firewall/NAT and a unique master key per client/agent link; do not reuse it across links or deployments, and rotate it before restart when cross-restart replay is in the threat model.
+This legacy path is UDP, not a reliable stream, and supports one fixed
+client/target pair per process. It remains available unchanged through the
+`--native-client`/`--native-agent` commands. Use a unique master key per link
+and rotate it before restart when cross-restart replay is in the threat model.
+The optional companions provide message segmentation, retransmission and
+logical streams; neither companion supplies durable replay state across
+restarts. Native roles remain usable without either companion.
+
+The new native three-role mode authenticates fresh X25519 exchanges with pinned
+Ed25519 identities (`S6I2`) and derives the data key from the handshake and a
+deployment binding. Start broker, agent, then client:
+
+```sh
+shadow6-idris --chain broker 127.0.0.1 41000 127.0.0.1 41002 127.0.0.1 41004 broker.pins 1000000
+shadow6-idris --chain agent 127.0.0.1 41004 127.0.0.1 41000 127.0.0.1 9000 agent.keys 1000000
+shadow6-idris --chain client 127.0.0.1 41002 127.0.0.1 41000 127.0.0.1 8000 client.keys 1000000
+```
+
+Each configuration is a 96-byte owned, mode-0600, non-symlink regular file.
+Endpoint files contain own Ed25519 seed, pinned remote endpoint public key,
+and a shared random 32-byte deployment binding. The broker file contains 32
+zero reserved bytes, client public key, agent public key. The broker validates
+the signed hello and challenge-bound reply and forwards ciphertext between
+the exact configured peers; it never receives an endpoint private/data key.
+The application listener remains loopback-only. Other bind/peer IPv4 addresses
+must be explicitly configured; host network policy remains the operator's job.
+
+All three roles are bounded to five minutes and one million loop iterations;
+the explicit limit additionally bounds endpoint transactions/broker forwarded
+frames. Admission expires after five seconds, broker inactivity after 60
+seconds and endpoint inactivity after 30 seconds. Application datagrams remain
+1..1024 bytes; this is one fixed route, without native retransmission or
+multi-client multiplexing. Protocols remain family-specific.
+
+The shared `integration/stack_test.py --engine shadow6-idris --benchmark`
+evaluates native, Python and Node.js paths. Actions builds the Idris executable
+and runs this matrix plus concurrent pressure and broker rejection tests.
+Local `test_security.py` independently compiles/tests only the C FFI boundary,
+including a real signed three-role transaction; that is not an Idris build.
 
 The feature schema aligns with the other Cores, but it is not evidence of wire compatibility. Qubes-inspired labels do not replace qrexec/VM/hypervisor isolation.
 

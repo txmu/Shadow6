@@ -47,6 +47,9 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
       - uses: Homebrew/actions/setup-homebrew@49d03f1bf5d455a413dfbdf99e6718054a4cd975
       - name: Install Core-Idris prerequisites (Ubuntu)
         if: runner.os == 'Linux'
@@ -108,6 +111,13 @@ jobs:
           test "$(${GITHUB_WORKSPACE}/Core-Idris/shadow6-idris --feature-report | python3 -c 'import json,sys; print(json.load(sys.stdin)["crosed_max_level"])')" = 0
       - name: Build and test Crosed variant
         run: make idris-crosed-variant PYTHON=python3 && python3 Core-Idris/test_core.py
+      - name: Verify Idris native and both companion paths
+        run: |
+          python3 -m venv "$RUNNER_TEMP/idris-network-env"
+          "$RUNNER_TEMP/idris-network-env/bin/pip" install 'cryptography>=43,<47'
+          "$RUNNER_TEMP/idris-network-env/bin/python" Core-Idris/test_security.py
+          "$RUNNER_TEMP/idris-network-env/bin/python" integration/test_native_chains.py NativeBrokerTests.test_idris_admission
+          "$RUNNER_TEMP/idris-network-env/bin/python" Benchmark/benchmark.py --core idris --role network-chain --payload-bytes 4096 --requests 8 --concurrency 4 --require-network --output idris-network
       - name: Collect Core-Idris build outputs
         shell: bash
         run: |
@@ -443,11 +453,12 @@ jobs:
           import json
           from pathlib import Path
           report = json.loads(Path('/tmp/shadow6-network-adapter-benchmark.json').read_text())
-          assert report['schema'] == 'shadow6.network-adapter-benchmark.v1'
-          rows = report['rows']
-          assert len(rows) == 18
-          assert {row['backend'] for row in rows} == {'python', 'node'}
-          assert all(row['bytes'] > 0 and row['throughput_bps'] > 0 for row in rows)
+          assert report['schema'] == 'shadow6.benchmark.v2'
+          rows = report['results']
+          assert len(rows) == 36
+          assert {row['backend'] for row in rows} == {'native', 'python', 'node'}
+          assert len({row['core'] for row in rows}) == 12
+          assert all(row['status'] == 'ok' and row['network']['bytes_received'] > 0 for row in rows)
           print('S6NA benchmark rows:', len(rows))
           PY
       - run: make check
@@ -493,6 +504,20 @@ jobs:
             --output benchmark-linux-network
           python3 Benchmark/benchmark.py --config Benchmark/example.json --output benchmark-linux.json
           python3 CLI/shadow6.py benchmark --all --role feature-report --repeats 3 --output benchmark-cli-all.json
+      - name: Equal 12 by 3 concurrent pressure gate
+        run: |
+          .venv/bin/python Benchmark/benchmark.py --role network-chain --payload-bytes 4096 --requests 8 --concurrency 4 --require-network --output benchmark-linux-pressure
+          .venv/bin/python - <<'PY'
+          import json
+          from pathlib import Path
+          from collections import Counter
+          report = json.loads(Path('benchmark-linux-pressure.json').read_text())
+          rows = report['results']
+          assert len(rows) == 36
+          assert len({(r['core'], r['backend']) for r in rows}) == 36
+          assert Counter(r['backend'] for r in rows) == {'native': 12, 'python': 12, 'node': 12}
+          assert all(r['status'] == 'ok' and r['network']['concurrency'] == 4 and r['network']['bytes_received'] == 4096 * 8 * 4 for r in rows)
+          PY
       - name: Upload Linux network benchmark reports (JSON/TXT/Markdown)
         uses: actions/upload-artifact@v4
         with:
@@ -501,6 +526,9 @@ jobs:
             benchmark-linux-network.json
             benchmark-linux-network.txt
             benchmark-linux-network.md
+            benchmark-linux-pressure.json
+            benchmark-linux-pressure.txt
+            benchmark-linux-pressure.md
           if-no-files-found: error
       - name: Package and collect every Linux release output
         run: |

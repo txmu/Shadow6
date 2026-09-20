@@ -10,8 +10,9 @@ unbounded listeners/resources.
 - Shadow6 maintains twelve independently compiled Core implementations that
   share the feature-report and security-contract vocabulary but are not
   implicitly wire-compatible. Every Core has an independently deployable native
-  data path; Go, Rust, D and Gleam expose complete broker/agent/client streams,
-  while the other families retain their documented bounded native roles. Use
+  data path and broker/agent/client roles. Hare, Carp and Idris also retain
+  their legacy modes and bounded datagram contracts; three roles do not imply
+  identical reliability, multiplexing or external-address support. Use
   one family consistently across a path and consult each Core's README for its
   transport and platform limits. The Network Adapter is optional normalization,
   never a deployment prerequisite.

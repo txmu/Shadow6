@@ -15,10 +15,9 @@ In a source checkout, replace `shadow6` with `.venv/bin/python CLI/shadow6.py`.
 If a component is missing, run `make build` from the repository root and retry.
 
 Shadow6 ships twelve independently compiled Core implementations: Go, Rust,
-Gleam, Ada, Nim, Pony, Idris, Zig, D, C++, Hare, and Carp. Nine provide a
-native broker/agent/client path (Go, Rust, Gleam, Ada, Nim, Pony, Zig, D and
-C++). Idris and Hare provide deliberately smaller authenticated agent/client
-relays, while Carp is a fixed-frame peer/adapter transport. These profiles are
+Gleam, Ada, Nim, Pony, Idris, Zig, D, C++, Hare, and Carp. All twelve provide a
+native broker/agent/client path. Idris, Hare and Carp retain their older modes
+alongside bounded, signed fixed-route datagram trios. These profiles are
 all valid, but they are not wire-compatible and they do not promise the same
 reliability, multiplexing, or broker behavior. Pick one family for every hop
 and use its README as the authority for deployment limits.

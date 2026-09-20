@@ -115,7 +115,11 @@ def main():
  q=sub.add_parser("vcore",help="discover installed cores and capability intersection");q.add_argument("args",nargs=argparse.REMAINDER)
  q=sub.add_parser("benchmark",help="run real native benchmarks for selected cores")
  q.add_argument("--core",dest="cores",action="append",choices=sorted(k for k in COMPONENTS if k in {"go","rust","zig","ada","d","nim","cpp","pony","hare","carp","gleam","idris"}))
- q.add_argument("--all",action="store_true",help="benchmark all twelve cores")
+ q.add_argument("--all",action="store_true",help="benchmark all twelve cores and all three backend paths (default)")
+ q.add_argument("--backend",dest="backends",action="append",choices=("native","python","node"))
+ q.add_argument("--payload-bytes",type=int,default=4096)
+ q.add_argument("--requests",type=int,default=32)
+ q.add_argument("--concurrency",type=int,default=1)
  q.add_argument("--role",action="append",choices=("feature-report","version","network-chain","loopback","integration"),default=[])
  q.add_argument("--repeats",type=int,default=1)
  q.add_argument("--output",type=Path,default=Path("benchmark.json"))
@@ -136,12 +140,14 @@ def main():
   sys.path.insert(0, str(ROOT / "Benchmark"))
   from benchmark import run as benchmark_run, write as benchmark_write
   core_names = {"go","rust","zig","ada","d","nim","cpp","pony","hare","carp","gleam","idris"}
-  cores = [c for c in COMPONENTS if c in core_names] if a.all else (a.cores or ["go"])
+  cores = [c for c in COMPONENTS if c in core_names] if a.all or not a.cores else a.cores
   cores = [c for c in cores if c in core_names]
   if not cores: raise SystemExit("benchmark requires --core or --all")
   if not 1 <= a.repeats <= 100: raise SystemExit("--repeats must be 1..100")
-  roles = ['network-chain' if role in ('loopback','integration') else role for role in (a.role or ['feature-report'])]
-  result = benchmark_run({"cores": cores, "roles": roles, "repeats": a.repeats, "args": {}})
+  roles = ['network-chain' if role in ('loopback','integration') else role for role in (a.role or ['feature-report','network-chain'])]
+  result = benchmark_run({"cores": cores, "backends": a.backends or ['native','python','node'], "roles": roles,
+                          "repeats": a.repeats, "args": {}, "network": {"payload_bytes":a.payload_bytes,
+                          "requests":a.requests,"concurrency":a.concurrency}})
   benchmark_write(result,a.output)
   print(json.dumps({"output": str(a.output), "results": len(result["results"])}, ensure_ascii=True))
   return 0 if all(r["status"] == "ok" for r in result["results"]) else 1

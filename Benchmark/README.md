@@ -19,16 +19,14 @@ firewalls, and reports this limitation explicitly; it is not a WAN claim.
 The zero-impairment rows carry the full byte stream through the real local Core
 path and are the local-bandwidth measurements.
 
-All twelve cores are present in the matrix. Go, Rust, Zig, Ada, Nim, and C++
-use their three-role paths. D/Gleam use native relay/crypto loopbacks, Carp uses
-its paired authenticated byte-stream channels, and Pony/Hare use authenticated
-datagrams at their real 1,024-byte and 978-byte application limits. Unsupported
-payload or impairment combinations remain explicit `not_applicable` rows with
-reasons. D remains represented by its fixed 4-byte diagnostic. Idris now runs
-its real encrypted native client/agent/echo path at the 1,024-byte datagram
-limit for the complete long-flow byte budget; the companion backend separately
-exercises 4 KiB, 64 KiB and 1 MiB reliable messages. This is capability-aware equality,
-not a preferred-core list and not fabricated comparability.
+All twelve cores are present in the matrix, and every row uses a real
+broker/agent/client trio. Stream cores (Go, Rust, Gleam, Ada, Nim, Zig, D, C++)
+carry the requested byte budget on their native reliable transports. Pony, Hare,
+Carp and Idris keep their authenticated datagram bounds (1024, 978, 986 and 1024
+bytes). Companion backends wrap those same native trios with S6NA/1, so 4 KiB,
+64 KiB and 1 MiB logical messages still traverse the Core path. Missing binaries
+or runtime support fail the run; they are not omitted, not converted into
+internal codec loopbacks, and not treated as a nine-core ABC subset.
 
 Use `--require-network` for a release gate: every selected core must complete
 the requested loopback exchange with valid finite metrics (unsupported

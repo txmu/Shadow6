@@ -47,7 +47,39 @@ sequence; replay state advances only after all tags and the schema pass.
 
 Each process admits one peer/session, at most one million iterations and five
 minutes. A hard process deadline also bounds blocked I/O. This is a unidirectional
-UDP byte-stream adapter, not a reliable transport, broker or anonymity network.
+UDP byte-stream adapter, not a reliable transport or anonymity network.
 Loss and reordering can discard data. Three-layer cryptography does not itself
 provide three independent routing hops. Only Linux is currently tested; other
 POSIX platforms require a compatible C/linker toolchain and libsodium.
+
+## Native broker/agent/client mode
+
+The offline codec and online `--send`/`--listen` A/B/C modes remain available.
+New roles expose real bidirectional UDP application sockets:
+
+```sh
+shadow6-carp --broker broker.pins 41000 41002 41004
+shadow6-carp --agent agent.keys 41004 41000 9000
+shadow6-carp --client client.keys 41002 41000 8000
+```
+
+All addresses are IPv4 loopback. Applications send to UDP port 8000 and the
+agent forwards to the UDP service on 9000. All three configuration files are
+96-byte owner-controlled, non-symlink, mode-0600 regular files. Endpoint files
+contain their own Ed25519 seed, the other endpoint's public key and an equal
+random 32-byte deployment binding. Broker files contain 32 zero reserved bytes,
+the client's public key and the agent's public key; never private keys.
+
+The broker verifies both signed ephemeral handshake messages and their shared
+challenge before routing fixed-size ciphertext between configured ports. It
+has no decryption key. Endpoints derive distinct client-to-agent and
+agent-to-client layer keys under a separate `T` contract, retain the compiled
+Carp schema check and enforce monotonic replay state. The maximum application
+datagram is 986 bytes. One application source, one session and one fixed route
+are supported. Five-minute/one-million-iteration bounds apply; broker admission
+expires after five seconds and route inactivity after 60 seconds. Loss recovery,
+multi-client routing and stream semantics are not added by this mode.
+
+`integration/stack_test.py --engine shadow6-carp --benchmark` evaluates all
+three backend paths through the real native trio, without stdin/stdout routing
+or an internal benchmark protocol.

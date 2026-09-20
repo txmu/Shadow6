@@ -15,9 +15,9 @@ shadow6 control -- status
 `make build`，完成后再试。
 
 Shadow6 现有十二套独立编译的 Core：Go、Rust、Gleam、Ada、Nim、Pony、Idris、
-Zig、D、C++、Hare 和 Carp。其中九套提供原生 broker/agent/client 路径（Go、
-Rust、Gleam、Ada、Nim、Pony、Zig、D、C++）；Idris 和 Hare 有意保持为较小的、
-经过认证的 agent/client relay，Carp 则是固定帧的 peer/adapter 传输。它们都可以
+Zig、D、C++、Hare 和 Carp。十二套均提供原生 broker/agent/client 路径；
+Idris、Hare、Carp 的三角色路径采用签名握手及有界固定路由 UDP，同时保留原有
+双端、编解码或 adapter 模式。它们都可以
 独立部署，但不保证线缆兼容，也不保证相同的可靠性、多路复用或 broker 行为；每一
 条连接的所有 hop 都应使用同一个 Core，并以该 Core 的 README 为部署边界准则。
 可先查看[Core 能力矩阵](core-matrix.md)，快速了解角色和传输边界。

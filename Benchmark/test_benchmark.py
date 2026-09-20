@@ -18,6 +18,8 @@ class ConfigTests(unittest.TestCase):
             with self.assertRaises(ValueError): _load_config(str(p))
     def test_defaults_are_bounded(self):
         c = _load_config(None); self.assertEqual(c["repeats"], 1); self.assertIn("go", c["cores"])
+        self.assertEqual(len(c["cores"]), 12)
+        self.assertEqual(c["backends"], ["native", "python", "node"])
 
     def test_cli_overrides_and_network_fields_are_revalidated(self):
         for change in ({'repeats':True}, {'repeats':1001}, {'network':{'requests':2}},
@@ -47,6 +49,48 @@ class ReportTests(unittest.TestCase):
         with patch('benchmark.available',return_value=False):
             result=run({'cores':['pony'],'roles':['network-chain']})
         self.assertEqual(result['results'][0]['status'],'failed')
+        self.assertEqual({r['backend'] for r in result['results']}, {'native','python','node'})
+
+    def test_every_core_backend_uses_identical_stack_command(self):
+        calls = []
+        def execute_case(command, timeout):
+            calls.append(command)
+            engine = command[command.index('--engine')+1]
+            backend = command[command.index('--backend')+1]
+            key = engine + ('' if backend == 'native' else '@'+backend)
+            result = dict(throughput_bps=1024, duration_seconds=1, latency_p95_seconds=.1, success_rate=1)
+            return 0, json.dumps({'schema':'shadow6.network-suite.v1','results':{key:result}}), '', {}
+        with patch('benchmark.available',return_value=True), patch('benchmark.network_unavailable',return_value=None), patch('benchmark.shutil.which',return_value='/usr/bin/node'), patch('benchmark.execute',side_effect=execute_case):
+            result = run({'roles':['network-chain'],'network':{'payload_bytes':4096,'requests':8,'concurrency':4}})
+        self.assertEqual(len(calls),36)
+        self.assertEqual(len({(r['core'],r['backend']) for r in result['results']}),36)
+        self.assertTrue(all(r['status']=='ok' for r in result['results']))
+        for command in calls:
+            self.assertTrue(command[1].endswith('integration/stack_test.py'))
+            self.assertEqual(command[command.index('--payload-bytes')+1],'4096')
+            self.assertEqual(command[command.index('--requests')+1],'8')
+            self.assertEqual(command[command.index('--concurrency')+1],'4')
+            self.assertNotIn('--benchmark-loopback',command)
+
+    def test_stress_matrix_has_no_per_core_exemptions(self):
+        from performance_matrix import run as matrix_run
+        commands=[]
+        def fail_case(command, timeout):
+            commands.append(command)
+            return 1, '', 'unavailable', {}
+        with patch('performance_matrix.execute',side_effect=fail_case):
+            result=matrix_run(list(ENGINES),1048576,concurrency=(1,4))
+        self.assertEqual(len(result['results']),12*3*2*12)
+        self.assertTrue(all(r['status']=='failed' for r in result['results']))
+        workloads={}
+        for row in result['results']:
+            workloads.setdefault((row['engine'],row['backend']),set()).add((row['payload_bytes'],row['requests'],row['rtt_ms'],row['loss_percent'],row['concurrency']))
+        self.assertEqual(len(workloads),36)
+        self.assertTrue(all(v==next(iter(workloads.values())) for v in workloads.values()))
+
+    def test_internal_benchmark_metrics_are_not_accepted(self):
+        with self.assertRaises(ValueError):
+            network_result(json.dumps(dict(schema='shadow6.network-chain.v1',throughput_bps=1,duration_seconds=1,latency_p95_seconds=1,success_rate=1)),'d')
 
     def test_required_network_rejects_unsupported_kernel(self):
         with patch('benchmark.available',return_value=True), patch('benchmark.network_unavailable',return_value='SCTP unavailable'):

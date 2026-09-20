@@ -34,7 +34,11 @@ def generate_configs(output: Path, target_port: int, broker_port: int, engine: s
     broker_pub, broker_private = _keypair()
     agent_pub, agent_private = _keypair()
     client_pub, client_private = _keypair()
-    transport = "quic" if engine == "shadow6-rust" else "kcp"
+    transport = {
+        "shadow6-go": "kcp", "shadow6-rust": "quic", "shadow6-zig": "enet",
+        "shadow6-ada": "cell-relay", "shadow6-nim": "webrtc",
+        "shadow6-d": "secure-stream", "shadow6-gleam": "secure-stream",
+    }[engine]
     scheme = "ws"
     broker_url = f"{scheme}://127.0.0.1:{broker_port}/ws"
     prefix = f"it-shadow6-{engine.removeprefix('shadow6-')}"
@@ -79,6 +83,9 @@ def generate_configs(output: Path, target_port: int, broker_port: int, engine: s
         },
     }
     for role, document in (("broker", broker), ("agent", agent), ("client", client)):
+        if engine == "shadow6-gleam":
+            for other in ("broker", "agent", "client"):
+                document.setdefault(other, None)
         path = output / f"{prefix}-{role}.json"
         path.write_text(json.dumps(document, separators=(",", ":")) + "\n", encoding="utf-8")
         path.chmod(0o600)

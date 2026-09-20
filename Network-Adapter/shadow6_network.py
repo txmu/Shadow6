@@ -39,7 +39,10 @@ def load_key(path:Path):
     descriptor=os.open(path,os.O_RDONLY|os.O_NOFOLLOW|os.O_CLOEXEC)
     try:
         opened=os.fstat(descriptor); data=os.read(descriptor,33); final=os.fstat(descriptor)
-        if (opened.st_dev,opened.st_ino,opened.st_size)!=(before.st_dev,before.st_ino,before.st_size) or final!=opened or len(data)!=32:
+        # Reads may update atime; compare identity, authority and content-change
+        # metadata instead of the entire stat result.
+        fingerprint=lambda st:(st.st_dev,st.st_ino,st.st_size,st.st_mode,st.st_uid,st.st_nlink,st.st_mtime_ns,st.st_ctime_ns)
+        if fingerprint(opened)!=fingerprint(before) or fingerprint(final)!=fingerprint(opened) or len(data)!=32:
             raise PermissionError("adapter key changed while reading")
         return data
     finally: os.close(descriptor)

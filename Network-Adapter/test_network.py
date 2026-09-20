@@ -32,6 +32,8 @@ class AdapterTests(unittest.TestCase):
         with self.assertRaises(ValueError): adapter.receive(frame[:-1]+bytes([frame[-1]^1]))
         with tempfile.TemporaryDirectory() as directory:
             path=Path(directory)/"key"; path.write_bytes(key); path.chmod(0o600)
+            # Reading a freshly provisioned file may legitimately update atime.
+            os.utime(path, ns=(0, path.stat().st_mtime_ns))
             self.assertEqual(load_key(path),key)
             path.chmod(0o644)
             with self.assertRaises(PermissionError): load_key(path)
