@@ -70,7 +70,7 @@ else:
 SAFE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 VALID_ROLES = {"broker", "agent", "client"}
 CORE_ENGINES = {"shadow6-go", "shadow6-rust", "shadow6-zig", "shadow6-ada", "shadow6-d", "shadow6-nim", "shadow6-cpp", "shadow6-pony", "shadow6-hare", "shadow6-carp", "shadow6-gleam", "shadow6-idris"}
-CORE_TRANSPORTS = {"shadow6-go": "kcp", "shadow6-rust": "quic", "shadow6-zig": "enet", "shadow6-ada": "cell-relay", "shadow6-d": "rle-udp", "shadow6-nim": "webrtc", "shadow6-cpp": "sctp", "shadow6-pony": "udp", "shadow6-hare": "udp", "shadow6-carp": "udp", "shadow6-gleam": "micro-mux", "shadow6-idris": "udp"}
+CORE_TRANSPORTS = {"shadow6-go": "kcp", "shadow6-rust": "quic", "shadow6-zig": "enet", "shadow6-ada": "cell-relay", "shadow6-d": "secure-stream", "shadow6-nim": "webrtc", "shadow6-cpp": "sctp", "shadow6-pony": "udp", "shadow6-hare": "udp", "shadow6-carp": "udp", "shadow6-gleam": "secure-stream", "shadow6-idris": "udp"}
 OPTIONAL_COMPONENTS = {"shadow6-guard", "c11relay"}
 ENGINE_BINARIES = {
     "shadow6-nim": (BINARY_DIR / "shadow6-nim" if BINARY_DIR else PROJECT_ROOT / "Core-Nim" / "shadow6-nim"),

@@ -33,7 +33,7 @@ ADAPTERS = {
     "pony": Adapter("prefix", "Pony pinned-peer UDP transport"),
     "hare": Adapter("prefix", "Hare single-peer UDP emergency proxy"),
     "carp": Adapter("prefix", "Carp authenticated loopback UDP codec"),
-    "gleam": Adapter("suffix", "Gleam micro-mux stack"),
+    "gleam": Adapter("suffix", "Gleam secure-stream stack"),
     "idris": Adapter("unsupported", "Idris feature probe and loopback self-test; no config CLI"),
 }
 
