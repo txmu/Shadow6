@@ -413,16 +413,16 @@ def doctor(root: Path) -> dict[str, Any]:
 
     fields = ("version", "crosed_max_level", "app_transport", "qubes_isolation", "gate_compiled", "gate_enabled_by_default", "utf8", "crosed_capabilities")
     default_reports = []
-    for relative in ("Core-Go/shadow6-go", "Core-Rust/shadow6-rust"):
+    for core, relative in CORE_PATHS.items():
+        if not (root / relative).is_file():
+            continue
         try:
             default_reports.append(feature_report(root / relative, root))
         except (OSError, SecurityError, subprocess.TimeoutExpired) as exc:
             record(f"feature-report:{relative}", False, str(exc))
-    if len(default_reports) == 2:
-        parity = all(default_reports[0].get(field) == default_reports[1].get(field) for field in fields)
-        record("default-core-parity", parity, "matching" if parity else "Go/Rust contracts differ")
+    if default_reports:
         minimal = all(report.get("crosed_max_level") == 0 and not report.get("app_transport") and not report.get("qubes_isolation") for report in default_reports)
-        record("default-minimum-privilege", minimal, "optional privileged features are disabled" if minimal else "default Core has privileged features")
+        record("default-minimum-privilege", minimal, f"{len(default_reports)} registered Core contracts checked" if minimal else "default Core has privileged features")
 
     variant_reports = []
     for relative in ("Core-Go/shadow6-go-crosed", "Core-Rust/shadow6-rust-crosed"):

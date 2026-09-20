@@ -58,6 +58,7 @@ from shadow6_public import negotiate as public6_negotiate, offer_from_feature_re
 from shadow6_migrate import export as migration_export, import_bundle as migration_import, plan as migration_plan  # noqa: E402
 from shadow6_repo import build as repository_build, sync as repository_sync, verify as repository_verify, regular as repository_read  # noqa: E402
 from portmap import generate as portmap_generate, validate as portmap_validate  # noqa: E402
+from feature_contract import CONFIGURABLE_CORES, CORE_PATHS  # noqa: E402
 try:  # Optional graduated active-defense engine.
     from counterstrike import CounterstrikeError, CounterstrikePolicy, run_self_test as counterstrike_self_test  # noqa: E402
 except ImportError:  # pragma: no cover - defensive guard for trimmed installs
@@ -214,7 +215,7 @@ def schema() -> dict[str, Any]:
         "control_version": VERSION,
         "encoding": "UTF-8",
         "components": [
-            "core-go", "core-rust", "core-cpp", "relay", "guard", "orchestrator", "detector",
+            *sorted("core-" + core.removeprefix("shadow6-") for core in CORE_PATHS), "relay", "guard", "orchestrator", "detector",
             "plugins", "crosed", "application-layer", "security-assistants",
             "infrastructure-assistants", "slots", "extension-system", "package-manager", "online-repository", "migration", "gate", "i18n", "unified-cli", "public6", "easybuild", "control-center",
         ],
@@ -225,7 +226,7 @@ def schema() -> dict[str, Any]:
             **{flag: {"type": "boolean", "default": flag != "build_compliance"} for flag in BUILD_FLAGS},
         },
         "init_systems": ["systemd", "openrc", "runit", "sysv", "rc.d", "procd", "launchd", "guix"],
-        "config_kinds": ["core-go", "core-rust", "core-cpp", "topology", "security-policy", "plugin", "package", "slots", "public6-offer", "counterstrike-policy"],
+        "config_kinds": [*sorted("core-" + core.removeprefix("shadow6-") for core in CONFIGURABLE_CORES), "topology", "security-policy", "plugin", "package", "slots", "public6-offer", "counterstrike-policy"],
         "methods": METHOD_SPECS,
         "transport": {
             "jsonl": {"max_request_bytes": MAX_REQUEST, "mutations_default": False},
@@ -301,7 +302,7 @@ def _transport_execution_policy(method: str, params: dict[str, Any]) -> None:
         candidates.extend((item, cores) for item in params.get("cores", []))
     elif method == "extensions.invoke":
         candidates.append((params.get("core"), {path for path in cores if path.name.endswith("-crosed")}))
-    elif method == "config.validate" and params.get("kind") in {"core-go", "core-rust", "core-cpp"} and "binary" in params:
+    elif method == "config.validate" and params.get("kind", "").removeprefix("core-") in {name.removeprefix("shadow6-") for name in CONFIGURABLE_CORES} and "binary" in params:
         family = params["kind"].removeprefix("core-")
         candidates.append((params["binary"], {path for path in cores if path.name.startswith(f"shadow6-{family}")}))
     elif method in {"gate.features", "gate.validate", "gate.current_port"} and "binary" in params:
@@ -396,10 +397,9 @@ def dispatch(method: str, raw_params: Any = None) -> Any:
             value = load_topology_file(str(path))
         elif kind == "security-policy":
             value = evaluate_policy(root, path)
-        elif kind in {"core-go", "core-rust", "core-cpp"}:
-            defaults = {"core-go": "Core-Go/shadow6-go", "core-rust": "Core-Rust/shadow6-rust",
-                        "core-cpp": "Core-Cpp/shadow6-cpp"}
-            default = root / defaults[kind]
+        elif kind.removeprefix("core-") in {name.removeprefix("shadow6-") for name in CONFIGURABLE_CORES}:
+            core_name = "shadow6-" + kind.removeprefix("core-")
+            default = root / CORE_PATHS[core_name]
             binary = Path(params.get("binary", default)).resolve(strict=True)
             completed = bounded_run([str(binary), "--config", str(path.absolute()), "--check-config"], cwd=root, timeout=10)
             if completed.returncode:
@@ -540,9 +540,9 @@ def dispatch(method: str, raw_params: Any = None) -> Any:
         raise ValueError("unsupported repository method")
     if method=="process.catalog":
         _only(params, {"root"})
-        from shadow6_vcore import CORE_PATHS
+        from shadow6_vcore import CORE_PATHS as VCORE_PATHS
         root = _root(params)
-        paths = {**CORE_PATHS, "gate": "Gate/shadow6-gate",
+        paths = {**VCORE_PATHS, "gate": "Gate/shadow6-gate",
                  "control": "Control-Center/shadow6_control.py",
                  "migrate": "Migration/shadow6_migrate.py", "repo": "Online-Repository/shadow6_repo.py"}
         return {"components": [{"name": name, "available": (root / path).is_file()}

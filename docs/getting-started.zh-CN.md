@@ -15,8 +15,9 @@ shadow6 control -- status
 `make build`，完成后再试。
 
 Shadow6 现有十二套 Core 实现：Go、Rust、Gleam、Ada、Nim、Pony、Idris、Zig、
-D、C++、Hare 和 Carp。Go 与 Rust 是两套完整参考协议栈，其余 Core 也各自独立、
-拥有单独的工具链和平台说明。一条连接从头到尾应使用同一种 Core。默认构建关闭
+D、C++、Hare 和 Carp。它们在发现、功能校验、安装、编排与基准测试中地位平等；
+各 Core 的 README 是其已实现角色与数据路径的权威说明。一条连接从头到尾应使用
+同一种 Core；平等对待不代表默认线缆兼容。默认构建关闭
 Crosed、应用传输和域策略；在该 Core 支持的范围内，带 `-crosed` 后缀的独立二进制
 才启用 L5 功能契约。
 

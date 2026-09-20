@@ -75,7 +75,7 @@ doctor, and the release SBOM report the exact locally installed subset.
 | Control Center | one-stop CLI, MCP, LSP, OpenAI functions, JSONL RPC and loopback Web API | shared strict tool schema, bearer authentication, default read-only remote/tool transports |
 | Package Manager | signed Crosed Mod, Plugin, and App installation/version selection | Ed25519 manifests, per-file hashes, bounded archives, atomic version activation |
 | EasyBuild | guided full-feature local build, verification, signing bootstrap, and install | L5 variants are explicit; Qubes-style policy and compliance are opt-in prompts |
-| Android | adaptive Material 3 app with selectable Go/Rust Core and Root/non-Root modes | module-selectable build, bilingual UI, ShadowChat/search/games/packages/AI surfaces |
+| Android | adaptive Material 3 app with selectable packaged Cores in the app sandbox | module-selectable build, bilingual UI, ShadowChat/search/games/packages/AI surfaces |
 | Public6 | explicit all-components, dual-Core distribution and compatibility negotiation | only identical Core family/version is mandatory; all optional parameters negotiate by intersection |
 | Gate | independently compiled, default-disabled TCP/UDP Broker forwarding | Ed25519 mutual auth, ephemeral encrypted TCP frames, signed UDP envelopes, deterministic high-port MTD |
 | Migration | scoped one-stop plan/export/import CLI | manifest hashes, safe archive extraction, dry-run import, explicit secret inclusion |

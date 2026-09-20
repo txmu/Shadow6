@@ -2,8 +2,16 @@ import errno, json, os, sys, tempfile, time, unittest
 from unittest.mock import patch
 from pathlib import Path
 from benchmark import _load_config, execute, network_unavailable, network_result, run, write, validate_config
+from performance_matrix import ENGINES, cases
 
 class ConfigTests(unittest.TestCase):
+    def test_performance_matrix_is_bounded_and_complete(self):
+        matrix = list(cases())
+        self.assertEqual(len(matrix), 12)
+        self.assertEqual({item["payload_bytes"] for item in matrix}, {4096, 65536, 1048576})
+        self.assertTrue(all(item["stream_bytes"] == 16 * 1024 * 1024 for item in matrix))
+        self.assertEqual(len(ENGINES), 12)
+        with self.assertRaises(ValueError): list(cases(0))
     def test_rejects_unknown_and_unbounded(self):
         with tempfile.TemporaryDirectory() as d:
             p = Path(d) / "bad.json"; p.write_text(json.dumps({"repeats": 1001}))

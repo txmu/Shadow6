@@ -611,13 +611,16 @@ func startBroker(config *Config) error {
 }
 
 func routeIP() string {
-	for _, destination := range []string{"127.0.0.1:9", "[::1]:9"} {
+	// UDP connect sends no packet; it asks the kernel which source address it
+	// would select for the route. A loopback destination can only discover a
+	// loopback source, so prefer a global IPv6 route and retain an IPv4 fallback.
+	for _, destination := range []string{"[2606:4700:4700::1111]:53", "1.1.1.1:53"} {
 		connection, err := net.DialTimeout("udp", destination, time.Second)
 		if err == nil {
-			address := connection.LocalAddr().(*net.UDPAddr).IP
+			address, ok := connection.LocalAddr().(*net.UDPAddr)
 			connection.Close()
-			if !address.IsUnspecified() {
-				return address.String()
+			if ok && !address.IP.IsUnspecified() && !address.IP.IsLoopback() {
+				return address.IP.String()
 			}
 		}
 	}

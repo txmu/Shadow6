@@ -98,7 +98,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.shadow6.android.ai.OpenAiCompatibleClient
-import org.shadow6.android.core.AccessMode
 import org.shadow6.android.core.CoreEngine
 import org.shadow6.android.core.CoreController
 import org.shadow6.android.core.CoreProfile
@@ -310,7 +309,6 @@ private fun OverviewScreen(runtime: CoreRuntime, status: CoreStatus, onStatusCha
     val gateRuntime = remember { GateController.runtime(context) }
     val defaultEngine = CoreEngine.entries.firstOrNull { runtime.available(it) } ?: CoreEngine.GO
     var engine by remember { mutableStateOf(runCatching { CoreEngine.valueOf(preferences.getString("engine", defaultEngine.name)!!) }.getOrDefault(defaultEngine)) }
-    var mode by remember { mutableStateOf(runCatching { AccessMode.valueOf(preferences.getString("mode", AccessMode.NON_ROOT.name)!!) }.getOrDefault(AccessMode.NON_ROOT)) }
     var role by remember { mutableStateOf(runCatching { CoreRole.valueOf(preferences.getString("role", CoreRole.BROKER.name)!!) }.getOrDefault(CoreRole.BROKER)) }
     var host by remember { mutableStateOf(preferences.getString("host", "127.0.0.1") ?: "127.0.0.1") }
     var portText by remember { mutableStateOf(preferences.getInt("port", 4433).toString()) }
@@ -340,9 +338,6 @@ private fun OverviewScreen(runtime: CoreRuntime, status: CoreStatus, onStatusCha
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
-    val rootAvailable by produceState<Boolean?>(initialValue = null, runtime) {
-        value = withContext(Dispatchers.IO) { runtime.rootAvailable() }
-    }
     LaunchedEffect(runtime, gateEnabled, gateExpected, status.running) {
         while (true) {
             if (gateEnabled && gateExpected && status.running && !gateFailureReported) {
@@ -365,7 +360,7 @@ private fun OverviewScreen(runtime: CoreRuntime, status: CoreStatus, onStatusCha
     )
 
     fun persist() {
-        preferences.edit().putString("engine", engine.name).putString("mode", mode.name).putString("role", role.name)
+        preferences.edit().putString("engine", engine.name).remove("mode").putString("role", role.name)
             .putString("host", host).putInt("port", portText.toIntOrNull() ?: 0).putString("identity", identityId)
             .putString("private_key", privateKey).putString("public_key", publicKey).putString("broker_addresses", brokerAddresses)
             .putString("broker_public_key", brokerPublicKey).putInt("target_port", targetPort.toIntOrNull() ?: 0)
@@ -400,7 +395,7 @@ private fun OverviewScreen(runtime: CoreRuntime, status: CoreStatus, onStatusCha
                 HorizontalDivider(color = Color.White.copy(alpha = 0.18f))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     StatusValue(stringResource(R.string.engine), status.engine.name, Color.White)
-                    StatusValue(stringResource(R.string.access_mode), if (status.mode == AccessMode.ROOT) "ROOT" else "SANDBOX", Color.White)
+                    StatusValue(stringResource(R.string.access_mode), "SANDBOX", Color.White)
                     StatusValue(stringResource(R.string.role), status.role.name, Color.White)
                 }
             }
@@ -426,22 +421,6 @@ private fun OverviewScreen(runtime: CoreRuntime, status: CoreStatus, onStatusCha
                 }) }
             }
         }
-
-        SectionLabel(stringResource(R.string.access_mode))
-        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-            AccessMode.entries.forEachIndexed { index, value ->
-                SegmentedButton(
-                    selected = value == mode,
-                    onClick = {
-                        mode = value
-                        preferences.edit().putString("mode", value.name).apply()
-                    },
-                    shape = SegmentedButtonDefaults.itemShape(index, AccessMode.entries.size),
-                    enabled = !status.running && !busy && (value != AccessMode.ROOT || rootAvailable == true),
-                ) { Text(if (value == AccessMode.ROOT) stringResource(R.string.root) else stringResource(R.string.non_root)) }
-            }
-        }
-        if (rootAvailable == false) Text(stringResource(R.string.root_unavailable), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
         SectionLabel(stringResource(R.string.role))
         SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
@@ -534,7 +513,7 @@ private fun OverviewScreen(runtime: CoreRuntime, status: CoreStatus, onStatusCha
                                 selected.toJson(engine)
                                 persist()
                                 context.startForegroundService(Intent(context, CoreService::class.java).setAction(CoreService.ACTION_KEEP_ALIVE))
-                                runtime.start(engine, mode, selected)
+                                runtime.start(engine, selected)
                                     .also {
                                         if (gateEnabled) {
                                             gateRuntime.start(GateProfile(true, gateLocalPort.toIntOrNull() ?: 0, gateRemoteHost.trim(), "127.0.0.1:4433", privateKey.trim(), brokerPublicKey.trim(), "unconditional"))

@@ -94,7 +94,7 @@ def observe(root: Path) -> dict[str, Any]:
                     "path": relative, "sha256": sha256_file(path), "size": metadata.st_size,
                     "mode": f"{stat.S_IMODE(metadata.st_mode):04o}", "uid": metadata.st_uid, "gid": metadata.st_gid,
                 }
-                if name in {"core-go", "core-rust"}:
+                if name.startswith("core-"):
                     if metadata.st_mode & 0o022:
                         item["features_error"] = "unsafe binary permissions; feature execution refused"
                     else:

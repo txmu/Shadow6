@@ -34,12 +34,15 @@ PREFIX ?= /usr/local
 DESTDIR ?=
 PYTHON ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python3)
 
-.PHONY: all build benchmark benchmark-test core-go core-rust core-gleam test-gleam core-cpp core-hare test-hare core-carp test-carp core-pony test-pony pony-crosed-variant gate migration i18n crosed-variants public6 public6-variants public6-contract relay guard service-init auto detector plugins package-manager easybuild crosed app-layer extension-system assistants slots control-center android-preflight android-cores android-apk integration-test test check audit package install install-tree clean distclean
+.PHONY: all build benchmark performance-matrix benchmark-test core-go core-rust core-gleam test-gleam core-cpp core-hare test-hare core-carp test-carp core-pony test-pony pony-crosed-variant gate migration i18n crosed-variants public6 public6-variants public6-contract relay guard service-init auto detector plugins package-manager easybuild crosed app-layer extension-system assistants slots control-center android-preflight android-cores android-apk integration-test test check audit package install install-tree clean distclean
 
 all: build
 
 benchmark:
 	@$(PYTHON) Benchmark/benchmark.py --config Benchmark/example.json --output benchmark.json
+
+performance-matrix:
+	@$(PYTHON) Benchmark/performance_matrix.py --output performance-matrix.json
 
 benchmark-test:
 	@PYTHONPATH=Benchmark $(PYTHON) -m unittest Benchmark/test_benchmark.py

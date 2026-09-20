@@ -12,12 +12,9 @@ enum class CoreEngine(val assetName: String, val transport: String) {
     GO("libshadow6_go.so", "kcp"), RUST("libshadow6_rust.so", "quic"),
     D("libshadow6_d.so", "rle-udp"), NIM("libshadow6_nim.so", "webrtc")
 }
-enum class AccessMode { NON_ROOT, ROOT }
-
 data class CoreStatus(
     val running: Boolean = false,
     val engine: CoreEngine = CoreEngine.GO,
-    val mode: AccessMode = AccessMode.NON_ROOT,
     val role: CoreRole = CoreRole.BROKER,
     val host: String = LOOPBACK_HOST,
     val port: Int = DEFAULT_PORT,
@@ -78,12 +75,6 @@ class CoreRuntime(private val context: Context) {
         return current
     }
 
-    /** Both Cores require config ownership to match their effective UID.
-     * App-owned configuration cannot be passed to a UID-0 Core safely. */
-    // A future owner-matched root lifecycle would probe with
-    // ProcessBuilder("su", "0", "/system/bin/id", "-u"); root mode remains disabled.
-    fun rootAvailable(): Boolean = false
-
     private fun writeConfig(profile: CoreProfile, engine: CoreEngine): File {
         // Keep credentials and runtime configuration in app-private storage.
         val directory = context.filesDir.canonicalFile
@@ -112,9 +103,8 @@ class CoreRuntime(private val context: Context) {
     }
 
     @Synchronized
-    fun start(engine: CoreEngine, mode: AccessMode, profile: CoreProfile): CoreStatus {
+    fun start(engine: CoreEngine, profile: CoreProfile): CoreStatus {
         require(available(engine)) { "Core was excluded by the selected build parameters" }
-        require(mode == AccessMode.NON_ROOT) { "Root mode needs a separate owner-matched configuration lifecycle and is not supported" }
         profile.toJson(engine)
         if (profile.role == CoreRole.BROKER) require(profile.listenPort >= MIN_PORT) { "Non-root listening ports must be 1024–65535" }
         stop()
@@ -136,7 +126,6 @@ class CoreRuntime(private val context: Context) {
         current = CoreStatus(
             running = true,
             engine = engine,
-            mode = mode,
             role = profile.role,
             host = when (profile.role) {
                 CoreRole.BROKER -> profile.listenHost

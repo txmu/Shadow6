@@ -10,6 +10,25 @@ Missing binaries and failed paths make the command fail. Results use schema
 `shadow6.benchmark.v2`. One run writes matching JSON, text, and Markdown
 reports, so formats always describe the same samples.
 
+The existing default remains a 4-byte protocol-correctness and tiny-message
+latency regression gate. `performance_matrix.py` is a separate throughput and
+long-flow suite: it runs 4 KiB, 64 KiB, and 1 MiB payloads over a 16 MiB flow at
+0/20/80/150 ms RTT and 0/0/1/3 percent loss-recovery conditions. Its bounded,
+deterministic userspace response model never changes host qdiscs, routes, or
+firewalls, and reports this limitation explicitly; it is not a WAN claim.
+The zero-impairment rows carry the full byte stream through the real local Core
+path and are the local-bandwidth measurements.
+
+All twelve cores are present in the matrix. Go, Rust, Zig, Ada, Nim, and C++
+use their three-role paths. D/Gleam use native relay/crypto loopbacks, Carp uses
+its paired authenticated byte-stream channels, and Pony/Hare use authenticated
+datagrams at their real 1,024-byte and 978-byte application limits. Unsupported
+payload or impairment combinations remain explicit `not_applicable` rows with
+reasons. D and Idris are likewise represented explicitly with their fixed
+4-byte diagnostics (D uses up to 100,000 requests), but those results are not
+mislabeled as variable-payload throughput. This is capability-aware equality,
+not a preferred-core list and not fabricated comparability.
+
 Use `--require-network` for a release gate: every selected core must complete
 the requested loopback exchange with valid finite metrics (unsupported
 protocols such as SCTP are then failures, not silently skipped). Reports carry
@@ -32,4 +51,15 @@ stdout/stderr diagnostics as well as saving them in the JSON report.
 ```sh
 python3 Benchmark/benchmark.py --output benchmark.json
 python3 Benchmark/benchmark.py --config Benchmark/example.json
+python3 Benchmark/performance_matrix.py --core zig --stream-bytes 16777216
 ```
+
+For an already deployed multi-node topology, run the matrix on each client
+node against one or more local Core proxy ports. An external config is strict
+JSON such as `{"version":1,"targets":[{"name":"wan-a","core":"rust","endpoint":"127.0.0.1:1080"}]}`.
+`--external-config FILE` runs the same three payload sizes and long-flow budget
+without starting local broker/agent/client processes. Endpoints must resolve
+only to loopback, so the authenticated Core—not this benchmark—crosses the WAN.
+Merge the resulting JSON reports in the observability system using `target`,
+environment, and run identity. Shadow6 never opens an unauthenticated public
+benchmark listener or remotely executes node commands.

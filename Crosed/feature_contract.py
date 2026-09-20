@@ -44,6 +44,7 @@ CORE_PATHS = {name: f"Core-{suffix}/{name}" for name, suffix in (
     ("shadow6-ada", "Ada"), ("shadow6-d", "D"), ("shadow6-nim", "Nim"),
     ("shadow6-cpp", "Cpp"), ("shadow6-hare", "Hare"),
     ("shadow6-carp", "Carp"), ("shadow6-idris", "Idris"))}
+CONFIGURABLE_CORES = frozenset(CORE_PATHS) - {"shadow6-idris"}
 CAPABILITY_LEVELS = {"observe.version": 1, "observe.health": 1, "policy.request": 2,
     "policy.config": 2, "transport.metadata": 3, "transport.application": 3,
     "identity.assert": 4, "identity.resolve": 4, "core.lifecycle": 5, "core.hook": 5}

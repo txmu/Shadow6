@@ -5,14 +5,13 @@ This is a native Android 16 / API 36 Jetpack Compose application using Material
 bottom navigation. English is the default locale and every string resource has a
 Simplified Chinese translation.
 
-The default build includes both alternative complete Core engines plus
+The default build includes multiple independently implemented Core engines plus
 ShadowChat, search, signed-package/version views, an independently implemented
 built-in Android game, external
 OpenAI-compatible Responses API chat, and fixed read-only tool integration.
-Users configure Broker, Agent, or Client; select Go or Rust; and choose Root or
-non-Root mode at runtime. Non-Root mode runs the selected Core inside the app
-sandbox; features that genuinely
-need raw packets, namespaces, or privileged ports are exposed only in Root mode.
+Users configure Broker, Agent, or Client and select a packaged Core. The Core
+runs inside the app sandbox; the Android application does not expose a Root
+mode or features that require raw packets, namespaces, or privileged ports.
 For the Client role, the app parses the authenticated Core's loopback proxy
 endpoint, displays it live, and provides a direct button to open it in the
 system browser; Termux is not required.

@@ -14,9 +14,6 @@
     <string name="go_core">Go Core</string>
     <string name="rust_core">Rust Core</string>
     <string name="access_mode">Access</string>
-    <string name="non_root">Non-root</string>
-    <string name="root">Root</string>
-    <string name="root_unavailable">Root is unavailable on this device. Non-root keeps the Core inside the app sandbox.</string>
     <string name="start">Start</string>
     <string name="stop">Stop</string>
     <string name="start_core">Start Core</string>

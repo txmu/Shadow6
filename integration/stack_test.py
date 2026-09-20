@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import ipaddress
 import asyncio
 import os
 import re
@@ -205,7 +206,12 @@ def run_native_core_tests(engine: str) -> None:
 
 
 class EchoTarget:
-    def __init__(self) -> None:
+    def __init__(self, rtt_ms: int = 0, loss_percent: int = 0) -> None:
+        if not 0 <= rtt_ms <= 2000 or not 0 <= loss_percent <= 50:
+            raise ValueError("impairment bounds exceeded")
+        self.rtt_ms = rtt_ms
+        self.loss_percent = loss_percent
+        self.responses = 0
         self.ready = threading.Event()
         self.stop = threading.Event()
         self.error: BaseException | None = None
@@ -236,6 +242,16 @@ class EchoTarget:
                                 data = connection.recv(65536)
                                 if not data:
                                     break
+                                self.responses += 1
+                                # Bounded deterministic userspace model: delay
+                                # every response by the configured RTT and add
+                                # one RTT of recovery cost at the requested loss
+                                # cadence. It never changes host qdiscs/routes.
+                                delay = self.rtt_ms / 1000
+                                if self.loss_percent and self.responses % max(1, 100 // self.loss_percent) == 0:
+                                    delay += self.rtt_ms / 1000
+                                if delay:
+                                    time.sleep(delay)
                                 connection.sendall(data)
                     finally:
                         self.connection_done.set()
@@ -411,7 +427,7 @@ def run_engine(engine: str, benchmark: dict | None = None) -> dict | None:
     if not binary.is_file():
         raise FileNotFoundError(f"missing built binary: {binary}")
 
-    target = EchoTarget()
+    target = EchoTarget(benchmark.get("rtt_ms", 0), benchmark.get("loss_percent", 0)) if benchmark else EchoTarget()
     broker = agent = client = None
     success = False
     result = None
@@ -455,6 +471,7 @@ def run_engine(engine: str, benchmark: dict | None = None) -> dict | None:
                         latencies.append(time.perf_counter() - request_started)
                     duration = time.perf_counter() - started
                     result = benchmark_metrics(payload,latencies,duration)
+                    result["impairment"] = {"model": "bounded-userspace-response-v1", "rtt_ms": benchmark.get("rtt_ms", 0), "loss_percent": benchmark.get("loss_percent", 0)}
                 # Complete the stream with an explicit FIN before the child
                 # processes are torn down.  Abruptly closing a Windows TCP
                 # handle while the echo target still has unread bytes causes
@@ -482,6 +499,24 @@ def run_engine(engine: str, benchmark: dict | None = None) -> dict | None:
                 raise target.error
     return result if benchmark else None
 
+def run_external_proxy(endpoint: str, benchmark: dict) -> dict:
+    host, separator, port_text = endpoint.rpartition(":")
+    host = host.strip("[]")
+    try: address = socket.getaddrinfo(host, int(port_text), type=socket.SOCK_STREAM)
+    except (OSError, ValueError): raise ValueError("invalid external proxy endpoint")
+    if not separator or not address or any(not ipaddress.ip_address(item[4][0]).is_loopback for item in address):
+        raise ValueError("external proxy must resolve only to loopback addresses")
+    payload=b"x"*benchmark["payload_bytes"]; latencies=[]; started=time.perf_counter()
+    with socket.create_connection((host,int(port_text)),timeout=10) as connection:
+        connection.settimeout(30)
+        for _ in range(benchmark["requests"]):
+            request=time.perf_counter(); connection.sendall(payload)
+            if receive_exact(connection,len(payload)) != payload: raise AssertionError("external proxy response mismatch")
+            latencies.append(time.perf_counter()-request)
+    result=benchmark_metrics(payload,latencies,time.perf_counter()-started)
+    result["impairment"]={"model":"external-network","rtt_ms":None,"loss_percent":None}
+    return result
+
 
 def main() -> int:
     parser = argparse.ArgumentParser()
@@ -490,8 +525,11 @@ def main() -> int:
     parser.add_argument("--payload-bytes", type=int, default=16384)
     parser.add_argument("--requests", type=int, default=32)
     parser.add_argument("--concurrency", type=int, default=1)
+    parser.add_argument("--rtt-ms", type=int, default=0)
+    parser.add_argument("--loss-percent", type=int, default=0)
+    parser.add_argument("--external-proxy")
     args = parser.parse_args()
-    if not all(1 <= value <= limit for value, limit in ((args.payload_bytes, 1048576), (args.requests, 100000))) or args.concurrency != 1:
+    if not all(1 <= value <= limit for value, limit in ((args.payload_bytes, 1048576), (args.requests, 100000))) or args.concurrency != 1 or not 0 <= args.rtt_ms <= 2000 or not 0 <= args.loss_percent <= 50:
         parser.error("benchmark bounds exceeded")
     if args.engine == "all":
         engines = ("shadow6-go", "shadow6-rust", *(engine for engine in CORE_TESTS if CORE_BINARIES[engine].is_file()))
@@ -506,7 +544,9 @@ def main() -> int:
     for engine in engines:
         benchmark_result = None
         try:
-            if args.benchmark and engine in ("shadow6-d", "shadow6-gleam"):
+            if args.benchmark and args.external_proxy:
+                benchmark_result = run_external_proxy(args.external_proxy, {"payload_bytes":args.payload_bytes,"requests":args.requests,"concurrency":1})
+            elif args.benchmark and engine in ("shadow6-d", "shadow6-gleam"):
                 benchmark_result = run_native_loopback_engine(engine, {"payload_bytes": args.payload_bytes, "requests": args.requests, "concurrency": args.concurrency})
             elif args.benchmark and engine == "shadow6-idris":
                 benchmark_result = run_idris_engine({"payload_bytes": args.payload_bytes, "requests": args.requests, "concurrency": args.concurrency})
@@ -515,7 +555,7 @@ def main() -> int:
             elif args.benchmark and engine in ("shadow6-pony", "shadow6-hare"):
                 benchmark_result = run_datagram_engine(engine, {"payload_bytes": args.payload_bytes, "requests": args.requests, "concurrency": args.concurrency})
             elif args.benchmark or engine in ("shadow6-go", "shadow6-rust"):
-                benchmark_result = run_engine(engine, {"payload_bytes": args.payload_bytes, "requests": args.requests, "concurrency": args.concurrency} if args.benchmark else None)
+                benchmark_result = run_engine(engine, {"payload_bytes": args.payload_bytes, "requests": args.requests, "concurrency": args.concurrency, "rtt_ms": args.rtt_ms, "loss_percent": args.loss_percent} if args.benchmark else None)
             else:
                 run_native_core_tests(engine)
         except Exception as exc:

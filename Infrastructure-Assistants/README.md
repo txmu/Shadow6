@@ -1,6 +1,6 @@
 # Shadow6 component hands and eyes
 
-The eyes create a local, read-only inventory for Core-Go, Core-Rust, Guard,
+The eyes create a local, read-only inventory for all registered Cores, Guard,
 Relay, Orchestrator, Detector, Plugins, Crosed, the application layer, and the
 assistant infrastructure. A snapshot contains source/binary digests, modes,
 Core feature contracts, exact matching running PIDs, and a stable snapshot ID.
