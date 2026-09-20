@@ -18,13 +18,22 @@
 
 建议：对有权执行构建步骤、读缓存或接触制品的第三方 Action 固定完整 commit SHA，并在注释中保留版本号；对 SHA 做定期依赖更新和变更审查。只读、无凭据的辅助 Action 可以采用经过组织策略批准的版本引用，但应明确记录例外。该措施不限制 runner 类型、架构或工具链安装位置，也不等于要求每次构建使用相同机器。对 release job 增加 provenance/attestation 和独立签名验证。
 
-### S6-SC-002（中）：CI 下载的 Pony 工具链未做内容校验
+### S6-SC-002（中，已解决）：CI 下载的 Pony 工具链未做内容校验
 
-证据：`.github/workflows/multiplatform.yml:19-23` 下载版本 URL 固定的 tarball，检查仅为 `test -x .../ponyc`，没有 SHA-256、签名或可信 manifest 校验。
+历史证据：`.github/workflows/multiplatform.yml:19-23` 曾下载版本 URL 固定的 tarball，检查仅为 `test -x .../ponyc`，没有 SHA-256、签名或可信 manifest 校验。
 
 影响：若 GitHub release 资产、CDN 或传输链被篡改，恶意 `ponyc` 会在 runner 上执行并生成受污染的 Core-Pony 制品。其它 Android 原生依赖在第 892-908 行使用 commit checkout，说明该项目已有更强模式可复用。
 
-建议：保留可迁移的版本/架构选择（例如按 runner OS/CPU 选择资产），同时为每个允许资产固定 SHA-256 或发行方签名，并在解压前验证；失败时立即终止。校验值应放在受保护的仓库文件或 release policy 中，而不是由下载响应决定。工具链升级应通过更新版本与校验值的审查变更完成，而不是依赖某台 runner 的预装状态。
+处置：`.github/workflows/multiplatform.yml` 现在为 Ubuntu x86_64、Ubuntu ARM64、Alpine x86_64 和 Alpine ARM64 的 0.72.0 资产分别固定 SHA-256，并在解压前执行 `sha256sum -c`；摘要不来自下载响应，校验失败立即终止。工具链升级必须同时审查版本、来源 URL 和摘要变更。该漏洞条目保留用于审计历史和回归追踪，不再表示当前 workflow 仍缺少内容校验。
+
+### 对 S6-SC-001 建议的批判性复核
+
+原建议把“所有具备构建权限的第三方 Action 固定完整 commit SHA”和“增加 provenance/attestation”放在同一优先级。这是有价值的方向，但需要更精确：
+
+- SHA pinning 能阻止 tag 被移动，却不能证明该 commit 本身没有恶意代码，也不能约束 runner 上的 `curl`、包管理器和自定义脚本；它必须与最小权限、受信任 PR 边界、缓存隔离和制品签名验证配套。
+- 对每一个辅助 Action 全面 pin 会增加升级和应急响应摩擦。应优先固定能读取源码、缓存、签名材料或发布制品的 Action，并对纯只读辅助步骤采用组织级 allowlist 和定期审查，而不是把“永不变化”当成安全目标。
+- provenance/attestation 证明构建来源和声明，不自动证明二进制内容正确，也不能抵抗被信任 runner 生成的恶意构建；仍需要独立的摘要/签名验证、可审计的构建输入和发布门禁。
+- 因此本报告保留 S6-SC-001 为未解决的供应链加固项，但将建议解释为分层控制：高权限 Action 的 SHA pin、受保护的更新流程、最小权限和独立制品验证共同降低风险，而不是单独依赖 SHA 或 provenance。
 
 ### S6-HARD-001（中）：构建验证器通过 `exec` 动态加载仓库代码
 
