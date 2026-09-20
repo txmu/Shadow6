@@ -438,8 +438,8 @@ jobs:
       - name: Benchmark both S6NA backends
         run: |
           set -euo pipefail
-          python3 Network-Adapter/benchmark_backends.py > /tmp/shadow6-network-adapter-benchmark.json
-          python3 - <<'PY'
+          .venv/bin/python Network-Adapter/benchmark_backends.py > /tmp/shadow6-network-adapter-benchmark.json
+          .venv/bin/python - <<'PY'
           import json
           from pathlib import Path
           report = json.loads(Path('/tmp/shadow6-network-adapter-benchmark.json').read_text())
