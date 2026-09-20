@@ -83,6 +83,29 @@ static ERL_NIF_TERM x25519(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[]) 
     return enif_make_tuple2(env, atom(env, "ok"), enif_make_binary(env, &shared));
 }
 
+static ERL_NIF_TERM x25519_base(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[]) {
+    ErlNifBinary secret, public_key;
+    if (argc != 1 || !enif_inspect_binary(env, argv[0], &secret) ||
+        secret.size != crypto_scalarmult_SCALARBYTES ||
+        !enif_alloc_binary(crypto_scalarmult_BYTES, &public_key)) return enif_make_badarg(env);
+    if (crypto_scalarmult_base(public_key.data, secret.data) != 0) {
+        sodium_memzero(public_key.data, public_key.size); enif_release_binary(&public_key);
+        return atom(env, "error");
+    }
+    return enif_make_tuple2(env, atom(env, "ok"), enif_make_binary(env, &public_key));
+}
+
+static ERL_NIF_TERM hmac_sha256(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[]) {
+    ErlNifBinary key, data, digest;
+    if (argc != 2 || !enif_inspect_binary(env, argv[0], &key) ||
+        !enif_inspect_binary(env, argv[1], &data) || key.size != 32 || data.size > 65536 ||
+        !enif_alloc_binary(crypto_auth_hmacsha256_BYTES, &digest)) return enif_make_badarg(env);
+    if (crypto_auth_hmacsha256(digest.data, data.data, (unsigned long long)data.size, key.data) != 0) {
+        sodium_memzero(digest.data, digest.size); enif_release_binary(&digest); return atom(env, "error");
+    }
+    return enif_make_binary(env, &digest);
+}
+
 static ERL_NIF_TERM keypair(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[]) {
     ErlNifBinary public_key, private_key;
     unsigned char expanded[crypto_sign_SECRETKEYBYTES];
@@ -225,6 +248,8 @@ static ErlNifFunc functions[] = {
   {"decrypt", 5, decrypt, ERL_NIF_DIRTY_JOB_CPU_BOUND},
   {"encrypt", 4, encrypt, ERL_NIF_DIRTY_JOB_CPU_BOUND},
   {"x25519", 2, x25519, ERL_NIF_DIRTY_JOB_CPU_BOUND},
+  {"x25519_base", 1, x25519_base, ERL_NIF_DIRTY_JOB_CPU_BOUND},
+  {"hmac_sha256", 2, hmac_sha256, ERL_NIF_DIRTY_JOB_CPU_BOUND},
   {"keypair", 0, keypair, ERL_NIF_DIRTY_JOB_CPU_BOUND},
   {"sha256", 1, sha256, ERL_NIF_DIRTY_JOB_CPU_BOUND},
   {"sha1", 1, sha1, ERL_NIF_DIRTY_JOB_CPU_BOUND},

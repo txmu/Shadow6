@@ -22,9 +22,9 @@ Crosed、应用传输和域策略；在该 Core 支持的范围内，带 `-crose
 才启用 L5 功能契约。
 
 统一网络适配器提供地位相同、线缆兼容的 Python 与 Node.js 后端，并隐藏报文大小限制。运行 `shadow6 network catalog`
-可查看各 Core 是使用原生流、需要分块/可靠性补足，还是使用经过认证的 companion
-数据面。D 的原生程序没有生产流接口，因此由 companion carrier 提供真实传输；
-Idris 可独立运行原生认证 UDP 中继，也可选接入 companion 获得可靠分段与多路复用。安全与部署要求见
+可查看各 Core 的原生传输边界，以及可选 Network Adapter 提供的统一分块、可靠性和
+多路复用语义。十二个 Core 均可脱离 adapter 独立部署；D 与 Gleam 提供原生认证的
+broker/agent/client 流，较小的 datagram/cell 核心保留各自文档中的有界原生能力。安全与部署要求见
 `Network-Adapter/README.md`。
 两种后端都必须遵循 `Network-Adapter/SPEC.md`；可分别运行
 `shadow6 network catalog` 与 `shadow6 network-node catalog` 明确选择。

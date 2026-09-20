@@ -1,6 +1,6 @@
 # S6NA/1 network-adapter protocol
 
-S6NA is the shared companion and normalization layer for all twelve Shadow6
+S6NA is the optional shared normalization layer for all twelve Shadow6
 Cores. Python and Node.js are equal backends. An implementation is conforming
 only when it passes the same cross-backend vectors and failure tests.
 
@@ -56,8 +56,7 @@ payloads above 4 KiB. Extensions default off.
 
 ## Core policy
 
-Native reliable Cores may use S6NA for uniform message semantics. Ada, Pony,
-Hare and Carp require it to hide frame/datagram limits. D uses the companion
-carrier because its native executable does not expose a proven production
-stream. Idris has an independent authenticated UDP relay and uses S6NA only
-when reliable segmentation, multiplexing, or larger logical messages are wanted.
+Every Core is independently deployable with its documented native bounds.
+S6NA may be selected when uniform reliable segmentation, multiplexing, larger
+logical messages, or common backpressure behavior is desired; no policy mode
+requires an external companion.

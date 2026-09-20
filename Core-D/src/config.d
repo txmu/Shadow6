@@ -2,7 +2,7 @@ module config;
 import bounded, json, native;
 import core.stdc.string : memcmp;
 @nogc nothrow:
-enum features = `{"core":"shadow6-d","version":"1.2.0","crosed_compiled":false,"crosed_max_level":0,"app_transport":false,"qubes_isolation":false,"gate_compiled":false,"gate_enabled_by_default":false,"utf8":true,"crosed_capabilities":[],"transport":"rle-udp","better_c":true}`;
+enum features = `{"core":"shadow6-d","version":"2.0.0","crosed_compiled":false,"crosed_max_level":0,"app_transport":false,"qubes_isolation":false,"gate_compiled":false,"gate_enabled_by_default":false,"utf8":true,"crosed_capabilities":[],"transport":"secure-stream","better_c":true}`;
 
 bool loadKey(const(char)[] encoded, out Key pub, out Secret secret)
 in { assert(encoded.length <= MAX_JSON); }
@@ -104,7 +104,7 @@ do {
         bool agent = equal(role, "agent");
         if (!d.fields(p, agent ? "id|broker_addrs|broker_pubkey|private_key|target_port|auto_close_after|allow_local_discovery|client_pubkeys|transport|sni|alpn" :
             "id|broker_addrs|broker_pubkey|private_key|target_agent|agent_pubkey|on_success|allow_local_discovery|transport|sni|alpn")) return false;
-        if (!identity(d.field(p,"id")) || !equal(d.field(p,"transport"),"rle-udp") || !hexDecode(d.field(p,"broker_pubkey"),pub)) return false;
+        if (!identity(d.field(p,"id")) || !equal(d.field(p,"transport"),"secure-stream") || !hexDecode(d.field(p,"broker_pubkey"),pub)) return false;
         auto discover = d.get(p,"allow_local_discovery");
         if (discover && (d.kind(discover) != Kind.boolean || d.boolean(discover))) return false;
         if (!optionalString(d,p,"sni",true) || !optionalString(d,p,"alpn",true)) return false;

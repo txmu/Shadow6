@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import net from 'node:net';
 import {EventEmitter} from 'node:events';
 
-export const POLICIES={go:['native',65536,64],rust:['native',65536,64],zig:['native',32768,64],ada:['required',448,32],d:['companion-required',1200,32],nim:['native',16384,64],cpp:['native',32768,64],pony:['required',960,32],hare:['required',896,16],carp:['required',960,16],gleam:['optional',4096,32],idris:['optional',1024,32]};
+export const POLICIES={go:['native',65536,64],rust:['native',65536,64],zig:['native',32768,64],ada:['native',448,32],d:['native',1200,32],nim:['native',16384,64],cpp:['native',32768,64],pony:['native',960,32],hare:['native',896,16],carp:['native',960,16],gleam:['native',4096,32],idris:['native',1024,32]};
 const MAGIC=Buffer.from('S6NA'), VERSION=1, DATA=1, ACK=2, EXTENSION=3, HEADER=32, TAG=16, MAX=16*1024*1024;
 function derive(key,direction){return crypto.createHmac('sha256',key).update(Buffer.concat([Buffer.from('shadow6-network-v1:'),Buffer.from([direction])])).digest()}
 function nonce(header){return crypto.createHash('sha256').update('shadow6-network-nonce-v1').update(header).digest().subarray(0,12)}

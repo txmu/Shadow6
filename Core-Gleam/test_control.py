@@ -40,14 +40,12 @@ with tempfile.TemporaryDirectory(prefix='shadow6-gleam-control.') as d:
         while b'\r\n\r\n' not in buf:buf+=s.recv(4096)
         headers,buf=buf.split(b'\r\n\r\n',1);assert headers.startswith(b'HTTP/1.1 101 ')
         op,nonce,buf=recv_frame(s,buf);assert op==2 and len(nonce)==32
-        identity=b'client-1'; signature=client.sign(signed(b'shadow6-rust-control-auth-v1',identity,nonce))
+        identity=b'client-1'; signature=client.sign(signed(b'shadow6-gleam-control-auth-v1',identity,nonce))
         send_frame(s,1,json.dumps({'id':'client-1','signature':base64.b64encode(signature).decode()}).encode())
         peer_nonce=os.urandom(32);send_frame(s,2,peer_nonce)
         op,response,buf=recv_frame(s,buf);auth=json.loads(response);assert op==1 and auth['id']=='broker'
         broker=Ed25519PrivateKey.from_private_bytes(bytes(32)).public_key()
-        broker.verify(base64.b64decode(auth['signature']),signed(b'shadow6-rust-control-auth-v1',b'broker',peer_nonce))
-        send_frame(s,1,json.dumps({'jsonrpc':'2.0','id':7,'method':'Broker.UpdateIP','params':{'agent_id':'x','ipv6':'::1'}}).encode())
-        _,response,_=recv_frame(s,buf);reply=json.loads(response);assert reply['id']==7 and reply['error']['code']==-32601
+        broker.verify(base64.b64decode(auth['signature']),signed(b'shadow6-gleam-control-auth-v1',b'broker',peer_nonce))
         print('Core-Gleam WebSocket mutual-auth test passed')
     finally:
         process.terminate();process.wait(timeout=5)

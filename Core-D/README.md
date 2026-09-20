@@ -1,9 +1,19 @@
-# Core-D authenticated UDP driver
+# Core-D standalone authenticated stack
 
-Core-D is a bounded BetterC UDP driver and benchmark, not a Go/Rust-equivalent
-broker/agent/client service. Its default feature report keeps optional
-capabilities disabled. `make test-d` builds the driver and runs real loopback
-cryptographic and protocol tests.
+Core-D is a bounded BetterC broker/agent/client stack that runs without the
+Network Adapter. Its authenticated WebSocket control plane authorizes a client
+for a configured agent, then the client and agent establish a directly
+authenticated X25519 secure stream. The client exposes a loopback TCP proxy and
+the agent forwards it to its configured loopback target. `make test-d` builds
+the stack and transfers a nontrivial random byte stream through three separate
+Core-D processes and a real TCP echo target.
+
+The native stream splits arbitrary TCP input into bounded 1,024-byte records.
+Each direction has a distinct HKDF-derived ChaCha20-Poly1305 key, monotonically
+increasing sequence numbers, authenticated close records, a 24-hour maximum
+lifetime, and bounded socket/config operations. The broker never receives the
+application plaintext. The optional Network Adapter remains available for
+uniform multi-stream message semantics, but is not required for deployment.
 
 Protocol version 2 replaces public-key-as-cipher-key data frames. A signed
 Ed25519 hello authenticates an ephemeral X25519 exchange. The broker accepts
@@ -12,7 +22,7 @@ binds the intended broker key; the signed response binds the complete request.
 HKDF-SHA256 derives separate client-to-server and server-to-client keys from
 the shared secret and signed transcript. Old `S6DUDP01` frames are rejected.
 
-The driver holds one active session, bound to the authenticated source address,
+The retained embedded UDP driver holds one active session, bound to the authenticated source address,
 for at most sixty seconds. Only handshakes perform Ed25519 operations; the data
 plane uses ChaCha20-Poly1305. Duplicate data receives authenticated ACKs, never
 duplicate delivery. Session keys, handshake attempts, packet lengths and

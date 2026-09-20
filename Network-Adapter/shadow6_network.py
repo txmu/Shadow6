@@ -21,15 +21,15 @@ POLICIES={
  "go":Policy("native",65536,64,"KCP stack already presents a stream"),
  "rust":Policy("native",65536,64,"QUIC stack already presents a stream"),
  "zig":Policy("native",32768,64,"ENet provides reliable fragmentation"),
- "ada":Policy("required",448,32,"512-byte cells require caller-transparent segmentation"),
- "d":Policy("companion-required",1200,32,"native payload contract is unproven; use the authenticated companion carrier"),
+ "ada":Policy("native",448,32,"native authenticated cell relay is independently deployable"),
+ "d":Policy("native",1200,32,"native authenticated broker/agent/client secure stream"),
  "nim":Policy("native",16384,64,"WebRTC data channel provides message transport"),
  "cpp":Policy("native",32768,64,"SCTP provides ordered reliable delivery"),
- "pony":Policy("required",960,32,"1,024-byte application frames require segmentation"),
- "hare":Policy("required",896,16,"978-byte application datagrams lack stream semantics"),
- "carp":Policy("required",960,16,"UDP byte-stream adapter is not itself reliable"),
- "gleam":Policy("optional",4096,32,"micro-mux benefits from common backpressure and concurrency"),
- "idris":Policy("optional",1024,32,"native authenticated UDP agent/client relay; companion adds reliable segmentation and multiplexing"),
+ "pony":Policy("native",960,32,"native bounded authenticated datagrams are independently deployable"),
+ "hare":Policy("native",896,16,"native bounded authenticated proxy is independently deployable"),
+ "carp":Policy("native",960,16,"native bounded authenticated UDP path is independently deployable"),
+ "gleam":Policy("native",4096,32,"native authenticated broker/agent/client secure stream"),
+ "idris":Policy("native",1024,32,"native authenticated UDP agent/client relay"),
 }
 
 def load_key(path:Path):

@@ -4,8 +4,8 @@
 main() -> main([unicode:characters_to_binary(A) || A <- init:get_plain_arguments()]).
 main(Args) ->
     try run(parse_args(Args, #{}))
-    catch Class:Reason ->
-      io:format(standard_error, "shadow6-gleam: ~p:~p~n", [Class, Reason]), halt(2)
+    catch Class:Reason:Stack ->
+      io:format(standard_error, "shadow6-gleam: ~p:~p ~p~n", [Class, Reason, Stack]), halt(2)
     end.
 
 parse_args([], Options) -> Options;
@@ -17,7 +17,6 @@ parse_args([<<"--check-config">>|T], O) -> parse_args(T, O#{check_config => true
 parse_args([<<"--feature-report">>|T], O) -> parse_args(T, O#{feature_report => true});
 parse_args([<<"--test-packet-security">>|T], O) -> parse_args(T, O#{packet_checks => true});
 parse_args([<<"--benchmark-loopback">>, B, R|T], O) -> parse_args(T, O#{benchmark => {binary_to_integer(B),binary_to_integer(R)}});
-parse_args([<<"--loopback-chain">>, B, R|T], O) -> parse_args(T, O#{chain => {binary_to_integer(B),binary_to_integer(R)}});
 parse_args([<<"--gen-key">>|T], O) -> parse_args(T, O#{gen_key => true});
 parse_args([<<"--help">>|T], O) -> parse_args(T, O#{help => true});
 parse_args([<<"-h">>|T], O) -> parse_args(T, O#{help => true});
@@ -26,9 +25,6 @@ parse_args([Unknown|_], _) -> erlang:error({unknown_option, Unknown}).
 run(#{feature_report := true}) -> print_json(shadow6_crosed:feature_report()), halt(0);
 run(#{packet_checks := true}) -> ok=shadow6_packet_checks:run(), halt(0);
 run(#{benchmark := {Bytes,Requests}}) -> ok=shadow6_benchmark:run(Bytes,Requests), halt(0);
-%% Full bounded loopback path: application TCP -> client UDP/AEAD -> relay
-%% -> agent UDP/AEAD -> target TCP and the authenticated reply back.
-run(#{chain := {Bytes,Requests}}) -> ok=shadow6_benchmark:run(Bytes,Requests), halt(0);
 run(#{gen_key := true}) ->
     {Private, Public} = shadow6_sodium:keypair(),
     io:put_chars("--- Ed25519 Key Pair Generated ---\nPrivate Key (Hex): "),
@@ -43,7 +39,7 @@ run(#{config := Path, check_config := true}) ->
     io:format("Configuration ~ts is valid for role ~ts~n", [Path, maps:get(<<"role">>, Config)]), halt(0);
 run(#{config := Path}) ->
     Config = read_config(Path), {ok, _} = shadow6_sup:start_link(),
-    ok = shadow6_role:start(Config), receive stop -> halt(0) end;
+    case shadow6_role:start(Config) of ok -> receive stop -> halt(0) end; done -> halt(0) end;
 run(O) when map_size(O) =:= 0 -> usage(), halt(0);
 run(#{help := true}) -> usage(), halt(0);
 run(_) -> erlang:error(config_required).
@@ -59,7 +55,6 @@ usage() -> io:put_chars(
   "  --init-config <role>  Write config.json.example\n"
   "  --check-config        Validate configuration and exit\n"
   "  --feature-report      Print compiled features as JSON\n"
-  "  --loopback-chain <bytes> <requests>  Run bounded client/relay/agent E2E\n"
   "  --crosed-request <p>  Process a signed local Crosed request\n"
   "  --crosed-trust <p>    Owner-only Crosed trust store\n").
 

@@ -11,13 +11,12 @@ queued chunks, and exhausting eight retransmissions fails the session visibly.
 Streams are scheduled round-robin, incomplete reassembly expires after 30
 seconds, and non-retransmitted ACKs update a bounded SRTT/RTTVAR-based RTO.
 
-Policies are capability-based. Ada, Pony, Hare and Carp require the adapter;
-Gleam may enable it for shared concurrency/backpressure behavior. Go, Rust,
-Zig, Nim and C++ normally retain their native reliable stream/fragmentation.
-D uses `companion-required`: its installed executable proves only its fixed
-4-byte benchmark input. Idris uses `optional`: it has a bounded authenticated
-native UDP agent/client relay, while `DatagramEndpoint` adds reliable
-segmentation, multiplexing and larger caller-visible messages.
+Policies are capability-based. All twelve Cores have independently deployable
+native transports, so every catalog mode is `native`. The adapter is an
+optional normalization layer for shared reliable-message, segmentation,
+multiplexing and backpressure semantics; it is never a deployment prerequisite.
+D and Gleam provide native authenticated broker/agent/client streams, while
+the smaller datagram/cell cores retain their documented native bounds.
 
 Frames use a versioned strict header and ChaCha20-Poly1305 AEAD. Directional
 keys are independently derived from the 32-byte master key, so equal stream and
@@ -35,8 +34,8 @@ Call `retransmit` from a bounded timer. Transport integrations must preserve
 the Core family's documented endpoints and must not expose a new public
 listener.
 
-`DatagramEndpoint` is the ready-to-use carrier for Idris/D companion mode and
-for datagram families. It accepts numeric bind and peer addresses, pins every
+`DatagramEndpoint` is an optional ready-to-use carrier for datagram families.
+It accepts numeric bind and peer addresses, pins every
 received packet to that peer, authenticates before allocating reassembly state,
 and exposes completed messages rather than chunks. Binding a non-loopback
 address is an explicit deployment choice; firewall and VM boundaries remain

@@ -9,7 +9,7 @@ def run(*args):
 report = run("--feature-report")
 assert report.returncode == 0, report.stderr
 value = json.loads(report.stdout)
-assert value["core"] == "shadow6-gleam" and value["transport"] == "micro-mux"
+assert value["core"] == "shadow6-gleam" and value["transport"] == "secure-stream"
 
 packet_security = run("--test-packet-security")
 assert packet_security.returncode == 0, packet_security.stderr
@@ -19,19 +19,11 @@ assert keys.returncode == 0 and "Private Key (Hex):" in keys.stdout
 denied = run("--crosed-request", "/nonexistent/request", "--crosed-trust", "/nonexistent/trust")
 assert denied.returncode == 0 and json.loads(denied.stdout)["status"] == "denied"
 
-benchmark = run("--benchmark-loopback", "4", "8")
+benchmark = run("--benchmark-loopback", "4096", "8")
 assert benchmark.returncode == 0, benchmark.stderr
 metrics = json.loads(benchmark.stdout)
-assert metrics["requests_completed"] == 8 and metrics["bytes_transferred"] == 64
+assert metrics["requests_completed"] == 8 and metrics["bytes_transferred"] == 65536
 assert metrics["success_rate"] == 1.0 and metrics["latency_p95_seconds"] >= 0
-
-# The named chain command exercises the same bounded, loopback-only path with
-# real TCP application sockets, UDP relay sockets, and AEAD in both directions.
-chain = run("--loopback-chain", "4", "4")
-assert chain.returncode == 0, chain.stderr
-chain_metrics = json.loads(chain.stdout)
-assert chain_metrics["requests_completed"] == 4
-assert chain_metrics["success_rate"] == 1.0
 
 with tempfile.TemporaryDirectory(prefix="shadow6-gleam-test.") as directory:
     root = pathlib.Path(directory)

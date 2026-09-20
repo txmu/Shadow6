@@ -9,10 +9,12 @@ unbounded listeners/resources.
 
 - Shadow6 maintains twelve independently compiled Core implementations that
   share the feature-report and security-contract vocabulary but are not
-  implicitly wire-compatible. Only the full stack families (Core-Go and
-  Core-Rust) expose the broker/agent/client data path and matching feature
-  contracts; use one family consistently across a broker, agent, and client
-  path, and consult each Core's README for its transport and platform limits.
+  implicitly wire-compatible. Every Core has an independently deployable native
+  data path; Go, Rust, D and Gleam expose complete broker/agent/client streams,
+  while the other families retain their documented bounded native roles. Use
+  one family consistently across a path and consult each Core's README for its
+  transport and platform limits. The Network Adapter is optional normalization,
+  never a deployment prerequisite.
 - Default `shadow6-*` builds keep Crosed, application transport, and
   Qubes-inspired domain policy disabled (`CROSED_LEVEL=0`, `APP_TRANSPORT=0`,
   `QUBES_ISOLATION=0`).

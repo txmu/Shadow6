@@ -1,5 +1,5 @@
 module main;
-import benchmark, bounded, config, json, native, packet;
+import benchmark, bounded, config, json, native, packet, runtime;
 import core.stdc.stdio : printf, fgets, stdin;
 import core.stdc.string : strlen, memcmp;
 
@@ -131,17 +131,18 @@ extern(C) int shadow6_d_entry(int argc, char** argv) {
         Document doc; if (!readConfig(argv[2][0 .. strlen(argv[2])], doc)) return 1;
         printf("Configuration valid for shadow6-d\n"); return 0;
     }
+    if (argc == 4 && arg(argv[1], "--config") && arg(argv[3], "--check-config")) {
+        Document doc; if (!readConfig(argv[2][0 .. strlen(argv[2])], doc)) return 1;
+        printf("Configuration valid for shadow6-d\n"); return 0;
+    }
     if (argc == 4 && arg(argv[1], "--config") && arg(argv[3], "--embedded")) {
         Document doc; if (!readConfig(argv[2][0 .. strlen(argv[2])], doc)) return 1;
         /* The host owns the event loop; validation is the only startup action. */
         return 0;
     }
     if (argc == 3 && arg(argv[1], "--config")) {
-        Driver d;
-        scope(exit) { d_wipe(d.key.ptr, 32); d_wipe(d.txKey.ptr, 32); d_wipe(d.ephemeral.ptr, 32); d_wipe(d.signer.ptr, 64); }
-        if (shadow6_d_driver_init(argv[2], &d) != 0) return 1;
-        while (!d.stopped) { if (shadow6_d_driver_step(&d) == 0) d_pause(); }
-        d_close(d.socket); return 0;
+        Document doc; if (!readConfig(argv[2][0 .. strlen(argv[2])], doc)) return 1;
+        return runRuntime(doc) ? 0 : 1;
     }
     printf("shadow6-d --config FILE [--embedded|--check-config] | --feature-report | --json-rpc | --benchmark-loopback BYTES REQUESTS\n"); return 2;
 }

@@ -43,13 +43,13 @@ platform limits.
 | --- | --- | --- |
 | Core-Go | full broker/agent/client stack | default Linux build; L0 and explicit Crosed/Public6 variants |
 | Core-Rust | full broker/agent/client stack | default Linux/Unix build; L0 and explicit Crosed/Public6 variants |
-| Core-Gleam | BEAM UDP micro-mux stack | Linux x86_64/aarch64; L0 and Crosed variants |
+| Core-Gleam | BEAM authenticated broker/agent/client stream | Linux x86_64/aarch64; L0 and Crosed variants |
 | Core-Ada | SPARK-oriented authenticated stack | native Unix build; L0 and Crosed variants |
 | Core-Nim | bounded UDP stack | optional native toolchain; L0 and Crosed variants |
 | Core-Pony | reference-capability UDP stack | optional `ponyc`; L0 and Crosed variants |
 | Core-Idris | dependent-type checked security core | optional Idris 2/Chez toolchain; not built by default |
 | Core-Zig | ENet-style reliable UDP stack | optional Zig toolchain; L0 profile |
-| Core-D | BetterC authenticated UDP driver | optional D toolchain; L0 profile |
+| Core-D | BetterC authenticated broker/agent/client stream | optional D toolchain; L0 profile |
 | Core-Cpp | standalone WSS/UDP stack | optional C++ toolchain; L0 profile |
 | Core-Hare | small emergency UDP proxy | optional Hare toolchain; L0 profile |
 | Core-Carp | compact authenticated UDP driver | optional Carp toolchain; L0 profile |
@@ -76,16 +76,18 @@ doctor, and the release SBOM report the exact locally installed subset.
 | Package Manager | signed Crosed Mod, Plugin, and App installation/version selection | Ed25519 manifests, per-file hashes, bounded archives, atomic version activation |
 | EasyBuild | guided full-feature local build, verification, signing bootstrap, and install | L5 variants are explicit; Qubes-style policy and compliance are opt-in prompts |
 | Android | adaptive Material 3 app with selectable packaged Cores in the app sandbox | module-selectable build, bilingual UI, ShadowChat/search/games/packages/AI surfaces |
-| Network Adapter | equal Python/Node.js authenticated reliable backends for all twelve Cores | shared S6NA spec, automatic segmentation/reassembly, AEAD, retransmission, 64 streams, bounded backpressure; required companion for D and optional enhancement for Idris |
+| Network Adapter | equal Python/Node.js authenticated reliable backends for all twelve Cores | optional shared S6NA semantics; all twelve Cores remain independently deployable with native transports |
 | Public6 | explicit all-components, dual-Core distribution and compatibility negotiation | only identical Core family/version is mandatory; all optional parameters negotiate by intersection |
 | Gate | independently compiled, default-disabled TCP/UDP Broker forwarding | Ed25519 mutual auth, ephemeral encrypted TCP frames, signed UDP envelopes, deterministic high-port MTD |
 | Migration | scoped one-stop plan/export/import CLI | manifest hashes, safe archive extraction, dry-run import, explicit secret inclusion |
 | I18n | shared CLI/plugin and Android contribution contract | strict locale/key validation, English fallback, bounded third-party bundles |
 
-Core-Go and Core-Rust are complete alternative stacks, not wire-compatible
-halves of one stack. One orchestrator topology must use the same core engine on
-all broker/agent/client nodes. C11Relay is a generic UDP relay; it does not
-translate KCP into QUIC.
+Each Core's native transport is independently deployable, but Core families
+are not wire-compatible halves of one stack. One topology must use the same
+core engine on every role it implements. Go, Rust, D and Gleam expose complete
+broker/agent/client streams; the remaining Cores retain the standalone role
+and native transport bounds documented in their READMEs. C11Relay does not
+translate between Core protocols.
 
 Public6 packages both alternatives but does not translate between them. Peers
 using the same Core family and exact Core version remain base-compatible even

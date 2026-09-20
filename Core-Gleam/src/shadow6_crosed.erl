@@ -24,7 +24,7 @@ authorize_plugin(#{signature := Signature, public_key := PublicKey, canonical_pl
 feature_report() ->
     Level = shadow6_build:crosed_level(),
     Caps = lists:sublist(?ALL_CAPS, Level * 2),
-    #{core => <<"shadow6-gleam">>, version => <<"1.1.0">>, transport => <<"micro-mux">>,
+    #{core => <<"shadow6-gleam">>, version => <<"2.0.0">>, transport => <<"secure-stream">>,
       crosed_compiled => Level > 0, crosed_max_level => Level,
       app_transport => shadow6_build:app_transport(), qubes_isolation => shadow6_build:qubes_isolation(),
       gate_compiled => true, gate_enabled_by_default => false, utf8 => true,

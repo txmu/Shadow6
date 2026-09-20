@@ -45,7 +45,7 @@ class AndroidProjectTests(unittest.TestCase):
         gradle = (ROOT / 'app/build.gradle.kts').read_text()
         self.assertIn('enabled("shadow6.includeDCore", true)', gradle)
         runtime = (ROOT / 'app/src/main/java/org/shadow6/android/core/CoreRuntime.kt').read_text()
-        self.assertIn('D("libshadow6_d.so", "rle-udp")', runtime)
+        self.assertIn('D("libshadow6_d.so", "secure-stream")', runtime)
         activity = (ROOT / 'app/src/main/java/org/shadow6/android/MainActivity.kt').read_text()
         self.assertIn('CoreEngine.D -> "D Core"', activity)
 

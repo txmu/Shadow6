@@ -10,7 +10,7 @@ import java.util.concurrent.TimeUnit
 
 enum class CoreEngine(val assetName: String, val transport: String) {
     GO("libshadow6_go.so", "kcp"), RUST("libshadow6_rust.so", "quic"),
-    D("libshadow6_d.so", "rle-udp"), NIM("libshadow6_nim.so", "webrtc")
+    D("libshadow6_d.so", "secure-stream"), NIM("libshadow6_nim.so", "webrtc")
 }
 data class CoreStatus(
     val running: Boolean = false,
@@ -191,7 +191,7 @@ class CoreRuntime(private val context: Context) {
         private const val MAX_CONFIG_BYTES = 1_048_576
         private const val MAX_OUTPUT_CHARS = 4096
         private const val STARTUP_PROBE_MILLIS = 350L
-        private val CLIENT_PROXY_PATTERN = Regex("\\[Client] Secure local proxy listening on 127\\.0\\.0\\.1:([0-9]{1,5})(?:\\s|$)")
+        private val CLIENT_PROXY_PATTERN = Regex("(?:\\[Client]\\s+)?(?:Secure\\s+)?[Ll]ocal proxy listening on 127\\.0\\.0\\.1:([0-9]{1,5})(?:\\s|$)")
 
         internal fun parseClientProxyPort(output: String): Int? =
             CLIENT_PROXY_PATTERN.findAll(output).lastOrNull()?.groupValues?.get(1)?.toIntOrNull()?.takeIf { it in 1..MAX_PORT }

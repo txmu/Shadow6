@@ -39,7 +39,7 @@ class GleamSecurityTests(unittest.TestCase):
             'crosed_level()->5.\napp_transport()->true.\nqubes_isolation()->true.\n')
         modules = [ROOT / "Core-Gleam/src" / (name + ".erl") for name in
                    ("shadow6_sodium", "shadow6_crosed", "shadow6_secure_file", "shadow6_json",
-                    "shadow6_config", "shadow6_control")]
+                    "shadow6_config", "shadow6_forward", "shadow6_control")]
         # Test-only exports allow direct negative tests without exposing them in production.
         subprocess.run([cls.erlc, "+export_all", "-o", str(cls.build), *map(str, modules),
                         str(cls.build / "shadow6_build.erl")], check=True, timeout=30,
@@ -132,8 +132,9 @@ class GleamSecurityTests(unittest.TestCase):
             self.erl_eval('{error,unsafe_file}=shadow6_sodium:read_secure("' + str(path) + '")')
 
     def test_control_identity_bound_to_session(self):
-        params = '#{<<"client_id">>=><<"victim">>,<<"target_agent">>=><<"agent">>,<<"client_ipv6">>=><<"::1">>,<<"e2ee_pubkey">>=><<>>,<<"client_signature">>=><<>>}'
-        call = 'shadow6_control:rpc(<<"caller">>,client,[<<"agent">>],<<"Broker.RequestAccess">>,' + params + ')'
+        peer = '#{kind=>client,id=><<"caller">>,allowed=>[<<"agent">>],public=><<0:256>>}'
+        message = '#{<<"type">>=><<"access">>,<<"target">>=><<"agent">>,<<"ephemeral">>=>binary:copy(<<"00">>,32),<<"signature">>=>binary:copy(<<"00">>,64)}'
+        call = 'shadow6_control:handle_message(self(),' + peer + ',' + message + ',#{},#{})'
         self.erl_eval('true=(try ' + call + ' of _ -> false catch _:_ -> true end)')
 
 

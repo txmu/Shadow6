@@ -1,19 +1,24 @@
 # Core-Gleam
 
 `shadow6-gleam` is Shadow6's BEAM/Gleam core for Linux x86_64 and aarch64. Its
-data plane is UDP `micro-mux`: the active-once socket listener decodes and
-authenticates each datagram before creating a stream Actor. Invalid packets
-allocate no packet or stream Actors. A 128-packet replay bitmap per stream
-survives stream Actor termination and permits authenticated reordering.
-The session retains at most 4096 stream replay records for its lifetime; it
-fails closed on new stream IDs at capacity, without evicting live protection.
+standalone deployment data plane is an authenticated, direction-keyed TCP
+secure stream. The retained UDP `micro-mux` packet engine is available for
+bounded datagram applications: its active-once listener authenticates before
+creating a stream Actor, and invalid packets allocate no actors. A 128-packet
+replay bitmap per stream survives Actor termination; the session retains at
+most 4096 replay records and fails closed at capacity.
 
 Replay state is currently in memory for one key-owning session. Restarting
 with the same configured key does not preserve it; a fresh authenticated
 session-key exchange is required before claiming protection across restarts.
-Agent/client role startup is not a complete forwarding implementation. The
-loopback benchmark exercises synthetic encrypted socket exchanges, not a full
-broker-agent-client deployment or production throughput.
+Broker, agent and client roles form a complete standalone forwarding path.
+Mutually authenticated WebSocket control authorizes the requested agent;
+Ed25519-signed ephemeral X25519 keys then establish a direct encrypted TCP
+stream between client and agent. Directional HKDF keys, bounded 32 KiB records,
+authenticated close records and a fixed stream lifetime protect the native
+data path. The release tests launch three separate Core-Gleam processes and
+transfer more than 256 KiB through a real TCP echo target. The Network Adapter
+is optional and is not part of this deployment path.
 
 The release binary is a musl static PIE. The build configures OTP 29 with
 `--disable-jit`, compiles application BEAM files into C byte arrays, and links

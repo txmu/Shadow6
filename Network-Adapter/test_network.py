@@ -36,7 +36,7 @@ class AdapterTests(unittest.TestCase):
             path.chmod(0o644)
             with self.assertRaises(PermissionError): load_key(path)
     def test_idris_companion_carrier_uses_pinned_authenticated_peer(self):
-        self.assertEqual(POLICIES["idris"].mode,"optional")
+        self.assertEqual(POLICIES["idris"].mode,"native")
         self.assertEqual(POLICIES["idris"].payload,1024)
         key=os.urandom(32)
         first=DatagramEndpoint("idris",key,("127.0.0.1",0),("127.0.0.1",9),0)

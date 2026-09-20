@@ -15,6 +15,11 @@ class CoreRuntimeTest {
     }
 
     @Test
+    fun parsesNimClientProxyEndpointWithoutClientPrefix() {
+        assertEquals(24835, CoreRuntime.parseClientProxyPort("Local proxy listening on 127.0.0.1:24835\n"))
+    }
+
+    @Test
     fun rejectsMalformedOrOutOfRangeProxyEndpoints() {
         assertNull(CoreRuntime.parseClientProxyPort("listening on 0.0.0.0:4433"))
         assertNull(CoreRuntime.parseClientProxyPort("[Client] Secure local proxy listening on 127.0.0.1:70000"))

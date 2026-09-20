@@ -1,144 +1,148 @@
-"""Real fixed CLI and authenticated UDP close-path integration for Core-D.
-
-This validates the bounded authenticated driver and its loopback forwarding path.
-"""
-import hashlib
-import hmac
+"""Real Core-D broker/agent/client forwarding and bounded CLI tests."""
 import json
 import os
+import re
 import socket
 import subprocess
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
+
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey, X25519PublicKey
-from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
 BIN = Path(__file__).resolve().parent / "shadow6-d"
 
 
+def keypair():
+    private = Ed25519PrivateKey.generate()
+    return private.private_bytes_raw().hex(), private.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw).hex()
+
+
+def free_port():
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
+
+
+class EchoServer:
+    def __init__(self):
+        self.listener = socket.socket()
+        self.listener.bind(("127.0.0.1", 0))
+        self.listener.listen(1)
+        self.port = self.listener.getsockname()[1]
+        self.error = None
+        self.thread = threading.Thread(target=self.run, daemon=True)
+        self.thread.start()
+
+    def run(self):
+        try:
+            connection, _ = self.listener.accept()
+            with connection:
+                while data := connection.recv(65536):
+                    connection.sendall(data)
+        except Exception as exc:
+            self.error = exc
+
+    def close(self):
+        self.listener.close()
+        self.thread.join(2)
+        if self.error:
+            raise self.error
+
+
 class CoreDTests(unittest.TestCase):
     def call(self, *args):
-        return subprocess.run([str(BIN), *args], capture_output=True, timeout=5)
+        return subprocess.run([str(BIN), *args], capture_output=True, timeout=10)
 
-    def test_cli_contract_and_errors(self):
+    def test_cli_contract_and_nontrivial_native_path(self):
         result = self.call("--feature-report")
         self.assertEqual(result.returncode, 0)
         self.assertEqual(json.loads(result.stdout)["core"], "shadow6-d")
         self.assertNotEqual(self.call("--unknown").returncode, 0)
         self.assertNotEqual(self.call("--check-config", "/nonexistent-shadow6-config").returncode, 0)
+        benchmark = self.call("--benchmark-loopback", "1024", "32")
+        self.assertEqual(benchmark.returncode, 0, benchmark.stderr)
+        report = json.loads(benchmark.stdout)
+        self.assertEqual(report["requests_completed"], 32)
+        self.assertEqual(report["bytes_transferred"], 65536)
 
-    def test_authenticated_client_broker_agent_target_benchmark(self):
-        result = self.call("--benchmark-loopback", "4", "8")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        report = json.loads(result.stdout)
-        self.assertEqual(report["requests_completed"], 8)
-        self.assertEqual(report["bytes_transferred"], 64)
-        self.assertEqual(report["success_rate"], 1.0)
+    def test_real_broker_agent_client_large_stream(self):
+        broker_private, broker_public = keypair()
+        agent_private, agent_public = keypair()
+        client_private, client_public = keypair()
+        broker_port = free_port()
+        echo = EchoServer()
+        processes = []
+        with tempfile.TemporaryDirectory(prefix="shadow6-d-e2e.") as directory:
+            root = Path(directory)
 
-    def test_real_loopback_authenticated_close(self):
-        seed = os.urandom(32)
-        signer = Ed25519PrivateKey.from_private_bytes(seed)
-        public = signer.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
-        client = Ed25519PrivateKey.generate()
-        client_public = client.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as reserve:
-            reserve.bind(("127.0.0.1", 0))
-            port = reserve.getsockname()[1]
-        with tempfile.TemporaryDirectory() as tmp:
-            config = Path(tmp) / "config.json"
-            config.write_text(json.dumps({"role": "broker", "broker": {
-                "listen_addr": f"127.0.0.1:{port}", "private_key": seed.hex(), "agents": [],
-                "clients": [{"id": "client", "pubkey": client_public.hex(), "allowed_agents": []}]}}))
-            config.chmod(0o600)
-            self.assertEqual(self.call("--check-config", str(config)).returncode, 0)
-            process = subprocess.Popen([str(BIN), "--config", str(config)], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            def config(name, value):
+                path = root / name
+                path.write_text(json.dumps(value, separators=(",", ":")))
+                path.chmod(0o600)
+                return path
+
+            broker = config("broker.json", {"role": "broker", "broker": {
+                "listen_addr": f"127.0.0.1:{broker_port}", "private_key": broker_private,
+                "agents": [{"id": "agent", "pubkey": agent_public}],
+                "clients": [{"id": "client", "pubkey": client_public, "allowed_agents": ["agent"]}],
+                "webhook_url": "", "stealth_mode": False}})
+            agent = config("agent.json", {"role": "agent", "agent": {
+                "id": "agent", "broker_addrs": [f"ws://127.0.0.1:{broker_port}/ws"],
+                "broker_pubkey": broker_public, "private_key": agent_private,
+                "target_port": echo.port, "auto_close_after": 30, "allow_local_discovery": False,
+                "client_pubkeys": {"client": client_public}, "transport": "secure-stream", "sni": "", "alpn": ""}})
+            client = config("client.json", {"role": "client", "client": {
+                "id": "client", "broker_addrs": [f"ws://127.0.0.1:{broker_port}/ws"],
+                "broker_pubkey": broker_public, "private_key": client_private,
+                "target_agent": "agent", "agent_pubkey": agent_public, "on_success": "",
+                "allow_local_discovery": False, "transport": "secure-stream", "sni": "", "alpn": ""}})
+            for path in (broker, agent, client):
+                checked = self.call("--config", str(path), "--check-config")
+                self.assertEqual(checked.returncode, 0, checked.stderr)
             try:
-                session = os.urandom(16)
-                ephemeral = X25519PrivateKey.generate()
-                hello = (b"S6DHEL02\x01" + session + int(time.time()).to_bytes(8, "big") + client_public
-                         + ephemeral.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw) + public)
-                hello += client.sign(hello)
-                with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sender:
-                    sender.settimeout(0.1)
-                    for _ in range(5):
-                        sender.sendto(hello[:-1] + bytes([hello[-1] ^ 1]), ("127.0.0.1", port))
-                        with self.assertRaises(socket.timeout): sender.recv(2048)
-                    # Each rejected hello carries a valid signature: identity,
-                    # intended target, freshness and X25519 checks are separate.
-                    stranger = Ed25519PrivateKey.generate()
-                    unknown = (hello[:33] + stranger.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
-                               + hello[65:129])
-                    wrong_target = hello[:97] + bytes(32)
-                    stale = hello[:25] + (int(time.time()) - 60).to_bytes(8, "big") + hello[33:129]
-                    null_dh = hello[:65] + bytes(32) + hello[97:129]
-                    for candidate, signing_key in ((unknown, stranger), (wrong_target, client),
-                                                    (stale, client), (null_dh, client)):
-                        sender.sendto(candidate + signing_key.sign(candidate), ("127.0.0.1", port))
-                        with self.assertRaises(socket.timeout): sender.recv(2048)
-                    sender.sendto(b"", ("127.0.0.1", port))
-                    self.assertIsNone(process.poll(), "empty datagrams must not terminate the listener")
-                    for _ in range(20):
-                        sender.sendto(hello, ("127.0.0.1", port))
-                        try:
-                            response = sender.recv(2048)
-                            break
-                        except socket.timeout: pass
-                    else: self.fail("signed hello did not establish a session")
-                    self.assertEqual(response[:9], b"S6DHEL02\x02")
-                    self.assertEqual(response[9:25], session)
-                    self.assertEqual(response[97:129], hashlib.sha256(hello).digest())
-                    signer.public_key().verify(response[129:], response[:129])
-                    shared = ephemeral.exchange(X25519PublicKey.from_public_bytes(response[65:97]))
-                    prk = hmac.digest(hashlib.sha256(hello + response).digest(), shared, "sha256")
-                    tx = hmac.digest(prk, b"shadow6-d-v2/client-to-server\x01", "sha256")
-                    rx = hmac.digest(prk, b"shadow6-d-v2/server-to-client\x01", "sha256")
-                    self.assertNotEqual(tx, rx)
-
-                    def frame(kind, sequence, payload, key=tx):
-                        stamp = int(time.time())
-                        header = (b"S6DUDP02" + bytes([kind]) + session + sequence.to_bytes(4, "big")
-                                  + stamp.to_bytes(8, "big") + (len(payload)+16).to_bytes(2, "big"))
-                        nonce = bytes([kind, 0, 0, 0]) + sequence.to_bytes(4, "big") + stamp.to_bytes(4, "big")
-                        return header + ChaCha20Poly1305(key).encrypt(nonce, payload, header)
-
-                    packet = frame(1, 0, b"\0hello")
-                    # Public identity keys cannot authenticate the new data plane.
-                    sender.sendto(frame(1, 0, b"\0bad", public), ("127.0.0.1", port))
-                    with self.assertRaises(socket.timeout): sender.recv(2048)
-                    sender.sendto(frame(1, 0, b"\0reflection", rx), ("127.0.0.1", port))
-                    with self.assertRaises(socket.timeout): sender.recv(2048)
-                    # A second source address cannot hijack an established session.
-                    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as other:
-                        other.settimeout(0.1)
-                        other.sendto(packet, ("127.0.0.1", port))
-                        with self.assertRaises(socket.timeout): other.recv(2048)
-                    for _ in range(2):  # ACK loss/retransmit does not deliver twice.
-                        sender.sendto(packet, ("127.0.0.1", port))
-                        ack = sender.recv(2048)
-                        self.assertEqual(ack[:9], b"S6DUDP02\x02")
-                        nonce = b"\x02\0\0\0" + ack[25:29] + ack[33:37]
-                        self.assertEqual(ChaCha20Poly1305(rx).decrypt(nonce, ack[39:], ack[:39]), b"\0")
-                    wire = frame(3, 1, b"\0")
-                    sender.sendto(wire[:-1] + bytes([wire[-1] ^ 1]), ("127.0.0.1", port))
-                    time.sleep(0.05)
-                    self.assertIsNone(process.poll(), "tampered close must not stop the driver")
-                    for _ in range(30):
-                        sender.sendto(wire, ("127.0.0.1", port))
-                        try:
-                            process.wait(timeout=0.1)
-                            break
-                        except subprocess.TimeoutExpired:
-                            pass
-                stdout, stderr = process.communicate(timeout=2)
-                self.assertEqual(process.returncode, 0, stderr)
+                bp = subprocess.Popen([str(BIN), "--config", str(broker)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                processes.append(bp)
+                time.sleep(0.15)
+                ap = subprocess.Popen([str(BIN), "--config", str(agent)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                processes.append(ap)
+                time.sleep(0.15)
+                cp = subprocess.Popen([str(BIN), "--config", str(client)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                processes.append(cp)
+                deadline = time.time() + 10
+                match = None
+                while time.time() < deadline:
+                    line = cp.stdout.readline()
+                    match = re.search(r"proxy listening on 127\.0\.0\.1:(\d+)", line, re.I)
+                    if match:
+                        break
+                    if cp.poll() is not None:
+                        self.fail(cp.stderr.read())
+                self.assertIsNotNone(match, "client did not publish its local proxy")
+                payload = os.urandom(192 * 1024 + 37)
+                with socket.create_connection(("127.0.0.1", int(match.group(1))), timeout=5) as app:
+                    app.settimeout(10)
+                    app.sendall(payload)
+                    app.shutdown(socket.SHUT_WR)
+                    received = bytearray()
+                    while chunk := app.recv(65536):
+                        received.extend(chunk)
+                self.assertEqual(bytes(received), payload)
+                self.assertEqual(cp.wait(timeout=5), 0, cp.stderr.read())
+                self.assertEqual(ap.wait(timeout=5), 0, ap.stderr.read())
             finally:
-                if process.poll() is None:
-                    process.kill()
-                process.communicate(timeout=2)
+                for process in reversed(processes):
+                    if process.poll() is None:
+                        process.terminate()
+                    try:
+                        process.communicate(timeout=2)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                        process.communicate(timeout=2)
+                echo.close()
 
 
 if __name__ == "__main__":

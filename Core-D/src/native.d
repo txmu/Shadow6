@@ -64,6 +64,11 @@ in { assert(data.length <= 65536); }
 out(ok) { assert(digest.length == 32); }
 do { return d_hash(data.ptr, cast(int)data.length, digest.ptr, 0) == 0; }
 
+bool hmac(ref const Key key, const(ubyte)[] data, out Key digest)
+in { assert(data.length <= 65536); }
+out(ok) { assert(digest.length == 32); }
+do { return d_hmac(key.ptr, data.ptr, cast(int)data.length, digest.ptr) == 0; }
+
 bool deriveShared(ref const Key secret, ref const Key peer, out Key result)
 in { assert(secret.length == 32 && peer.length == 32); }
 out(ok) { assert(result.length == 32); }
