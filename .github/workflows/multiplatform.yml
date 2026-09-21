@@ -1019,9 +1019,9 @@ jobs:
         run: |
             sudo pkg update -f
             # rust includes Cargo; the base system supplies Clang.
-            sudo pkg install -y go rust python3 openssl libsodium libunistring libepoll-shim
+            sudo pkg install -y go rust python3 node22 openssl libsodium libunistring libepoll-shim
             export PYTHON="$(command -v python3 || command -v python3.12)"
-            for tool in go cargo c++ "$PYTHON"; do command -v "$tool" || exit 1; done
+            for tool in go cargo c++ node "$PYTHON"; do command -v "$tool" || exit 1; done
             cd Core-Go
             go test ./...
             bash ./compile.sh
@@ -1110,17 +1110,18 @@ jobs:
       - name: Test OpenBSD components
         shell: cpa.sh {0}
         run: |
-            sudo pkg_add go rust python-3.13.13 libsodium epoll-shim openssl-3.5.6v0
+            sudo pkg_add go rust node python-3.13.13 py3-cryptography libsodium epoll-shim openssl-3.5.6v0
             export PYTHON="$(command -v python3.13 || command -v python3)"
-            for tool in go cargo c++ "$PYTHON"; do command -v "$tool" || exit 1; done
+            for tool in go cargo c++ node "$PYTHON"; do command -v "$tool" || exit 1; done
             export CPPFLAGS='-I/usr/local/include/eopenssl35'
             export LDFLAGS='-L/usr/local/lib/eopenssl35 -Wl,-rpath,/usr/local/lib/eopenssl35'
             test -f /usr/local/include/eopenssl35/openssl/ssl.h
             # The Go network benchmark generates configs through the Python
             # orchestrator, which imports the pinned application dependencies.
-            "$PYTHON" -m venv .venv
+            "$PYTHON" -m venv --system-site-packages .venv
             export PYTHON="$PWD/.venv/bin/python"
-            OPENSSL_INCLUDE_DIR=/usr/local/include/eopenssl35 OPENSSL_LIB_DIR=/usr/local/lib/eopenssl35 "$PYTHON" -m pip install -r requirements.txt
+            "$PYTHON" -c 'import cryptography'
+            "$PYTHON" -m pip install --no-deps asyncssh
             cd Core-Go
             go test ./...
             bash ./compile.sh
@@ -1215,9 +1216,10 @@ jobs:
       - name: Test NetBSD components
         shell: cpa.sh {0}
         run: |
-          sudo pkgin -y install go python311
+          sudo pkgin -y install go nodejs python311
           export PYTHON=/usr/pkg/bin/python3.11
           export PATH="/usr/pkg/bin:/usr/pkg/sbin:$PATH"
+          command -v node
           go_pkg=$(/usr/pkg/sbin/pkg_info -a | awk '/^go[0-9]+-[0-9]/ {sub(/-[0-9].*/, ""); print; exit}')
           test -n "$go_pkg"
           go_bin=$(/usr/pkg/sbin/pkg_info -L "$go_pkg" | awk '/\/bin\/go$/ {print; exit}')

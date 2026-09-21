@@ -111,9 +111,11 @@ def run(c):
           "deployment_enabled":"not-consulted; explicit isolated benchmark activation"}
      reason="missing, non-executable, or foreign-host binary" if missing else None
      if not reason and backend=="node" and not shutil.which("node"):reason="Node.js companion runtime unavailable"
-     if not reason and role=="network-chain":reason=network_unavailable(core)
+     unavailable=network_unavailable(core) if not reason and role=="network-chain" else None
+     if unavailable:reason=unavailable
      if reason:
-      row.update(status="failed",reason=reason);rows.append(row);continue
+      status="not_applicable" if unavailable and not c['require_network'] else "failed"
+      row.update(status=status,reason=reason);rows.append(row);continue
      if role=="network-chain":
       cmd=[runner,str(ROOT/"integration/stack_test.py"),"--engine","shadow6-"+core,"--backend",backend,"--benchmark",
            *sum((["--"+k.replace("_","-"),str(v)] for k,v in c["network"].items()),[])]

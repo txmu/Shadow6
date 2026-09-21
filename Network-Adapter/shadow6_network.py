@@ -34,9 +34,13 @@ POLICIES={
 
 def load_key(path:Path):
     before=path.lstat()
-    if not stat.S_ISREG(before.st_mode) or stat.S_ISLNK(before.st_mode) or before.st_uid!=os.geteuid() or stat.S_IMODE(before.st_mode)!=0o600 or before.st_size!=32:
+    posix=os.name=="posix"
+    owner_ok=not posix or before.st_uid==os.geteuid()
+    mode_ok=not posix or stat.S_IMODE(before.st_mode)==0o600
+    if not stat.S_ISREG(before.st_mode) or stat.S_ISLNK(before.st_mode) or not owner_ok or not mode_ok or before.st_size!=32:
         raise PermissionError("adapter key must be an owned 32-byte mode-0600 regular file")
-    descriptor=os.open(path,os.O_RDONLY|os.O_NOFOLLOW|os.O_CLOEXEC)
+    flags=os.O_RDONLY|getattr(os,"O_BINARY",0)|getattr(os,"O_NOFOLLOW",0)|getattr(os,"O_CLOEXEC",0)
+    descriptor=os.open(path,flags)
     try:
         opened=os.fstat(descriptor); data=os.read(descriptor,33); final=os.fstat(descriptor)
         # Reads may update atime; compare identity, authority and content-change

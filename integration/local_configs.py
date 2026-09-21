@@ -62,7 +62,7 @@ def generate_configs(output: Path, target_port: int, broker_port: int, engine: s
             "broker_pubkey": broker_pub,
             "private_key": agent_private,
             "target_port": target_port,
-            "auto_close_after": 30,
+            "auto_close_after": 300,
             "allow_local_discovery": False,
             "client_pubkeys": {f"{prefix}-client": client_pub},
             "transport": transport,

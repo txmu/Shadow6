@@ -97,6 +97,11 @@ class ReportTests(unittest.TestCase):
             result=run({'cores':['cpp'],'roles':['network-chain'],'require_network':True})
         self.assertEqual(result['results'][0]['status'],'failed')
 
+    def test_optional_network_records_unsupported_kernel(self):
+        with patch('benchmark.available',return_value=True), patch('benchmark.network_unavailable',return_value='SCTP unavailable'):
+            result=run({'cores':['cpp'],'roles':['network-chain'],'require_network':False})
+        self.assertTrue(all(row['status']=='not_applicable' for row in result['results']))
+
 class ProcessTests(unittest.TestCase):
     @unittest.skipUnless(hasattr(os, "wait4"), "requires POSIX wait4")
     def test_child_counters_and_exit_status(self):

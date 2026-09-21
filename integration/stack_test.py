@@ -663,7 +663,12 @@ def main() -> int:
     if args.external_proxy and (backend != "native" or args.concurrency != 1 or args.rtt_ms or args.loss_percent):
         parser.error("external endpoint requires native backend, concurrency 1, and zero local impairment")
     if args.engine == "all":
-        engines = tuple(CORE_BINARIES)
+        engines = tuple(engine for engine, binary in CORE_BINARIES.items()
+                        if binary.is_file() or (engine == "shadow6-zig" and
+                           (ROOT / "Core-Zig/zig-out/bin/shadow6-zig").is_file()))
+        skipped = sorted(set(CORE_BINARIES) - set(engines))
+        for engine in skipped:
+            print(f"[SKIP] {engine} native integration: binary was not built for this platform")
     else:
         engines = (args.engine,)
     benchmark_result = None
