@@ -1,0 +1,13 @@
+{
+  "schema": "shadow6.s6na-limits.v1",
+  "limits": {
+    "max_message": 67108864,
+    "max_streams": 256,
+    "max_inflight": 134217728,
+    "max_window": 256,
+    "reassembly_seconds": 60,
+    "max_extensions": 32,
+    "payload_bytes": 8192,
+    "window_frames": 128
+  }
+}

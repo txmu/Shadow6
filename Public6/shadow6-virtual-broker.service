@@ -1,0 +1,21 @@
+[Unit]
+Description=Shadow6 Public6 virtual Broker compatibility layer
+Requires=shadow6-guard.service shadow6-gate.service
+After=shadow6-guard.service shadow6-gate.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/shadow6-virtual-broker --config /etc/shadow6/virtual-broker.json
+User=shadow6
+Group=shadow6
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+MemoryMax=512M
+TasksMax=128
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

@@ -2,7 +2,7 @@
 
 Python and Node.js are equal, wire-compatible backends for one bounded message
 API. They automatically
-segments, encrypts, numbers, acknowledges, retransmits, deduplicates and
+segment, encrypt, number, acknowledge, retransmit, deduplicate and
 reassembles data while applying per-Core payload and window limits. Up to 64
 logical streams share a session; a 16 MiB in-flight ceiling provides
 backpressure and each message is limited to 16 MiB.
@@ -10,6 +10,14 @@ Only a bounded sliding window is released to the carrier; ACKs open space for
 queued chunks, and exhausting eight retransmissions fails the session visibly.
 Streams are scheduled round-robin, incomplete reassembly expires after 30
 seconds, and non-retransmitted ACKs update a bounded SRTT/RTTVAR-based RTO.
+
+Those values are safe defaults, not immovable deployment limits. Both backends
+accept the same `shadow6.s6na-limits.v1` document (see
+`s6na-limits.example.json`) at process startup. Message, stream, in-flight,
+window, expiry and extension limits can be raised within compiled absolute
+caps. The file is strictly parsed, bounded, owner-controlled and rechecked
+after opening. A running adapter keeps an immutable limits object: changing the
+file has no effect until the companion is deliberately restarted.
 
 Policies are capability-based. All twelve Cores have independently deployable
 native transports, so every catalog mode is `native`. The adapter is an

@@ -20,5 +20,12 @@
             </intent-filter>
         </activity>
         <service android:name=".core.CoreService" android:exported="false" android:foregroundServiceType="connectedDevice" />
+        <service
+            android:name=".vpn.Shadow6VpnService"
+            android:exported="false"
+            android:permission="android.permission.BIND_VPN_SERVICE"
+            android:foregroundServiceType="connectedDevice">
+            <intent-filter><action android:name="android.net.VpnService" /></intent-filter>
+        </service>
     </application>
 </manifest>

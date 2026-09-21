@@ -1,8 +1,13 @@
 import os, tempfile, unittest
 from pathlib import Path
-from shadow6_network import DatagramEndpoint, POLICIES, ReliableAdapter, load_key
+from shadow6_network import DatagramEndpoint, Limits, POLICIES, ReliableAdapter, load_key
 
 class AdapterTests(unittest.TestCase):
+    def test_startup_limits_are_immutable_and_bounded(self):
+        limits=Limits(max_message=32*1024*1024,max_streams=128,max_inflight=64*1024*1024,max_window=128,payload_bytes=4096,window_frames=96)
+        adapter=ReliableAdapter("idris",bytes(32),limits=limits); self.assertEqual((len(adapter.queues),adapter.codec.payload),(128,4096))
+        with self.assertRaises(Exception): limits.max_streams=2
+        with self.assertRaises(ValueError): Limits(max_message=1024,max_inflight=512)
     def test_large_message_reorders_deduplicates_and_retransmits(self):
         now=[0.0]; clock=lambda:now[0]; key=os.urandom(32)
         left=ReliableAdapter("pony",key,0,clock=clock); right=ReliableAdapter("pony",key,1,clock=clock)

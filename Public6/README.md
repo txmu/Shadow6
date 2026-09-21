@@ -21,6 +21,24 @@ artifacts as `Core-Go/shadow6-go-public6` and
 Core binaries. Use `shadow6-public profile`, `shadow6-public offer REPORT`, and
 `shadow6-public negotiate LOCAL PEER` for the suite contract.
 
+## Virtual Broker compatibility layer
+
+`virtual_broker.py` is an optional out-of-process Public6 front layer for a
+shared service. It does not translate Core wire protocols and does not decrypt
+tenant payloads. A short Ed25519-signed admission record declares the client's
+Core family; the layer maps it only to an installed real Broker of that same
+family and then relays opaque E2EE bytes. A keyed virtual identity prevents
+exposing deployment keys to tenants.
+
+Tenants choose `default-approved` or `approval-required`; approvals are a
+bounded startup catalog. Each tenant has independent connection and token-
+bucket byte quotas, so constrained datagram Cores cannot evict another
+tenant's sessions even when S6NA is disabled. Configuration requires loopback
+real-Broker targets and a loopback listener behind both Guard and Gate. The
+C11Relay control socket is declared for the supervised deployment boundary.
+No Core process or Core protocol is modified. The supplied hardened systemd
+unit refuses to run without Guard and Gate services.
+
 An offer has this strict versioned form:
 
 ```json

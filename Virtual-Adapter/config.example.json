@@ -1,0 +1,14 @@
+{
+  "schema": "shadow6.virtual-adapter.v1",
+  "mode": "tun",
+  "core": "go",
+  "interface_fd": 3,
+  "bind_host": "127.0.0.1",
+  "bind_port": 41000,
+  "peer_host": "127.0.0.1",
+  "peer_port": 41001,
+  "key_file": "/run/shadow6/virtual-adapter.key",
+  "limits_file": "/etc/shadow6/s6na-limits.json",
+  "mtu": 1400,
+  "max_packets_per_tick": 64
+}

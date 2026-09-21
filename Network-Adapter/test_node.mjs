@@ -5,6 +5,14 @@ import dgram from 'node:dgram';
 import fs from 'node:fs';
 import {Codec,DatagramEndpoint,ReliableAdapter,loadKey} from './shadow6_network.mjs';
 
+test('startup limits expand payload, streams and window without mutation',()=>{
+  const limits={max_message:32*1024*1024,max_streams:128,max_inflight:64*1024*1024,max_window:128,
+    reassembly_seconds:60,max_extensions:32,payload_bytes:4096,window_frames:96};
+  const adapter=new ReliableAdapter('idris',Buffer.alloc(32),0,[],limits);
+  assert.equal(adapter.queues.length,128); assert.equal(adapter.codec.payload,4096);
+  assert.throws(()=>{adapter.limits.max_streams=2},TypeError);
+});
+
 test('permission changes between lstat and open fail closed',{skip:process.platform==='win32'},()=>{
  const original={lstatSync:fs.lstatSync,openSync:fs.openSync,fstatSync:fs.fstatSync,closeSync:fs.closeSync};
  const stat={isFile:()=>true,isSymbolicLink:()=>false,uid:BigInt(process.geteuid()),mode:0o100600n,

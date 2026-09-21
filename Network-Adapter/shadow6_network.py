@@ -8,7 +8,61 @@ from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
 
 MAGIC=b"S6NA"; VERSION=1; DATA=1; ACK=2; EXTENSION=3
 HEADER=struct.Struct("!4sBBHQQHHI")
-TAG_BYTES=16; MAX_MESSAGE=16*1024*1024; MAX_STREAMS=64; MAX_INFLIGHT=16*1024*1024
+TAG_BYTES=16
+
+@dataclass(frozen=True)
+class Limits:
+    """Startup-only limits. Absolute caps prevent configuration-driven DoS."""
+    max_message: int = 16*1024*1024
+    max_streams: int = 64
+    max_inflight: int = 16*1024*1024
+    max_window: int = 64
+    reassembly_seconds: int = 30
+    max_extensions: int = 16
+    payload_bytes: int = 0
+    window_frames: int = 0
+    def __post_init__(self):
+        bounds={"max_message":(1024,256*1024*1024),"max_streams":(1,4096),
+                "max_inflight":(1024,512*1024*1024),"max_window":(1,4096),
+                "reassembly_seconds":(1,300),"max_extensions":(0,128),
+                "payload_bytes":(0,65536),"window_frames":(0,4096)}
+        for name,(low,high) in bounds.items():
+            value=getattr(self,name)
+            if type(value) is not int or not low<=value<=high: raise ValueError(f"{name} is outside safe bounds")
+        if self.max_inflight<self.max_message: raise ValueError("max_inflight must cover max_message")
+        if self.payload_bytes not in (0,) and self.payload_bytes<64: raise ValueError("payload_bytes is outside safe bounds")
+
+def _reject_float(_): raise ValueError("floats are forbidden")
+
+def _unique_pairs(pairs):
+    result={}
+    for key,value in pairs:
+        if key in result: raise ValueError("duplicate JSON field")
+        result[key]=value
+    return result
+
+def _bounded_owned_text(path:Path,maximum:int)->str:
+    before=path.lstat()
+    if not stat.S_ISREG(before.st_mode) or stat.S_ISLNK(before.st_mode) or before.st_uid!=os.geteuid() or before.st_size>maximum:
+        raise ValueError("configuration must be a bounded owned regular file")
+    fd=os.open(path,os.O_RDONLY|os.O_NOFOLLOW|os.O_CLOEXEC)
+    try:
+        opened=os.fstat(fd); data=os.read(fd,maximum+1); final=os.fstat(fd)
+        identity=lambda s:(s.st_dev,s.st_ino,s.st_size,s.st_mode,s.st_uid,s.st_nlink,s.st_mtime_ns,s.st_ctime_ns)
+        if identity(before)!=identity(opened) or identity(opened)!=identity(final) or len(data)>maximum:
+            raise ValueError("configuration changed while reading")
+        return data.decode("utf-8")
+    finally: os.close(fd)
+
+def load_limits(path:Path|None=None)->Limits:
+    if path is None: return Limits()
+    try: value=json.loads(_bounded_owned_text(path,16384),object_pairs_hook=_unique_pairs,parse_float=_reject_float,parse_constant=_reject_float)
+    except (UnicodeDecodeError,json.JSONDecodeError) as exc: raise ValueError("invalid S6NA limits JSON") from exc
+    if type(value) is not dict or set(value)!={"schema","limits"} or value["schema"]!="shadow6.s6na-limits.v1":
+        raise ValueError("unknown S6NA limits schema or field")
+    if type(value["limits"]) is not dict or not set(value["limits"])<=set(Limits.__dataclass_fields__):
+        raise ValueError("unknown S6NA limit")
+    return Limits(**value["limits"])
 
 @dataclass(frozen=True)
 class Policy:
@@ -89,16 +143,17 @@ def _portable(value):
     return raw
 
 class Codec:
-    def __init__(self,key:bytes,payload:int,side:int):
+    def __init__(self,key:bytes,payload:int,side:int,max_streams:int=64):
         if not isinstance(key,bytes) or len(key)!=32: raise ValueError("adapter key must be 32 bytes")
         if type(payload) is not int or not 64<=payload<=65536: raise ValueError("invalid adapter payload")
         if side not in (0,1): raise ValueError("adapter side must be 0 or 1")
         derive=lambda direction:hmac.digest(key,b"shadow6-network-v1:"+bytes([direction]),"sha256")
-        self.tx=ChaCha20Poly1305(derive(side)); self.rx=ChaCha20Poly1305(derive(1-side)); self.payload=payload
+        if type(max_streams) is not int or not 1<=max_streams<=4096: raise ValueError("invalid stream limit")
+        self.tx=ChaCha20Poly1305(derive(side)); self.rx=ChaCha20Poly1305(derive(1-side)); self.payload=payload; self.max_streams=max_streams
     @staticmethod
     def nonce(header): return hashlib.sha256(b"shadow6-network-nonce-v1"+header).digest()[:12]
     def encode(self,kind,stream,message,index,count,payload=b""):
-        if kind not in (DATA,ACK,EXTENSION) or not 0<=stream<MAX_STREAMS or not 0<=message<2**64:
+        if kind not in (DATA,ACK,EXTENSION) or not 0<=stream<self.max_streams or not 0<=message<2**64:
             raise ValueError("invalid frame identity")
         if not isinstance(payload,bytes) or len(payload)>self.payload or not 1<=count<=65535 or not 0<=index<count:
             raise ValueError("invalid frame bounds")
@@ -111,7 +166,7 @@ class Codec:
         magic,version,kind,reserved,stream,message,index,count,length=HEADER.unpack(header)
         if magic!=MAGIC or version!=VERSION or reserved or kind not in (DATA,ACK,EXTENSION) or length!=len(ciphertext)-TAG_BYTES:
             raise ValueError("invalid frame header")
-        if stream>=MAX_STREAMS or count<1 or index>=count: raise ValueError("invalid frame fields")
+        if stream>=self.max_streams or count<1 or index>=count: raise ValueError("invalid frame fields")
         try: payload=self.rx.decrypt(self.nonce(header),ciphertext,header)
         except Exception as exc: raise ValueError("frame authentication failed") from exc
         if kind==ACK and payload: raise ValueError("invalid acknowledgment")
@@ -119,23 +174,23 @@ class Codec:
 
 class ReliableAdapter:
     """Transport-neutral reliable messages; callers never split their data."""
-    def __init__(self,core,key,side=0,extensions=(),clock=time.monotonic):
+    def __init__(self,core,key,side=0,extensions=(),clock=time.monotonic,limits:Limits|None=None):
         if core not in POLICIES:
             raise ValueError("core has no safely established adapter profile")
-        policy=POLICIES[core]; self.codec=Codec(key,policy.payload,side); self.policy=policy; self.clock=clock
+        self.limits=limits or Limits(); policy=POLICIES[core]; self.codec=Codec(key,self.limits.payload_bytes or policy.payload,side,self.limits.max_streams); self.policy=policy; self.clock=clock
         self.extensions=frozenset(extensions)
-        if len(self.extensions)>16 or any(not isinstance(x,str) or not x or len(x)>64 for x in self.extensions): raise ValueError("invalid extension allowlist")
-        self.next_message=[0]*MAX_STREAMS; self.pending={}; self.queues=[collections.deque() for _ in range(MAX_STREAMS)]; self.cursor=0; self.incoming={}; self.buffered=0
+        if len(self.extensions)>self.limits.max_extensions or any(not isinstance(x,str) or not x or len(x)>64 for x in self.extensions): raise ValueError("invalid extension allowlist")
+        self.next_message=[0]*self.limits.max_streams; self.pending={}; self.queues=[collections.deque() for _ in range(self.limits.max_streams)]; self.cursor=0; self.incoming={}; self.buffered=0
         self.completed=set(); self.completed_order=collections.deque()
         self.srtt=None; self.rttvar=None; self.rto=.2
     def _remember(self,key):
         self.completed.add(key); self.completed_order.append(key)
         if len(self.completed_order)>4096: self.completed.discard(self.completed_order.popleft())
     def send(self,stream,data):
-        if type(stream) is not int or not 0<=stream<MAX_STREAMS: raise ValueError("invalid stream")
-        if not isinstance(data,bytes) or not data or len(data)>MAX_MESSAGE: raise ValueError("message must be 1 byte..16 MiB")
+        if type(stream) is not int or not 0<=stream<self.limits.max_streams: raise ValueError("invalid stream")
+        if not isinstance(data,bytes) or not data or len(data)>self.limits.max_message: raise ValueError("message is outside configured bounds")
         chunks=[data[i:i+self.codec.payload] for i in range(0,len(data),self.codec.payload)]
-        if len(chunks)>65535 or self.buffered+len(data)>MAX_INFLIGHT:
+        if len(chunks)>65535 or self.buffered+len(data)>self.limits.max_inflight:
             raise BufferError("adapter backpressure limit reached")
         message=self.next_message[stream]
         if message>=2**64-1: raise OverflowError("message sequence exhausted; rekey")
@@ -148,19 +203,20 @@ class ReliableAdapter:
     def outbound(self,now=None):
         now=self.clock() if now is None else now; frames=[]
         empty=0
-        while len(self.pending)<self.policy.window and empty<MAX_STREAMS:
+        window=min(self.limits.window_frames or self.policy.window,self.limits.max_window)
+        while len(self.pending)<window and empty<self.limits.max_streams:
             queue=self.queues[self.cursor]
             if queue:
                 key,wire,size=queue.popleft(); self.pending[key]=[wire,now+self.rto,0,size,now,False]; frames.append(wire); empty=0
             else: empty+=1
-            self.cursor=(self.cursor+1)%MAX_STREAMS
+            self.cursor=(self.cursor+1)%self.limits.max_streams
         return frames
     def _sample(self,rtt):
         if self.srtt is None: self.srtt,self.rttvar=rtt,rtt/2
         else: self.rttvar=.75*self.rttvar+.25*abs(self.srtt-rtt); self.srtt=.875*self.srtt+.125*rtt
         self.rto=max(.05,min(5.0,self.srtt+4*self.rttvar))
     def extension(self,stream,name,value):
-        if type(stream) is not int or not 0<=stream<MAX_STREAMS: raise ValueError("invalid stream")
+        if type(stream) is not int or not 0<=stream<self.limits.max_streams: raise ValueError("invalid stream")
         if name not in self.extensions: raise PermissionError("extension is not enabled")
         payload=_portable({"name":name,"value":value}); message=self.next_message[stream]
         if message>=2**64-1: raise OverflowError("message sequence exhausted; rekey")
@@ -189,16 +245,16 @@ class ReliableAdapter:
                 raise PermissionError("received extension is not enabled")
             self._remember(key)
             return [ack],[],[(stream,value["name"],value["value"])]
-        key=(stream,message); state=self.incoming.setdefault(key,{"count":count,"parts":{},"bytes":0,"deadline":self.clock()+30})
+        key=(stream,message); state=self.incoming.setdefault(key,{"count":count,"parts":{},"bytes":0,"deadline":self.clock()+self.limits.reassembly_seconds})
         if key in self.completed: return [ack],[],[]
         if state["count"]!=count: raise ValueError("contradictory chunk count")
         if index not in state["parts"]:
-            if sum(item["bytes"] for item in self.incoming.values())+len(payload)>MAX_INFLIGHT: raise BufferError("reassembly limit reached")
+            if sum(item["bytes"] for item in self.incoming.values())+len(payload)>self.limits.max_inflight: raise BufferError("reassembly limit reached")
             state["parts"][index]=payload; state["bytes"]+=len(payload)
         completed=[]
         if len(state["parts"])==count:
             data=b"".join(state["parts"][i] for i in range(count))
-            if len(data)>MAX_MESSAGE: raise ValueError("reassembled message is oversized")
+            if len(data)>self.limits.max_message: raise ValueError("reassembled message is oversized")
             del self.incoming[key]; completed.append((stream,data)); self._remember(key)
         return [ack],completed,[]
     def retransmit(self):
@@ -215,7 +271,7 @@ class ReliableAdapter:
 
 class DatagramEndpoint:
     """Pinned-peer UDP carrier for companion profiles and datagram cores."""
-    def __init__(self,core,key,bind,peer,side=0,extensions=()):
+    def __init__(self,core,key,bind,peer,side=0,extensions=(),limits:Limits|None=None):
         def endpoint(value):
             if not isinstance(value,tuple) or len(value)!=2 or type(value[1]) is not int or not 0<=value[1]<=65535:
                 raise ValueError("invalid endpoint")
@@ -227,7 +283,7 @@ class DatagramEndpoint:
         family=socket.AF_INET6 if local.version==6 else socket.AF_INET
         self.socket=socket.socket(family,socket.SOCK_DGRAM)
         self.socket.bind((str(local),lport)); self.peer=(str(remote),rport)
-        self.adapter=ReliableAdapter(core,key,side,extensions)
+        self.adapter=ReliableAdapter(core,key,side,extensions,limits=limits)
     @property
     def address(self): return self.socket.getsockname()[:2]
     def close(self): self.socket.close()

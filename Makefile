@@ -244,7 +244,7 @@ public6-variants:
 
 public6-contract:
 ifeq ($(BUILD_PUBLIC6),1)
-	@$(PYTHON) -m py_compile Public6/shadow6_public.py
+	@$(PYTHON) -m py_compile Public6/shadow6_public.py Public6/virtual_broker.py Virtual-Adapter/shadow6_virtual_adapter.py
 	@$(PYTHON) Public6/shadow6_public.py profile >/dev/null
 endif
 
@@ -413,7 +413,7 @@ ifeq ($(BUILD_CROSED)$(BUILD_APP)$(BUILD_PLUGINS)$(BUILD_SLOTS),1111)
 	@PYTHONPATH=Extension-System:Crosed:Application-Layer:Plugin-System:Slot-System:Security-Assistants $(PYTHON) -m unittest -v Extension-System/test_extensions.py
 endif
 ifeq ($(BUILD_PUBLIC6),1)
-	@PYTHONPATH=Public6 $(PYTHON) -m unittest -v Public6/test_public6.py
+	@PYTHONPATH=Public6 $(PYTHON) -m unittest -v Public6/test_public6.py Public6/test_virtual_broker.py
 endif
 	@$(MAKE) integration-test BUILD_GO=$(BUILD_GO) BUILD_RUST=$(BUILD_RUST) BUILD_AUTO=$(BUILD_AUTO)
 
@@ -598,8 +598,11 @@ ifeq ($(BUILD_SLOTS),1)
 endif
 ifeq ($(BUILD_PUBLIC6),1)
 	@install -m 0755 Public6/shadow6_public.py "$(DESTDIR)$(PREFIX)/bin/shadow6-public"
+	@install -m 0755 Public6/virtual_broker.py "$(DESTDIR)$(PREFIX)/bin/shadow6-virtual-broker"
+	@install -m 0755 Virtual-Adapter/shadow6_virtual_adapter.py "$(DESTDIR)$(PREFIX)/bin/shadow6-virtual-adapter"
 	@install -d -m 0755 "$(DESTDIR)$(PREFIX)/share/shadow6/public6"
 	@install -m 0644 Public6/README.md "$(DESTDIR)$(PREFIX)/share/shadow6/public6/README.md"
+	@install -m 0644 Public6/virtual-broker.example.json "$(DESTDIR)$(PREFIX)/share/shadow6/public6/virtual-broker.example.json"
 	@if test -f Core-Go/shadow6-go-public6; then install -m 0755 Core-Go/shadow6-go-public6 "$(DESTDIR)$(PREFIX)/bin/shadow6-go-public6"; fi
 	@if test -f Core-Rust/shadow6-rust-public6; then install -m 0755 Core-Rust/shadow6-rust-public6 "$(DESTDIR)$(PREFIX)/bin/shadow6-rust-public6"; fi
 endif

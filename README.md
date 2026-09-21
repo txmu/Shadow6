@@ -93,6 +93,8 @@ in [`docs/protocols.md`](docs/protocols.md).
 | Android | adaptive Material 3 app with selectable packaged Cores in the app sandbox | module-selectable build, bilingual UI, ShadowChat/search/games/packages/AI surfaces |
 | Network Adapter | equal Python/Node.js authenticated reliable backends for all twelve Cores | optional shared S6NA semantics; all twelve Cores remain independently deployable with native transports |
 | Public6 | explicit all-components, dual-Core distribution and compatibility negotiation | only identical Core family/version is mandatory; all optional parameters negotiate by intersection |
+| Virtual Adapter | out-of-process TUN/TAP packet carrier over S6NA | never creates routes or interfaces; startup-only bounded configuration |
+| Public6 Virtual Broker | guarded multi-tenant admission and opaque E2EE relay to twelve same-family Brokers | Guard and Gate required; tenant quotas; optional C11Relay supervision |
 | Gate | independently compiled, default-disabled TCP/UDP Broker forwarding | Ed25519 mutual auth, ephemeral encrypted TCP frames, signed UDP envelopes, deterministic high-port MTD |
 | Migration | scoped one-stop plan/export/import CLI | manifest hashes, safe archive extraction, dry-run import, explicit secret inclusion |
 | I18n | shared CLI/plugin and Android contribution contract | strict locale/key validation, English fallback, bounded third-party bundles |

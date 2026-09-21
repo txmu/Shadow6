@@ -1,0 +1,13 @@
+{
+  "schema": "shadow6.virtual-broker.v1",
+  "listen": {"host": "127.0.0.1", "port": 7443},
+  "identity_key_file": "/run/shadow6/virtual-broker.identity",
+  "cores": {"go": {"host": "127.0.0.1", "port": 7444}, "rust": {"host": "127.0.0.1", "port": 7445}},
+  "tenants": [{"id": "example", "public_keys": ["AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="], "approval": "approval-required", "max_connections": 32, "bytes_per_second": 10485760, "burst_bytes": 20971520}],
+  "routes": [{"tenant": "example", "core": "go", "host": "127.0.0.1", "port": 7544}, {"tenant": "example", "core": "rust", "host": "127.0.0.1", "port": 7545}],
+  "approvals": [{"tenant": "example", "client": "approved-device-01"}],
+  "guard": {"required": true},
+  "gate": {"required": true},
+  "c11relay": {"control_socket": "/run/shadow6/c11relay.sock"},
+  "limits": {"max_frame": 1048576, "handshake_seconds": 10, "idle_seconds": 300}
+}
