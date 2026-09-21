@@ -82,7 +82,7 @@ def available(exe,core):
   with exe.open('rb') as stream:return stream.read(2)==b'#!'
  return binary(exe)
 
-def network_result(out,core,backend="native"):
+def network_result(out,core,backend="native",expected=None):
  result=json.loads(out.splitlines()[-1])
  if result.get('schema')!='shadow6.network-suite.v1':raise ValueError('expected common stack suite, not an internal benchmark emitter')
  result=result['results']['shadow6-'+core+('' if backend=='native' else '@'+backend)]
@@ -90,6 +90,14 @@ def network_result(out,core,backend="native"):
   value=result[field]
   if type(value) not in (int,float) or not math.isfinite(value) or value<0:raise ValueError('invalid network metric '+field)
  if result['duration_seconds']<=0 or result['success_rate']!=1.0:raise ValueError('network exchange incomplete')
+ for field in ('payload_bytes','requests','concurrency','bytes_sent','bytes_received'):
+  if type(result.get(field)) is not int or result[field]<=0:raise ValueError('invalid network count '+field)
+ if result['bytes_sent']!=result['bytes_received'] or result['bytes_received']!=result['payload_bytes']*result['requests']:
+  raise ValueError('network byte count mismatch')
+ if result.get('backend')!=backend:raise ValueError('network backend mismatch')
+ if expected and (result['payload_bytes']!=expected['payload_bytes'] or
+     result['concurrency']!=expected['concurrency'] or result['requests']!=expected['requests']*expected['concurrency']):
+  raise ValueError('network workload mismatch')
  return result
 
 PATHS={
@@ -115,6 +123,7 @@ def run(c):
      if unavailable:reason=unavailable
      if reason:
       status="not_applicable" if unavailable and not c['require_network'] else "failed"
+      print(f"[{status.upper()}] {core}/{backend} {role}: {reason}",file=sys.stderr)
       row.update(status=status,reason=reason);rows.append(row);continue
      if role=="network-chain":
       cmd=[runner,str(ROOT/"integration/stack_test.py"),"--engine","shadow6-"+core,"--backend",backend,"--benchmark",
@@ -134,12 +143,14 @@ def run(c):
       row.update(status="failed",reason=str(error));rows.append(row);continue
      row.update(status="ok" if code==0 else "failed",returncode=code,
                 elapsed_seconds=time.perf_counter()-started,process=process,stderr=err[-2048:])
-     try:row["network" if kind=="network-chain" else "native"]=network_result(out,core,backend) if kind=="network-chain" else json.loads(out)
+     try:row["network" if kind=="network-chain" else "native"]=network_result(out,core,backend,c['network']) if kind=="network-chain" else json.loads(out)
      except (ValueError,TypeError,KeyError,IndexError) as error:
       if kind=="network-chain" and not code:row.update(status="failed",reason="missing or invalid network metrics: "+str(error))
      if code:
       row["stdout"]=out[-2048:]
       print(f"[FAIL] {core}/{backend} {role} repeat={repeat} exit={code}\n{err[-2048:]}\n{out[-2048:]}",file=sys.stderr)
+     elif row['status']=='failed':
+      print(f"[FAIL] {core}/{backend} {role}: {row.get('reason','invalid result')}",file=sys.stderr)
      rows.append(row)
  return {"schema":"shadow6.benchmark.v2","config":c,"environment":{"platform":platform.platform(),"machine":platform.machine(),
          "python":platform.python_version(),"commit":os.environ.get("GITHUB_SHA"),"runner":os.environ.get("RUNNER_NAME"),
@@ -171,5 +182,5 @@ def main():
  r=run(c)
  if a.output=="-":print(json.dumps(r,sort_keys=True,indent=2))
  else:write(r,a.output)
- return 0 if all(x["status"] in {"ok","not_applicable"} for x in r["results"]) else 1
+ return 0 if any(x['status']=='ok' for x in r['results']) and all(x["status"] in {"ok","not_applicable"} for x in r["results"]) else 1
 if __name__=="__main__":raise SystemExit(main())

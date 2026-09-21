@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Authenticated, bounded chunking/reassembly shared by all Shadow6 cores."""
 from __future__ import annotations
-import argparse, collections, hashlib, hmac, ipaddress, json, os, socket, stat, struct, subprocess, time
+import argparse, base64, collections, hashlib, hmac, ipaddress, json, os, socket, stat, struct, subprocess, time
 from dataclasses import dataclass
 from pathlib import Path
 from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
@@ -32,14 +32,28 @@ POLICIES={
  "idris":Policy("native",1024,32,"native authenticated UDP agent/client relay"),
 }
 
+def _windows_key(operation, path, data=None):
+    shell=Path(os.environ['SystemRoot'])/'System32/WindowsPowerShell/v1.0/powershell.exe'
+    result=subprocess.run([str(shell),'-NoLogo','-NoProfile','-NonInteractive','-File',
+        str(Path(__file__).with_name('secure_key_windows.ps1')),
+        '-Operation',operation,'-KeyPath',str(path.absolute())],
+        input=base64.b64encode(data) if data is not None else b'',capture_output=True,timeout=30)
+    if result.returncode or (operation=='read' and len(result.stdout)!=44):
+        raise PermissionError('Windows key file security validation failed')
+    return base64.b64decode(result.stdout,validate=True) if operation=='read' else None
+
+def create_key(path:Path, data:bytes):
+    if type(data) is not bytes or len(data)!=32: raise ValueError('key must be 32 bytes')
+    if os.name=='nt': return _windows_key('create',path,data)
+    descriptor=os.open(path,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW|os.O_CLOEXEC,0o600)
+    with os.fdopen(descriptor,'wb') as stream: stream.write(data)
+
 def load_key(path:Path):
+    if os.name=='nt': return _windows_key('read',path)
     before=path.lstat()
-    posix=os.name=="posix"
-    owner_ok=not posix or before.st_uid==os.geteuid()
-    mode_ok=not posix or stat.S_IMODE(before.st_mode)==0o600
-    if not stat.S_ISREG(before.st_mode) or stat.S_ISLNK(before.st_mode) or not owner_ok or not mode_ok or before.st_size!=32:
+    if not stat.S_ISREG(before.st_mode) or stat.S_ISLNK(before.st_mode) or before.st_uid!=os.geteuid() or stat.S_IMODE(before.st_mode)!=0o600 or before.st_size!=32:
         raise PermissionError("adapter key must be an owned 32-byte mode-0600 regular file")
-    flags=os.O_RDONLY|getattr(os,"O_BINARY",0)|getattr(os,"O_NOFOLLOW",0)|getattr(os,"O_CLOEXEC",0)
+    flags=os.O_RDONLY|os.O_NOFOLLOW|os.O_CLOEXEC
     descriptor=os.open(path,flags)
     try:
         opened=os.fstat(descriptor); data=os.read(descriptor,33); final=os.fstat(descriptor)

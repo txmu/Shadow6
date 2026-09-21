@@ -48,7 +48,7 @@ benchmark-test:
 	@PYTHONPATH=Benchmark $(PYTHON) -m unittest Benchmark/test_benchmark.py
 
 network-adapter-test:
-	@PYTHONPATH=Network-Adapter $(PYTHON) -m unittest Network-Adapter/test_network.py Network-Adapter/test_conformance.py
+	@PYTHONPATH=Network-Adapter $(PYTHON) -m unittest Network-Adapter/test_network.py Network-Adapter/test_conformance.py Network-Adapter/test_secure_key.py
 	@node --test Network-Adapter/test_node.mjs
 
 network-adapter-benchmark:
@@ -152,7 +152,7 @@ ifeq ($(BUILD_HARE),1)
 endif
 
 core-carp:
-	@if test -x .tools/carp-v0.5.5-x86_64-linux/bin/carp || test -n "$(CARP)"; then bash Core-Carp/compile.sh; else echo 'Core-Carp disabled: provision Carp 0.5.5 explicitly'; fi
+	@if test -x .tools/carp-v0.5.5-x86_64-linux/bin/carp || test -n "$(CARP)" || test "$(CARP_GENERATED)" = 1; then bash Core-Carp/compile.sh; else echo 'Core-Carp disabled: provision Carp 0.5.5 explicitly'; fi
 
 test-carp:
 	@bash Core-Carp/compile.sh
@@ -488,11 +488,13 @@ endif
 	@install -m 0755 CLI/shadow6.py "$(DESTDIR)$(PREFIX)/bin/shadow6"
 	@install -m 0755 Network-Adapter/shadow6_network.py "$(DESTDIR)$(PREFIX)/bin/shadow6-network"
 	@install -m 0755 Network-Adapter/shadow6_network.mjs "$(DESTDIR)$(PREFIX)/bin/shadow6-network-node"
+	@install -m 0644 Network-Adapter/secure_key_windows.ps1 "$(DESTDIR)$(PREFIX)/bin/"
 	@install -m 0644 CLI/shadow6_vcore.py CLI/vcore_adapters.py "$(DESTDIR)$(PREFIX)/bin/"
 	@install -d -m 0755 "$(DESTDIR)$(PREFIX)/share/shadow6/modules"
 	@install -m 0644 CLI/shadow6_vcore.py CLI/vcore_adapters.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/"
 	@install -m 0644 Network-Adapter/shadow6_network.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/"
 	@install -m 0644 Network-Adapter/shadow6_network.mjs "$(DESTDIR)$(PREFIX)/share/shadow6/modules/"
+	@install -m 0644 Network-Adapter/secure_key_windows.ps1 "$(DESTDIR)$(PREFIX)/share/shadow6/modules/"
 	@for name in d nim pony hare carp; do \
 		case "$$name" in d) directory=D;; nim) directory=Nim;; pony) directory=Pony;; hare) directory=Hare;; carp) directory=Carp;; esac; \
 		if test -x "Core-$$directory/shadow6-$$name"; then install -m 0755 "Core-$$directory/shadow6-$$name" "$(DESTDIR)$(PREFIX)/bin/"; fi; \

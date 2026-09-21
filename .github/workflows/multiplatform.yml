@@ -8,7 +8,6 @@ on:
 jobs:
   pony-only:
     name: Core-Pony focused contract
-    if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -43,7 +42,7 @@ jobs:
       fail-fast: false
       max-parallel: 1
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -51,9 +50,10 @@ jobs:
         with:
           node-version: '22'
       - uses: Homebrew/actions/setup-homebrew@49d03f1bf5d455a413dfbdf99e6718054a4cd975
+        if: matrix.os != 'ubuntu-24.04-arm'
       - name: Install Core-Idris prerequisites (Ubuntu)
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends build-essential chezscheme libsodium-dev pkg-config
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends build-essential chezscheme libgmp-dev libsodium-dev pkg-config
       - name: Install Core-Idris prerequisites (macOS)
         if: runner.os == 'macOS'
         run: brew install libsodium pkg-config
@@ -66,6 +66,7 @@ jobs:
             echo "DYLD_LIBRARY_PATH=$ffi_dir:$(brew --prefix libsodium)/lib:${DYLD_LIBRARY_PATH:-}" >> "$GITHUB_ENV"
           fi
       - name: Install Idris2 binary package
+        if: matrix.os != 'ubuntu-24.04-arm'
         shell: bash
         run: |
           brew install idris2
@@ -73,6 +74,17 @@ jobs:
           test -x "$idris2"
           echo "$(dirname "$idris2")" >> "$GITHUB_PATH"
           echo "IDRIS2=$idris2" >> "$GITHUB_ENV"
+      - name: Bootstrap pinned native ARM64 Idris2
+        if: matrix.os == 'ubuntu-24.04-arm'
+        timeout-minutes: 45
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch v0.8.0 https://github.com/idris-lang/Idris2.git "$RUNNER_TEMP/idris2-source"
+          test "$(git -C "$RUNNER_TEMP/idris2-source" rev-parse HEAD)" = 15a3e4e70843f7a34100f6470c04b791330788df
+          make -C "$RUNNER_TEMP/idris2-source" bootstrap SCHEME=chezscheme PREFIX="$GITHUB_WORKSPACE/.tools/idris2"
+          make -C "$RUNNER_TEMP/idris2-source" install PREFIX="$GITHUB_WORKSPACE/.tools/idris2"
+          echo "$GITHUB_WORKSPACE/.tools/idris2/bin" >> "$GITHUB_PATH"
+          echo "IDRIS2=$GITHUB_WORKSPACE/.tools/idris2/bin/idris2" >> "$GITHUB_ENV"
       - name: Check Idris modules sequentially
         shell: bash
         run: |
@@ -215,6 +227,31 @@ jobs:
           path: |
             Core-Gleam/shadow6-gleam
             Core-Gleam/shadow6-gleam-crosed
+          if-no-files-found: error
+  carp-generated:
+    name: Generate portable Carp source for native ARM64 compilation
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate with the pinned Carp release
+        run: |
+          set -euo pipefail
+          mkdir -p .tools
+          curl --fail --location --proto '=https' --tlsv1.2 --max-time 120 \
+            https://github.com/carp-lang/Carp/releases/download/v0.5.5/carp-v0.5.5-x86_64-linux.zip \
+            --output "$RUNNER_TEMP/carp.zip"
+          unzip -q "$RUNNER_TEMP/carp.zip" -d .tools
+          export CARP_DIR="$GITHUB_WORKSPACE/.tools/carp-v0.5.5-x86_64-linux"
+          cd Core-Carp
+          "$CARP_DIR/bin/carp" --no-profile --optimize --generate-only -b src/main.carp
+          test -s build/main.c
+          test -s build/schema.h
+          cd ..
+          tar -czf "$RUNNER_TEMP/carp-generated.tar.gz" Core-Carp/build/main.c Core-Carp/build/schema.h .tools/carp-v0.5.5-x86_64-linux/core
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shadow6-carp-generated
+          path: ${{ runner.temp }}/carp-generated.tar.gz
           if-no-files-found: error
   linux:
     needs: [idris, linux-gleam]
@@ -519,6 +556,7 @@ jobs:
           assert all(r['status'] == 'ok' and r['network']['concurrency'] == 4 and r['network']['bytes_received'] == 4096 * 8 * 4 for r in rows)
           PY
       - name: Upload Linux network benchmark reports (JSON/TXT/Markdown)
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: shadow6-linux-network-benchmark
@@ -529,7 +567,7 @@ jobs:
             benchmark-linux-pressure.json
             benchmark-linux-pressure.txt
             benchmark-linux-pressure.md
-          if-no-files-found: error
+          if-no-files-found: warn
       - name: Package and collect every Linux release output
         run: |
           make package
@@ -588,9 +626,12 @@ jobs:
   linux-arm64:
     name: Linux ARM64 complete component matrix
     runs-on: ubuntu-24.04-arm
+    needs: [idris, carp-generated]
     timeout-minutes: 120
     env:
-      BUILD_HARE: '0'
+      BUILD_HARE: '1'
+      BUILD_CARP: '1'
+      CARP_GENERATED: '1'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -609,12 +650,38 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             build-essential pkg-config libssl-dev libsodium-dev libunistring-dev \
             gnat gprbuild ldc musl-tools shellcheck unzip autoconf m4 \
-            libncurses-dev zlib1g-dev
-          if apt-cache show libdatachannel-dev >/dev/null 2>&1; then
-            sudo apt-get install -y --no-install-recommends libdatachannel-dev
-          else
-            echo 'libdatachannel-dev unavailable; Core-Nim will be recorded as an explicit ARM64 exclusion'
-          fi
+            libncurses-dev zlib1g-dev cmake chezscheme libgmp-dev
+      - uses: actions/download-artifact@v4
+        with:
+          name: shadow6-carp-generated
+          path: ${{ runner.temp }}/carp-generated
+      - uses: actions/download-artifact@v4
+        with:
+          name: shadow6-idris-ubuntu-24.04-arm
+          path: ${{ runner.temp }}/idris-arm64
+      - name: Restore same-commit Carp sources and native Idris runtime
+        run: |
+          set -euo pipefail
+          tar -xzf "$RUNNER_TEMP/carp-generated/carp-generated.tar.gz"
+          tar -xzf "$RUNNER_TEMP/idris-arm64/core-idris-runtime.tar.gz" -C Core-Idris
+          chmod +x Core-Idris/shadow6-idris Core-Idris/shadow6-idris-crosed
+          echo "LD_LIBRARY_PATH=$GITHUB_WORKSPACE/Core-Idris:$GITHUB_WORKSPACE/Core-Idris/ffi" >> "$GITHUB_ENV"
+          LD_LIBRARY_PATH="$GITHUB_WORKSPACE/Core-Idris:$GITHUB_WORKSPACE/Core-Idris/ffi" Core-Idris/shadow6-idris --feature-report
+      - name: Provision native ARM64 Hare
+        run: |
+          bash Tools/bootstrap_hare_linux.sh "$GITHUB_WORKSPACE/.tools/hare-ci"
+          echo "$GITHUB_WORKSPACE/.tools/hare-ci/bin" >> "$GITHUB_PATH"
+      - name: Build pinned ARM64 libdatachannel
+        run: |
+          set -euo pipefail
+          git clone https://github.com/paullouisageneau/libdatachannel.git "$RUNNER_TEMP/shadow6-rtc-arm64"
+          git -C "$RUNNER_TEMP/shadow6-rtc-arm64" checkout --detach 9e6a13abbb6846c003d817d0387b6706466e2b03
+          git -C "$RUNNER_TEMP/shadow6-rtc-arm64" submodule update --init --recursive --depth 1
+          cmake -S "$RUNNER_TEMP/shadow6-rtc-arm64" -B "$RUNNER_TEMP/shadow6-rtc-arm64-build" -DCMAKE_BUILD_TYPE=Release -DNO_TESTS=ON -DNO_EXAMPLES=ON -DNO_MEDIA=ON -DNO_WEBSOCKET=OFF -DBUILD_SHARED_LIBS=ON
+          cmake --build "$RUNNER_TEMP/shadow6-rtc-arm64-build" --parallel 2
+          sudo cmake --install "$RUNNER_TEMP/shadow6-rtc-arm64-build"
+          sudo ldconfig
+          cp -L /usr/local/lib/libdatachannel.so.0.23 Core-Nim/libdatachannel.so.0.23
       - name: Provision the native ARM64 Gleam toolchain
         run: |
           bash Core-Gleam/tools/fetch_toolchain.sh
@@ -635,11 +702,8 @@ jobs:
           mkdir -p "$RUNNER_TEMP/shadow6-arm64"
           {
             echo 'platform=linux-arm64'
-            echo 'compiled=go,rust,cpp,zig,ada,d,pony,gleam,gate,guard,relay,offline-python'
+            echo 'compiled=go,rust,cpp,zig,ada,d,nim,pony,hare,carp,gleam,idris,gate,guard,relay,offline-python'
             echo 'android=excluded: Android is covered by its dedicated APK job and receives no additional cores'
-            echo 'hare=excluded: repository bootstrap script is x86_64-only'
-            echo 'carp=excluded: pinned Carp release is x86_64 Linux only'
-            echo 'idris=excluded: no verified ARM64 Chez/Idris runtime is provisioned by this workflow'
             echo 'detector-ml=excluded: pinned CPU PyTorch wheel is unavailable on Linux ARM64'
           } | tee "$RUNNER_TEMP/shadow6-arm64/support.txt"
       - name: Build Linux ARM64 cores and restore default policy
@@ -648,15 +712,10 @@ jobs:
           python3 -m venv .venv
           .venv/bin/pip install -r requirements.txt
           ./configure --enable-all
-          make core-go core-rust core-cpp BUILD_HARE=0 BUILD_ZIG=1 BUILD_ADA=1 BUILD_D=1 BUILD_PONY=1 BUILD_GLEAM=1
-          if printf '#include <rtc/rtc.h>\n' | ${CC:-cc} -E - >/dev/null 2>&1; then
-            make core-nim
-            make nim-crosed-variant
-            echo 'nim=compiled-and-tested' >> "$RUNNER_TEMP/shadow6-arm64/support.txt"
-          else
-            echo 'nim=excluded: libdatachannel headers are unavailable on this ARM64 runner'
-            echo 'nim=excluded: libdatachannel headers are unavailable on this ARM64 runner' >> "$RUNNER_TEMP/shadow6-arm64/support.txt"
-          fi
+          make core-go core-rust core-cpp core-hare core-carp BUILD_HARE=1 BUILD_CARP=1 BUILD_ZIG=1 BUILD_ADA=1 BUILD_D=1 BUILD_PONY=1 BUILD_GLEAM=1
+          test -f /usr/local/include/rtc/rtc.h
+          make core-nim nim-crosed-variant
+          make test-hare test-carp
           make pony-crosed-variant BUILD_PONY=1
           make crosed-variants BUILD_PONY=1 BUILD_GLEAM=1
           # Replace the repository's checked-in x86_64 Public6 products with
@@ -704,7 +763,7 @@ jobs:
             test -x "$binary"
             "$binary" --feature-report >/dev/null
           done
-          benchmark_cores=(go rust cpp zig ada d pony gleam)
+          benchmark_cores=(go rust cpp zig ada d pony gleam hare carp idris)
           if test -x Core-Nim/shadow6-nim; then
             Core-Nim/shadow6-nim --feature-report >/dev/null
             benchmark_cores+=(nim)
@@ -719,7 +778,7 @@ jobs:
           mkdir -p "$out"
           cp "$RUNNER_TEMP/shadow6-arm64/support.txt" "$out/"
           cp benchmark-linux-arm64.* "$out/"
-          for path in Core-Go/shadow6-go* Core-Rust/shadow6-rust* Core-Cpp/shadow6-cpp Core-Zig/shadow6-zig Core-Ada/shadow6-ada* Core-D/shadow6-d Core-Nim/shadow6-nim* Core-Pony/shadow6-pony* Core-Gleam/shadow6-gleam* Gate/shadow6-gate Guard/shadow6-guard C11Relay/bridge_relay; do
+          for path in Core-Go/shadow6-go* Core-Rust/shadow6-rust* Core-Cpp/shadow6-cpp Core-Zig/shadow6-zig Core-Ada/shadow6-ada* Core-D/shadow6-d Core-Nim/shadow6-nim* Core-Pony/shadow6-pony* Core-Gleam/shadow6-gleam* Core-Hare/shadow6-hare Core-Carp/shadow6-carp Core-Idris/shadow6-idris* Core-Idris/libsodium_ffi.so Gate/shadow6-gate Guard/shadow6-guard C11Relay/bridge_relay; do
             test -e "$path" && cp -a "$path" "$out/"
           done
       - uses: actions/upload-artifact@v4
@@ -947,8 +1006,13 @@ jobs:
       - uses: actions/setup-python@v5
         with: {python-version: '3.12'}
       - name: Install network harness dependencies
-        if: matrix.arch == 'amd64'
         run: python -m pip install -r requirements.txt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Test secure companion keys
+        shell: bash
+        run: PYTHONPATH=Network-Adapter python -m unittest -v test_secure_key
       - uses: actions/cache@v4
         with:
           path: |
@@ -969,11 +1033,10 @@ jobs:
           cd ..
           printf 'platform=windows-%s\ncompiled=go,gate,guard\nexcluded=rust,cpp,zig,nim,ada,d,pony,hare,carp,gleam,idris: checked-in POSIX boundaries or native toolchain scope\nandroid=separate APK job\n' '${{ matrix.arch }}' > support-windows-${{ matrix.arch }}.txt
       - name: Measure native Windows Go network chain
-        if: matrix.arch == 'amd64'
         shell: bash
         run: python Benchmark/benchmark.py --core go --role network-chain --repeats 3 --require-network --output benchmark-windows-${{ matrix.arch }}
       - name: Upload Windows network reports
-        if: always() && matrix.arch == 'amd64'
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: shadow6-windows-network-benchmark-${{ matrix.arch }}
@@ -1064,6 +1127,9 @@ jobs:
       - name: Measure FreeBSD native network chains
         shell: cpa.sh {0}
         run: .venv/bin/python Benchmark/benchmark.py --core go --core rust --role network-chain --repeats 3 --require-network --output benchmark-freebsd-${{ matrix.arch }}
+      - name: Recover FreeBSD reports after failure
+        if: failure()
+        run: cpa.sh --sync-files vm-to-runner
       - name: Upload FreeBSD network reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -1153,6 +1219,9 @@ jobs:
       - name: Measure OpenBSD native network chains
         shell: cpa.sh {0}
         run: .venv/bin/python Benchmark/benchmark.py --core go --core rust --core cpp --role network-chain --repeats 3 --output benchmark-openbsd-${{ matrix.arch }}
+      - name: Recover OpenBSD reports after failure
+        if: failure()
+        run: cpa.sh --sync-files vm-to-runner
       - name: Upload OpenBSD network reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -1216,9 +1285,14 @@ jobs:
       - name: Test NetBSD components
         shell: cpa.sh {0}
         run: |
-          sudo pkgin -y install go nodejs python311
+          sudo pkgin -y install go python311
           export PYTHON=/usr/pkg/bin/python3.11
           export PATH="/usr/pkg/bin:/usr/pkg/sbin:$PATH"
+          # Source directories are nodejs20/nodejs22, but binary package
+          # names are nodejs-VERSION. Select an actual LTS repository entry.
+          node_package=$(/usr/pkg/bin/pkgin avail | awk '$1 ~ /^nodejs-(22|20)\.[0-9.]+(nb[0-9]+)?$/ {print $1; exit}')
+          test -n "$node_package"
+          sudo pkgin -y install "$node_package"
           command -v node
           go_pkg=$(/usr/pkg/sbin/pkg_info -a | awk '/^go[0-9]+-[0-9]/ {sub(/-[0-9].*/, ""); print; exit}')
           test -n "$go_pkg"
@@ -1248,6 +1322,9 @@ jobs:
       - name: Measure NetBSD native Go network chain
         shell: cpa.sh {0}
         run: |
+          export PATH="/usr/pkg/bin:/usr/pkg/sbin:$PATH"
+          command -v node
+          node --version
           # NetBSD's Python 3.11 has no compatible cryptography wheel and
           # building it would require Rust unavailable in the guest. Use the
           # native pkgsrc build for cryptography, then install the pure/Python
@@ -1257,6 +1334,9 @@ jobs:
           # stack_test imports only cryptography; aiohttp and the UI packages
           # have no compatible NetBSD wheels and are not used by this check.
           .venv/bin/python Benchmark/benchmark.py --core go --role network-chain --repeats 3 --require-network --output benchmark-netbsd-${{ matrix.arch }}
+      - name: Recover NetBSD reports after failure
+        if: failure()
+        run: cpa.sh --sync-files vm-to-runner
       - name: Upload NetBSD network reports
         if: always()
         uses: actions/upload-artifact@v4

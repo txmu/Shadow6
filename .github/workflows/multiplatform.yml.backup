@@ -1,0 +1,890 @@
+name: multiplatform
+permissions:
+  contents: read
+on:
+  push:
+  pull_request:
+jobs:
+  pony-only:
+    name: Core-Pony focused contract
+    if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Provision pinned Pony toolchain
+        run: |
+          set -euo pipefail
+          mkdir -p .tools/ponyc-0.72.0
+          curl --fail --location --retry 3 \
+            --output /tmp/ponyc.tar.gz \
+            https://github.com/ponylang/ponyc/releases/download/0.72.0/ponyc-x86-64-unknown-linux-ubuntu24.04.tar.gz
+          tar -xzf /tmp/ponyc.tar.gz --strip-components=1 -C .tools/ponyc-0.72.0
+          test -x .tools/ponyc-0.72.0/bin/ponyc
+      - name: Install native dependencies
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends build-essential libsodium-dev libssl-dev python3
+      - name: Build default and Crosed variants
+        run: make pony-crosed-variant BUILD_PONY=1 PONYC="$GITHUB_WORKSPACE/.tools/ponyc-0.72.0/bin/ponyc"
+      - name: Run Pony contract and crypto tests
+        run: |
+          python3 Core-Pony/tests/test_core.py --binary
+          python3 Core-Pony/tests/test_crypto.py
+      - name: Run real Pony network tests
+        run: python3 Core-Pony/tests/test_network.py
+      - name: Verify feature contracts
+        run: |
+          test "$(Core-Pony/shadow6-pony --feature-report | python3 -c 'import json,sys; print(json.load(sys.stdin)["crosed_max_level"])')" = 0
+          test "$(Core-Pony/shadow6-pony-crosed --feature-report | python3 -c 'import json,sys; print(json.load(sys.stdin)["crosed_max_level"])')" = 5
+  idris:
+    name: Core-Idris (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Homebrew/actions/setup-homebrew@49d03f1bf5d455a413dfbdf99e6718054a4cd975
+      - name: Install Core-Idris prerequisites (Ubuntu)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends build-essential chezscheme libsodium-dev pkg-config
+      - name: Install Core-Idris prerequisites (macOS)
+        if: runner.os == 'macOS'
+        run: brew install libsodium pkg-config
+      - name: Configure Core-Idris FFI library path
+        shell: bash
+        run: |
+          ffi_dir="$GITHUB_WORKSPACE/Core-Idris/ffi"
+          echo "LD_LIBRARY_PATH=$ffi_dir:${LD_LIBRARY_PATH:-}" >> "$GITHUB_ENV"
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            echo "DYLD_LIBRARY_PATH=$ffi_dir:$(brew --prefix libsodium)/lib:${DYLD_LIBRARY_PATH:-}" >> "$GITHUB_ENV"
+          fi
+      - name: Install Idris2 binary package
+        shell: bash
+        run: |
+          brew install idris2
+          idris2="$(brew --prefix idris2)/bin/idris2"
+          test -x "$idris2"
+          echo "$(dirname "$idris2")" >> "$GITHUB_PATH"
+          echo "IDRIS2=$idris2" >> "$GITHUB_ENV"
+      - name: Check Idris modules sequentially
+        shell: bash
+        run: |
+          set -euo pipefail
+          sources=(
+            Core-Idris/src/Shadow6/Types.idr
+            Core-Idris/src/Shadow6/Security/Context.idr
+            Core-Idris/src/Shadow6/Security/Policy.idr
+            Core-Idris/src/Shadow6/Security/Operations.idr
+            Core-Idris/src/Shadow6/Security/Socket.idr
+            Core-Idris/src/Shadow6/Security/Lifecycle.idr
+            Core-Idris/src/Shadow6/Security/Allocation.idr
+            Core-Idris/src/Shadow6/Security.idr
+            Core-Idris/src/Shadow6/Crypto.idr
+            Core-Idris/src/Shadow6/Protocol.idr
+            Core-Idris/src/Shadow6/Features.idr
+            Core-Idris/src/Main.idr
+          )
+          for source in "${sources[@]}"; do
+            echo "::group::Checking $source"
+            "$IDRIS2" --check "$source" --source-dir Core-Idris/src \
+              --build-dir "$RUNNER_TEMP/idris-check" -p contrib -p network
+            echo "::endgroup::"
+          done
+      - name: Build and test Core-Idris
+        run: make test-idris PYTHON=python3
+      - name: Exercise real bounded UDP event loop
+        run: |
+          set -euo pipefail
+          test -x Core-Idris/shadow6-idris
+          Core-Idris/shadow6-idris --udp-loopback 0 1
+      - name: Run real loopback integration
+        run: |
+          export LD_LIBRARY_PATH="$GITHUB_WORKSPACE/Core-Idris/ffi:${LD_LIBRARY_PATH:-}"
+          Core-Idris/shadow6-idris --loopback-test
+          test "$(${GITHUB_WORKSPACE}/Core-Idris/shadow6-idris --feature-report | python3 -c 'import json,sys; print(json.load(sys.stdin)["crosed_max_level"])')" = 0
+      - name: Build and test Crosed variant
+        run: make idris-crosed-variant PYTHON=python3 && python3 Core-Idris/test_core.py
+      - name: Collect Core-Idris build outputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          output_dir="$RUNNER_TEMP/core-idris-$RUNNER_OS"
+          mkdir -p "$output_dir"
+          artifact_dir="$RUNNER_TEMP/core-idris-artifact-$RUNNER_OS"
+          mkdir -p "$artifact_dir"
+          install -m 0755 Core-Idris/shadow6-idris "$output_dir/shadow6-idris"
+          install -m 0755 Core-Idris/shadow6-idris-crosed "$output_dir/shadow6-idris-crosed"
+          cp -a Core-Idris/shadow6-idris_app "$output_dir/"
+          cp -a Core-Idris/shadow6-idris-crosed_app "$output_dir/"
+          cp Core-Idris/ffi/libsodium_ffi.so "$output_dir/" 2>/dev/null || \
+            cp Core-Idris/ffi/libsodium_ffi.dylib "$output_dir/"
+          library_path="$GITHUB_WORKSPACE/Core-Idris/ffi:${LD_LIBRARY_PATH:-}"
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            export DYLD_LIBRARY_PATH="$GITHUB_WORKSPACE/Core-Idris/ffi:${DYLD_LIBRARY_PATH:-}"
+          else
+            export LD_LIBRARY_PATH="$library_path"
+          fi
+          "$output_dir/shadow6-idris" --feature-report > "$output_dir/feature-report-l0.json"
+          "$output_dir/shadow6-idris-crosed" --feature-report > "$output_dir/feature-report-l5.json"
+          (cd "$output_dir" && find . -type f -print | LC_ALL=C sort | while IFS= read -r file; do
+            if command -v sha256sum >/dev/null 2>&1; then sha256sum "$file"; else shasum -a 256 "$file"; fi
+          done > SHA256SUMS)
+          # Idris2/Chez emits a launcher plus a runtime tree whose links,
+          # modes, and relative layout are part of the executable contract.
+          # Preserve that tree as one archive instead of reconstructing it
+          # from independently downloaded files.
+          tar -C "$output_dir" -czf "$artifact_dir/core-idris-runtime.tar.gz" .
+          test -s "$artifact_dir/core-idris-runtime.tar.gz"
+          du -ah "$output_dir"
+          cat "$output_dir/SHA256SUMS"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shadow6-idris-${{ matrix.os }}
+          path: ${{ runner.temp }}/core-idris-artifact-${{ runner.os }}/core-idris-runtime.tar.gz
+          if-no-files-found: error
+  linux-gleam:
+    name: Core-Gleam (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-24.04
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - name: Install static BEAM prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential musl-tools curl perl m4 autoconf
+      - name: Provision pinned no-JIT Gleam toolchain
+        run: |
+          Core-Gleam/tools/fetch_toolchain.sh
+          Core-Gleam/tools/build_toolchain.sh
+          Core-Gleam/tools/verify_toolchain.sh
+      - name: Build and test default Core-Gleam
+        run: |
+          python3 -m pip install 'cryptography>=43,<47'
+          make test-gleam BUILD_GLEAM=1 PYTHON=python3
+      - name: Preserve toolchain failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gleam-toolchain-logs-${{ matrix.arch }}
+          path: .tools/gleam/logs/*.log
+          if-no-files-found: ignore
+      - name: Build and verify L5 Core-Gleam
+        run: |
+          make core-gleam BUILD_GLEAM=1 CROSED_LEVEL=5 APP_TRANSPORT=1 QUBES_ISOLATION=1
+          install -m 0755 Core-Gleam/shadow6-gleam Core-Gleam/shadow6-gleam-crosed
+          make core-gleam BUILD_GLEAM=1 CROSED_LEVEL=0 APP_TRANSPORT=0 QUBES_ISOLATION=0
+          python3 - <<'PY'
+          import json, subprocess
+          for path, level in (("Core-Gleam/shadow6-gleam", 0), ("Core-Gleam/shadow6-gleam-crosed", 5)):
+              report=json.loads(subprocess.check_output([path,"--feature-report"],text=True))
+              assert report["crosed_max_level"] == level
+          PY
+      - name: Verify immutable static PIE
+        run: |
+          readelf -W -h Core-Gleam/shadow6-gleam | grep -Eq 'Type: +DYN'
+          readelf -W -l Core-Gleam/shadow6-gleam | grep -E 'GNU_STACK.*RW|GNU_RELRO'
+          readelf -W -d Core-Gleam/shadow6-gleam | grep -q BIND_NOW
+          ! readelf -W -d Core-Gleam/shadow6-gleam | grep -q NEEDED
+          ldd Core-Gleam/shadow6-gleam 2>&1 | grep -Eq 'statically linked|not a dynamic executable'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shadow6-gleam-${{ matrix.arch }}
+          path: |
+            Core-Gleam/shadow6-gleam
+            Core-Gleam/shadow6-gleam-crosed
+          if-no-files-found: error
+  linux:
+    needs: [idris, linux-gleam]
+    runs-on: ubuntu-latest
+    env:
+      BUILD_HARE: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: {go-version-file: Core-Go/go.mod}
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: linux-${{ runner.os }}-${{ hashFiles('**/go.sum', '**/Cargo.lock') }}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: goto-bus-stop/setup-zig@v2
+        with: {version: '0.16.0'}
+      - name: Cache Nim toolchain
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.choosenim
+            ~/.nimble
+            ~/.cache/nim
+          key: nim-${{ runner.os }}-2.2.10
+      - uses: jiro4989/setup-nim-action@v2
+        timeout-minutes: 5
+        with: {nim-version: '2.2.10'}
+      - uses: dlang-community/setup-dlang@v2
+        with: {compiler: ldc-1.40.0}
+      - name: Install Linux native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential pkg-config libssl-dev libsodium-dev libunistring-dev \
+            gnat gprbuild ldc shellcheck unzip chezscheme
+          # Idris2's compiled Chez images require the exact Chez fasl ABI used
+          # by the producer job. Install the same Homebrew Chez on this Ubuntu
+          # consumer instead of executing with the distro's older ABI.
+          eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+          brew install chezscheme
+          echo "$(brew --prefix chezscheme)/bin" >> "$GITHUB_PATH"
+      - name: Download same-commit Gleam Linux builds
+        uses: actions/download-artifact@v4
+        with:
+          name: shadow6-gleam-x86_64
+          path: Core-Gleam
+      - name: Download same-commit Idris Linux builds
+        uses: actions/download-artifact@v4
+        with:
+          name: shadow6-idris-ubuntu-latest
+          path: ${{ runner.temp }}/idris-artifact
+      - name: Restore executable modes for downloaded core artifacts
+        run: |
+          # The runtime artifact intentionally contains only the compiled
+          # Idris tree. Preserve the checked-in real integration harness
+          # before replacing the build directory so the full-stack test still
+          # exercises the downloaded binary instead of silently skipping it.
+          cp Core-Idris/test_core.py "$RUNNER_TEMP/shadow6-idris-test_core.py"
+          rm -rf Core-Idris
+          mkdir -p Core-Idris
+          archive=$(find "$RUNNER_TEMP/idris-artifact" -type f -name 'core-idris-*.tar.gz' -print -quit)
+          test -n "$archive"
+          tar -xzf "$archive" -C Core-Idris
+          install -m 0755 "$RUNNER_TEMP/shadow6-idris-test_core.py" Core-Idris/test_core.py
+          chmod 0755 Core-Gleam/shadow6-gleam Core-Gleam/shadow6-gleam-crosed
+          cd Core-Idris
+          chmod 0755 shadow6-idris shadow6-idris-crosed
+          find shadow6-idris_app shadow6-idris-crosed_app -type f -exec chmod 0755 {} +
+          # Chez embeds its absolute interpreter path in the generated Idris
+          # launcher. Rebind only the downloaded runtime to the runner's
+          # installed Chez binary; the compiled Scheme image and support
+          # libraries remain byte-for-byte intact.
+          chez_bin="$(command -v chez || command -v chezscheme || true)"
+          test -x "$chez_bin"
+          for image in shadow6-idris_app/shadow6-idris.so shadow6-idris-crosed_app/shadow6-idris.so; do
+            test -f "$image"
+            # Use env's portable shebang form so the packaged image does not
+            # retain the producer runner's absolute Homebrew path.
+            sed -i '1c#!/usr/bin/env -S chezscheme --program' "$image"
+          done
+          # The launcher executes immediately in this shell.  Export both
+          # the extracted artifact root and its optional ffi directory before
+          # the feature reports; writing GITHUB_ENV alone only affects later
+          # workflow steps and made libsodium_ffi.so appear to be missing.
+          export LD_LIBRARY_PATH="$GITHUB_WORKSPACE/Core-Idris:$GITHUB_WORKSPACE/Core-Idris/shadow6-idris_app:$GITHUB_WORKSPACE/Core-Idris/ffi:${LD_LIBRARY_PATH:-}"
+          ./shadow6-idris --feature-report >/dev/null
+          ./shadow6-idris-crosed --feature-report >/dev/null
+          cd ..
+          echo "LD_LIBRARY_PATH=$LD_LIBRARY_PATH" >> "$GITHUB_ENV"
+      - name: Provision pinned Hare toolchain
+        timeout-minutes: 15
+        run: |
+          bash Tools/bootstrap_hare_linux.sh "$GITHUB_WORKSPACE/.tools/hare-ci"
+          echo "$GITHUB_WORKSPACE/.tools/hare-ci/bin" >> "$GITHUB_PATH"
+      - name: Provision pinned Pony toolchain
+        run: |
+          set -euo pipefail
+          mkdir -p .tools
+          curl --fail --location --retry 3 \
+            --output /tmp/ponyc.tar.gz \
+            https://github.com/ponylang/ponyc/releases/download/0.72.0/ponyc-x86-64-unknown-linux-ubuntu24.04.tar.gz
+          mkdir -p .tools/ponyc-0.72.0
+          tar -xzf /tmp/ponyc.tar.gz --strip-components=1 -C .tools/ponyc-0.72.0
+          test -x .tools/ponyc-0.72.0/bin/ponyc
+          echo "$GITHUB_WORKSPACE/.tools/ponyc-0.72.0/bin" >> "$GITHUB_PATH"
+      - name: Build pinned native libdatachannel for Core-Nim
+        run: |
+          set -euo pipefail
+          git clone https://github.com/paullouisageneau/libdatachannel.git "$RUNNER_TEMP/shadow6-rtc-linux"
+          git -C "$RUNNER_TEMP/shadow6-rtc-linux" fetch --no-tags origin 9e6a13abbb6846c003d817d0387b6706466e2b03
+          git -C "$RUNNER_TEMP/shadow6-rtc-linux" checkout --detach 9e6a13abbb6846c003d817d0387b6706466e2b03
+          git -C "$RUNNER_TEMP/shadow6-rtc-linux" submodule update --init --recursive --depth 1
+          cmake -S "$RUNNER_TEMP/shadow6-rtc-linux" -B "$RUNNER_TEMP/shadow6-rtc-linux-build" -DCMAKE_BUILD_TYPE=Release -DNO_TESTS=ON -DNO_EXAMPLES=ON -DNO_MEDIA=ON -DNO_WEBSOCKET=OFF -DBUILD_SHARED_LIBS=ON
+          cmake --build "$RUNNER_TEMP/shadow6-rtc-linux-build" --parallel 2
+          sudo cmake --install "$RUNNER_TEMP/shadow6-rtc-linux-build"
+          sudo ldconfig
+          test -f /usr/local/include/rtc/rtc.h
+          cp -L /usr/local/lib/libdatachannel.so.0.23 Core-Nim/libdatachannel.so.0.23
+      - run: python -m venv .venv
+      - name: Provision fixed Carp release
+        run: |
+          curl --fail --location --proto '=https' --tlsv1.2 --max-time 120 \
+            https://github.com/carp-lang/Carp/releases/download/v0.5.5/carp-v0.5.5-x86_64-linux.zip \
+            --output "$RUNNER_TEMP/carp.zip"
+          unzip -q "$RUNNER_TEMP/carp.zip" -d .tools
+          test -x .tools/carp-v0.5.5-x86_64-linux/bin/carp
+      - run: .venv/bin/pip install -r requirements.txt -r requirements-ml.txt
+      - name: Configure the complete Linux component matrix
+        run: ./configure --enable-all
+      - name: Build every Linux core and component
+        run: |
+          make build BUILD_ZIG=1 BUILD_ADA=1 BUILD_CPP=1 BUILD_PONY=1
+          make core-nim
+          make nim-crosed-variant
+          make core-d
+          test -x Core-Hare/shadow6-hare
+          test -x Core-Go/shadow6-go
+          test -x Core-Rust/shadow6-rust
+          test -x Core-Cpp/shadow6-cpp
+          test -x Core-Zig/shadow6-zig
+          test -x Core-Ada/shadow6-ada
+          test -x Core-Nim/shadow6-nim
+          test -x Core-D/shadow6-d
+          test -x Core-Pony/shadow6-pony
+          test -x Core-Carp/shadow6-carp
+          Core-Gleam/shadow6-gleam --feature-report
+          (cd Core-Idris && ./shadow6-idris --feature-report)
+          test -x Gate/shadow6-gate
+          test -x Guard/shadow6-guard
+          test -x C11Relay/bridge_relay
+          make test-zig BUILD_ZIG=1
+          make ada-crosed-variant
+          Core-Ada/test_cells
+          .venv/bin/python Core-Ada/test_core.py
+          make test-nim
+          make test-d
+          make test-hare
+      - name: Verify native dependencies and hardening
+        run: |
+          readelf -d Core-Cpp/shadow6-cpp | grep -E 'libssl|libcrypto|libstdc\\+\\+'
+          readelf -W -l Core-Cpp/shadow6-cpp | grep -E 'GNU_STACK.*RW|GNU_RELRO'
+          shellcheck configure Core-Cpp/*.sh C11Relay/*.sh Guard/*.sh Tools/*.sh
+      - run: make crosed-variants BUILD_PONY=1
+      - run: make test
+      - run: make check
+      - run: make audit
+      - run: .venv/bin/python Security-Assistants/shadow6_security.py doctor
+      - run: .venv/bin/python Security-Assistants/shadow6_security.py sbom --output /tmp/shadow6-sbom.json
+      - run: .venv/bin/python Infrastructure-Assistants/shadow6_infra.py observe --output /tmp/shadow6-observation.json
+      - name: Validate staged installation and component catalogs
+        run: |
+          # Installed Python entrypoints use /usr/bin/env python3.
+          source .venv/bin/activate
+          stage_dir="$(mktemp -d /tmp/shadow6-install.XXXXXX)"
+          trap 'rm -rf -- "$stage_dir"' EXIT
+          make install DESTDIR="$stage_dir" PREFIX=/usr/local
+          "$stage_dir/usr/local/bin/shadow6-hare" --feature-report
+          "$stage_dir/usr/local/bin/shadow6-plugins" list
+          "$stage_dir/usr/local/bin/shadow6-security" list >/dev/null
+          "$stage_dir/usr/local/bin/shadow6-control" schema >/tmp/shadow6-staged-schema.json
+          "$stage_dir/usr/local/bin/shadow6-slots" catalog >/tmp/shadow6-staged-slots.json
+      - name: Run final benchmarks after all Linux builds and tests
+        run: |
+          # Exercise every compiled core's real loopback transport.  Keep this
+          # as a separate gate so a missing/invalid network measurement cannot
+          # be hidden by feature-report rows or a not-applicable SCTP probe.
+          python3 Benchmark/benchmark.py \
+            --core go --core rust --core zig --core ada --core d --core nim \
+            --core cpp --core pony --core hare --core carp --core gleam --core idris \
+            --role network-chain --repeats 3 --require-network \
+            --output benchmark-linux-network
+          python3 Benchmark/benchmark.py --config Benchmark/example.json --output benchmark-linux.json
+          python3 CLI/shadow6.py benchmark --all --role feature-report --repeats 3 --output benchmark-cli-all.json
+      - name: Upload Linux network benchmark reports (JSON/TXT/Markdown)
+        uses: actions/upload-artifact@v4
+        with:
+          name: shadow6-linux-network-benchmark
+          path: |
+            benchmark-linux-network.json
+            benchmark-linux-network.txt
+            benchmark-linux-network.md
+          if-no-files-found: error
+      - name: Package and collect every Linux release output
+        run: |
+          make package
+          mkdir -p ci-artifacts/linux
+          cp ../Shadow6.tar.gz ../Shadow6.zip ci-artifacts/linux/
+          cp /tmp/shadow6-sbom.json /tmp/shadow6-observation.json ci-artifacts/linux/
+          cp benchmark-linux.* benchmark-linux-network.* benchmark-cli-all.* ci-artifacts/linux/
+          tar -tzf ci-artifacts/linux/Shadow6.tar.gz >/dev/null
+          unzip -tq ci-artifacts/linux/Shadow6.zip
+          test "$(tar -tzf ci-artifacts/linux/Shadow6.tar.gz | grep -c 'Core-Cpp/shadow6-cpp$')" -eq 1
+          test "$(tar -tzf ci-artifacts/linux/Shadow6.tar.gz | grep -c 'Core-Hare/shadow6-hare$')" -eq 1
+          unzip -Z1 ci-artifacts/linux/Shadow6.zip | awk 'NF && $0 !~ /\/$/ && $0 !~ /\.txt$/ {bad=1} END {exit bad}'
+          unzip -Z1 ci-artifacts/linux/Shadow6.zip | grep -qx 'Shadow6/.github/workflows/multiplatform.yml.txt'
+      - name: Dump Linux environment and benchmark diagnostics
+        if: always()
+        run: |
+          { uname -a; python3 --version; go version; rustc --version; zig version; } 2>&1 || true
+          for report in benchmark-*.json benchmark-*.txt benchmark-*.md; do
+            if test -f "$report"; then echo "===== $report ====="; cat "$report"; fi
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shadow6-linux-release
+          path: |
+            ci-artifacts/linux/**
+            Core-Go/shadow6-go*
+            Core-Rust/shadow6-rust*
+            Core-Gleam/shadow6-gleam*
+            Core-Cpp/shadow6-cpp
+            Core-Zig/shadow6-zig
+            Core-Zig/zig-out/bin/shadow6-zig
+            Core-Ada/shadow6-ada*
+            Core-D/shadow6-d*
+            Core-Nim/shadow6-nim*
+            Core-Pony/shadow6-pony*
+            Core-Hare/shadow6-hare*
+            Core-Carp/shadow6-carp*
+            Gate/shadow6-gate
+            Guard/shadow6-guard
+            C11Relay/bridge_relay
+            C11Relay/c11relay_test
+          if-no-files-found: error
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: {go-version-file: Core-Go/go.mod}
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Caches/go-build
+            ~/go/pkg/mod
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: macos-${{ hashFiles('**/go.sum', '**/Cargo.lock') }}
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install macOS native core dependencies
+        run: |
+          brew install openssl@3 libsodium libunistring zig nim ldc
+          python3 -m venv .venv
+          .venv/bin/pip install -r requirements.txt
+      - run: |
+          cd Core-Go && go test ./...
+          cd ../Gate && go test ./... && go build -trimpath -o shadow6-gate .
+          cd ../Guard && go test ./... && bash ./compile.sh
+      - shell: bash
+        run: |
+          cd Core-Go
+          bash ./compile.sh
+          CROSED_LEVEL=5 APP_TRANSPORT=1 QUBES_ISOLATION=1 bash ./compile.sh
+          mv shadow6-go shadow6-go-crosed
+          CROSED_LEVEL=0 APP_TRANSPORT=0 QUBES_ISOLATION=0 bash ./compile.sh
+          cd ../Gate && go build -trimpath -o shadow6-gate .
+          cd ../Guard && bash ./compile.sh
+          cd ../Core-Cpp
+          brew_prefix="$(brew --prefix openssl@3)"
+          CPPFLAGS="-I$brew_prefix/include" LDFLAGS="-L$brew_prefix/lib" bash ./compile.sh
+          CPPFLAGS="-I$brew_prefix/include" LDFLAGS="-L$brew_prefix/lib" bash ./test.sh
+          cd ../Core-Zig
+          zig build -Doptimize=ReleaseSafe
+          zig build test -Doptimize=ReleaseSafe
+          test -x zig-out/bin/shadow6-zig
+          if test -f "$(brew --prefix openssl@3)/include/rtc/rtc.h"; then
+            cd ../Core-Nim
+            nim c --mm:arc --threads:on -d:release -o:shadow6-nim src/shadow6_nim.nim
+            test -x shadow6-nim
+          else
+            echo 'libdatachannel unavailable; Core-Nim source contract present'
+          fi
+          cd ../Core-Rust
+          bash ./compile.sh
+          CROSED_LEVEL=5 APP_TRANSPORT=1 QUBES_ISOLATION=1 bash ./compile.sh
+          mv shadow6-rust shadow6-rust-crosed
+          CROSED_LEVEL=0 APP_TRANSPORT=0 QUBES_ISOLATION=0 bash ./compile.sh
+          cd ..
+      - name: Run final macOS benchmark after every build and test
+        run: |
+          .venv/bin/python Benchmark/benchmark.py --core go --core rust --core cpp --core zig --role network-chain --repeats 3 --output benchmark-macos.json
+      - name: Upload macOS network reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: shadow6-macos-network-benchmark
+          path: |
+            benchmark-macos.json
+            benchmark-macos.txt
+            benchmark-macos.md
+          if-no-files-found: error
+      - name: Dump macOS environment and benchmark diagnostics
+        if: always()
+        run: |
+          { uname -a; python3 --version; go version; rustc --version; zig version; } 2>&1 || true
+          for report in benchmark-*.json benchmark-*.txt benchmark-*.md; do test -f "$report" && { echo "===== $report ====="; cat "$report"; }; done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shadow6-macos-core-go
+          path: |
+            Core-Go/shadow6-go
+            Core-Go/shadow6-go-crosed
+            Core-Rust/shadow6-rust
+            Core-Rust/shadow6-rust-crosed
+            Core-Cpp/shadow6-cpp
+            Core-Zig/zig-out/bin/shadow6-zig
+            Core-Nim/shadow6-nim
+            Gate/shadow6-gate
+            Guard/shadow6-guard
+            benchmark-macos.json
+            benchmark-macos.txt
+            benchmark-macos.md
+          if-no-files-found: error
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: {go-version-file: Core-Go/go.mod}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - name: Install network harness dependencies
+        run: python -m pip install -r requirements.txt
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/AppData/Local/go-build
+          key: windows-${{ hashFiles('**/go.sum') }}
+      - shell: bash
+        run: |
+          echo 'Windows native matrix: Go, Gate and Guard. POSIX-only C++/Rust/Zig/Nim/D/Ada cores are intentionally excluded on native Windows.'
+          cd Core-Go
+          go test ./...
+          bash ./compile.sh
+          CROSED_LEVEL=5 APP_TRANSPORT=1 QUBES_ISOLATION=1 bash ./compile.sh
+          mv shadow6-go shadow6-go-crosed
+          CROSED_LEVEL=0 APP_TRANSPORT=0 QUBES_ISOLATION=0 bash ./compile.sh
+          cd ../Gate && go test ./... && go build -trimpath -o shadow6-gate .
+          cd ../Guard && go test ./... && bash ./compile.sh
+      - name: Measure native Windows Go network chain
+        shell: bash
+        run: python Benchmark/benchmark.py --core go --role network-chain --repeats 3 --require-network --output benchmark-windows
+      - name: Upload Windows network reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: shadow6-windows-network-benchmark
+          path: |
+            benchmark-windows.json
+            benchmark-windows.txt
+            benchmark-windows.md
+          if-no-files-found: error
+      - name: Dump Windows environment and benchmark diagnostics
+        if: always()
+        shell: bash
+        run: |
+          { uname -a; python --version; go version; } 2>&1 || true
+          for report in benchmark-*.json benchmark-*.txt benchmark-*.md; do test -f "$report" && { echo "===== $report ====="; cat "$report"; }; done
+          true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shadow6-windows-core-go
+          path: |
+            Core-Go/shadow6-go*
+            Gate/shadow6-gate*
+            Guard/shadow6-guard*
+          if-no-files-found: error
+  freebsd:
+    runs-on: ubuntu-latest
+    name: FreeBSD native tests
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cross-platform-actions/action@24ef01df165c76df1ed2b9f9e9212e78dc2fc963 # v1.4.0
+        with:
+          operating_system: freebsd
+          version: '14.4'
+      - name: Test FreeBSD components
+        shell: cpa.sh {0}
+        run: |
+            sudo pkg update -f
+            # rust includes Cargo; the base system supplies Clang.
+            sudo pkg install -y go rust python3 openssl libsodium libunistring zig nim ldc
+            export PYTHON="$(command -v python3 || command -v python3.12)"
+            for tool in go cargo c++ "$PYTHON"; do command -v "$tool" || exit 1; done
+            cd Core-Go
+            go test ./...
+            bash ./compile.sh
+            CROSED_LEVEL=5 APP_TRANSPORT=1 QUBES_ISOLATION=1 bash ./compile.sh
+            mv shadow6-go shadow6-go-crosed
+            CROSED_LEVEL=0 APP_TRANSPORT=0 QUBES_ISOLATION=0 bash ./compile.sh
+            cd ../Core-Rust
+            bash ./compile.sh
+            CROSED_LEVEL=5 APP_TRANSPORT=1 QUBES_ISOLATION=1 bash ./compile.sh
+            mv shadow6-rust shadow6-rust-crosed
+            CROSED_LEVEL=0 APP_TRANSPORT=0 QUBES_ISOLATION=0 bash ./compile.sh
+            cd ../Guard
+            go test ./...
+            bash ./compile.sh
+            cd ../Gate
+            go test ./...
+            go build -trimpath -o shadow6-gate .
+            # C11Relay uses Linux epoll and is covered by the Linux job.
+            cd ../Core-Cpp
+            bash ./compile.sh
+            bash ./test.sh
+            echo 'FreeBSD Zig 0.16 translate-c currently fails in the system headers; Zig remains covered by Linux/macOS'
+            if test -f /usr/local/include/rtc/rtc.h || pkg info -e libdatachannel; then cd ../Core-Nim && nim c --mm:arc --threads:on -d:release -o:shadow6-nim src/shadow6_nim.nim; else echo 'libdatachannel unavailable; Core-Nim source contract present'; fi
+            cd ..
+            sudo pkg install -y py312-cryptography 2>/dev/null || true
+            python3 -m venv --system-site-packages .venv
+            .venv/bin/python -c 'import cryptography' 2>/dev/null || \
+              .venv/bin/pip install --no-cache-dir --only-binary=:all: 'cryptography>=43,<47'
+            .venv/bin/pip install --no-deps asyncssh || .venv/bin/pip install asyncssh
+      - name: Measure FreeBSD native network chains
+        shell: cpa.sh {0}
+        run: .venv/bin/python Benchmark/benchmark.py --core go --core rust --role network-chain --repeats 3 --require-network --output benchmark-freebsd
+      - name: Upload FreeBSD network reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: shadow6-freebsd-network-benchmark
+          path: |
+            benchmark-freebsd.json
+            benchmark-freebsd.txt
+            benchmark-freebsd.md
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shadow6-freebsd-release
+          path: |
+            Core-Go/shadow6-go*
+            Core-Rust/shadow6-rust*
+            Guard/shadow6-guard*
+            Gate/shadow6-gate
+            C11Relay/bridge_relay
+            Core-Cpp/shadow6-cpp
+            Core-Zig/zig-out/bin/shadow6-zig
+            Core-Nim/shadow6-nim
+            benchmark-freebsd.json
+            benchmark-freebsd.txt
+            benchmark-freebsd.md
+          if-no-files-found: error
+  openbsd:
+    runs-on: ubuntu-latest
+    name: OpenBSD native tests
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cross-platform-actions/action@24ef01df165c76df1ed2b9f9e9212e78dc2fc963 # v1.4.0, Node 24
+        with:
+          operating_system: openbsd
+          version: '7.9'
+          cpu_count: 2
+          memory: 6G
+      - name: Test OpenBSD components
+        shell: cpa.sh {0}
+        run: |
+            sudo pkg_add go rust python%3.13 libsodium zig nim openssl-3.5.6v0
+            export PYTHON="$(command -v python3.13 || command -v python3)"
+            for tool in go cargo c++ "$PYTHON"; do command -v "$tool" || exit 1; done
+            export CPPFLAGS='-I/usr/local/include/eopenssl35'
+            export LDFLAGS='-L/usr/local/lib/eopenssl35 -Wl,-rpath,/usr/local/lib/eopenssl35'
+            test -f /usr/local/include/eopenssl35/openssl/ssl.h
+            # The Go network benchmark generates configs through the Python
+            # orchestrator, which imports the pinned application dependencies.
+            "$PYTHON" -m venv .venv
+            export PYTHON="$PWD/.venv/bin/python"
+            OPENSSL_INCLUDE_DIR=/usr/local/include/eopenssl35 OPENSSL_LIB_DIR=/usr/local/lib/eopenssl35 "$PYTHON" -m pip install -r requirements.txt
+            cd Core-Go
+            go test ./...
+            bash ./compile.sh
+            CROSED_LEVEL=5 APP_TRANSPORT=1 QUBES_ISOLATION=1 bash ./compile.sh
+            mv shadow6-go shadow6-go-crosed
+            CROSED_LEVEL=0 APP_TRANSPORT=0 QUBES_ISOLATION=0 bash ./compile.sh
+            cd ../Guard
+            go test ./...
+            cd ../Core-Cpp
+            bash ./compile.sh
+            bash ./test.sh
+            if test -f /usr/local/include/rtc/rtc.h; then cd ../Core-Nim && nim c --mm:arc --threads:on -d:release -o:shadow6-nim src/shadow6_nim.nim; else echo 'libdatachannel unavailable; Core-Nim source contract present'; fi
+            cd ..
+      - name: Measure OpenBSD native network chains
+        shell: cpa.sh {0}
+        run: .venv/bin/python Benchmark/benchmark.py --core go --core cpp --role network-chain --repeats 3 --output benchmark-openbsd
+      - name: Upload OpenBSD network reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: shadow6-openbsd-network-benchmark
+          path: |
+            benchmark-openbsd.json
+            benchmark-openbsd.txt
+            benchmark-openbsd.md
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shadow6-openbsd-release
+          path: |
+            Core-Go/shadow6-go*
+            Core-Cpp/shadow6-cpp
+            Core-Zig/zig-out/bin/shadow6-zig
+            Core-Nim/shadow6-nim
+            benchmark-openbsd.json
+            benchmark-openbsd.txt
+            benchmark-openbsd.md
+          if-no-files-found: error
+  netbsd:
+    runs-on: ubuntu-latest
+    name: NetBSD native tests
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: Core-Go/go.mod
+          check-latest: true
+          cache: false
+      - name: Prepare verified NetBSD Go toolchain
+        timeout-minutes: 5
+        run: python3 Tools/prepare_netbsd_go.py "$(go env GOVERSION)" .tmp/netbsd-go
+      # v1.4.0 disables AMX on NetBSD guests and fixes VM startup error handling.
+      # https://github.com/cross-platform-actions/action/issues/158
+      - name: Boot and test NetBSD
+        uses: cross-platform-actions/action@24ef01df165c76df1ed2b9f9e9212e78dc2fc963 # v1.4.0
+        timeout-minutes: 20
+        with:
+          operating_system: netbsd
+          version: '10.1'
+          cpu_count: 2
+          memory: 4G
+      - name: Test NetBSD components
+        shell: cpa.sh {0}
+        run: |
+          sudo pkgin -y install python311
+          export PYTHON=/usr/pkg/bin/python3.11
+          bash Tools/test_netbsd.sh
+          test -x Core-Go/shadow6-go
+          test -x Core-Go/shadow6-go-crosed
+      - name: Measure NetBSD native Go network chain
+        shell: cpa.sh {0}
+        run: |
+          # NetBSD's Python 3.11 has no compatible cryptography wheel and
+          # building it would require Rust unavailable in the guest. Use the
+          # native pkgsrc build for cryptography, then install the pure/Python
+          # dependencies without invoking pip's Rust build isolation.
+          sudo pkgin -y install py311-cryptography
+          /usr/pkg/bin/python3.11 -m venv --system-site-packages .venv
+          # stack_test imports only cryptography; aiohttp and the UI packages
+          # have no compatible NetBSD wheels and are not used by this check.
+          .venv/bin/python Benchmark/benchmark.py --core go --role network-chain --repeats 3 --require-network --output benchmark-netbsd
+      - name: Upload NetBSD network reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: shadow6-netbsd-network-benchmark
+          path: |
+            benchmark-netbsd.json
+            benchmark-netbsd.txt
+            benchmark-netbsd.md
+          if-no-files-found: warn
+      - name: NetBSD boot diagnostics
+        if: failure()
+        run: |
+          lscpu
+          if test -f /tmp/cross-platform-actions.log; then
+            sudo tail -n 200 /tmp/cross-platform-actions.log
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shadow6-netbsd-release
+          path: |
+            Core-Go/shadow6-go
+            Core-Go/shadow6-go-crosed
+          if-no-files-found: error
+  android:
+    runs-on: ubuntu-latest
+    name: Android APK release
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: actions/setup-go@v5
+        with: {go-version-file: Core-Go/go.mod}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,x86_64-linux-android
+      - name: Cache Android Nim toolchain
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.choosenim
+            ~/.nimble
+            ~/.cache/nim
+          key: nim-android-2.2.10
+      - uses: jiro4989/setup-nim-action@v2
+        timeout-minutes: 5
+        with:
+          nim-version: '2.2.10'
+      - uses: dlang-community/setup-dlang@v2
+        with:
+          compiler: ldc-1.40.0
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools'
+      - name: Install Android SDK tools
+        run: sdkmanager --install 'platforms;android-36' 'build-tools;36.0.0' 'ndk;28.2.13676358'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.4.1'
+      - name: Build Android OpenSSL and libsodium
+        # Crypto sources are pinned and fetched only in the explicit CI setup.
+        # Local verification uses already-provisioned sources without downloads.
+        env:
+          SHADOW6_ANDROID_BUILD_JOBS: '16'
+        run: |
+          git clone https://github.com/openssl/openssl.git "$RUNNER_TEMP/shadow6-openssl"
+          git -C "$RUNNER_TEMP/shadow6-openssl" checkout --detach f4dc4d58b48d346a8270183f89acf826d459b0ca
+          git clone https://github.com/jedisct1/libsodium.git "$RUNNER_TEMP/shadow6-sodium"
+          git -C "$RUNNER_TEMP/shadow6-sodium" checkout --detach 9511c982fb1d046470a8b42aa36556cdb7da15de
+          (cd "$RUNNER_TEMP/shadow6-sodium" && autoreconf -fi)
+          python3 Android/build_android_crypto.py \
+            --ndk "${ANDROID_SDK_ROOT:-$ANDROID_HOME}/ndk/28.2.13676358" \
+            --openssl-source "$RUNNER_TEMP/shadow6-openssl" \
+            --sodium-source "$RUNNER_TEMP/shadow6-sodium" \
+            --output "$GITHUB_WORKSPACE/.tmp/android-crypto"
+      - name: Build Android libdatachannel
+        env:
+          SHADOW6_ANDROID_BUILD_JOBS: '16'
+        run: |
+          git clone https://github.com/paullouisageneau/libdatachannel.git "$RUNNER_TEMP/shadow6-rtc"
+          git -C "$RUNNER_TEMP/shadow6-rtc" checkout --detach 9e6a13abbb6846c003d817d0387b6706466e2b03
+          git -C "$RUNNER_TEMP/shadow6-rtc" submodule update --init --recursive --depth 1
+          python3 Android/build_android_rtc.py \
+            --ndk "${ANDROID_SDK_ROOT:-$ANDROID_HOME}/ndk/28.2.13676358" \
+            --source "$RUNNER_TEMP/shadow6-rtc"
+      - name: Build Android core executables
+        env:
+          SHADOW6_ANDROID_BUILD_JOBS: '16'
+        run: |
+          ndk_dir="${ANDROID_SDK_ROOT:-$ANDROID_HOME}/ndk/28.2.13676358"
+          test -d "$ndk_dir"
+          python3 Android/build_android_cores.py --ndk "$ndk_dir"
+          for abi in arm64-v8a x86_64; do
+            for core in go rust d nim gate; do
+              test -s "Android/app/src/main/jniLibs/$abi/libshadow6_${core}.so"
+            done
+          done
+      - name: Build debug APK
+        run: gradle --no-daemon --no-configuration-cache --max-workers=16 --console=plain -Dorg.gradle.jvmargs='-Xms256m -Xmx2g -XX:MaxMetaspaceSize=768m -XX:ReservedCodeCacheSize=128m -XX:ActiveProcessorCount=8' -p Android assembleDebug
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shadow6-android-debug
+          path: Android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error

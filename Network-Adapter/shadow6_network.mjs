@@ -3,6 +3,9 @@ import crypto from 'node:crypto';
 import dgram from 'node:dgram';
 import fs from 'node:fs';
 import net from 'node:net';
+import path from 'node:path';
+import {fileURLToPath, pathToFileURL} from 'node:url';
+import {execFileSync} from 'node:child_process';
 import {EventEmitter} from 'node:events';
 
 export const POLICIES={go:['native',65536,64],rust:['native',65536,64],zig:['native',32768,64],ada:['native',448,32],d:['native',1200,32],nim:['native',16384,64],cpp:['native',32768,64],pony:['native',960,32],hare:['native',896,16],carp:['native',960,16],gleam:['native',4096,32],idris:['native',1024,32]};
@@ -11,7 +14,28 @@ function derive(key,direction){return crypto.createHmac('sha256',key).update(Buf
 function nonce(header){return crypto.createHash('sha256').update('shadow6-network-nonce-v1').update(header).digest().subarray(0,12)}
 function portable(value,depth=0){if(depth>8)throw Error('extension nesting exceeds 8');if(value===null||typeof value==='boolean')return;if(typeof value==='string'){if(Buffer.byteLength(value)>1024)throw Error('extension string is oversized');return}if(typeof value==='number'){if(!Number.isSafeInteger(value))throw Error('extension integer is not portable');return}if(Array.isArray(value)){if(value.length>64)throw Error('extension array is oversized');value.forEach(x=>portable(x,depth+1));return}if(typeof value==='object'){let keys=Object.keys(value);if(keys.length>64)throw Error('extension object is oversized');keys.forEach(k=>{portable(k,depth+1);portable(value[k],depth+1)});return}throw Error('extension contains a nonportable value')}
 function canonical(value){portable(value);let sort=x=>Array.isArray(x)?x.map(sort):(x&&typeof x==='object'?Object.fromEntries(Object.keys(x).sort().map(k=>[k,sort(x[k])])):x);let out=Buffer.from(JSON.stringify(sort(value)));if(out.length>4096)throw Error('extension payload exceeds 4 KiB');return out}
-export function loadKey(path){let before=fs.lstatSync(path),posix=process.platform!=='win32',ownerOk=!posix||before.uid===process.geteuid(),modeOk=!posix||(before.mode&0o777)===0o600;if(!before.isFile()||before.isSymbolicLink()||!ownerOk||!modeOk||before.size!==32)throw Error('adapter key must be an owned 32-byte mode-0600 regular file');let flags=fs.constants.O_RDONLY|(fs.constants.O_NOFOLLOW||0)|(fs.constants.O_CLOEXEC||0),fd=fs.openSync(path,flags);try{let opened=fs.fstatSync(fd,{bigint:true}),data=Buffer.alloc(33),count=fs.readSync(fd,data,0,33,0),after=fs.fstatSync(fd,{bigint:true});if(count!==32||opened.dev!==BigInt(before.dev)||opened.ino!==BigInt(before.ino)||after.size!==opened.size||after.mtimeNs!==opened.mtimeNs)throw Error('adapter key changed while reading');return data.subarray(0,32)}finally{fs.closeSync(fd)}}
+export function loadKey(keyPath){
+ if(process.platform==='win32'){
+  const shell=path.join(process.env.SystemRoot,'System32','WindowsPowerShell','v1.0','powershell.exe');
+  const result=execFileSync(shell,['-NoLogo','-NoProfile','-NonInteractive','-File',
+   fileURLToPath(new URL('./secure_key_windows.ps1',import.meta.url)),
+   '-Operation','read','-KeyPath',path.resolve(keyPath)],{timeout:30000,maxBuffer:65536,windowsHide:true});
+  if(!/^[A-Za-z0-9+/]{43}=$/.test(result.toString('ascii')))throw Error('invalid secure key response');
+  return Buffer.from(result.toString('ascii'),'base64');
+ }
+ const before=fs.lstatSync(keyPath,{bigint:true});
+ if(!before.isFile()||before.isSymbolicLink()||before.uid!==BigInt(process.geteuid())||
+    (before.mode&0o777n)!==0o600n||before.size!==32n)throw Error('adapter key must be an owned 32-byte mode-0600 regular file');
+ const same=(a,b)=>['dev','ino','size','mode','uid','nlink','mtimeNs','ctimeNs'].every(k=>a[k]===b[k]);
+ const fd=fs.openSync(keyPath,fs.constants.O_RDONLY|fs.constants.O_NOFOLLOW|(fs.constants.O_CLOEXEC||0));
+ try{
+  const opened=fs.fstatSync(fd,{bigint:true});
+  if(!same(before,opened))throw Error('adapter key changed while opening');
+  const data=Buffer.alloc(33),count=fs.readSync(fd,data,0,33,0),after=fs.fstatSync(fd,{bigint:true});
+  if(count!==32||!same(opened,after))throw Error('adapter key changed while reading');
+  return data.subarray(0,32);
+ }finally{fs.closeSync(fd)}
+}
 export class Codec{
  constructor(key,payload,side=0){if(!Buffer.isBuffer(key)||key.length!==32)throw Error('adapter key must be 32 bytes');if(!Number.isInteger(payload)||payload<64||payload>65536)throw Error('invalid adapter payload');if(side!==0&&side!==1)throw Error('invalid side');this.tx=derive(key,side);this.rx=derive(key,1-side);this.payload=payload}
  encode(kind,stream,message,index,count,payload=Buffer.alloc(0)){if(![DATA,ACK,EXTENSION].includes(kind)||!Number.isInteger(stream)||stream<0||stream>=64||message<0n||message>0xffffffffffffffffn)throw Error('invalid frame identity');if(!Buffer.isBuffer(payload)||payload.length>this.payload||count<1||count>65535||index<0||index>=count)throw Error('invalid frame bounds');let h=Buffer.alloc(HEADER);MAGIC.copy(h);h.writeUInt8(VERSION,4);h.writeUInt8(kind,5);h.writeBigUInt64BE(BigInt(stream),8);h.writeBigUInt64BE(message,16);h.writeUInt16BE(index,24);h.writeUInt16BE(count,26);h.writeUInt32BE(payload.length,28);let c=crypto.createCipheriv('chacha20-poly1305',this.tx,nonce(h),{authTagLength:16});c.setAAD(h,{plaintextLength:payload.length});let body=Buffer.concat([c.update(payload),c.final(),c.getAuthTag()]);return Buffer.concat([h,body])}

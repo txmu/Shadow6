@@ -30,7 +30,8 @@ class ConfigTests(unittest.TestCase):
 class ReportTests(unittest.TestCase):
     def test_wrapped_network_metrics_survive_all_three_formats(self):
         data = dict(throughput_bps=1234.5, duration_seconds=0.5,
-                    latency_p95_seconds=0.001, success_rate=1.0)
+                    latency_p95_seconds=0.001, success_rate=1.0,backend='native',
+                    payload_bytes=4,requests=2,concurrency=1,bytes_sent=8,bytes_received=8)
         out = 'ready\n'+json.dumps({'schema':'shadow6.network-suite.v1','results':{'shadow6-go':data}})
         self.assertEqual(network_result(out,'go'),data)
         result = {'results':[dict(core='go',measurement='network-chain',status='ok',network=network_result(out,'go'))]}
@@ -58,7 +59,8 @@ class ReportTests(unittest.TestCase):
             engine = command[command.index('--engine')+1]
             backend = command[command.index('--backend')+1]
             key = engine + ('' if backend == 'native' else '@'+backend)
-            result = dict(throughput_bps=1024, duration_seconds=1, latency_p95_seconds=.1, success_rate=1)
+            result = dict(throughput_bps=1024, duration_seconds=1, latency_p95_seconds=.1, success_rate=1,
+                          backend=backend,payload_bytes=4096,requests=32,concurrency=4,bytes_sent=131072,bytes_received=131072)
             return 0, json.dumps({'schema':'shadow6.network-suite.v1','results':{key:result}}), '', {}
         with patch('benchmark.available',return_value=True), patch('benchmark.network_unavailable',return_value=None), patch('benchmark.shutil.which',return_value='/usr/bin/node'), patch('benchmark.execute',side_effect=execute_case):
             result = run({'roles':['network-chain'],'network':{'payload_bytes':4096,'requests':8,'concurrency':4}})
@@ -91,6 +93,14 @@ class ReportTests(unittest.TestCase):
     def test_internal_benchmark_metrics_are_not_accepted(self):
         with self.assertRaises(ValueError):
             network_result(json.dumps(dict(schema='shadow6.network-chain.v1',throughput_bps=1,duration_seconds=1,latency_p95_seconds=1,success_rate=1)),'d')
+
+    def test_zero_and_inconsistent_counts_fail(self):
+        base=dict(throughput_bps=1,duration_seconds=1,latency_p95_seconds=0,success_rate=1,
+                  backend='native',payload_bytes=512,requests=2,concurrency=1,bytes_sent=1024,bytes_received=1024)
+        for change in ({'bytes_received':0},{'requests':0},{'bytes_received':512},{'backend':'node'}, {'concurrency':True}):
+            value=base|change
+            with self.subTest(change=change),self.assertRaises(ValueError):
+                network_result(json.dumps({'schema':'shadow6.network-suite.v1','results':{'shadow6-go':value}}),'go')
 
     def test_required_network_rejects_unsupported_kernel(self):
         with patch('benchmark.available',return_value=True), patch('benchmark.network_unavailable',return_value='SCTP unavailable'):

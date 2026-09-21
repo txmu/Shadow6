@@ -498,7 +498,9 @@ def run_engine(engine: str, benchmark: dict | None = None, backend: str = "nativ
         output = Path(directory) / "configs"
         key_path = Path(directory) / "adapter.key"
         if backend != "native":
-            key_path.write_bytes(os.urandom(32)); key_path.chmod(0o600)
+            sys.path.insert(0, str(ROOT / 'Network-Adapter'))
+            from shadow6_network import create_key
+            create_key(key_path, os.urandom(32))
             target = CompanionEchoTarget(family, datagram, backend, engine.removeprefix("shadow6-"), key_path, **impairment)
         target_port = target.start()
         broker_port = free_port()
@@ -663,12 +665,7 @@ def main() -> int:
     if args.external_proxy and (backend != "native" or args.concurrency != 1 or args.rtt_ms or args.loss_percent):
         parser.error("external endpoint requires native backend, concurrency 1, and zero local impairment")
     if args.engine == "all":
-        engines = tuple(engine for engine, binary in CORE_BINARIES.items()
-                        if binary.is_file() or (engine == "shadow6-zig" and
-                           (ROOT / "Core-Zig/zig-out/bin/shadow6-zig").is_file()))
-        skipped = sorted(set(CORE_BINARIES) - set(engines))
-        for engine in skipped:
-            print(f"[SKIP] {engine} native integration: binary was not built for this platform")
+        engines = tuple(CORE_BINARIES)
     else:
         engines = (args.engine,)
     benchmark_result = None
