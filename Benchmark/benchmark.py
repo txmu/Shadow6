@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """Fixed-command benchmark runner; process and network measurements differ."""
 from __future__ import annotations
-import argparse,errno,json,math,os,platform,signal,socket,subprocess,sys,tempfile,time
+import argparse,errno,json,math,os,platform,signal,socket,subprocess,sys,tempfile,time,shutil
 from pathlib import Path
 try: import resource
 except ModuleNotFoundError: resource=None
 ROOT=Path(__file__).resolve().parents[1]
 CORE_PATHS={"go":"Core-Go/shadow6-go","rust":"Core-Rust/shadow6-rust","zig":"Core-Zig/shadow6-zig","ada":"Core-Ada/shadow6-ada","d":"Core-D/shadow6-d","nim":"Core-Nim/shadow6-nim","cpp":"Core-Cpp/shadow6-cpp","pony":"Core-Pony/shadow6-pony","hare":"Core-Hare/shadow6-hare","carp":"Core-Carp/shadow6-carp","gleam":"Core-Gleam/shadow6-gleam","idris":"Core-Idris/shadow6-idris"}
 FALLBACK={"zig":"Core-Zig/zig-out/bin/shadow6-zig"}; ROLES={"feature-report":["--feature-report"],"version":["--version"],"network-chain":[]}
+BACKENDS=("native","python","node")
 def binary(p):
  try:
   with p.open('rb') as stream: m=stream.read(4)
@@ -58,14 +59,15 @@ def validate_config(d):
  if not isinstance(d["roles"],list) or not d["roles"] or not all(x in ROLES for x in d["roles"]):raise ValueError("unknown role")
  network=d['network']
  if not isinstance(network,dict) or set(network)!={'payload_bytes','requests','concurrency'}:raise ValueError('unknown network fields')
- for field,maximum in [('payload_bytes',1048576),('requests',10000),('concurrency',1)]:
+ for field,maximum in [('payload_bytes',1048576),('requests',10000),('concurrency',8)]:
   if type(network[field]) is not int or not 1<=network[field]<=maximum:raise ValueError(f'{field} outside 1..{maximum}')
  if not isinstance(d['args'],dict) or d['args']:raise ValueError('benchmark commands do not accept extra component arguments')
  if type(d['require_network']) is not bool:raise ValueError('require_network must be boolean')
+ if not isinstance(d['backends'],list) or not d['backends'] or len(set(d['backends']))!=len(d['backends']) or any(b not in BACKENDS for b in d['backends']):raise ValueError('unknown or duplicate backend')
  return d
 
 def _load_config(path):
- d={"cores":list(CORE_PATHS),"roles":["feature-report","network-chain"],"repeats":1,"args":{},"network":{"payload_bytes":4,"requests":32,"concurrency":1},"require_network":False}
+ d={"cores":list(CORE_PATHS),"backends":list(BACKENDS),"roles":["feature-report","network-chain"],"repeats":1,"args":{},"network":{"payload_bytes":4,"requests":32,"concurrency":1},"require_network":False}
  if path:
   x=json.loads(Path(path).read_text());
   if not isinstance(x,dict) or set(x)-set(d):raise ValueError("unknown benchmark fields")
@@ -80,75 +82,91 @@ def available(exe,core):
   with exe.open('rb') as stream:return stream.read(2)==b'#!'
  return binary(exe)
 
-def network_result(out,core):
+def network_result(out,core,backend="native"):
  result=json.loads(out.splitlines()[-1])
- if result.get('schema')=='shadow6.network-suite.v1':result=result['results']['shadow6-'+core]
+ if result.get('schema')!='shadow6.network-suite.v1':raise ValueError('expected common stack suite, not an internal benchmark emitter')
+ result=result['results']['shadow6-'+core+('' if backend=='native' else '@'+backend)]
  for field in ['throughput_bps','duration_seconds','latency_p95_seconds','success_rate']:
   value=result[field]
   if type(value) not in (int,float) or not math.isfinite(value) or value<0:raise ValueError('invalid network metric '+field)
  if result['duration_seconds']<=0 or result['success_rate']!=1.0:raise ValueError('network exchange incomplete')
- # Old native emitters count round-trip bytes, whereas throughput is useful
- # one-direction application goodput throughout this report.
- if 'bytes_transferred' in result:
-  result['throughput_bps']=result['bytes_transferred']*4/result['duration_seconds']
  return result
 
 PATHS={
- **{core:'client -> broker -> agent -> TCP echo target' for core in ('go','rust','zig','ada','nim','cpp')},
- 'pony':'UDP application -> authenticated client -> agent -> UDP echo target',
- 'hare':'IPv6 UDP application -> authenticated client -> agent -> UDP echo target',
- 'carp':'two authenticated native UDP channels, forward and reverse',
- 'd':'native packet codec over TCP/UDP relay sockets (in-process driver)',
- 'gleam':'native crypto over TCP/UDP relay sockets (in-process driver)',
- 'idris':'UDP application -> authenticated native client -> agent -> UDP echo target',
+ core:'native broker/agent/client trio -> application echo target' for core in CORE_PATHS
 }
 def run(c):
  defaults=_load_config(None);defaults.update(c);c=validate_config(defaults)
  rows=[]
+ runner=os.environ.get("PYTHON") or (str(ROOT/".venv/bin/python") if (ROOT/".venv/bin/python").is_file() else sys.executable)
  for core in c["cores"]:
   exe=(ROOT/CORE_PATHS[core]).resolve()
   if not available(exe,core):exe=(ROOT/FALLBACK.get(core,CORE_PATHS[core])).resolve()
-  if not available(exe,core):rows.append({"core":core,"measurement":"availability","status":"failed","path":str(exe),"reason":"missing, non-executable, or foreign-host binary"});continue
-  for role in c["roles"]:
-   reason=network_unavailable(core) if role=="network-chain" else None
-   if reason:
-    rows.append({"core":core,"measurement":"network-chain","role":role,"status":"failed" if c['require_network'] else "not_applicable","reason":reason})
-    print(f"[NOT APPLICABLE] {core} {role}: {reason}",file=sys.stderr)
-    continue
-   for repeat in range(1,c["repeats"]+1):
-    if role=="network-chain":
-     if core == "d":
-      cmd=[str(exe),"--benchmark-loopback",str(c["network"]["payload_bytes"]),str(c["network"]["requests"])]
-      timeout=60; kind="network-chain"
+  missing=not available(exe,core)
+  for backend in c["backends"]:
+   for role in c["roles"]:
+    for repeat in range(1,c["repeats"]+1):
+     kind="network-chain" if role=="network-chain" else "process-start"
+     row={"core":core,"backend":backend,"measurement":kind,"role":role,"repeat":repeat,
+          "deployment_enabled":"not-consulted; explicit isolated benchmark activation"}
+     reason="missing, non-executable, or foreign-host binary" if missing else None
+     if not reason and backend=="node" and not shutil.which("node"):reason="Node.js companion runtime unavailable"
+     unavailable=network_unavailable(core) if not reason and role=="network-chain" else None
+     if unavailable:reason=unavailable
+     if reason:
+      status="not_applicable" if unavailable and not c['require_network'] else "failed"
+      row.update(status=status,reason=reason);rows.append(row);continue
+     if role=="network-chain":
+      cmd=[runner,str(ROOT/"integration/stack_test.py"),"--engine","shadow6-"+core,"--backend",backend,"--benchmark",
+           *sum((["--"+k.replace("_","-"),str(v)] for k,v in c["network"].items()),[])]
+      timeout=240;row["path"]=PATHS[core]
+     elif backend=="native":
+      cmd=[str(exe),*ROLES[role]];timeout=120
+     elif role=="version":
+      cmd=[runner if backend=="python" else shutil.which("node"),"--version"];timeout=120
      else:
-      runner=os.environ.get("PYTHON") or (str(ROOT/".venv/bin/python") if (ROOT/".venv/bin/python").is_file() else sys.executable);cmd=[runner,str(ROOT/"integration/stack_test.py"),"--engine","shadow6-"+core,"--benchmark",*sum((["--"+k.replace("_","-"),str(v)] for k,v in c["network"].items()),[])]; timeout=240;kind="network-chain"
-    else:cmd=[str(exe),*ROLES[role],*c["args"].get(core,[]),*c["args"].get(role,[])];timeout=120;kind="process-start"
-    started=time.perf_counter();code,out,err,process=execute(cmd,timeout);row={"core":core,"measurement":kind,"role":role,"repeat":repeat,"status":"ok" if code==0 else "failed","returncode":code,"elapsed_seconds":time.perf_counter()-started,"process":process,"stderr":err[-2048:]}
-    if kind=='network-chain':row['path']=PATHS[core]
-    try:row["network" if kind=="network-chain" else "native"]=network_result(out,core) if kind=='network-chain' else json.loads(out)
-    except (ValueError,TypeError,KeyError,IndexError) as error:
-     if kind=='network-chain' and not code:
-      row['status']='failed';row['reason']='missing or invalid network metrics: '+str(error)
-    if code:
-     row["stdout"]=out[-2048:]
-     print(f"[FAIL] {core} {role} repeat={repeat} exit={code}\n{err[-2048:]}\n{out[-2048:]}",file=sys.stderr)
-    rows.append(row)
- return {"schema":"shadow6.benchmark.v2","config":c,"environment":{"platform":platform.platform(),'machine':platform.machine(),'python':platform.python_version(),'commit':os.environ.get('GITHUB_SHA'),'runner':os.environ.get('RUNNER_NAME'),'run_id':os.environ.get('GITHUB_RUN_ID'),'network':'loopback; no WAN emulation','throughput':'one-direction useful application bits / exchange duration'},"results":rows}
+      cmd=([runner,str(ROOT/"Network-Adapter/shadow6_network.py"),"catalog"] if backend=="python" else
+           [shutil.which("node"),str(ROOT/"Network-Adapter/shadow6_network.mjs"),"catalog"])
+      timeout=120
+     started=time.perf_counter()
+     try:code,out,err,process=execute(cmd,timeout)
+     except OSError as error:
+      row.update(status="failed",reason=str(error));rows.append(row);continue
+     row.update(status="ok" if code==0 else "failed",returncode=code,
+                elapsed_seconds=time.perf_counter()-started,process=process,stderr=err[-2048:])
+     try:row["network" if kind=="network-chain" else "native"]=network_result(out,core,backend) if kind=="network-chain" else json.loads(out)
+     except (ValueError,TypeError,KeyError,IndexError) as error:
+      if kind=="network-chain" and not code:row.update(status="failed",reason="missing or invalid network metrics: "+str(error))
+     if code:
+      row["stdout"]=out[-2048:]
+      print(f"[FAIL] {core}/{backend} {role} repeat={repeat} exit={code}\n{err[-2048:]}\n{out[-2048:]}",file=sys.stderr)
+     rows.append(row)
+ return {"schema":"shadow6.benchmark.v2","config":c,"environment":{"platform":platform.platform(),"machine":platform.machine(),
+         "python":platform.python_version(),"commit":os.environ.get("GITHUB_SHA"),"runner":os.environ.get("RUNNER_NAME"),
+         "run_id":os.environ.get("GITHUB_RUN_ID"),"network":"loopback; no WAN emulation",
+         "throughput":"one-direction useful application bits / exchange duration",
+         "companion_measurement":"real S6NA/1 through native Core trio; includes equal local library-driver IPC"},"results":rows}
 def write(result,base):
  base=Path(base);base.parent.mkdir(parents=True,exist_ok=True);base.with_suffix(".json").write_text(json.dumps(result,sort_keys=True,indent=2)+"\n",encoding="utf-8")
- lines=["Shadow6 Benchmark schema=shadow6.benchmark.v2","core\tmeasurement\trepeat\tstatus\telapsed_seconds\tpeak_rss_kib\tthroughput_bps\tlatency_p95_seconds\tsuccess_rate"]
+ lines=["Shadow6 Benchmark schema=shadow6.benchmark.v2","core\tbackend\tmeasurement\trepeat\tstatus\telapsed_seconds\tpeak_rss_kib\tthroughput_bps\tlatency_p95_seconds\tsuccess_rate"]
  for r in result["results"]:
-  n=r.get("network",{});rss=r.get("process",{}).get("peak_rss_kib",{}).get("value","-");lines.append(f"{r['core']}\t{r['measurement']}\t{r.get('repeat','-')}\t{r['status']}\t{r.get('elapsed_seconds',0):.6f}\t{rss}\t{n.get('throughput_bps','-')}\t{n.get('latency_p95_seconds','-')}\t{n.get('success_rate','-')}")
+  n=r.get("network",{});rss=r.get("process",{}).get("peak_rss_kib",{}).get("value","-");lines.append(f"{r['core']}\t{r.get('backend','native')}\t{r['measurement']}\t{r.get('repeat','-')}\t{r['status']}\t{r.get('elapsed_seconds',0):.6f}\t{rss}\t{n.get('throughput_bps','-')}\t{n.get('latency_p95_seconds','-')}\t{n.get('success_rate','-')}")
   if r.get('reason'):lines.append('  reason: '+r['reason'])
   if r.get('path'):lines.append('  path: '+r['path'])
  base.with_suffix(".txt").write_text("\n".join(lines)+"\n",encoding="utf-8")
  base.with_suffix(".md").write_text("# Shadow6 Benchmark Report\n\nLoopback request/response goodput, not WAN or saturation capacity. Paths are stated per core; native codec/self-test rows do not establish daemon throughput. Process-start values are not network rankings.\n\nEnvironment: "+json.dumps(result.get('environment',{}),sort_keys=True)+"\n\n```\n"+"\n".join(lines)+"\n```\n",encoding="utf-8")
 def main():
- p=argparse.ArgumentParser();p.add_argument("--config");p.add_argument("--core",action="append",choices=sorted(CORE_PATHS));p.add_argument("--role",choices=sorted(ROLES));p.add_argument("--repeats",type=int);p.add_argument("--require-network",action='store_true');p.add_argument("--output",default="benchmark");p.add_argument("--format",action="append") ;a=p.parse_args();c=_load_config(a.config)
+ p=argparse.ArgumentParser();p.add_argument("--config");p.add_argument("--core",action="append",choices=sorted(CORE_PATHS));p.add_argument("--role",choices=sorted(ROLES));p.add_argument("--repeats",type=int);p.add_argument("--require-network",action='store_true');p.add_argument("--output",default="benchmark");p.add_argument("--format",action="append")
+ p.add_argument("--backend",action="append",choices=BACKENDS)
+ for field in ('payload-bytes','requests','concurrency'):p.add_argument('--'+field,type=int)
+ a=p.parse_args();c=_load_config(a.config)
  if a.core:c["cores"]=a.core
  if a.role:c["roles"]=[a.role]
  if a.repeats is not None:c["repeats"]=a.repeats
  if a.require_network:c['require_network']=True
+ if a.backend:c['backends']=a.backend
+ for field in ('payload_bytes','requests','concurrency'):
+  if getattr(a,field) is not None:c['network'][field]=getattr(a,field)
  validate_config(c)
  r=run(c)
  if a.output=="-":print(json.dumps(r,sort_keys=True,indent=2))

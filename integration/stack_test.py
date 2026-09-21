@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Single-host end-to-end test for the generated Shadow6 Go/Rust stacks.
+"""One application-level contract for all twelve native Shadow6 trios.
 
 The test deliberately uses only loopback/process resources: the orchestrator
 generates real credentials and configs, then real Broker, Agent and Client
@@ -14,7 +14,6 @@ import ipaddress
 import asyncio
 import os
 import re
-import select
 import signal
 import socket
 import subprocess
@@ -23,10 +22,14 @@ import tempfile
 import threading
 import time
 import traceback
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from native_configs import DATAGRAM_CORES, generate_commands
+from companion import Adapter, BACKENDS, Channel, exchange
 
 
 ROOT = Path(__file__).resolve().parents[1]
+_BROKER_BIND_LOCK = threading.Lock()
 
 # Each entry invokes the core's existing real loopback/network tests.  The
 # harness never substitutes a synthetic wire protocol for a missing core test.
@@ -75,126 +78,6 @@ def receive_exact(connection: socket.socket, length: int) -> bytes:
         result.extend(chunk)
     return bytes(result)
 
-def reserve_udp(family: int, count: int) -> list[int]:
-    host = "::1" if family == socket.AF_INET6 else "127.0.0.1"
-    sockets = [socket.socket(family, socket.SOCK_DGRAM) for _ in range(count)]
-    try:
-        for item in sockets: item.bind((host, 0))
-        return [item.getsockname()[1] for item in sockets]
-    finally:
-        for item in sockets: item.close()
-
-def run_datagram_engine(engine: str, benchmark: dict) -> dict:
-    binary = CORE_BINARIES[engine]; family = socket.AF_INET6 if engine == "shadow6-hare" else socket.AF_INET
-    host = "::1" if family == socket.AF_INET6 else "127.0.0.1"; ports = reserve_udp(family, 4)
-    agent_port, client_port, app_port, target_port = ports
-    target = socket.socket(family, socket.SOCK_DGRAM); target.bind((host, target_port)); target.settimeout(10)
-    local = socket.socket(family, socket.SOCK_DGRAM); local.bind((host, 0)); local.settimeout(10)
-    processes = []
-    with tempfile.TemporaryDirectory(prefix=f"shadow6-bench-{engine}-") as directory:
-        root = Path(directory)
-        if engine == "shadow6-pony":
-            from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-            from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
-            seeds = [os.urandom(32), os.urandom(32)]
-            pubs = [Ed25519PrivateKey.from_private_bytes(seed).public_key().public_bytes(Encoding.Raw, PublicFormat.Raw).hex() for seed in seeds]
-            configs = [dict(role="agent",listen_port=agent_port,peer_port=client_port,application_port=target_port,private_key=seeds[0].hex(),peer_public_key=pubs[1]),dict(role="client",listen_port=client_port,peer_port=agent_port,application_port=app_port,private_key=seeds[1].hex(),peer_public_key=pubs[0])]
-        else:
-            keys = [json.loads(subprocess.check_output([str(binary), "--gen-key"], text=True)) for _ in range(2)]
-            configs = [{"role":"agent","private_key":keys[0]["private_key"],"peer_public_key":keys[1]["public_key"],"listen_port":agent_port,"target_port":target_port},{"role":"client","private_key":keys[1]["private_key"],"peer_public_key":keys[0]["public_key"],"listen_port":client_port,"target_port":agent_port}]
-            app_port = client_port + 1
-        try:
-            for config in configs:
-                path=root/(config["role"]+".json");path.write_text(json.dumps(config),encoding="utf-8");path.chmod(0o600)
-                processes.append(subprocess.Popen([str(binary),"--config",str(path)],stdout=subprocess.PIPE,stderr=subprocess.PIPE))
-            for process in processes:
-                if not select.select([process.stdout],[],[],10)[0]: raise TimeoutError(f"{engine}: endpoint readiness timeout")
-                if b"ready" not in process.stdout.readline(): raise RuntimeError(f"{engine}: endpoint failed readiness")
-            if engine == "shadow6-hare":
-                for process in processes:
-                    if not select.select([process.stdout],[],[],10)[0] or b"session ready" not in process.stdout.readline(): raise TimeoutError(f"{engine}: session readiness timeout")
-            payload=b"x"*benchmark["payload_bytes"];latencies=[];started=time.perf_counter()
-            for _ in range(benchmark["requests"]):
-                request=time.perf_counter();local.sendto(payload,(host,app_port));data,address=target.recvfrom(1048577)
-                if data!=payload:raise AssertionError(f"{engine}: target payload mismatch")
-                target.sendto(data,address)
-                if local.recv(1048577)!=payload:raise AssertionError(f"{engine}: client response mismatch")
-                latencies.append(time.perf_counter()-request)
-            return benchmark_metrics(payload,latencies,time.perf_counter()-started)
-        finally:
-            target.close();local.close()
-            for process in processes:
-                process.terminate();process.communicate(timeout=5)
-
-def run_carp_engine(benchmark: dict) -> dict:
-    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-    from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
-    binary=CORE_BINARIES["shadow6-carp"];ports=reserve_udp(socket.AF_INET,4);processes=[]
-    with tempfile.TemporaryDirectory(prefix="shadow6-bench-carp-") as directory:
-        root=Path(directory); channels=[]
-        for index in range(2):
-            seeds=[os.urandom(32),os.urandom(32)];pubs=[Ed25519PrivateKey.from_private_bytes(s).public_key().public_bytes(Encoding.Raw,PublicFormat.Raw) for s in seeds];binding=os.urandom(32)
-            paths=[]
-            for side in range(2):
-                path=root/f"{index}-{side}.keys";path.write_bytes(seeds[side]+pubs[1-side]+binding);path.chmod(0o600);paths.append(path)
-            listener=subprocess.Popen([str(binary),"--listen",str(paths[1]),str(ports[index*2+1]),str(ports[index*2]),"C"],stdout=subprocess.PIPE,stderr=subprocess.PIPE)
-            sender=subprocess.Popen([str(binary),"--send",str(paths[0]),str(ports[index*2]),str(ports[index*2+1]),"C"],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
-            processes += [listener,sender];channels.append((sender,listener))
-        try:
-            time.sleep(.25);payload=b"x"*benchmark["payload_bytes"];latencies=[];started=time.perf_counter()
-            for _ in range(benchmark["requests"]):
-                request=time.perf_counter();channels[0][0].stdin.write(payload);channels[0][0].stdin.flush()
-                if not select.select([channels[0][1].stdout],[],[],10)[0] or channels[0][1].stdout.read(len(payload))!=payload:raise AssertionError("shadow6-carp: forward path failed")
-                channels[1][0].stdin.write(payload);channels[1][0].stdin.flush()
-                if not select.select([channels[1][1].stdout],[],[],10)[0] or channels[1][1].stdout.read(len(payload))!=payload:raise AssertionError("shadow6-carp: reverse path failed")
-                latencies.append(time.perf_counter()-request)
-            return benchmark_metrics(payload,latencies,time.perf_counter()-started)
-        finally:
-            for process in processes:
-                process.terminate()
-                try:process.communicate(timeout=5)
-                except subprocess.TimeoutExpired:process.kill();process.communicate()
-
-def run_idris_engine(benchmark: dict) -> dict:
-    size=benchmark["payload_bytes"];requests=benchmark["requests"]
-    if size<1 or size>1024: raise ValueError("shadow6-idris native datagrams are bounded to 1..1024 bytes; use its companion for larger payloads")
-    if requests<1 or requests>1000000: raise ValueError("shadow6-idris request count exceeds its native bound")
-    binary=CORE_BINARIES["shadow6-idris"];ports=reserve_udp(socket.AF_INET,4)
-    client_port,agent_port,app_port,target_port=ports;payload=os.urandom(size);stop=threading.Event();echo_error=[]
-    echo=socket.socket(socket.AF_INET,socket.SOCK_DGRAM);echo.bind(("127.0.0.1",target_port));echo.settimeout(.2)
-    def echo_loop():
-        try:
-            while not stop.is_set():
-                try:data,source=echo.recvfrom(2048)
-                except socket.timeout:continue
-                echo.sendto(data,source)
-        except Exception as exc:echo_error.append(exc)
-    thread=threading.Thread(target=echo_loop,daemon=True);thread.start()
-    with tempfile.TemporaryDirectory(prefix="shadow6-idris-bench-") as directory:
-        key=Path(directory)/"native.key";key.write_bytes(os.urandom(32));key.chmod(0o600)
-        agent=subprocess.Popen([str(binary),"--native-agent","127.0.0.1",str(agent_port),"127.0.0.1",str(client_port),"127.0.0.1",str(target_port),str(key),str(requests)],cwd=binary.parent,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
-        client=subprocess.Popen([str(binary),"--native-client","127.0.0.1",str(client_port),"127.0.0.1",str(agent_port),str(app_port),str(key),str(requests)],cwd=binary.parent,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
-        application=socket.socket(socket.AF_INET,socket.SOCK_DGRAM);application.settimeout(10);time.sleep(.1);latencies=[];started=time.perf_counter()
-        try:
-            for _ in range(requests):
-                request=time.perf_counter();application.sendto(payload,("127.0.0.1",app_port))
-                if application.recvfrom(2048)[0]!=payload:raise AssertionError("shadow6-idris native relay corrupted payload")
-                latencies.append(time.perf_counter()-request)
-            for process in (client,agent):
-                output,error=process.communicate(timeout=10)
-                if process.returncode:raise RuntimeError(f"shadow6-idris native relay failed: {(error or output)[-2048:]!r}")
-            if echo_error:raise echo_error[0]
-            return benchmark_metrics(payload,latencies,time.perf_counter()-started)
-        finally:
-            application.close();stop.set();echo.close();thread.join(1)
-            for process in (client,agent):
-                if process.poll() is None:process.terminate()
-
-def run_native_loopback_engine(engine: str, benchmark: dict) -> dict:
-    binary=ROOT/CORE_BINARIES[engine]
-    result=subprocess.run([str(binary),"--benchmark-loopback",str(benchmark["payload_bytes"]),str(benchmark["requests"])],cwd=binary.parent,capture_output=True,text=True,timeout=30)
-    if result.returncode: raise RuntimeError(f"{engine} native benchmark failed: {result.stderr[-2048:] or result.stdout[-2048:]}")
-    return json.loads(result.stdout.splitlines()[-1])
 
 
 def run_native_core_tests(engine: str) -> None:
@@ -307,10 +190,203 @@ class EchoTarget:
         return self.connection_done.wait(timeout)
 
 
+class DatagramEchoTarget(EchoTarget):
+    def __init__(self, family: int, **kwargs):
+        self.family = family
+        super().__init__(**kwargs)
+
+    def _run(self):
+        try:
+            with socket.socket(self.family, socket.SOCK_DGRAM) as listener:
+                self.listener = listener
+                listener.bind(("::1" if self.family == socket.AF_INET6 else "127.0.0.1", 0))
+                listener.settimeout(.2)
+                self.port = listener.getsockname()[1]
+                self.ready.set()
+                while not self.stop.is_set():
+                    try:
+                        data, peer = listener.recvfrom(65536)
+                    except socket.timeout:
+                        continue
+                    self.responses += 1
+                    delay = self.rtt_ms / 1000
+                    if self.loss_percent and self.responses % max(1, 100 // self.loss_percent) == 0:
+                        delay += self.rtt_ms / 1000
+                    if self.stop.wait(delay):
+                        break
+                    listener.sendto(data, peer)
+        except BaseException as exc:
+            if not self.stop.is_set():
+                self.error = exc
+        finally:
+            self.ready.set()
+
+
+class CompanionEchoTarget(EchoTarget):
+    def __init__(self, family, datagram, backend, core, key_path, **kwargs):
+        self.family, self.datagram = family, datagram
+        self.backend, self.core, self.key_path = backend, core, key_path
+        super().__init__(**kwargs)
+
+    def _run(self):
+        adapter = None
+        try:
+            adapter = Adapter(self.backend, self.core, self.key_path, 1)
+            with socket.socket(self.family, socket.SOCK_DGRAM if self.datagram else socket.SOCK_STREAM) as listener:
+                self.listener = listener
+                listener.bind(("::1" if self.family == socket.AF_INET6 else "127.0.0.1", 0))
+                listener.settimeout(.1)
+                if not self.datagram:
+                    listener.listen(1)
+                self.port = listener.getsockname()[1]; self.ready.set()
+                connection = listener
+                if not self.datagram:
+                    while not self.stop.is_set():
+                        try:
+                            connection, _ = listener.accept()
+                            break
+                        except socket.timeout:
+                            continue
+                    if self.stop.is_set():
+                        return
+                connection.settimeout(.1)
+                channel = Channel(connection, self.datagram)
+                try:
+                    while not self.stop.is_set():
+                        try:
+                            if self.datagram and channel.peer is None:
+                                frame, peer = connection.recvfrom(4097)
+                                channel.peer = peer
+                            else:
+                                frame = channel.receive()
+                        except socket.timeout:
+                            frames, messages = adapter.call("tick")
+                        except EOFError:
+                            break
+                        else:
+                            frames, messages = adapter.call("receive", frame)
+                        channel.send(frames)
+                        for message in messages:
+                            self.responses += 1
+                            delay = self.rtt_ms / 1000
+                            if self.loss_percent and self.responses % max(1, 100 // self.loss_percent) == 0:
+                                delay += self.rtt_ms / 1000
+                            if self.stop.wait(delay):
+                                return
+                            frames, extra = adapter.call("send", message)
+                            channel.send(frames)
+                finally:
+                    if connection is not listener:
+                        connection.close()
+                    self.connection_done.set()
+        except BaseException as exc:
+            if not self.stop.is_set():
+                self.error = exc
+        finally:
+            if adapter:
+                adapter.close()
+            self.ready.set()
+
+
+def evaluate_application(connection: socket.socket, datagram: bool, options: dict, adapter=None) -> dict:
+    """Identical bounded workload and assertions for every native transport.
+
+    Application writes are 512 bytes for *every* family. This is ordinary
+    application segmentation, not a synthetic Core protocol or a claim that
+    bounded datagram cores carry a 1 MiB datagram or provide reliable streams.
+    No retries here: corruption, loss, extra bytes, or timeout fail the run.
+    """
+    size = options["payload_bytes"]
+    latencies = []
+    channel = Channel(connection, datagram) if adapter else None
+    started = time.perf_counter()
+    for _ in range(options["requests"]):
+        payload = os.urandom(size)
+        request_started = time.perf_counter()
+        for offset in range(0, size, 512):
+            part = payload[offset:offset+512]
+            if adapter:
+                received = exchange(adapter, channel, part)
+            else:
+                connection.sendall(part)
+                received = connection.recv(65536) if datagram else receive_exact(connection, len(part))
+            if received != part:
+                raise AssertionError("application response mismatch")
+        latencies.append(time.perf_counter() - request_started)
+    result = benchmark_metrics(payload, latencies, time.perf_counter() - started)
+    result.update(application_chunk_bytes=min(size, 512),
+                  application_transport="udp" if datagram else "tcp",
+                  roles=["broker", "agent", "client"],
+                  impairment={"model": "bounded-userspace-response-v1",
+                              "rtt_ms": options.get("rtt_ms", 0),
+                              "loss_percent": options.get("loss_percent", 0)})
+    return result
+
+
 def free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind(("127.0.0.1", 0))
         return int(sock.getsockname()[1])
+
+
+def captured_log(path: Path) -> str:
+    try:
+        return path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
+
+
+def wait_until(predicate, process: subprocess.Popen[str], log_path: Path, deadline: float, failure: str) -> None:
+    while time.monotonic() < deadline:
+        if process.poll() is not None:
+            raise RuntimeError(f"{failure}: exited with {process.returncode}: {captured_log(log_path)[-2000:]}")
+        if predicate():
+            return
+        time.sleep(0.05)
+    raise TimeoutError(f"{failure}: {captured_log(log_path)[-2000:]}")
+
+
+def loopback_tcp_count(port: int, states: set[str], local_only: bool) -> int:
+    if type(port) is not int or not 1 <= port <= 65535:
+        raise ValueError("invalid loopback port")
+    if not states or any(type(state) is not str or len(state) != 2 for state in states):
+        raise ValueError("invalid tcp states")
+    wanted = {state.upper() for state in states}
+    needle = f"{port:04X}"
+    count = 0
+    for name in ("tcp", "tcp6"):
+        path = Path("/proc/net") / name
+        if not path.is_file():
+            continue
+        try:
+            rows = path.read_text(encoding="ascii", errors="replace").splitlines()[1:]
+        except OSError:
+            continue
+        for row in rows:
+            parts = row.split()
+            if len(parts) < 4 or parts[3].upper() not in wanted:
+                continue
+            local = parts[1].rsplit(":", 1)
+            remote = parts[2].rsplit(":", 1)
+            if len(local) != 2 or len(remote) != 2:
+                continue
+            if local[1].upper() == needle or (not local_only and remote[1].upper() == needle):
+                count += 1
+    return count
+
+
+def tcp_port_open(port: int) -> bool:
+    if loopback_tcp_count(port, {"0A"}, True) >= 1:
+        return True
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=0.2):
+            return True
+    except OSError:
+        return False
+
+
+def established_loopback_count(port: int) -> int:
+    return loopback_tcp_count(port, {"01"}, False)
 
 
 def terminate(process: subprocess.Popen[str] | None, label: str) -> None:
@@ -399,116 +475,118 @@ async def generate_configs(engine: str, output: Path, target_port: int, broker_p
             path = output / f"{role}.json"
             path.write_text(json.dumps(document), encoding="utf-8"); path.chmod(0o600)
         return
-    # Go/Rust benchmark runs only need the signed core JSON contract.  Keep
-    # them independent from Auto-Orchestrator's optional UI/SSH dependencies
-    # (which are not packaged on BSD runners).
-    if engine in {"shadow6-go", "shadow6-rust"}:
-        from local_configs import generate_configs as generate_local_configs
-        generate_local_configs(output, target_port, broker_port, engine)
-        return
-    sys.path.insert(0, str(ROOT / "Auto-Orchestrator"))
-    from shadow6_auto import execute_mtd_rotation
-    topology = {
-        "version": "1.0",
-        "global": {
-            "stealth_mode": True,
-            "mtd_rotation_interval": "1h",
-            "broker_scheme": "ws",
-            "output_dir": str(output),
-        },
-        "nodes": [
-            {
-                "name": f"it-{engine}-broker",
-                "type": "broker",
-                "listen_host": "127.0.0.1",
-                "advertise_host": "127.0.0.1",
-                "listen_port": broker_port,
-                "engines": [engine],
-            },
-            {
-                "name": f"it-{engine}-agent",
-                "type": "agent",
-                "target_port": target_port,
-                "auto_close_after": 30,
-                "allow_local_discovery": False,
-                "engines": [engine],
-            },
-            {
-                "name": f"it-{engine}-client",
-                "type": "client",
-                "target_agent": f"it-{engine}-agent",
-                "allow_local_discovery": False,
-                "on_success": "",
-                "engines": [engine],
-            },
-        ],
-    }
-    await execute_mtd_rotation(topology)
+    from local_configs import generate_configs as generate_local_configs
+    generate_local_configs(output, target_port, broker_port, engine)
 
 
-def run_engine(engine: str, benchmark: dict | None = None) -> dict | None:
+def run_engine(engine: str, benchmark: dict | None = None, backend: str = "native") -> dict | None:
     binary = CORE_BINARIES[engine]
     if engine == "shadow6-zig" and not binary.is_file():
         binary = ROOT / "Core-Zig/zig-out/bin/shadow6-zig"
     if not binary.is_file():
         raise FileNotFoundError(f"missing built binary: {binary}")
 
-    target = EchoTarget(benchmark.get("rtt_ms", 0), benchmark.get("loss_percent", 0)) if benchmark else EchoTarget()
+    options = benchmark or {"payload_bytes": 16384, "requests": 4}
+    datagram = engine in DATAGRAM_CORES
+    family = socket.AF_INET6 if engine == "shadow6-hare" else socket.AF_INET
+    impairment = {"rtt_ms": options.get("rtt_ms", 0), "loss_percent": options.get("loss_percent", 0)}
+    target = DatagramEchoTarget(family, **impairment) if datagram else EchoTarget(**impairment)
     broker = agent = client = None
     success = False
     result = None
     with tempfile.TemporaryDirectory(prefix=f"shadow6-it-{engine}-") as directory:
         output = Path(directory) / "configs"
+        key_path = Path(directory) / "adapter.key"
+        if backend != "native":
+            key_path.write_bytes(os.urandom(32)); key_path.chmod(0o600)
+            target = CompanionEchoTarget(family, datagram, backend, engine.removeprefix("shadow6-"), key_path, **impairment)
         target_port = target.start()
         broker_port = free_port()
-        asyncio.run(generate_configs(engine, output, target_port, broker_port))
-        prefix = f"it-{engine}"
-        config = lambda role: output / (f"{role}.json" if engine == "shadow6-cpp" else f"{prefix}-{role}.json")
-        command = lambda cfg: [str(binary), "--config", str(cfg)]
+        if datagram:
+            commands, endpoint = generate_commands(engine, binary, output, target_port)
+        else:
+            asyncio.run(generate_configs(engine, output, target_port, broker_port))
+            prefix = f"it-{engine}"
+            commands = {role: [str(binary), "--config", str(output / (
+                f"{role}.json" if engine == "shadow6-cpp" else f"{prefix}-{role}.json"))]
+                for role in ("broker", "agent", "client")}
         log_paths = {role: Path(directory) / f"{role}.log" for role in ("broker", "agent", "client")}
         log_files = {
             role: path.open("w", encoding="utf-8", buffering=1)
             for role, path in log_paths.items()
         }
         try:
-            broker = subprocess.Popen(
-                command(config("broker")), stdout=log_files["broker"], stderr=subprocess.STDOUT, text=True
-            )
-            time.sleep(0.5)
-            agent = subprocess.Popen(
-                command(config("agent")), stdout=log_files["agent"], stderr=subprocess.STDOUT, text=True
-            )
-            time.sleep(1.0)
-            client = subprocess.Popen(
-                command(config("client")), stdout=log_files["client"], stderr=subprocess.STDOUT, text=True
-            )
-            proxy_port = wait_for_proxy(client, log_paths["client"], time.monotonic() + 20)
-            with socket.create_connection(("127.0.0.1", proxy_port), timeout=5) as connection:
-                connection.sendall(b"ping")
-                if receive_exact(connection, 4) != b"ping":
-                    raise AssertionError(f"{engine}: target response mismatch")
-                if benchmark:
-                    payload = b"x" * benchmark["payload_bytes"]
-                    latencies = []; started = time.perf_counter()
-                    for _ in range(benchmark["requests"]):
-                        request_started = time.perf_counter(); connection.sendall(payload)
-                        received = receive_exact(connection, len(payload))
-                        if received != payload: raise AssertionError(f"{engine}: benchmark response mismatch")
-                        latencies.append(time.perf_counter() - request_started)
-                    duration = time.perf_counter() - started
-                    result = benchmark_metrics(payload,latencies,duration)
-                    result["impairment"] = {"model": "bounded-userspace-response-v1", "rtt_ms": benchmark.get("rtt_ms", 0), "loss_percent": benchmark.get("loss_percent", 0)}
+            def start_role(role: str) -> subprocess.Popen[str]:
+                popen_kwargs = {"stdout": log_files[role], "stderr": subprocess.STDOUT, "text": True}
+                if engine == "shadow6-gleam":
+                    environment = dict(os.environ)
+                    environment["ERL_CRASH_DUMP"] = str(Path(directory) / f"{role}-erl_crash.dump")
+                    popen_kwargs["cwd"] = directory
+                    popen_kwargs["env"] = environment
+                return subprocess.Popen(commands[role], **popen_kwargs)
+
+            if engine == "shadow6-gleam":
+                with _BROKER_BIND_LOCK:
+                    broker = start_role("broker")
+                    wait_until(lambda: tcp_port_open(broker_port), broker, log_paths["broker"],
+                               time.monotonic() + 20, "gleam broker did not listen")
+                agent = start_role("agent")
+                wait_until(lambda: established_loopback_count(broker_port) >= 1, agent, log_paths["agent"],
+                           time.monotonic() + 20, "gleam agent control handshake did not connect")
+                settled = time.monotonic() + 1.0
+                wait_until(lambda: time.monotonic() >= settled and established_loopback_count(broker_port) >= 1,
+                           agent, log_paths["agent"], settled + 0.2, "gleam agent control session dropped")
+                client = start_role("client")
+            else:
+                broker = start_role("broker")
+                time.sleep(0.5)
+                agent = start_role("agent")
+                time.sleep(1.0)
+                client = start_role("client")
+            if datagram:
+                deadline = time.monotonic() + 20
+                marker = "ready:" if engine == "shadow6-pony" else "session ready"
+                while time.monotonic() < deadline:
+                    if any(p.poll() is not None for p in (broker, agent, client)):
+                        raise RuntimeError("native role exited before session readiness")
+                    if all(marker in log_paths[r].read_text(errors="replace") for r in ("agent", "client")):
+                        break
+                    time.sleep(.02)
+                else:
+                    raise TimeoutError("native session readiness timeout")
+                connection = socket.socket(family, socket.SOCK_DGRAM)
+                connection.connect(endpoint)
+            else:
+                proxy_wait = 30 if engine == "shadow6-gleam" else 20
+                proxy_port = wait_for_proxy(client, log_paths["client"], time.monotonic() + proxy_wait)
+                connection = socket.create_connection(("127.0.0.1", proxy_port), timeout=5)
+            with connection:
+                connection.settimeout(10)
+                if any(p.poll() is not None for p in (broker, agent, client)):
+                    raise RuntimeError("native role exited before application evaluation")
+                adapter = None
+                try:
+                    if backend != "native":
+                        adapter = Adapter(backend, engine.removeprefix("shadow6-"), key_path, 0)
+                        connection.settimeout(.1)
+                    result = evaluate_application(connection, datagram, options, adapter)
+                    result["backend"] = backend
+                finally:
+                    if adapter:
+                        adapter.close()
                 # Complete the stream with an explicit FIN before the child
                 # processes are torn down.  Abruptly closing a Windows TCP
                 # handle while the echo target still has unread bytes causes
                 # WSAECONNRESET and hides an otherwise real lifecycle bug.
-                connection.shutdown(socket.SHUT_WR)
-                while connection.recv(65536):
-                    pass
-            if not target.wait_for_connection_close(3):
+                if not datagram:
+                    connection.settimeout(10)
+                    connection.shutdown(socket.SHUT_WR)
+                    while connection.recv(65536):
+                        pass
+            if not datagram and not target.wait_for_connection_close(3):
                 raise AssertionError(f"{engine}: target connection did not complete graceful close")
             success = True
-            print(f"[PASS] {engine} orchestrator -> broker -> agent -> client data path")
+            print(f"[PASS] {engine} backend={backend} native broker/agent/client application contract")
         finally:
             terminate(client, "client")
             terminate(agent, "agent")
@@ -544,10 +622,34 @@ def run_external_proxy(endpoint: str, benchmark: dict) -> dict:
     return result
 
 
+def run_parallel(engine, options, backend):
+    count = options["concurrency"]
+    if count == 1:
+        return run_engine(engine, options, backend)
+    started = time.perf_counter()
+    with ThreadPoolExecutor(max_workers=count) as pool:
+        futures = [pool.submit(run_engine, engine, options, backend) for _ in range(count)]
+        results = [f.result() for f in futures]
+    duration = time.perf_counter() - started
+    result = dict(results[0])
+    result.update(concurrency=count, concurrency_scope="independent-native-trios",
+                  requests=sum(r["requests"] for r in results),
+                  bytes_sent=sum(r["bytes_sent"] for r in results),
+                  bytes_received=sum(r["bytes_received"] for r in results),
+                  duration_seconds=duration,
+                  throughput_bps=sum(r["bytes_sent"] for r in results)*8/duration,
+                  latency_avg_seconds=sum(r["latency_avg_seconds"] for r in results)/count,
+                  latency_p95_seconds=max(r["latency_p95_seconds"] for r in results),
+                  latency_p95_aggregation="maximum-worker-p95",
+                  duration_scope="includes-trio-startup-and-teardown")
+    return result
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--engine", choices=("shadow6-go", "shadow6-rust", *CORE_TESTS, "all"), default="all")
     parser.add_argument("--benchmark", action="store_true")
+    parser.add_argument("--backend", choices=(*BACKENDS, "all"))
     parser.add_argument("--payload-bytes", type=int, default=16384)
     parser.add_argument("--requests", type=int, default=32)
     parser.add_argument("--concurrency", type=int, default=1)
@@ -555,49 +657,47 @@ def main() -> int:
     parser.add_argument("--loss-percent", type=int, default=0)
     parser.add_argument("--external-proxy")
     args = parser.parse_args()
-    if not all(1 <= value <= limit for value, limit in ((args.payload_bytes, 1048576), (args.requests, 100000))) or args.concurrency != 1 or not 0 <= args.rtt_ms <= 2000 or not 0 <= args.loss_percent <= 50:
+    if not all(1 <= value <= limit for value, limit in ((args.payload_bytes, 1048576), (args.requests, 100000), (args.concurrency, 8))) or not 0 <= args.rtt_ms <= 2000 or not 0 <= args.loss_percent <= 50:
         parser.error("benchmark bounds exceeded")
+    backend = args.backend or ("all" if args.benchmark and not args.external_proxy else "native")
+    if args.external_proxy and (backend != "native" or args.concurrency != 1 or args.rtt_ms or args.loss_percent):
+        parser.error("external endpoint requires native backend, concurrency 1, and zero local impairment")
     if args.engine == "all":
-        engines = ("shadow6-go", "shadow6-rust", *(engine for engine in CORE_TESTS if CORE_BINARIES[engine].is_file()))
-        skipped = [engine for engine in CORE_TESTS if not CORE_BINARIES[engine].is_file()]
+        engines = tuple(engine for engine, binary in CORE_BINARIES.items()
+                        if binary.is_file() or (engine == "shadow6-zig" and
+                           (ROOT / "Core-Zig/zig-out/bin/shadow6-zig").is_file()))
+        skipped = sorted(set(CORE_BINARIES) - set(engines))
         for engine in skipped:
-            print(f"[SKIP] {engine} native integration: binary was not built")
+            print(f"[SKIP] {engine} native integration: binary was not built for this platform")
     else:
         engines = (args.engine,)
     benchmark_result = None
     benchmark_results = {}
     failures = []
-    for engine in engines:
+    backends = BACKENDS if backend == "all" else (backend,)
+    for engine, backend in ((e, b) for e in engines for b in backends):
+        result_key = engine if backend == "native" else f"{engine}@{backend}"
         benchmark_result = None
         try:
             if args.benchmark and args.external_proxy:
                 benchmark_result = run_external_proxy(args.external_proxy, {"payload_bytes":args.payload_bytes,"requests":args.requests,"concurrency":1})
-            elif args.benchmark and engine in ("shadow6-d", "shadow6-gleam"):
-                benchmark_result = run_native_loopback_engine(engine, {"payload_bytes": args.payload_bytes, "requests": args.requests, "concurrency": args.concurrency})
-            elif args.benchmark and engine == "shadow6-idris":
-                benchmark_result = run_idris_engine({"payload_bytes": args.payload_bytes, "requests": args.requests, "concurrency": args.concurrency})
-            elif args.benchmark and engine == "shadow6-carp":
-                benchmark_result = run_carp_engine({"payload_bytes": args.payload_bytes, "requests": args.requests, "concurrency": args.concurrency})
-            elif args.benchmark and engine in ("shadow6-pony", "shadow6-hare"):
-                benchmark_result = run_datagram_engine(engine, {"payload_bytes": args.payload_bytes, "requests": args.requests, "concurrency": args.concurrency})
-            elif args.benchmark or engine in ("shadow6-go", "shadow6-rust"):
-                benchmark_result = run_engine(engine, {"payload_bytes": args.payload_bytes, "requests": args.requests, "concurrency": args.concurrency, "rtt_ms": args.rtt_ms, "loss_percent": args.loss_percent} if args.benchmark else None)
             else:
-                run_native_core_tests(engine)
+                benchmark_result = run_parallel(engine, {"payload_bytes": args.payload_bytes, "requests": args.requests,
+                    "concurrency": args.concurrency, "rtt_ms": args.rtt_ms, "loss_percent": args.loss_percent}, backend)
         except Exception as exc:
-            failures.append(f"{engine}: {exc}")
+            failures.append(f"{result_key}: {exc}")
+            benchmark_results[result_key] = {"status": "failed", "reason": str(exc), "backend": backend}
             traceback.print_exc()
             print(f"[FAIL] {failures[-1]}", file=sys.stderr)
         else:
             if args.benchmark and benchmark_result is not None:
-                benchmark_results[engine] = benchmark_result
+                benchmark_results[result_key] = benchmark_result
     if failures:
         print("Network contract failures:", file=sys.stderr)
         for failure in failures: print(f"  {failure}", file=sys.stderr)
-        return 1
     if benchmark_results:
         print(json.dumps({"schema": "shadow6.network-suite.v1", "results": benchmark_results}, sort_keys=True))
-    return 0
+    return 1 if failures else 0
 
 
 if __name__ == "__main__":

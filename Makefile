@@ -148,6 +148,7 @@ test-hare: core-hare
 	@$(PYTHON) Core-Hare/tests/test_contract.py $(if $(filter 1,$(BUILD_HARE)),--binary Core-Hare/shadow6-hare,)
 ifeq ($(BUILD_HARE),1)
 	@$(PYTHON) Core-Hare/tests/test_runtime.py
+	@$(PYTHON) integration/test_native_chains.py NativeBrokerTests.test_hare_admission
 endif
 
 core-carp:
@@ -156,6 +157,7 @@ core-carp:
 test-carp:
 	@bash Core-Carp/compile.sh
 	@$(PYTHON) Core-Carp/tests/test_core.py
+	@$(PYTHON) integration/test_native_chains.py NativeBrokerTests.test_carp_admission
 
 ifeq ($(BUILD_CARP),1)
 test: test-carp

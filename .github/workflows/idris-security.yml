@@ -14,6 +14,9 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
       - uses: Homebrew/actions/setup-homebrew@49d03f1bf5d455a413dfbdf99e6718054a4cd975
       - name: Install Core-Idris prerequisites (Ubuntu)
         if: runner.os == 'Linux'
@@ -83,3 +86,16 @@ jobs:
           python3 -m venv "$RUNNER_TEMP/idris-test-env"
           "$RUNNER_TEMP/idris-test-env/bin/pip" install 'cryptography>=43,<47'
           IDRIS_SECURITY_BINARIES=1 "$RUNNER_TEMP/idris-test-env/bin/python" Core-Idris/test_security.py
+      - name: Native broker agent client common stack contract
+        run: |
+          "$RUNNER_TEMP/idris-test-env/bin/python" integration/test_native_chains.py NativeBrokerTests.test_idris_admission
+          "$RUNNER_TEMP/idris-test-env/bin/python" integration/stack_test.py --engine shadow6-idris
+          "$RUNNER_TEMP/idris-test-env/bin/python" integration/stack_test.py --engine shadow6-idris --benchmark --payload-bytes 1048576 --requests 2
+          "$RUNNER_TEMP/idris-test-env/bin/python" Benchmark/benchmark.py --core idris --role network-chain --payload-bytes 4096 --requests 8 --concurrency 4 --require-network --output idris-native-matrix
+      - name: Upload Idris path results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: idris-native-matrix-${{ runner.os }}
+          path: idris-native-matrix.*
+          if-no-files-found: warn

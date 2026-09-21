@@ -11,7 +11,8 @@ early when it is missing; `BUILD_HARE=0` disables both build and installation.
 The multiplatform Linux release job provisions a pinned toolchain and requires
 the native binary and its feature/configuration tests with `make test-hare`.
 
-The current runtime has native `agent` and `client` roles. Generate each
+The runtime has native `broker`, `agent` and `client` roles. Legacy two-endpoint
+configuration remains supported. Generate each
 identity with `shadow6-hare --gen-key` and pin its `public_key` in the other
 endpoint's `peer_public_key`. Each 0600 JSON config requires exactly `role`,
 `private_key` (32-byte seed as hex), `peer_public_key`, `listen_port`, and
@@ -33,3 +34,23 @@ deadline and one-million-iteration bound. Restart both endpoints for a fresh
 session. There is no broker discovery, retransmission or multi-client multiplexing.
 This protocol replaces the old unauthenticated fixed-port receiver and is not
 wire-compatible with it. Native end-to-end tests run with `make test-hare`.
+
+For a three-role path, start a broker, agent and client of this family. The
+client's `target_port` is the broker's `listen_port`; the agent's `target_port`
+remains the application service. The broker configuration contains exactly:
+
+```json
+{"role":"broker","listen_port":41000,"client_port":41002,"target_port":41004,"peer_public_key":"<client Ed25519 public key hex>","agent_public_key":"<agent Ed25519 public key hex>"}
+```
+
+It contains no private or session key. The broker pins both IPv6-loopback
+ports, verifies the client hello and the agent signature over the same fresh
+challenge, then forwards only 1024-byte ciphertext packets. Unknown sources,
+wrong signatures, oversized frames and a second admission fail closed. One
+route is bounded to five minutes/one million iterations; admission expires
+after five seconds and established-route inactivity after 60 seconds.
+This adds a real native middle hop while retaining the 978-byte application
+datagram limit and legacy `simplex`/`abc` endpoint modes.
+
+`integration/stack_test.py --engine shadow6-hare --benchmark` tests native,
+Python Companion and Node.js Companion paths with the same application workload.

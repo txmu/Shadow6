@@ -15,8 +15,8 @@ Policies are capability-based. All twelve Cores have independently deployable
 native transports, so every catalog mode is `native`. The adapter is an
 optional normalization layer for shared reliable-message, segmentation,
 multiplexing and backpressure semantics; it is never a deployment prerequisite.
-D and Gleam provide native authenticated broker/agent/client streams, while
-the smaller datagram/cell cores retain their documented native bounds.
+All twelve provide native authenticated broker/agent/client paths; each keeps
+its documented stream/datagram/cell, platform and resource bounds.
 
 Frames use a versioned strict header and ChaCha20-Poly1305 AEAD. Directional
 keys are independently derived from the 32-byte master key, so equal stream and
@@ -48,12 +48,16 @@ dependencies. `test_conformance.py` and `test_node.mjs` enforce the same fixed
 AEAD vector, cross-backend decoding, large-message behavior and failure rules.
 Neither backend may introduce a private wire extension.
 
-`benchmark_backends.py` runs the same 4 KiB, 64 KiB and 1 MiB codec-loop cases
-at requested concurrency 1/16/64, capped by the shared 16 MiB state budget. It
-is a regression comparison, not an end-to-end network claim. Backend status is
-based on protocol conformance and carrier behavior, not on declaring whichever
-runtime wins one machine's microbenchmark. Use the repository performance
-matrix for real Core paths, RTT/loss conditions and WAN deployments.
+`benchmark_backends.py` and `benchmark_node.mjs` delegate to the common
+12-core × 3-path Benchmark runner. Both companions traverse the same real
+native trio as the native row; no codec-loop result substitutes for network
+throughput. Deployments need not enable companions to test them: activation is
+explicit and isolated to the test. `Benchmark/performance_matrix.py` applies
+the same 4 KiB/64 KiB/1 MiB logical workloads, response-delay scenarios and
+bounded independent-trio concurrency to all 36 pairs. Reports include library
+driver IPC and distinguish application writes from native datagram limits.
+See [Benchmark](../Benchmark/README.md); codec conformance and 64-stream state
+tests remain separate correctness tests.
 
 Inspect policies and the installed executables without compiling anything:
 

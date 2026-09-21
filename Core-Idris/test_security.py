@@ -158,6 +158,46 @@ class SecurityFFI(unittest.TestCase):
         self.assertLess(self.lib.idris_socket_create(), 0)
         self.assertNotEqual(self.lib.idris_socket_op(h, 2, b"", 0), 0)
 
+    def test_native_signed_three_role_chain(self):
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+        from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+        reservations = [socket.socket(socket.AF_INET, socket.SOCK_DGRAM) for _ in range(5)]
+        for sock in reservations:
+            sock.bind(("127.0.0.1", 0))
+        b, a, c, app, target = [s.getsockname()[1] for s in reservations]
+        for sock in reservations[:4]:
+            sock.close()
+        echo = reservations[4]; echo.settimeout(5)
+        seeds = [os.urandom(32), os.urandom(32)]
+        pubs = [Ed25519PrivateKey.from_private_bytes(s).public_key().public_bytes(Encoding.Raw, PublicFormat.Raw) for s in seeds]
+        binding = os.urandom(32)
+        configs = [bytes(32)+pubs[1]+pubs[0], seeds[0]+pubs[1]+binding, seeds[1]+pubs[0]+binding]
+        results, threads = {}, []
+        def relay(name, role, local, peer, application, path, limit):
+            results[name] = self.lib.idris_native_relay(role, b"127.0.0.1", local,
+                b"127.0.0.1", peer, b"127.0.0.1", application, os.fsencode(path), limit)
+        try:
+            for i, (name, role, local, peer, application, limit) in enumerate((
+                ("broker", 3, b, c, a, 8), ("agent", 5, a, b, target, 3), ("client", 4, c, b, app, 3))):
+                path = self.directory / (name + ".chain")
+                path.write_bytes(configs[i]); path.chmod(0o600)
+                t = threading.Thread(target=relay, args=(name, role, local, peer, application, path, limit), daemon=True)
+                threads.append(t); t.start(); time.sleep(.1)
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as local:
+                local.settimeout(5)
+                for payload in (b"three-native-roles", os.urandom(1024), bytes(range(256))):
+                    local.sendto(payload, ("127.0.0.1", app))
+                    data, source = echo.recvfrom(2048)
+                    self.assertEqual(data, payload)
+                    echo.sendto(data, source)
+                    self.assertEqual(local.recvfrom(2048)[0], payload)
+            for t in threads:
+                t.join(5)
+                self.assertFalse(t.is_alive())
+            self.assertEqual(results, {"broker": 8, "agent": 3, "client": 3})
+        finally:
+            echo.close()
+
 
 class IdrisExecutables(unittest.TestCase):
     @classmethod

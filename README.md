@@ -44,24 +44,39 @@ platform limits.
 | Core-Go | full broker/agent/client stack | default Linux build; L0 and explicit Crosed/Public6 variants |
 | Core-Rust | full broker/agent/client stack | default Linux/Unix build; L0 and explicit Crosed/Public6 variants |
 | Core-Gleam | BEAM authenticated broker/agent/client stream | Linux x86_64/aarch64; L0 and Crosed variants |
-| Core-Ada | SPARK-oriented authenticated stack | native Unix build; L0 and Crosed variants |
-| Core-Nim | bounded UDP stack | optional native toolchain; L0 and Crosed variants |
-| Core-Pony | reference-capability UDP stack | optional `ponyc`; L0 and Crosed variants |
-| Core-Idris | dependent-type checked security core | optional Idris 2/Chez toolchain; not built by default |
+| Core-Ada | SPARK-oriented broker/agent/client cell stack | native Unix build; L0 and Crosed variants |
+| Core-Nim | broker/agent/client authenticated UDP stack | optional libdatachannel/toolchain; L0 and Crosed variants |
+| Core-Pony | reference-capability broker/agent/client UDP stack | optional `ponyc`; L0 and Crosed variants |
+| Core-Idris | dependent-type checked broker/agent/client UDP path | optional Idris 2/Chez; legacy two-endpoint mode retained |
 | Core-Zig | ENet-style reliable UDP stack | optional Zig toolchain; L0 profile |
 | Core-D | BetterC authenticated broker/agent/client stream | optional D toolchain; L0 profile |
-| Core-Cpp | standalone WSS/UDP stack | optional C++ toolchain; L0 profile |
-| Core-Hare | small emergency UDP proxy | optional Hare toolchain; L0 profile |
-| Core-Carp | compact authenticated UDP driver | optional Carp toolchain; L0 profile |
+| Core-Cpp | C++20 TLS/WebSocket control and SCTP data stack | optional C++ toolchain; L0 profile |
+| Core-Hare | small authenticated broker/agent/client UDP path | optional Hare; L0 and legacy endpoint modes |
+| Core-Carp | compact authenticated broker/agent/client UDP path | optional Carp; L0 and legacy codec/adapter modes |
 
 The twelve-core catalog is a capability matrix, not a promise that every
 binary is present in every installation. `shadow6 features`, the component
 doctor, and the release SBOM report the exact locally installed subset.
+For role-by-role transport boundaries, see
+[`docs/core-matrix.md`](docs/core-matrix.md).
+The two optional Network Adapter companions are described in
+[`docs/companions.md`](docs/companions.md), and the complete protocol index is
+in [`docs/protocols.md`](docs/protocols.md).
 
 | Component | Implemented role | Protocol / important boundary |
 | --- | --- | --- |
 | Core-Go | broker, agent, client, dual-stack local discovery | WebSocket control and authenticated encrypted KCP data; IPv6 LPD uses `ff02::1` with interface scope |
 | Core-Rust | broker, agent, client, dual-stack local discovery | WebSocket JSON-RPC control and certificate-pinned QUIC data; scoped link-local IPv6 is preserved |
+| Core-Gleam | broker, agent, client | Mutually authenticated WebSocket control and encrypted TCP stream; BEAM/musl static PIE release |
+| Core-Ada | broker, agent, client | Authenticated WebSocket control and bounded encrypted cell relay; SPARK-oriented implementation |
+| Core-Nim | broker, agent, client | Authenticated WebSocket control and bounded libdatachannel-backed UDP path |
+| Core-Pony | broker, agent, client | Authenticated reliable UDP with bounded sessions, routes and retransmission |
+| Core-Zig | broker, agent, client | Go/Rust control dialects plus authenticated reliable UDP data plane |
+| Core-D | broker, agent, client | Authenticated WebSocket control and X25519/ChaCha20-Poly1305 stream |
+| Core-Cpp | broker, agent, client | Mutually authenticated TLS 1.3 WebSocket control and SCTP tunnel data |
+| Core-Idris | broker, agent, client | Signed ephemeral admission; fixed-route UDP; legacy PSK relay retained |
+| Core-Hare | broker, agent, client | Signed fixed-route IPv6-loopback UDP; one peer/session, no native retransmission |
+| Core-Carp | broker, agent, client, codec/adapter | Signed fixed-route IPv4-loopback UDP; separate directional layer keys |
 | Guard | agent SPA/LPD/probe monitor, client TLS cover traffic, broker reverse proxy | Bounded maps/concurrency; public broker binds require TLS |
 | C11Relay | multi-client bidirectional UDP relay | Normal/high-speed pass-through; data-saving mode requires a paired relay |
 | Auto-Orchestrator | topology validation, key/config generation, SSH deployment, MTD rotation, RPC/TUI | SSH host-key verification is mandatory for remote nodes |
@@ -84,10 +99,18 @@ doctor, and the release SBOM report the exact locally installed subset.
 
 Each Core's native transport is independently deployable, but Core families
 are not wire-compatible halves of one stack. One topology must use the same
-core engine on every role it implements. Go, Rust, D and Gleam expose complete
-broker/agent/client streams; the remaining Cores retain the standalone role
-and native transport bounds documented in their READMEs. C11Relay does not
-translate between Core protocols.
+Core family at every hop. All twelve provide native broker/agent/client paths.
+Hare, Carp and Idris retain their older modes and bounded datagram semantics;
+three roles do not imply identical reliability or multiplexing.
+No Core requires the Network Adapter or another Companion to obtain
+its native network capability; the adapter is an optional uniform semantics
+layer. C11Relay does not translate between Core protocols.
+
+The [Benchmark suite](Benchmark/README.md) evaluates twelve cores × three paths
+(native, Python Companion, Node.js Companion) through actual native trios.
+Every path receives the same application workload and pressure cases, regardless
+of deployment enablement. Missing binaries/runtime support are reported as
+failures, not omitted or replaced with internal benchmark loopbacks.
 
 Public6 packages both alternatives but does not translate between them. Peers
 using the same Core family and exact Core version remain base-compatible even

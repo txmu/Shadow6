@@ -20,6 +20,7 @@ jobs:
           curl --fail --location --retry 3 \
             --output /tmp/ponyc.tar.gz \
             https://github.com/ponylang/ponyc/releases/download/0.72.0/ponyc-x86-64-unknown-linux-ubuntu24.04.tar.gz
+          echo 'a101427ff3daa510b821860b04a6bb786e42803fcfa8fa7723bb8183102b5a91  /tmp/ponyc.tar.gz' | sha256sum -c -
           tar -xzf /tmp/ponyc.tar.gz --strip-components=1 -C .tools/ponyc-0.72.0
           test -x .tools/ponyc-0.72.0/bin/ponyc
       - name: Install native dependencies
@@ -46,6 +47,9 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
       - uses: Homebrew/actions/setup-homebrew@49d03f1bf5d455a413dfbdf99e6718054a4cd975
       - name: Install Core-Idris prerequisites (Ubuntu)
         if: runner.os == 'Linux'
@@ -107,6 +111,13 @@ jobs:
           test "$(${GITHUB_WORKSPACE}/Core-Idris/shadow6-idris --feature-report | python3 -c 'import json,sys; print(json.load(sys.stdin)["crosed_max_level"])')" = 0
       - name: Build and test Crosed variant
         run: make idris-crosed-variant PYTHON=python3 && python3 Core-Idris/test_core.py
+      - name: Verify Idris native and both companion paths
+        run: |
+          python3 -m venv "$RUNNER_TEMP/idris-network-env"
+          "$RUNNER_TEMP/idris-network-env/bin/pip" install 'cryptography>=43,<47'
+          "$RUNNER_TEMP/idris-network-env/bin/python" Core-Idris/test_security.py
+          "$RUNNER_TEMP/idris-network-env/bin/python" integration/test_native_chains.py NativeBrokerTests.test_idris_admission
+          "$RUNNER_TEMP/idris-network-env/bin/python" Benchmark/benchmark.py --core idris --role network-chain --payload-bytes 4096 --requests 8 --concurrency 4 --require-network --output idris-network
       - name: Collect Core-Idris build outputs
         shell: bash
         run: |
@@ -338,6 +349,7 @@ jobs:
           curl --fail --location --retry 3 \
             --output /tmp/ponyc.tar.gz \
             https://github.com/ponylang/ponyc/releases/download/0.72.0/ponyc-x86-64-unknown-linux-ubuntu24.04.tar.gz
+          echo 'a101427ff3daa510b821860b04a6bb786e42803fcfa8fa7723bb8183102b5a91  /tmp/ponyc.tar.gz' | sha256sum -c -
           mkdir -p .tools/ponyc-0.72.0
           tar -xzf /tmp/ponyc.tar.gz --strip-components=1 -C .tools/ponyc-0.72.0
           test -x .tools/ponyc-0.72.0/bin/ponyc
@@ -433,6 +445,22 @@ jobs:
           shellcheck configure Core-Cpp/*.sh C11Relay/*.sh Guard/*.sh Tools/*.sh Core-Carp/*.sh Core-Gleam/*.sh
       - run: make crosed-variants BUILD_PONY=1
       - run: make test
+      - name: Benchmark both S6NA backends
+        run: |
+          set -euo pipefail
+          .venv/bin/python Network-Adapter/benchmark_backends.py > /tmp/shadow6-network-adapter-benchmark.json
+          .venv/bin/python - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path('/tmp/shadow6-network-adapter-benchmark.json').read_text())
+          assert report['schema'] == 'shadow6.benchmark.v2'
+          rows = report['results']
+          assert len(rows) == 36
+          assert {row['backend'] for row in rows} == {'native', 'python', 'node'}
+          assert len({row['core'] for row in rows}) == 12
+          assert all(row['status'] == 'ok' and row['network']['bytes_received'] > 0 for row in rows)
+          print('S6NA benchmark rows:', len(rows))
+          PY
       - run: make check
       - run: make audit
       - run: .venv/bin/python Security-Assistants/shadow6_security.py doctor
@@ -476,6 +504,20 @@ jobs:
             --output benchmark-linux-network
           python3 Benchmark/benchmark.py --config Benchmark/example.json --output benchmark-linux.json
           python3 CLI/shadow6.py benchmark --all --role feature-report --repeats 3 --output benchmark-cli-all.json
+      - name: Equal 12 by 3 concurrent pressure gate
+        run: |
+          .venv/bin/python Benchmark/benchmark.py --role network-chain --payload-bytes 4096 --requests 8 --concurrency 4 --require-network --output benchmark-linux-pressure
+          .venv/bin/python - <<'PY'
+          import json
+          from pathlib import Path
+          from collections import Counter
+          report = json.loads(Path('benchmark-linux-pressure.json').read_text())
+          rows = report['results']
+          assert len(rows) == 36
+          assert len({(r['core'], r['backend']) for r in rows}) == 36
+          assert Counter(r['backend'] for r in rows) == {'native': 12, 'python': 12, 'node': 12}
+          assert all(r['status'] == 'ok' and r['network']['concurrency'] == 4 and r['network']['bytes_received'] == 4096 * 8 * 4 for r in rows)
+          PY
       - name: Upload Linux network benchmark reports (JSON/TXT/Markdown)
         uses: actions/upload-artifact@v4
         with:
@@ -484,6 +526,9 @@ jobs:
             benchmark-linux-network.json
             benchmark-linux-network.txt
             benchmark-linux-network.md
+            benchmark-linux-pressure.json
+            benchmark-linux-pressure.txt
+            benchmark-linux-pressure.md
           if-no-files-found: error
       - name: Package and collect every Linux release output
         run: |
@@ -581,6 +626,7 @@ jobs:
           curl --fail --location --retry 3 \
             --output /tmp/ponyc.tar.gz \
             https://github.com/ponylang/ponyc/releases/download/0.72.0/ponyc-arm64-unknown-linux-ubuntu24.04.tar.gz
+          echo '7e18265d56281cce4c5e9c6d65fb48d65ecc8d93591c3ddd8111ef6e026ead64  /tmp/ponyc.tar.gz' | sha256sum -c -
           tar -xzf /tmp/ponyc.tar.gz --strip-components=1 -C .tools/ponyc-0.72.0
           test -x .tools/ponyc-0.72.0/bin/ponyc
       - name: Probe optional ARM64 toolchains and record explicit exclusions
@@ -715,6 +761,12 @@ jobs:
           curl --fail --location --retry 3 \
             --output /tmp/ponyc.tar.gz \
             "https://github.com/ponylang/ponyc/releases/download/0.72.0/ponyc-${pony_arch}-unknown-linux-alpine3.23.tar.gz"
+          case "$pony_arch" in
+            x86-64) pony_sha256=cce111f19d5628d390a8590b4a748677def0566a960427d922546bfb204a1ec4 ;;
+            arm64) pony_sha256=a039f74ea6f2770940814848e7bc63fe70f7b33ef9549abf9ea3c9fced353992 ;;
+            *) echo "missing Pony checksum for $pony_arch" >&2; exit 2 ;;
+          esac
+          echo "$pony_sha256  /tmp/ponyc.tar.gz" | sha256sum -c -
           tar -xzf /tmp/ponyc.tar.gz --strip-components=1 -C .tools/ponyc-0.72.0
           test -x .tools/ponyc-0.72.0/bin/ponyc
           export PONYC=/workspace/.tools/ponyc-0.72.0/bin/ponyc
@@ -967,9 +1019,9 @@ jobs:
         run: |
             sudo pkg update -f
             # rust includes Cargo; the base system supplies Clang.
-            sudo pkg install -y go rust python3 openssl libsodium libunistring libepoll-shim
+            sudo pkg install -y go rust python3 node22 openssl libsodium libunistring libepoll-shim
             export PYTHON="$(command -v python3 || command -v python3.12)"
-            for tool in go cargo c++ "$PYTHON"; do command -v "$tool" || exit 1; done
+            for tool in go cargo c++ node "$PYTHON"; do command -v "$tool" || exit 1; done
             cd Core-Go
             go test ./...
             bash ./compile.sh
@@ -1058,17 +1110,18 @@ jobs:
       - name: Test OpenBSD components
         shell: cpa.sh {0}
         run: |
-            sudo pkg_add go rust python-3.13.13 libsodium epoll-shim openssl-3.5.6v0
+            sudo pkg_add go rust node python-3.13.13 py3-cryptography libsodium epoll-shim openssl-3.5.6v0
             export PYTHON="$(command -v python3.13 || command -v python3)"
-            for tool in go cargo c++ "$PYTHON"; do command -v "$tool" || exit 1; done
+            for tool in go cargo c++ node "$PYTHON"; do command -v "$tool" || exit 1; done
             export CPPFLAGS='-I/usr/local/include/eopenssl35'
             export LDFLAGS='-L/usr/local/lib/eopenssl35 -Wl,-rpath,/usr/local/lib/eopenssl35'
             test -f /usr/local/include/eopenssl35/openssl/ssl.h
             # The Go network benchmark generates configs through the Python
             # orchestrator, which imports the pinned application dependencies.
-            "$PYTHON" -m venv .venv
+            "$PYTHON" -m venv --system-site-packages .venv
             export PYTHON="$PWD/.venv/bin/python"
-            OPENSSL_INCLUDE_DIR=/usr/local/include/eopenssl35 OPENSSL_LIB_DIR=/usr/local/lib/eopenssl35 "$PYTHON" -m pip install -r requirements.txt
+            "$PYTHON" -c 'import cryptography'
+            "$PYTHON" -m pip install --no-deps asyncssh
             cd Core-Go
             go test ./...
             bash ./compile.sh
@@ -1163,9 +1216,10 @@ jobs:
       - name: Test NetBSD components
         shell: cpa.sh {0}
         run: |
-          sudo pkgin -y install go python311
+          sudo pkgin -y install go nodejs python311
           export PYTHON=/usr/pkg/bin/python3.11
           export PATH="/usr/pkg/bin:/usr/pkg/sbin:$PATH"
+          command -v node
           go_pkg=$(/usr/pkg/sbin/pkg_info -a | awk '/^go[0-9]+-[0-9]/ {sub(/-[0-9].*/, ""); print; exit}')
           test -n "$go_pkg"
           go_bin=$(/usr/pkg/sbin/pkg_info -L "$go_pkg" | awk '/\/bin\/go$/ {print; exit}')

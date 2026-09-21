@@ -14,19 +14,26 @@ shadow6 control -- status
 In a source checkout, replace `shadow6` with `.venv/bin/python CLI/shadow6.py`.
 If a component is missing, run `make build` from the repository root and retry.
 
-Shadow6 ships twelve Core implementations: Go, Rust, Gleam, Ada, Nim, Pony,
-Idris, Zig, D, C++, Hare, and Carp. They are peers in discovery, feature
-validation, installation, orchestration and benchmarking; each Core README is
-authoritative about the roles and data path that family implements. Pick one
-family for a connection and use it at every hop—equal treatment does not imply
-wire compatibility. Default builds keep Crosed, application transport and
-domain policy disabled. The explicit `*-crosed` binaries enable the L5 feature
-contract where that Core provides it.
+Shadow6 ships twelve independently compiled Core implementations: Go, Rust,
+Gleam, Ada, Nim, Pony, Idris, Zig, D, C++, Hare, and Carp. All twelve provide a
+native broker/agent/client path. Idris, Hare and Carp retain their older modes
+alongside bounded, signed fixed-route datagram trios. These profiles are
+all valid, but they are not wire-compatible and they do not promise the same
+reliability, multiplexing, or broker behavior. Pick one family for every hop
+and use its README as the authority for deployment limits.
+The compact [Core capability matrix](core-matrix.md) summarizes this role and
+transport split in one place.
+
+Default builds keep Crosed, application transport and domain policy disabled.
+The explicit `*-crosed` binaries enable the L5 feature contract where that
+Core provides it; an optional toolchain may be required for a Core to be built.
 
 The unified network adapter has equal Python and Node.js backends and removes caller-visible packet sizing.
 Run `shadow6 network catalog` to inspect each Core's native payload and window
-bounds. All twelve Cores can deploy independently; the adapter is an optional
-authenticated layer for uniform reliability, segmentation and multiplexing. See
+bounds. All twelve Cores can deploy independently, and no Core requires the
+adapter or another Companion to obtain native network capability. The adapter
+is an optional authenticated layer for uniform reliability, segmentation and
+multiplexing. See
 `Network-Adapter/README.md` for security and deployment requirements.
 Both backends implement the normative `Network-Adapter/SPEC.md`; use
 `shadow6 network catalog` or `shadow6 network-node catalog` explicitly.

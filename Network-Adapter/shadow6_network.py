@@ -34,12 +34,19 @@ POLICIES={
 
 def load_key(path:Path):
     before=path.lstat()
-    if not stat.S_ISREG(before.st_mode) or stat.S_ISLNK(before.st_mode) or before.st_uid!=os.geteuid() or stat.S_IMODE(before.st_mode)!=0o600 or before.st_size!=32:
+    posix=os.name=="posix"
+    owner_ok=not posix or before.st_uid==os.geteuid()
+    mode_ok=not posix or stat.S_IMODE(before.st_mode)==0o600
+    if not stat.S_ISREG(before.st_mode) or stat.S_ISLNK(before.st_mode) or not owner_ok or not mode_ok or before.st_size!=32:
         raise PermissionError("adapter key must be an owned 32-byte mode-0600 regular file")
-    descriptor=os.open(path,os.O_RDONLY|os.O_NOFOLLOW|os.O_CLOEXEC)
+    flags=os.O_RDONLY|getattr(os,"O_BINARY",0)|getattr(os,"O_NOFOLLOW",0)|getattr(os,"O_CLOEXEC",0)
+    descriptor=os.open(path,flags)
     try:
         opened=os.fstat(descriptor); data=os.read(descriptor,33); final=os.fstat(descriptor)
-        if (opened.st_dev,opened.st_ino,opened.st_size)!=(before.st_dev,before.st_ino,before.st_size) or final!=opened or len(data)!=32:
+        # Reads may update atime; compare identity, authority and content-change
+        # metadata instead of the entire stat result.
+        fingerprint=lambda st:(st.st_dev,st.st_ino,st.st_size,st.st_mode,st.st_uid,st.st_nlink,st.st_mtime_ns,st.st_ctime_ns)
+        if fingerprint(opened)!=fingerprint(before) or fingerprint(final)!=fingerprint(opened) or len(data)!=32:
             raise PermissionError("adapter key changed while reading")
         return data
     finally: os.close(descriptor)

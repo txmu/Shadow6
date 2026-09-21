@@ -62,6 +62,7 @@ fn exchange(sock: net::socket, c: *configuration, tx: []u8, rx: []u8, addr: *ip:
 };
 
 fn runtime(c: *configuration) void = {
+	if (c.role == "broker") { broker_runtime(c); return; };
 	const sock = udp::listen(ip::LOCAL_V6, c.listen)!; defer io::close(sock)!;
 	let addr: ip::addr = ip::LOCAL_V6; let port = c.target;
 	let tx: [32]u8 = [0...]; let rx: [32]u8 = [0...];
@@ -108,5 +109,44 @@ fn runtime(c: *configuration) void = {
 			if (udp::sendto(sock, packet[..1024], addr, port) is net::error) break;
 			wipe(&plain[0], 980);
 		};
+	};
+};
+
+// One fixed route, with end-to-end signed admission and no data-plane keys.
+// Unknown sources, unsolicited replies and oversized datagrams never route.
+fn broker_runtime(c: *configuration) void = {
+	const sock = udp::listen(ip::LOCAL_V6, c.listen)!;
+	defer io::close(sock)!;
+	let packet: [1025]u8 = [0...];
+	let challenge: [64]u8 = [0...];
+	let phase = 0u;
+	const started = time::now(time::clock::MONOTONIC).sec;
+	let activity = started;
+	fmt::println("broker ready")!;
+	for (let count = 0z; count < 1000000; count += 1) {
+		const now = time::now(time::clock::MONOTONIC).sec;
+		if (now - started >= 300 || now - activity >= (if (phase == 2) 60 else 5)) break;
+		if (!ready(sock, 1000)) continue;
+		let addr: ip::addr = ip::LOCAL_V6; let port = 0u16;
+		const n = match (udp::recvfrom(sock, packet, &addr, &port)) {
+		case let n: size => yield n;
+		case => continue;
+		};
+		if (!ip::equal(addr, ip::LOCAL_V6)) continue;
+		let destination = 0u16;
+		if (phase == 0 && port == c.client_port && n == 128) {
+			if (ed25519_verify(&packet[64], &packet[0], 64, &c.peer[0]) != 0) continue;
+			for (let i = 0z; i < 64; i += 1) challenge[i] = packet[i];
+			phase = 1; destination = c.target;
+		} else if (phase == 1 && port == c.target && n == 192) {
+			if (equal(&packet[0], &challenge[0], 64) != 0 || ed25519_verify(&packet[128], &packet[0], 128, &c.agent_peer[0]) != 0) continue;
+			phase = 2; destination = c.client_port;
+		} else if (phase == 2 && n == 1024) {
+			if (port == c.client_port) destination = c.target
+			else if (port == c.target) destination = c.client_port;
+		};
+		if (destination == 0) continue;
+		if (udp::sendto(sock, packet[..n], ip::LOCAL_V6, destination) is net::error) break;
+		activity = now;
 	};
 };

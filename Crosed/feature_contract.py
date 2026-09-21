@@ -35,8 +35,8 @@ def runtime_environment(root, relative):
     return environment
 
 
-TRANSPORTS = {"shadow6-go": "kcp", "shadow6-rust": "quic", "shadow6-pony": "udp", "shadow6-gleam": "micro-mux", "shadow6-zig": "enet",
-              "shadow6-ada": "cell-relay", "shadow6-d": "rle-udp", "shadow6-nim": "webrtc",
+TRANSPORTS = {"shadow6-go": "kcp", "shadow6-rust": "quic", "shadow6-pony": "udp", "shadow6-gleam": "secure-stream", "shadow6-zig": "enet",
+              "shadow6-ada": "cell-relay", "shadow6-d": "secure-stream", "shadow6-nim": "webrtc",
               "shadow6-cpp": "sctp-tls13", "shadow6-hare": "udp",
               "shadow6-carp": "udp", "shadow6-idris": "udp"}
 CORE_PATHS = {name: f"Core-{suffix}/{name}" for name, suffix in (
