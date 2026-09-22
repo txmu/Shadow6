@@ -3,6 +3,10 @@ import json
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "Tools"))
+from python_runtime import bootstrap
+if __name__ == "__main__":
+    bootstrap(Path(__file__).resolve().parents[1], Path(__file__).absolute())
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "Network-Adapter"))
 from shadow6_network import ReliableAdapter, load_key
 

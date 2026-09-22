@@ -9,6 +9,56 @@ on:
   pull_request:
   workflow_dispatch:
 jobs:
+  python-network-runtime:
+    name: Python networking (${{ matrix.os }}, ${{ matrix.python }}, GIL=${{ matrix.gil }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-14, windows-latest]
+        python: ['3.14', '3.14t']
+        gil: ['1']
+        include:
+          - {os: ubuntu-24.04, python: '3.14t', gil: '0'}
+          - {os: macos-14, python: '3.14t', gil: '0'}
+          - {os: windows-latest, python: '3.14t', gil: '0'}
+    env:
+      EXPECT_GIL: ${{ matrix.gil }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: actions/setup-node@v6
+        with: {node-version: '24'}
+      - name: Select GIL mode without forcing incompatible extensions
+        shell: bash
+        run: |
+          if [ "$EXPECT_GIL" = 1 ]; then echo "PYTHON_GIL=1" >> "$GITHUB_ENV"; fi
+      - name: Install supported cryptography wheels
+        run: |
+          python -m pip install --only-binary=:all: 'cryptography==50.0.1'
+      - name: Verify actual runtime after dependency imports
+        shell: bash
+        run: |
+          python Tools/python_runtime.py probe > python-runtime.json
+          python -c "import json,os; r=json.load(open('python-runtime.json')); assert r['dependencies_ok']; assert r['gil_enabled']==(os.environ['EXPECT_GIL']=='1'), r"
+      - name: Test both Python networking components and concurrent callers
+        shell: bash
+        run: |
+          python -c "import os,sys,unittest; sys.path[:0]=['Network-Adapter','Public6','Tools']; names=['test_conformance','test_python_runtime','test_network.ThreadSafetyTests'] if os.name=='nt' else ['test_network','test_conformance','test_virtual_broker','test_python_runtime']; result=unittest.TextTestRunner(verbosity=2).run(unittest.defaultTestLoader.loadTestsFromNames(names)); sys.exit(not result.wasSuccessful())"
+      - name: Equal component benchmarks for each runtime mode
+        run: python Benchmark/component_benchmark.py --flow-bytes 131072 --output benchmark-python-runtime.json
+      - name: Verify complete benchmark coverage
+        run: python -c "import json,os; r=json.load(open('benchmark-python-runtime.json')); assert len(r['results'])==r['expected_rows']==884; assert all(x['status']=='ok' for x in r['results']); assert r['environment']['python_runtime']['gil_enabled']==(os.environ['EXPECT_GIL']=='1')"
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: python-network-${{ matrix.os }}-${{ matrix.python }}-gil-${{ matrix.gil }}
+          path: |
+            python-runtime.json
+            benchmark-python-runtime.json
   node-adapter:
     name: Network Adapter (Node ${{ matrix.node }})
     runs-on: ubuntu-latest
@@ -589,6 +639,21 @@ jobs:
           assert Counter(r['backend'] for r in rows) == {'native': 12, 'python': 12, 'node': 12}
           assert all(r['status'] == 'ok' and r['network']['concurrency'] == 4 and r['network']['bytes_received'] == 4096 * 8 * 4 for r in rows)
           PY
+      - name: Native loss recovery and equal component performance coverage
+        timeout-minutes: 20
+        run: |
+          .venv/bin/python integration/test_native_reliability.py
+          .venv/bin/python Benchmark/component_benchmark.py --flow-bytes 131072 --output benchmark-linux-components.json
+          .venv/bin/python - <<'PY'
+          import json
+          report = json.load(open('benchmark-linux-components.json'))
+          rows = report['results']
+          assert report['expected_rows'] == 12 * 2 * 3 * 3 * 4 + 3 * 3 * 2 + 2
+          assert len(rows) == report['expected_rows']
+          assert all(row['status'] == 'ok' for row in rows)
+          profiles = {row['core'] for row in rows if row['component'] == 'adapter'}
+          assert len(profiles) == 12
+          PY
       - name: Upload Linux network benchmark reports (JSON/TXT/Markdown)
         if: always()
         uses: actions/upload-artifact@v6
@@ -601,6 +666,7 @@ jobs:
             benchmark-linux-pressure.json
             benchmark-linux-pressure.txt
             benchmark-linux-pressure.md
+            benchmark-linux-components.json
           if-no-files-found: warn
       - name: Package and collect every Linux release output
         run: |
@@ -1223,7 +1289,9 @@ jobs:
       - name: Test OpenBSD components
         shell: cpa.sh {0}
         run: |
-            sudo pkg_add go rust node python-3.13.13 py3-cryptography libsodium epoll-shim openssl-3.5.6v0
+            # Use the official CDN instead of the VM image's regional mirror;
+            # its ARM64 Go archive was truncated during installation.
+            sudo env PKG_PATH='https://cdn.openbsd.org/pub/OpenBSD/%v/packages/%a/' pkg_add go rust node python-3.13.13 py3-cryptography libsodium epoll-shim openssl-3.5.6v0
             node -e 'if (Number(process.versions.node.split(".")[0]) < 22) process.exit(1)'
             export PYTHON="$(command -v python3.13 || command -v python3)"
             for tool in go cargo c++ node "$PYTHON"; do command -v "$tool" || exit 1; done

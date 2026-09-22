@@ -308,7 +308,7 @@ def evaluate_application(connection: socket.socket, datagram: bool, options: dic
     latencies = []
     channel = Channel(connection, datagram) if adapter else None
     started = time.perf_counter()
-    for _ in range(options["requests"]):
+    for request_index in range(options["requests"]):
         payload = os.urandom(size)
         request_started = time.perf_counter()
         for offset in range(0, size, 512):
@@ -320,14 +320,23 @@ def evaluate_application(connection: socket.socket, datagram: bool, options: dic
                 received = connection.recv(65536) if datagram else receive_exact(connection, len(part))
             if received != part:
                 raise AssertionError("application response mismatch")
+        # Pacing is per logical request on all transports/backends, never
+        # per recv() chunk (TCP segmentation would bias comparisons).
+        delay=options.get("rtt_ms",0)/1000
+        cadence=options.get("loss_percent",0)
+        if cadence and (request_index+1)%max(1,100//cadence)==0: delay*=2
+        if delay: time.sleep(delay)
         latencies.append(time.perf_counter() - request_started)
-    result = benchmark_metrics(payload, latencies, time.perf_counter() - started)
+    finished=time.perf_counter()
+    result = benchmark_metrics(payload, latencies, finished - started)
     result.update(application_chunk_bytes=min(size, 512),
+                  measurement_started=started,measurement_finished=finished,
+                  duration_scope="application-workload-only",
                   application_transport="udp" if datagram else "tcp",
                   roles=["broker", "agent", "client"],
-                  impairment={"model": "bounded-userspace-response-v1",
+                  impairment={"model": "application-response-pacing-v2", "packet_loss_injected":False,
                               "rtt_ms": options.get("rtt_ms", 0),
-                              "loss_percent": options.get("loss_percent", 0)})
+                              "recovery_delay_percent": options.get("loss_percent", 0)})
     return result
 
 
@@ -498,7 +507,7 @@ def run_engine(engine: str, benchmark: dict | None = None, backend: str = "nativ
     options = benchmark or {"payload_bytes": 16384, "requests": 4}
     datagram = engine in DATAGRAM_CORES
     family = socket.AF_INET6 if engine == "shadow6-hare" else socket.AF_INET
-    impairment = {"rtt_ms": options.get("rtt_ms", 0), "loss_percent": options.get("loss_percent", 0)}
+    impairment = {"rtt_ms": 0, "loss_percent": 0}  # common logical-request pacing below
     target = DatagramEchoTarget(family, **impairment) if datagram else EchoTarget(**impairment)
     broker = agent = client = None
     success = False
@@ -660,7 +669,9 @@ def run_external_proxy(endpoint: str, benchmark: dict) -> dict:
 def run_parallel(engine, options, backend):
     count = options["concurrency"]
     if count == 1:
-        return run_engine(engine, options, backend)
+        result=run_engine(engine, options, backend)
+        result.pop("measurement_started",None); result.pop("measurement_finished",None)
+        return result
     started = time.perf_counter()
     ready_barrier = threading.Barrier(count)
     def run_ready():
@@ -672,7 +683,8 @@ def run_parallel(engine, options, backend):
     with ThreadPoolExecutor(max_workers=count) as pool:
         futures = [pool.submit(run_ready) for _ in range(count)]
         results = [f.result() for f in futures]
-    duration = time.perf_counter() - started
+    lifecycle_duration = time.perf_counter() - started
+    duration=max(r["measurement_finished"] for r in results)-min(r["measurement_started"] for r in results)
     result = dict(results[0])
     result.update(concurrency=count, concurrency_scope="independent-native-trios",
                   requests=sum(r["requests"] for r in results),
@@ -683,7 +695,9 @@ def run_parallel(engine, options, backend):
                   latency_avg_seconds=sum(r["latency_avg_seconds"] for r in results)/count,
                   latency_p95_seconds=max(r["latency_p95_seconds"] for r in results),
                   latency_p95_aggregation="maximum-worker-p95",
-                  duration_scope="includes-trio-startup-and-teardown")
+                  lifecycle_duration_seconds=lifecycle_duration,
+                  duration_scope="application-workload-only")
+    result.pop("measurement_started",None); result.pop("measurement_finished",None)
     return result
 
 

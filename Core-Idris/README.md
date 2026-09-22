@@ -61,8 +61,13 @@ All three roles are bounded to five minutes and one million loop iterations;
 the explicit limit additionally bounds endpoint transactions/broker forwarded
 frames. Admission expires after five seconds, broker inactivity after 60
 seconds and endpoint inactivity after 30 seconds. Application datagrams remain
-1..1024 bytes; this is one fixed route, without native retransmission or
-multi-client multiplexing. Protocols remain family-specific.
+1..1024 bytes; this is one fixed route without multi-client multiplexing.
+Chain endpoints now authenticate a separate ACK frame type, retransmit one
+outstanding data frame every 200 ms up to eight times, and acknowledge
+duplicates without redelivery. The broker forwards ACKs after its data-frame
+limit long enough to finish the last transaction. Retry exhaustion stops the
+session; the legacy `--native-client`/`--native-agent` path above retains its
+original unreliable wire contract. Protocols remain family-specific.
 
 The shared `integration/stack_test.py --engine shadow6-idris --benchmark`
 evaluates native, Python and Node.js paths. Actions builds the Idris executable

@@ -74,9 +74,9 @@ in [`docs/protocols.md`](docs/protocols.md).
 | Core-Zig | broker, agent, client | Go/Rust control dialects plus authenticated reliable UDP data plane |
 | Core-D | broker, agent, client | Authenticated WebSocket control and X25519/ChaCha20-Poly1305 stream |
 | Core-Cpp | broker, agent, client | Mutually authenticated TLS 1.3 WebSocket control and SCTP tunnel data |
-| Core-Idris | broker, agent, client | Signed ephemeral admission; fixed-route UDP; legacy PSK relay retained |
-| Core-Hare | broker, agent, client | Signed fixed-route IPv6-loopback UDP; one peer/session, no native retransmission |
-| Core-Carp | broker, agent, client, codec/adapter | Signed fixed-route IPv4-loopback UDP; separate directional layer keys |
+| Core-Idris | broker, agent, client | Signed ephemeral admission; fixed-route UDP with bounded ACK/retry; legacy PSK relay retained |
+| Core-Hare | broker, agent, client | Signed fixed-route IPv6-loopback UDP; one peer/session, bounded authenticated ACK/retry |
+| Core-Carp | broker, agent, client, codec/adapter | Signed fixed-route IPv4-loopback UDP with bounded ACK/retry; separate directional layer keys |
 | Guard | agent SPA/LPD/probe monitor, client TLS cover traffic, broker reverse proxy | Bounded maps/concurrency; public broker binds require TLS |
 | C11Relay | multi-client bidirectional UDP relay | Normal/high-speed pass-through; data-saving mode requires a paired relay |
 | Auto-Orchestrator | topology validation, key/config generation, SSH deployment, MTD rotation, RPC/TUI | SSH host-key verification is mandatory for remote nodes |
@@ -281,3 +281,6 @@ Release verification covers the repository's input, file, TLS, process, and
 resource controls. Deployments still depend on protected private keys, TLS at
 public control endpoints, current dependencies, suitable OS isolation, and
 periodic operational review.
+
+See the [network reliability and Python runtime review](docs/network-runtime-review-2026-09.md) for
+GIL-mode coverage, measured performance scope and remaining platform limits.

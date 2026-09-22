@@ -15,6 +15,13 @@ fn ready(fd: net::socket, milliseconds: int) bool = {
 	};
 };
 
+fn send_frame(sock: net::socket, addr: ip::addr, port: u16, key: []u8, counter: []u8, packet: []u8, plain: []u8) bool = {
+	for (let i = 12z; i > 0; i -= 1) { counter[i-1] += 1; if (counter[i-1] != 0) break; };
+	for (let i = 0z; i < 12; i += 1) packet[32+i] = counter[i];
+	if (chacha(&packet[44], &plain[0], 980, &counter[0], &key[0]) != 0 || generichash(&packet[0], 32, &packet[32], 992, &key[0], 32) != 0) return false;
+	return udp::sendto(sock, packet[..1024], addr, port) is size;
+};
+
 // Signed challenge/response binds fresh ephemeral keys to the pinned identities.
 fn exchange(sock: net::socket, c: *configuration, tx: []u8, rx: []u8, addr: *ip::addr, port: *u16) bool = {
 	let pk: [32]u8 = [0...]; let sk: [64]u8 = [0...];
@@ -73,24 +80,53 @@ fn runtime(c: *configuration) void = {
 	defer io::close(app)!;
 	let local: ip::addr = ip::LOCAL_V6; let local_port = 0u16;
 	let packet: [1025]u8 = [0...]; let plain: [980]u8 = [0...];
-	let previous: [12]u8 = [0...]; let nonce: [12]u8 = [0...]; let expected: [32]u8 = [0...];
+	let previous: [12]u8 = [0...]; let last_data: [12]u8 = [0...]; let nonce: [12]u8 = [0...]; let expected: [32]u8 = [0...];
+	let pending_packet: [1024]u8 = [0...]; let pending_nonce: [12]u8 = [0...];
+	let pending = false; let retries = 0u; let retry_at = 0i64;
 	defer wipe(&plain[0], 980);
 	const deadline = time::now(time::clock::MONOTONIC).sec + 300;
 	fmt::println("session ready")!;
 	for (let count = 0z; count < 1000000 && time::now(time::clock::MONOTONIC).sec < deadline; count += 1) {
-		let fds = [poll::pollfd { fd = sock, events = poll::event::POLLIN, ... }, poll::pollfd { fd = app, events = poll::event::POLLIN, ... }];
+		const now = time::now(time::clock::MONOTONIC).sec;
+		if (pending && now >= retry_at) {
+			if (retries >= 8) { fmt::errorln("native retransmission limit reached")!; rt::exit(2); };
+			if (udp::sendto(sock, pending_packet[..], addr, port) is net::error) break;
+			retries += 1; retry_at = now + 1;
+		};
+		let fds = [poll::pollfd { fd = sock, events = poll::event::POLLIN, ... }, poll::pollfd { fd = app, events = if (pending) 0 else poll::event::POLLIN, ... }];
 		if (poll::poll(fds, time::SECOND) is poll::error) break;
 		if (fds[0].revents & poll::event::POLLIN != 0) {
 			let source: ip::addr = ip::LOCAL_V6; let source_port = 0u16;
 			const n = match (udp::recvfrom(sock, packet, &source, &source_port)) { case let n: size => yield n; case => continue; };
-			if (n != 1024 || source_port != port || !ip::equal(source, addr) || !nonce_increases(previous, packet[32..44])) continue;
+			if (n != 1024 || source_port != port || !ip::equal(source, addr)) continue;
 			if (generichash(&expected[0], 32, &packet[32], 992, &rx[0], 32) != 0 || equal(&expected[0], &packet[0], 32) != 0) continue;
 			if (chacha(&plain[0], &packet[44], 980, &packet[32], &rx[0]) != 0) continue;
 			const sz = plain[0]: size * 256 + plain[1]: size;
-			if (sz > 978) { wipe(&plain[0], 980); continue; };
+			if (sz > 978 && sz != 65535) { wipe(&plain[0], 980); continue; };
+			// ACKs have their own replay semantics: only the outstanding data
+			// nonce can release its slot. They must not advance the data
+			// watermark when reordered ahead of an earlier data packet.
+			if (sz == 65535) {
+				if (pending && equal(&plain[2], &pending_nonce[0], 12) == 0) { pending = false; wipe(&pending_packet[0], 1024); };
+				wipe(&plain[0], 980); continue;
+			};
+			if (sz != 65535 && equal(&packet[32], &last_data[0], 12) == 0) {
+				wipe(&plain[0], 980);
+				plain[0] = 255; plain[1] = 255;
+				for (let i = 0z; i < 12; i += 1) plain[2+i] = last_data[i];
+				if (!send_frame(sock, addr, port, tx[..], nonce[..], packet[..1024], plain[..])) break;
+				wipe(&plain[0], 980); continue;
+			};
+			if (!nonce_increases(previous, packet[32..44])) { wipe(&plain[0], 980); continue; };
+			if (c.role == "client" && local_port == 0) { wipe(&plain[0], 980); continue; };
 			for (let i = 0z; i < 12; i += 1) previous[i] = packet[32+i];
 			if (c.role == "agent") { if (udp::send(app, plain[2..2+sz]) is net::error) break; }
 			else if (local_port != 0) { if (udp::sendto(app, plain[2..2+sz], local, local_port) is net::error) break; };
+			for (let i = 0z; i < 12; i += 1) last_data[i] = previous[i];
+			wipe(&plain[0], 980);
+			plain[0] = 255; plain[1] = 255;
+			for (let i = 0z; i < 12; i += 1) plain[2+i] = last_data[i];
+			if (!send_frame(sock, addr, port, tx[..], nonce[..], packet[..1024], plain[..])) break;
 			wipe(&plain[0], 980);
 		};
 		if (fds[1].revents & poll::event::POLLIN != 0) {
@@ -103,10 +139,10 @@ fn runtime(c: *configuration) void = {
 			};
 			wipe(&plain[0], 980); plain[0] = (n / 256): u8; plain[1] = (n % 256): u8;
 			for (let i = 0z; i < n; i += 1) plain[2+i] = packet[i];
-			for (let i = 12z; i > 0; i -= 1) { nonce[i-1] += 1; if (nonce[i-1] != 0) break; };
-			for (let i = 0z; i < 12; i += 1) packet[32+i] = nonce[i];
-			if (chacha(&packet[44], &plain[0], 980, &nonce[0], &tx[0]) != 0 || generichash(&packet[0], 32, &packet[32], 992, &tx[0], 32) != 0) break;
-			if (udp::sendto(sock, packet[..1024], addr, port) is net::error) break;
+			if (!send_frame(sock, addr, port, tx[..], nonce[..], packet[..1024], plain[..])) break;
+			for (let i = 0z; i < 1024; i += 1) pending_packet[i] = packet[i];
+			for (let i = 0z; i < 12; i += 1) pending_nonce[i] = nonce[i];
+			pending = true; retries = 0; retry_at = time::now(time::clock::MONOTONIC).sec + 1;
 			wipe(&plain[0], 980);
 		};
 	};

@@ -13,7 +13,7 @@ reports, so formats always describe the same samples.
 The existing default remains a 4-byte protocol-correctness and tiny-message
 latency regression gate. `performance_matrix.py` is a separate throughput and
 long-flow suite: it runs 4 KiB, 64 KiB, and 1 MiB payloads over a 16 MiB flow at
-0/20/80/150 ms RTT and 0/0/1/3 percent loss-recovery conditions. Its bounded,
+0/20/80/150 ms RTT and 0/0/1/3 percent response-recovery-delay conditions. Its bounded,
 deterministic userspace response model never changes host qdiscs, routes, or
 firewalls, and reports this limitation explicitly; it is not a WAN claim.
 The zero-impairment rows carry the full byte stream through the real local Core
@@ -62,3 +62,37 @@ only to loopback, so the authenticated Core—not this benchmark—crosses the W
 Merge the resulting JSON reports in the observability system using `target`,
 environment, and run identity. Shadow6 never opens an unauthenticated public
 benchmark listener or remotely executes node commands.
+
+### Component matrix and Python GIL comparisons
+
+`python Benchmark/component_benchmark.py --flow-bytes 131072` emits 884 rows:
+12 S6NA profiles × 2 backends × 3 payloads × 3 concurrency levels × 4 fault
+scenarios (864), plus 18 actual Virtual Broker/direct TCP echo measurements and
+2 signed-admission measurements (empty and populated replay cache). Adapter tests
+use real AEAD, fragmentation and discarded frames with a virtual retry clock;
+they measure library work, not WAN throughput. Concurrency there means multiple
+independent logical adapters, driven deterministically by one worker. It is not
+a threaded scalability claim. Virtual Broker lanes are concurrent real TCP
+connections through one shared Broker. All rows verify delivery and report
+failures explicitly; unavailable native transports remain separate.
+
+The `python-network-runtime` CI matrix runs this identical 884-row workload for
+regular 3.14, free-threaded 3.14 with GIL enabled, and free-threaded 3.14 with GIL
+disabled, on Linux/macOS/Windows x64. JSON records the actual post-import GIL state,
+interpreter build, dependencies, OS, commit and runner. Each mode uploads its own
+artifact. Compare within the same OS and workload; hosted runners differ, so use
+repeated paired measurements on fixed hardware before drawing speedup conclusions.
+Node rows are an unchanged-workload reference in every mode. CI asserts actual
+GIL state and complete coverage; extension-triggered GIL fallback is not silently
+counted as a successful no-GIL measurement. Normal application startup can fall
+back safely; CI's explicitly requested no-GIL gate must pass as requested.
+
+The native network matrix's impairment model is `application-response-pacing-v2`:
+response delay is charged once per logical request, equally across backends,
+not per TCP receive chunk. It does **not** drop packets. Delayed-case request
+counts are capped by a 30-second artificial-delay budget; reports give effective
+bytes and concurrency totals. Workload timing excludes process startup for both
+serial and parallel cases, with lifecycle time retained separately.
+
+See the [network reliability and Python runtime review](../docs/network-runtime-review-2026-09.md) for
+GIL-mode coverage, measured performance scope and remaining platform limits.

@@ -5,6 +5,21 @@ import dgram from 'node:dgram';
 import fs from 'node:fs';
 import {Codec,DatagramEndpoint,ReliableAdapter,loadKey} from './shadow6_network.mjs';
 
+test('lazy message snapshots retain the full backpressure charge until acknowledged',()=>{
+ const limits={max_message:4096,max_inflight:4096,payload_bytes:64,window_frames:1};
+ const left=new ReliableAdapter('hare',Buffer.alloc(32),0,[],limits),right=new ReliableAdapter('hare',Buffer.alloc(32),1,[],limits);
+ const data=Buffer.alloc(4096,97),frames=left.send(0,data);data.fill(98);
+ for(const ack of right.receive(frames[0]).acks)left.receive(ack);
+ assert.throws(()=>left.send(1,Buffer.from('b')),/backpressure/);
+ let completed=[];
+ while(left.buffered)for(const frame of left.outbound()){
+  const result=right.receive(frame);completed.push(...result.messages);
+  for(const ack of result.acks)left.receive(ack);
+ }
+ assert.ok(completed[0][1].equals(Buffer.alloc(4096,97)));
+ assert.equal(left.outgoing.size,0);assert.equal(right.incomingBytes,0);
+});
+
 test('startup limits expand payload, streams and window without mutation',()=>{
   const limits={max_message:32*1024*1024,max_streams:128,max_inflight:64*1024*1024,max_window:128,
     reassembly_seconds:60,max_extensions:32,payload_bytes:4096,window_frames:96};

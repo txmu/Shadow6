@@ -2,8 +2,18 @@
 """Authenticated, bounded chunking/reassembly shared by all Shadow6 cores."""
 from __future__ import annotations
 import argparse, base64, collections, hashlib, hmac, ipaddress, json, os, socket, stat, struct, subprocess, time
+from functools import wraps
+from threading import RLock
 from dataclasses import dataclass
 from pathlib import Path
+# Select only for executable entry points; library imports keep the caller's runtime.
+if __name__ == "__main__":
+    import sys
+    _root = Path(__file__).resolve().parents[1]
+    sys.path.insert(0, str(_root / "Tools"))
+    sys.path.insert(0, str(_root / "share/shadow6/modules"))
+    from python_runtime import bootstrap
+    bootstrap(_root, Path(__file__).absolute())
 from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
 
 MAGIC=b"S6NA"; VERSION=1; DATA=1; ACK=2; EXTENSION=3
@@ -172,49 +182,64 @@ class Codec:
         if kind==ACK and payload: raise ValueError("invalid acknowledgment")
         return kind,stream,message,index,count,payload
 
+def _synchronized(method):
+    @wraps(method)
+    def call(self, *args, **kwargs):
+        with self._lock:
+            return method(self, *args, **kwargs)
+    return call
+
+
 class ReliableAdapter:
     """Transport-neutral reliable messages; callers never split their data."""
     def __init__(self,core,key,side=0,extensions=(),clock=time.monotonic,limits:Limits|None=None):
         if core not in POLICIES:
             raise ValueError("core has no safely established adapter profile")
+        self._lock = RLock()
         self.limits=limits or Limits(); policy=POLICIES[core]; self.codec=Codec(key,self.limits.payload_bytes or policy.payload,side,self.limits.max_streams); self.policy=policy; self.clock=clock
         self.extensions=frozenset(extensions)
         if len(self.extensions)>self.limits.max_extensions or any(not isinstance(x,str) or not x or len(x)>64 for x in self.extensions): raise ValueError("invalid extension allowlist")
-        self.next_message=[0]*self.limits.max_streams; self.pending={}; self.queues=[collections.deque() for _ in range(self.limits.max_streams)]; self.cursor=0; self.incoming={}; self.buffered=0
+        self.next_message=[0]*self.limits.max_streams; self.pending={}; self.queues=[collections.deque() for _ in range(self.limits.max_streams)]; self.active_streams=collections.deque(); self.incoming={}; self.incoming_bytes=0; self.buffered=0
         self.completed=set(); self.completed_order=collections.deque()
+        self.outgoing={}
         self.srtt=None; self.rttvar=None; self.rto=.2
     def _remember(self,key):
         self.completed.add(key); self.completed_order.append(key)
         if len(self.completed_order)>4096: self.completed.discard(self.completed_order.popleft())
+    @_synchronized
     def send(self,stream,data):
         if type(stream) is not int or not 0<=stream<self.limits.max_streams: raise ValueError("invalid stream")
         if not isinstance(data,bytes) or not data or len(data)>self.limits.max_message: raise ValueError("message is outside configured bounds")
-        chunks=[data[i:i+self.codec.payload] for i in range(0,len(data),self.codec.payload)]
-        if len(chunks)>65535 or self.buffered+len(data)>self.limits.max_inflight:
+        count=(len(data)+self.codec.payload-1)//self.codec.payload
+        if count>65535 or self.buffered+len(data)>self.limits.max_inflight or len(self.outgoing)>=4096:
             raise BufferError("adapter backpressure limit reached")
         message=self.next_message[stream]
         if message>=2**64-1: raise OverflowError("message sequence exhausted; rekey")
         self.next_message[stream]=message+1
         now=self.clock()
-        for index,chunk in enumerate(chunks):
-            wire=self.codec.encode(DATA,stream,message,index,len(chunks),chunk)
-            self.queues[stream].append(((stream,message,index),wire,len(chunk)))
+        if not self.queues[stream]: self.active_streams.append(stream)
+        self.queues[stream].append([message,data,0,count])
+        self.outgoing[(stream,message)]=[count,len(data)]
         self.buffered+=len(data); return self.outbound(now)
+    @_synchronized
     def outbound(self,now=None):
         now=self.clock() if now is None else now; frames=[]
-        empty=0
         window=min(self.limits.window_frames or self.policy.window,self.limits.max_window)
-        while len(self.pending)<window and empty<self.limits.max_streams:
-            queue=self.queues[self.cursor]
-            if queue:
-                key,wire,size=queue.popleft(); self.pending[key]=[wire,now+self.rto,0,size,now,False]; frames.append(wire); empty=0
-            else: empty+=1
-            self.cursor=(self.cursor+1)%self.limits.max_streams
+        while len(self.pending)<window and self.active_streams:
+            stream=self.active_streams.popleft(); queue=self.queues[stream]
+            item=queue[0]; message,data,index,count=item
+            start=index*self.codec.payload; chunk=data[start:start+self.codec.payload]
+            wire=self.codec.encode(DATA,stream,message,index,count,chunk)
+            self.pending[(stream,message,index)]=[wire,now+self.rto,0,len(chunk),now,False]
+            frames.append(wire); item[2]+=1
+            if item[2]==count: queue.popleft()
+            if queue: self.active_streams.append(stream)
         return frames
     def _sample(self,rtt):
         if self.srtt is None: self.srtt,self.rttvar=rtt,rtt/2
         else: self.rttvar=.75*self.rttvar+.25*abs(self.srtt-rtt); self.srtt=.875*self.srtt+.125*rtt
         self.rto=max(.05,min(5.0,self.srtt+4*self.rttvar))
+    @_synchronized
     def extension(self,stream,name,value):
         if type(stream) is not int or not 0<=stream<self.limits.max_streams: raise ValueError("invalid stream")
         if name not in self.extensions: raise PermissionError("extension is not enabled")
@@ -222,12 +247,15 @@ class ReliableAdapter:
         if message>=2**64-1: raise OverflowError("message sequence exhausted; rekey")
         self.next_message[stream]=message+1
         return self.codec.encode(EXTENSION,stream,message,0,1,payload)
+    @_synchronized
     def receive(self,wire):
         kind,stream,message,index,count,payload=self.codec.decode(wire)
         if kind==ACK:
             item=self.pending.pop((stream,message,index),None)
             if item:
-                self.buffered-=item[3]
+                remaining=self.outgoing[(stream,message)]; remaining[0]-=1
+                if remaining[0]==0:
+                    self.buffered-=remaining[1]; del self.outgoing[(stream,message)]
                 if not item[5]: self._sample(max(0,self.clock()-item[4]))
             return [],[],[]
         ack=self.codec.encode(ACK,stream,message,index,count)
@@ -245,22 +273,30 @@ class ReliableAdapter:
                 raise PermissionError("received extension is not enabled")
             self._remember(key)
             return [ack],[],[(stream,value["name"],value["value"])]
-        key=(stream,message); state=self.incoming.setdefault(key,{"count":count,"parts":{},"bytes":0,"deadline":self.clock()+self.limits.reassembly_seconds})
+        key=(stream,message)
         if key in self.completed: return [ack],[],[]
+        if not payload: raise ValueError("empty data chunk")
+        state=self.incoming.get(key)
+        if state is None:
+            if len(self.incoming)>=4096: raise BufferError("reassembly message limit reached")
+            state={"count":count,"parts":{},"bytes":0,"deadline":self.clock()+self.limits.reassembly_seconds}
         if state["count"]!=count: raise ValueError("contradictory chunk count")
         if index not in state["parts"]:
-            if sum(item["bytes"] for item in self.incoming.values())+len(payload)>self.limits.max_inflight: raise BufferError("reassembly limit reached")
-            state["parts"][index]=payload; state["bytes"]+=len(payload)
+            if self.incoming_bytes+len(payload)>self.limits.max_inflight: raise BufferError("reassembly limit reached")
+            if state["bytes"]+len(payload)>self.limits.max_message: raise ValueError("reassembled message is oversized")
+            state["parts"][index]=payload; state["bytes"]+=len(payload); self.incoming_bytes+=len(payload)
+        self.incoming[key]=state
         completed=[]
         if len(state["parts"])==count:
             data=b"".join(state["parts"][i] for i in range(count))
             if len(data)>self.limits.max_message: raise ValueError("reassembled message is oversized")
-            del self.incoming[key]; completed.append((stream,data)); self._remember(key)
+            del self.incoming[key]; self.incoming_bytes-=state["bytes"]; completed.append((stream,data)); self._remember(key)
         return [ack],completed,[]
+    @_synchronized
     def retransmit(self):
         now=self.clock(); frames=[]
         for key,state in list(self.incoming.items()):
-            if now>=state["deadline"]: del self.incoming[key]
+            if now>=state["deadline"]: del self.incoming[key]; self.incoming_bytes-=state["bytes"]
         for key,item in list(self.pending.items()):
             wire,deadline,attempts,size,sent,retried=item
             if now<deadline: continue

@@ -44,6 +44,10 @@ benchmark:
 performance-matrix:
 	@$(PYTHON) Benchmark/performance_matrix.py --output performance-matrix.json
 
+.PHONY: component-benchmark
+component-benchmark:
+	@$(PYTHON) Benchmark/component_benchmark.py --output component-benchmark.json
+
 benchmark-test:
 	@PYTHONPATH=Benchmark $(PYTHON) -m unittest Benchmark/test_benchmark.py
 
@@ -149,6 +153,7 @@ test-hare: core-hare
 ifeq ($(BUILD_HARE),1)
 	@$(PYTHON) Core-Hare/tests/test_runtime.py
 	@$(PYTHON) integration/test_native_chains.py NativeBrokerTests.test_hare_admission
+	@$(PYTHON) integration/test_native_reliability.py NativeReliabilityTests.test_hare
 endif
 
 core-carp:
@@ -158,6 +163,7 @@ test-carp:
 	@bash Core-Carp/compile.sh
 	@$(PYTHON) Core-Carp/tests/test_core.py
 	@$(PYTHON) integration/test_native_chains.py NativeBrokerTests.test_carp_admission
+	@$(PYTHON) integration/test_native_reliability.py NativeReliabilityTests.test_carp
 
 ifeq ($(BUILD_CARP),1)
 test: test-carp
@@ -492,6 +498,7 @@ endif
 	@install -m 0644 CLI/shadow6_vcore.py CLI/vcore_adapters.py "$(DESTDIR)$(PREFIX)/bin/"
 	@install -d -m 0755 "$(DESTDIR)$(PREFIX)/share/shadow6/modules"
 	@install -m 0644 CLI/shadow6_vcore.py CLI/vcore_adapters.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/"
+	@install -m 0644 Tools/python_runtime.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/"
 	@install -m 0644 Network-Adapter/shadow6_network.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/"
 	@install -m 0644 Network-Adapter/shadow6_network.mjs "$(DESTDIR)$(PREFIX)/share/shadow6/modules/"
 	@install -m 0644 Network-Adapter/secure_key_windows.ps1 "$(DESTDIR)$(PREFIX)/share/shadow6/modules/"
@@ -597,6 +604,8 @@ ifeq ($(BUILD_SLOTS),1)
 	@install -m 0644 Slot-System/bindings.example.json "$(DESTDIR)$(PREFIX)/share/shadow6/slots/bindings.example.json"
 endif
 ifeq ($(BUILD_PUBLIC6),1)
+	@install -d -m 0755 "$(DESTDIR)$(PREFIX)/share/shadow6/modules"
+	@install -m 0644 Tools/python_runtime.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/"
 	@install -m 0755 Public6/shadow6_public.py "$(DESTDIR)$(PREFIX)/bin/shadow6-public"
 	@install -m 0755 Public6/virtual_broker.py "$(DESTDIR)$(PREFIX)/bin/shadow6-virtual-broker"
 	@install -m 0755 Virtual-Adapter/shadow6_virtual_adapter.py "$(DESTDIR)$(PREFIX)/bin/shadow6-virtual-adapter"
@@ -683,11 +692,12 @@ endif
 
 test-idris: core-idris
 ifeq ($(BUILD_IDRIS),1)
-	@if [ -x Core-Idris/shadow6-idris ]; then \
+	@set -e; if [ -x Core-Idris/shadow6-idris ]; then \
 		echo "Testing Core-Idris feature contract..."; \
 		LD_LIBRARY_PATH="$(CURDIR)/Core-Idris/ffi:$${LD_LIBRARY_PATH:-}" $(PYTHON) Core-Idris/test_core.py; \
 		LD_LIBRARY_PATH="$(CURDIR)/Core-Idris/ffi:$${LD_LIBRARY_PATH:-}" Core-Idris/shadow6-idris --native-self-test; \
 		$(PYTHON) Core-Idris/test_security.py; \
+		$(PYTHON) integration/test_native_reliability.py NativeReliabilityTests.test_idris; \
 	else \
 		echo "Core-Idris binary not found; tests skipped"; \
 	fi

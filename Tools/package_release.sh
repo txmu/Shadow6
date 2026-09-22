@@ -29,6 +29,7 @@ if [[ -f "$apk_source" ]]; then
 fi
 tar --mode=go-w \
     --exclude="$project_name/.venv" \
+    --exclude="$project_name/.venv-ft" \
 	--exclude="$project_name/.git" \
     --exclude="$project_name/.tools" \
     --exclude="$project_name/.nim_runtime" \
@@ -74,6 +75,7 @@ fi
 mkdir -p "$zip_stage"
 cd "$parent_dir"
 tar --exclude="$project_name/.venv" \
+    --exclude="$project_name/.venv-ft" \
 	--exclude="$project_name/.git" \
     --exclude="$project_name/.tools" \
     --exclude="$project_name/.nim_runtime" \

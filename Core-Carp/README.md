@@ -77,8 +77,12 @@ agent-to-client layer keys under a separate `T` contract, retain the compiled
 Carp schema check and enforce monotonic replay state. The maximum application
 datagram is 986 bytes. One application source, one session and one fixed route
 are supported. Five-minute/one-million-iteration bounds apply; broker admission
-expires after five seconds and route inactivity after 60 seconds. Loss recovery,
-multi-client routing and stream semantics are not added by this mode.
+expires after five seconds and route inactivity after 60 seconds. The `T`
+contract now confirms authenticated application datagrams, retransmits one
+outstanding ciphertext packet every 200 ms up to eight times, and acknowledges
+duplicates without redelivery. An authenticated marker in the otherwise-zero
+padding distinguishes ACKs from empty application datagrams. Retry exhaustion
+ends the session; multi-client routing and stream semantics remain unsupported.
 
 `integration/stack_test.py --engine shadow6-carp --benchmark` evaluates all
 three backend paths through the real native trio, without stdin/stdout routing

@@ -35,6 +35,9 @@ bounded startup catalog. Each tenant has independent connection and token-
 bucket byte quotas, so constrained datagram Cores cannot evict another
 tenant's sessions even when S6NA is disabled. Configuration requires loopback
 real-Broker targets and a loopback listener behind both Guard and Gate. The
+admission replay index expires entries in deadline order and caps live entries
+at 65,536. Verified public keys are cached at startup; relay copies use bounded
+write buffering and a shared per-tenant byte budget in both directions. The
 C11Relay control socket is declared for the supervised deployment boundary.
 No Core process or Core protocol is modified. The supplied hardened systemd
 unit refuses to run without Guard and Gate services.
@@ -58,3 +61,25 @@ present on only one peer are ignored. Consequently two same-Core peers with no
 common application, Crosed, transport, or extension values are still base-
 compatible. Offers are limited to 1 MiB, reject floats and unknown top-level
 fields, bound every collection/string, and reject symlink input files.
+
+### Virtual Broker runtime and concurrency
+
+The executable uses the same installed-runtime selection as S6NA: prefer Python
+3.14 free-threaded with compatible cryptography, otherwise fall back to a working
+GIL runtime (Python 3.11+). Set `SHADOW6_PYTHON` for an explicit interpreter and
+`PYTHON_GIL=1` to test a free-threaded build with its GIL enabled. Probes inspect
+GIL state after dependency imports; startup does not install packages or force
+incompatible extensions into no-GIL operation.
+
+Replay admission reserves nonces under a lock, after signature verification,
+so concurrent submissions cannot accept the same credential twice. Replay state
+is capped at 65,536 live entries and expires through a heap. Relay connections,
+shared tenant rate accounting and connection quotas remain owned by one asyncio
+event loop per Broker. Do not share a Broker's relay across event loops. Both GIL
+modes use the same authentication and resource limits; no-GIL mode is not an
+implicit multi-process or multi-loop deployment.
+
+CI benchmarks both modes with identical workloads on Linux, macOS and Windows
+x64. Windows covers the portable in-memory-config relay; production configuration
+loading still requires POSIX ownership, mode and no-follow file protections and
+is not claimed as a Windows deployment path.

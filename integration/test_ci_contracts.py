@@ -19,6 +19,7 @@ class CIContracts(unittest.TestCase):
             self.assertEqual(len(entered), 4)
             return dict(requests=1, bytes_sent=512, bytes_received=512,
                         latency_p95_seconds=0.01, latency_avg_seconds=0.01,
+                        measurement_started=1,measurement_finished=2,
                         success_rate=1.0)
         with patch.object(stack_test, 'run_engine', side_effect=ready):
             result = stack_test.run_parallel('shadow6-carp', {'concurrency': 4}, 'node')
