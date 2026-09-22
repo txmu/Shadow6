@@ -22,6 +22,7 @@ import tempfile
 import threading
 import time
 import traceback
+from contextlib import ExitStack
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from native_configs import DATAGRAM_CORES, generate_commands
@@ -30,6 +31,7 @@ from companion import Adapter, BACKENDS, Channel, exchange
 
 ROOT = Path(__file__).resolve().parents[1]
 _BROKER_BIND_LOCK = threading.Lock()
+_DATAGRAM_START_LOCK = threading.Lock()
 
 # Each entry invokes the core's existing real loopback/network tests.  The
 # harness never substitutes a synthetic wire protocol for a missing core test.
@@ -479,7 +481,8 @@ async def generate_configs(engine: str, output: Path, target_port: int, broker_p
     generate_local_configs(output, target_port, broker_port, engine)
 
 
-def run_engine(engine: str, benchmark: dict | None = None, backend: str = "native") -> dict | None:
+def run_engine(engine: str, benchmark: dict | None = None, backend: str = "native",
+               ready_barrier: threading.Barrier | None = None) -> dict | None:
     binary = CORE_BINARIES[engine]
     if engine == "shadow6-zig" and not binary.is_file():
         binary = ROOT / "Core-Zig/zig-out/bin/shadow6-zig"
@@ -494,7 +497,7 @@ def run_engine(engine: str, benchmark: dict | None = None, backend: str = "nativ
     broker = agent = client = None
     success = False
     result = None
-    with tempfile.TemporaryDirectory(prefix=f"shadow6-it-{engine}-") as directory:
+    with ExitStack() as resources, tempfile.TemporaryDirectory(prefix=f"shadow6-it-{engine}-") as directory:
         output = Path(directory) / "configs"
         key_path = Path(directory) / "adapter.key"
         if backend != "native":
@@ -502,6 +505,13 @@ def run_engine(engine: str, benchmark: dict | None = None, backend: str = "nativ
             from shadow6_network import create_key
             create_key(key_path, os.urandom(32))
             target = CompanionEchoTarget(family, datagram, backend, engine.removeprefix("shadow6-"), key_path, **impairment)
+        # Config generation releases temporary UDP reservations. Keep another
+        # trio from choosing those ports until the native roles have bound them.
+        startup = resources.enter_context(ExitStack())
+        if datagram:
+            if not _DATAGRAM_START_LOCK.acquire(timeout=45):
+                raise TimeoutError("native UDP startup queue deadline")
+            startup.callback(_DATAGRAM_START_LOCK.release)
         target_port = target.start()
         broker_port = free_port()
         if datagram:
@@ -550,12 +560,16 @@ def run_engine(engine: str, benchmark: dict | None = None, backend: str = "nativ
                 marker = "ready:" if engine == "shadow6-pony" else "session ready"
                 while time.monotonic() < deadline:
                     if any(p.poll() is not None for p in (broker, agent, client)):
-                        raise RuntimeError("native role exited before session readiness")
+                        exited = {role: process.returncode for role, process in
+                                  (("broker", broker), ("agent", agent), ("client", client))
+                                  if process.poll() is not None}
+                        raise RuntimeError(f"native role exited before session readiness: {exited}")
                     if all(marker in log_paths[r].read_text(errors="replace") for r in ("agent", "client")):
                         break
                     time.sleep(.02)
                 else:
                     raise TimeoutError("native session readiness timeout")
+                startup.close()
                 connection = socket.socket(family, socket.SOCK_DGRAM)
                 connection.connect(endpoint)
             else:
@@ -571,6 +585,10 @@ def run_engine(engine: str, benchmark: dict | None = None, backend: str = "nativ
                     if backend != "native":
                         adapter = Adapter(backend, engine.removeprefix("shadow6-"), key_path, 0)
                         connection.settimeout(.1)
+                    # Start the workload together even when UDP port handoff
+                    # needs serialized startup. A failed peer aborts this wait.
+                    if ready_barrier is not None:
+                        ready_barrier.wait(timeout=45)
                     result = evaluate_application(connection, datagram, options, adapter)
                     result["backend"] = backend
                 finally:
@@ -629,8 +647,15 @@ def run_parallel(engine, options, backend):
     if count == 1:
         return run_engine(engine, options, backend)
     started = time.perf_counter()
+    ready_barrier = threading.Barrier(count)
+    def run_ready():
+        try:
+            return run_engine(engine, options, backend, ready_barrier)
+        except BaseException:
+            ready_barrier.abort()
+            raise
     with ThreadPoolExecutor(max_workers=count) as pool:
-        futures = [pool.submit(run_engine, engine, options, backend) for _ in range(count)]
+        futures = [pool.submit(run_ready) for _ in range(count)]
         results = [f.result() for f in futures]
     duration = time.perf_counter() - started
     result = dict(results[0])
