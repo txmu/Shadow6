@@ -53,7 +53,14 @@ jobs:
         if: matrix.os != 'ubuntu-24.04-arm'
       - name: Install Core-Idris prerequisites (Ubuntu)
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends build-essential chezscheme libgmp-dev libsodium-dev pkg-config
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential libgmp-dev libsodium-dev pkg-config
+          if [ "$RUNNER_ARCH" = ARM64 ]; then
+            bash Tools/bootstrap_chez_linux.sh
+          else
+            sudo apt-get install -y --no-install-recommends chezscheme
+          fi
       - name: Install Core-Idris prerequisites (macOS)
         if: runner.os == 'macOS'
         run: brew install libsodium pkg-config
@@ -243,6 +250,7 @@ jobs:
           unzip -q "$RUNNER_TEMP/carp.zip" -d .tools
           export CARP_DIR="$GITHUB_WORKSPACE/.tools/carp-v0.5.5-x86_64-linux"
           cd Core-Carp
+          mkdir -p build
           "$CARP_DIR/bin/carp" --no-profile --optimize --generate-only -b src/main.carp
           test -s build/main.c
           test -s build/schema.h
@@ -650,7 +658,8 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             build-essential pkg-config libssl-dev libsodium-dev libunistring-dev \
             gnat gprbuild ldc musl-tools shellcheck unzip autoconf m4 \
-            libncurses-dev zlib1g-dev cmake chezscheme libgmp-dev
+            libncurses-dev zlib1g-dev cmake libgmp-dev
+          bash Tools/bootstrap_chez_linux.sh
       - uses: actions/download-artifact@v4
         with:
           name: shadow6-carp-generated
@@ -1004,9 +1013,12 @@ jobs:
       - uses: actions/setup-go@v5
         with: {go-version-file: Core-Go/go.mod}
       - uses: actions/setup-python@v5
-        with: {python-version: '3.12'}
+        # The harness runs under x64 emulation on ARM64 because cryptography
+        # does not publish a matching CPython 3.12 Windows ARM64 wheel.
+        # Go and the binaries under test still use the native runner arch.
+        with: {python-version: '3.12', architecture: 'x64'}
       - name: Install network harness dependencies
-        run: python -m pip install -r requirements.txt
+        run: python -m pip install --only-binary=':all:' -r requirements.txt
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -1288,10 +1300,14 @@ jobs:
           sudo pkgin -y install go python311
           export PYTHON=/usr/pkg/bin/python3.11
           export PATH="/usr/pkg/bin:/usr/pkg/sbin:$PATH"
-          # Source directories are nodejs20/nodejs22, but binary package
+          # Source directories are nodejs20/nodejs22/nodejs24, but binary package
           # names are nodejs-VERSION. Select an actual LTS repository entry.
-          node_package=$(/usr/pkg/bin/pkgin avail | awk '$1 ~ /^nodejs-(22|20)\.[0-9.]+(nb[0-9]+)?$/ {print $1; exit}')
-          test -n "$node_package"
+          node_package=$(/usr/pkg/bin/pkgin avail | awk '$1 ~ /^nodejs-(24|22|20)\.[0-9.]+(nb[0-9]+)?$/ && !found {print $1; found=1}')
+          if test -z "$node_package"; then
+            echo 'No supported Node.js LTS package in the NetBSD repository' >&2
+            /usr/pkg/bin/pkgin avail | awk '/nodejs/ {print}'
+            exit 1
+          fi
           sudo pkgin -y install "$node_package"
           command -v node
           go_pkg=$(/usr/pkg/sbin/pkg_info -a | awk '/^go[0-9]+-[0-9]/ {sub(/-[0-9].*/, ""); print; exit}')
