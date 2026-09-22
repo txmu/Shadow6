@@ -1,1 +1,1 @@
-{"name":"shadow6-network-adapter","version":"1.0.0","private":true,"type":"module","engines":{"node":">=20"},"scripts":{"test":"node --test test_node.mjs"}}
+{"name":"shadow6-network-adapter","version":"1.0.0","private":true,"type":"module","engines":{"node":">=22"},"scripts":{"test":"node --test test_node.mjs"}}

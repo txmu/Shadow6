@@ -1,4 +1,7 @@
 name: multiplatform
+# Also run third-party JavaScript actions which still declare Node 20 on Node 24.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 permissions:
   contents: read
 on:
@@ -6,12 +9,32 @@ on:
   pull_request:
   workflow_dispatch:
 jobs:
+  node-adapter:
+    name: Network Adapter (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['22', '24']
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ matrix.node }}
+      - uses: actions/setup-python@v6
+        with: {python-version: '3.12'}
+      - name: Test supported Node runtimes and Python interoperability
+        run: |
+          python -m pip install 'cryptography==50.0.1'
+          node --test Network-Adapter/test_node.mjs
+          PYTHONPATH=Network-Adapter python -m unittest test_conformance test_secure_key
   pony-only:
     name: Core-Pony focused contract
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Provision pinned Pony toolchain
         run: |
           set -euo pipefail
@@ -45,10 +68,10 @@ jobs:
         os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
         with:
-          node-version: '22'
+          node-version-file: .nvmrc
       - uses: Homebrew/actions/setup-homebrew@49d03f1bf5d455a413dfbdf99e6718054a4cd975
         if: matrix.os != 'ubuntu-24.04-arm'
       - name: Install Core-Idris prerequisites (Ubuntu)
@@ -170,7 +193,7 @@ jobs:
           test -s "$artifact_dir/core-idris-runtime.tar.gz"
           du -ah "$output_dir"
           cat "$output_dir/SHA256SUMS"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: shadow6-idris-${{ matrix.os }}
           path: ${{ runner.temp }}/core-idris-artifact-${{ runner.os }}/core-idris-runtime.tar.gz
@@ -187,8 +210,8 @@ jobs:
             runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
         with: {python-version: '3.12'}
       - name: Install static BEAM prerequisites
         run: |
@@ -205,7 +228,7 @@ jobs:
           make test-gleam BUILD_GLEAM=1 PYTHON=python3
       - name: Preserve toolchain failure diagnostics
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: gleam-toolchain-logs-${{ matrix.arch }}
           path: .tools/gleam/logs/*.log
@@ -228,7 +251,7 @@ jobs:
           readelf -W -d Core-Gleam/shadow6-gleam | grep -q BIND_NOW
           ! readelf -W -d Core-Gleam/shadow6-gleam | grep -q NEEDED
           ldd Core-Gleam/shadow6-gleam 2>&1 | grep -Eq 'statically linked|not a dynamic executable'
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: shadow6-gleam-${{ matrix.arch }}
           path: |
@@ -239,7 +262,7 @@ jobs:
     name: Generate portable Carp source for native ARM64 compilation
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Generate with the pinned Carp release
         run: |
           set -euo pipefail
@@ -256,7 +279,7 @@ jobs:
           test -s build/schema.h
           cd ..
           tar -czf "$RUNNER_TEMP/carp-generated.tar.gz" Core-Carp/build/main.c Core-Carp/build/schema.h .tools/carp-v0.5.5-x86_64-linux/core
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: shadow6-carp-generated
           path: ${{ runner.temp }}/carp-generated.tar.gz
@@ -267,10 +290,13 @@ jobs:
     env:
       BUILD_HARE: '1'
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+      - uses: actions/setup-go@v6
         with: {go-version-file: Core-Go/go.mod}
-      - uses: actions/cache@v4
+      - uses: actions/cache@v5
         with:
           path: |
             ~/.cache/go-build
@@ -278,13 +304,13 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
           key: linux-${{ runner.os }}-${{ hashFiles('**/go.sum', '**/Cargo.lock') }}
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with: {python-version: '3.12'}
       - uses: dtolnay/rust-toolchain@stable
       - uses: goto-bus-stop/setup-zig@v2
         with: {version: '0.16.0'}
       - name: Cache Nim toolchain
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.choosenim
@@ -315,12 +341,12 @@ jobs:
           brew install chezscheme
           echo "$(brew --prefix chezscheme)/bin" >> "$GITHUB_PATH"
       - name: Download same-commit Gleam Linux builds
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: shadow6-gleam-x86_64
           path: Core-Gleam
       - name: Download same-commit Idris Linux builds
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: shadow6-idris-ubuntu-latest
           path: ${{ runner.temp }}/idris-artifact
@@ -565,7 +591,7 @@ jobs:
           PY
       - name: Upload Linux network benchmark reports (JSON/TXT/Markdown)
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: shadow6-linux-network-benchmark
           path: |
@@ -609,7 +635,7 @@ jobs:
           for report in benchmark-*.json benchmark-*.txt benchmark-*.md; do
             if test -f "$report"; then echo "===== $report ====="; cat "$report"; fi
           done
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: shadow6-linux-release
           path: |
@@ -641,10 +667,13 @@ jobs:
       BUILD_CARP: '1'
       CARP_GENERATED: '1'
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+      - uses: actions/setup-go@v6
         with: {go-version-file: Core-Go/go.mod}
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with: {python-version: '3.12'}
       - uses: dtolnay/rust-toolchain@stable
       - uses: goto-bus-stop/setup-zig@v2
@@ -660,11 +689,11 @@ jobs:
             gnat gprbuild ldc musl-tools shellcheck unzip autoconf m4 \
             libncurses-dev zlib1g-dev cmake libgmp-dev
           bash Tools/bootstrap_chez_linux.sh
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           name: shadow6-carp-generated
           path: ${{ runner.temp }}/carp-generated
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           name: shadow6-idris-ubuntu-24.04-arm
           path: ${{ runner.temp }}/idris-arm64
@@ -790,7 +819,7 @@ jobs:
           for path in Core-Go/shadow6-go* Core-Rust/shadow6-rust* Core-Cpp/shadow6-cpp Core-Zig/shadow6-zig Core-Ada/shadow6-ada* Core-D/shadow6-d Core-Nim/shadow6-nim* Core-Pony/shadow6-pony* Core-Gleam/shadow6-gleam* Core-Hare/shadow6-hare Core-Carp/shadow6-carp Core-Idris/shadow6-idris* Core-Idris/libsodium_ffi.so Gate/shadow6-gate Guard/shadow6-guard C11Relay/bridge_relay; do
             test -e "$path" && cp -a "$path" "$out/"
           done
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: shadow6-linux-arm64-components
           path: ${{ runner.temp }}/shadow6-linux-arm64
@@ -808,7 +837,7 @@ jobs:
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Build and test inside native Alpine musl
         run: |
           docker run --rm --interactive \
@@ -870,7 +899,7 @@ jobs:
           test -x Guard/shadow6-guard
           test -x C11Relay/bridge_relay
           ALPINE
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: shadow6-linux-musl-${{ matrix.arch }}-components
           path: |
@@ -895,10 +924,13 @@ jobs:
             arch: arm64
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+      - uses: actions/setup-go@v6
         with: {go-version-file: Core-Go/go.mod}
-      - uses: actions/cache@v4
+      - uses: actions/cache@v5
         with:
           path: |
             ~/Library/Caches/go-build
@@ -965,7 +997,7 @@ jobs:
             --role network-chain --repeats 3 --output benchmark-macos-${{ matrix.arch }}
       - name: Upload macOS network reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: shadow6-macos-network-benchmark-${{ matrix.arch }}
           path: |
@@ -980,7 +1012,7 @@ jobs:
           { uname -a; python3 --version; go version; rustc --version; zig version; } 2>&1 || true
           for report in benchmark-*.json benchmark-*.txt benchmark-*.md; do test -f "$report" && { echo "===== $report ====="; cat "$report"; }; done
           true
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: shadow6-macos-${{ matrix.arch }}-components
           path: |
@@ -1009,23 +1041,23 @@ jobs:
             arch: arm64
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
         with: {go-version-file: Core-Go/go.mod}
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         # The harness runs under x64 emulation on ARM64 because cryptography
         # does not publish a matching CPython 3.12 Windows ARM64 wheel.
         # Go and the binaries under test still use the native runner arch.
         with: {python-version: '3.12', architecture: 'x64'}
       - name: Install network harness dependencies
         run: python -m pip install --only-binary=':all:' -r requirements.txt
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
-          node-version: '22'
+          node-version-file: .nvmrc
       - name: Test secure companion keys
         shell: bash
         run: PYTHONPATH=Network-Adapter python -m unittest -v test_secure_key
-      - uses: actions/cache@v4
+      - uses: actions/cache@v5
         with:
           path: |
             ~/go/pkg/mod
@@ -1049,7 +1081,7 @@ jobs:
         run: python Benchmark/benchmark.py --core go --role network-chain --repeats 3 --require-network --output benchmark-windows-${{ matrix.arch }}
       - name: Upload Windows network reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: shadow6-windows-network-benchmark-${{ matrix.arch }}
           path: |
@@ -1064,7 +1096,7 @@ jobs:
           { uname -a; python --version; go version; } 2>&1 || true
           for report in benchmark-*.json benchmark-*.txt benchmark-*.md; do test -f "$report" && { echo "===== $report ====="; cat "$report"; }; done
           true
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: shadow6-windows-${{ matrix.arch }}-components
           path: |
@@ -1083,7 +1115,7 @@ jobs:
           - arch: x86-64
           - arch: arm64
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: cross-platform-actions/action@e0b9770014ba65d5e0815f15b74031c3a635f641 # v1.6.0
         with:
           operating_system: freebsd
@@ -1094,7 +1126,10 @@ jobs:
         run: |
             sudo pkg update -f
             # rust includes Cargo; the base system supplies Clang.
-            sudo pkg install -y go rust python3 node22 openssl libsodium libunistring libepoll-shim
+            node_package=node24
+            if ! pkg search -q -e node24; then node_package=node22; fi
+            sudo pkg install -y go rust python3 "$node_package" openssl libsodium libunistring libepoll-shim
+            node -e 'if (Number(process.versions.node.split(".")[0]) < 22) process.exit(1)'
             export PYTHON="$(command -v python3 || command -v python3.12)"
             for tool in go cargo c++ node "$PYTHON"; do command -v "$tool" || exit 1; done
             cd Core-Go
@@ -1144,7 +1179,7 @@ jobs:
         run: cpa.sh --sync-files vm-to-runner
       - name: Upload FreeBSD network reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: shadow6-freebsd-network-benchmark-${{ matrix.arch }}
           path: |
@@ -1153,7 +1188,7 @@ jobs:
             benchmark-freebsd-${{ matrix.arch }}.md
             support-freebsd-${{ matrix.arch }}.txt
           if-no-files-found: warn
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: shadow6-freebsd-${{ matrix.arch }}-release
           path: |
@@ -1177,7 +1212,7 @@ jobs:
           - arch: x86-64
           - arch: arm64
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: cross-platform-actions/action@e0b9770014ba65d5e0815f15b74031c3a635f641 # v1.6.0
         with:
           operating_system: openbsd
@@ -1189,6 +1224,7 @@ jobs:
         shell: cpa.sh {0}
         run: |
             sudo pkg_add go rust node python-3.13.13 py3-cryptography libsodium epoll-shim openssl-3.5.6v0
+            node -e 'if (Number(process.versions.node.split(".")[0]) < 22) process.exit(1)'
             export PYTHON="$(command -v python3.13 || command -v python3)"
             for tool in go cargo c++ node "$PYTHON"; do command -v "$tool" || exit 1; done
             export CPPFLAGS='-I/usr/local/include/eopenssl35'
@@ -1236,7 +1272,7 @@ jobs:
         run: cpa.sh --sync-files vm-to-runner
       - name: Upload OpenBSD network reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: shadow6-openbsd-network-benchmark-${{ matrix.arch }}
           path: |
@@ -1245,7 +1281,7 @@ jobs:
             benchmark-openbsd-${{ matrix.arch }}.md
             support-openbsd-${{ matrix.arch }}.txt
           if-no-files-found: warn
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: shadow6-openbsd-${{ matrix.arch }}-release
           path: |
@@ -1270,10 +1306,10 @@ jobs:
           - arch: x86-64
           - arch: arm64
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           persist-credentials: false
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: Core-Go/go.mod
           check-latest: true
@@ -1306,7 +1342,7 @@ jobs:
           sudo pkgin -y install go python311
           export PYTHON=/usr/pkg/bin/python3.11
           export PATH="/usr/pkg/bin:/usr/pkg/sbin:$PATH"
-          # Source directories are nodejs20/nodejs22/nodejs24, but binary package
+          # Source directories are nodejs22/nodejs24, but binary package
           # names are nodejs-VERSION. Select an actual LTS repository entry.
           node_package=$(/usr/pkg/bin/pkgin avail | awk '$1 ~ /^nodejs-(24|22)\.[0-9.]+(nb[0-9]+)?$/ {split($1, v, /[-.]/); if (v[2]+0 > major) {major=v[2]+0; package=$1}} END {print package}')
           if test -z "$node_package"; then
@@ -1361,7 +1397,7 @@ jobs:
         run: cpa.sh --sync-files vm-to-runner
       - name: Upload NetBSD network reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: shadow6-netbsd-network-benchmark-${{ matrix.arch }}
           path: |
@@ -1377,7 +1413,7 @@ jobs:
           if test -f /tmp/cross-platform-actions.log; then
             sudo tail -n 200 /tmp/cross-platform-actions.log
           fi
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: shadow6-netbsd-${{ matrix.arch }}-release
           path: |
@@ -1404,7 +1440,7 @@ jobs:
             version: 'r151058'
             arch: x86-64
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Boot ${{ matrix.os }} VM
         uses: cross-platform-actions/action@e0b9770014ba65d5e0815f15b74031c3a635f641 # v1.6.0
         with:
@@ -1496,7 +1532,7 @@ jobs:
             echo 'rust,cpp,relay,gleam,ada,d,nim,pony,hare,carp,idris=individual-toolchain-boundary'
             echo 'android=excluded: Android receives no additional Core binaries'
           } > "$work_dir/artifact/support.txt"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: shadow6-${{ matrix.os }}-${{ matrix.arch }}-components
           path: .tmp/shadow6-${{ matrix.os }}/artifact
@@ -1505,18 +1541,18 @@ jobs:
     runs-on: ubuntu-latest
     name: Android APK release
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with: {go-version-file: Core-Go/go.mod}
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-linux-android,x86_64-linux-android
       - name: Cache Android Nim toolchain
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.choosenim
@@ -1530,12 +1566,12 @@ jobs:
       - uses: dlang-community/setup-dlang@v2
         with:
           compiler: ldc-1.40.0
-      - uses: android-actions/setup-android@v3
+      - uses: android-actions/setup-android@v4
         with:
           packages: 'platform-tools'
       - name: Install Android SDK tools
         run: sdkmanager --install 'platforms;android-36' 'build-tools;36.0.0' 'ndk;28.2.13676358'
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v5
         with:
           gradle-version: '9.4.1'
       - name: Build Android OpenSSL and libsodium
@@ -1581,7 +1617,7 @@ jobs:
           done
       - name: Build debug APK
         run: gradle --no-daemon --no-configuration-cache --max-workers=16 --console=plain -Dorg.gradle.jvmargs='-Xms256m -Xmx2g -XX:MaxMetaspaceSize=768m -XX:ReservedCodeCacheSize=128m -XX:ActiveProcessorCount=8' -p Android assembleDebug
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: shadow6-android-debug
           path: Android/app/build/outputs/apk/debug/app-debug.apk
@@ -1590,6 +1626,7 @@ jobs:
     name: Cross-platform support summary
     if: always()
     needs:
+      - node-adapter
       - pony-only
       - idris
       - linux-gleam
@@ -1607,6 +1644,7 @@ jobs:
     steps:
       - name: Write platform result matrix
         env:
+          NODE_ADAPTER: ${{ needs['node-adapter'].result }}
           PONY: ${{ needs['pony-only'].result }}
           IDRIS: ${{ needs.idris.result }}
           GLEAM: ${{ needs['linux-gleam'].result }}
@@ -1625,6 +1663,7 @@ jobs:
           mkdir -p support-summary
           {
             echo '{'
+            printf '  "node-adapter": "%s",\n' "$NODE_ADAPTER"
             printf '  "pony-only": "%s",\n' "$PONY"
             printf '  "idris": "%s",\n' "$IDRIS"
             printf '  "linux-gleam": "%s",\n' "$GLEAM"
@@ -1641,12 +1680,12 @@ jobs:
             echo '}'
           } > support-summary/platform-results.json
           cat support-summary/platform-results.json
-          for status in "$PONY" "$IDRIS" "$GLEAM" "$LINUX" "$LINUX_ARM64" "$LINUX_MUSL" "$MACOS" "$WINDOWS" "$FREEBSD" "$OPENBSD" "$NETBSD" "$UNIX_EXTRA" "$ANDROID"; do
+          for status in "$NODE_ADAPTER" "$PONY" "$IDRIS" "$GLEAM" "$LINUX" "$LINUX_ARM64" "$LINUX_MUSL" "$MACOS" "$WINDOWS" "$FREEBSD" "$OPENBSD" "$NETBSD" "$UNIX_EXTRA" "$ANDROID"; do
             case "$status" in
               failure|cancelled) exit 1 ;;
             esac
           done
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         if: always()
         with:
           name: shadow6-platform-results

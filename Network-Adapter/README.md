@@ -50,7 +50,7 @@ address is an explicit deployment choice; firewall and VM boundaries remain
 the operator's responsibility.
 
 The normative protocol and state limits are in `SPEC.md`. Python is the
-reference carrier and installed-core auditor; Node.js 20+ is the equal
+reference carrier and installed-core auditor; Node.js 24 LTS (minimum 22) is the equal
 high-concurrency backend and uses only built-in modules—there are no npm runtime
 dependencies. `test_conformance.py` and `test_node.mjs` enforce the same fixed
 AEAD vector, cross-backend decoding, large-message behavior and failure rules.

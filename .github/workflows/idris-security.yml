@@ -1,6 +1,9 @@
 name: Idris security regressions
 on:
   workflow_dispatch:
+# Also run third-party JavaScript actions which still declare Node 20 on Node 24.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 permissions:
   contents: read
 jobs:
@@ -13,10 +16,10 @@ jobs:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
         with:
-          node-version: '22'
+          node-version-file: .nvmrc
       - uses: Homebrew/actions/setup-homebrew@49d03f1bf5d455a413dfbdf99e6718054a4cd975
       - name: Install Core-Idris prerequisites (Ubuntu)
         if: runner.os == 'Linux'
@@ -94,7 +97,7 @@ jobs:
           "$RUNNER_TEMP/idris-test-env/bin/python" Benchmark/benchmark.py --core idris --role network-chain --payload-bytes 4096 --requests 8 --concurrency 4 --require-network --output idris-native-matrix
       - name: Upload Idris path results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: idris-native-matrix-${{ runner.os }}
           path: idris-native-matrix.*

@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Provision pinned Pony toolchain
         run: |
           set -euo pipefail
@@ -44,7 +44,7 @@ jobs:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: Homebrew/actions/setup-homebrew@49d03f1bf5d455a413dfbdf99e6718054a4cd975
       - name: Install Core-Idris prerequisites (Ubuntu)
         if: runner.os == 'Linux'
@@ -139,7 +139,7 @@ jobs:
           test -s "$artifact_dir/core-idris-runtime.tar.gz"
           du -ah "$output_dir"
           cat "$output_dir/SHA256SUMS"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: shadow6-idris-${{ matrix.os }}
           path: ${{ runner.temp }}/core-idris-artifact-${{ runner.os }}/core-idris-runtime.tar.gz
@@ -156,8 +156,8 @@ jobs:
             runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
         with: {python-version: '3.12'}
       - name: Install static BEAM prerequisites
         run: |
@@ -174,7 +174,7 @@ jobs:
           make test-gleam BUILD_GLEAM=1 PYTHON=python3
       - name: Preserve toolchain failure diagnostics
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: gleam-toolchain-logs-${{ matrix.arch }}
           path: .tools/gleam/logs/*.log
@@ -197,7 +197,7 @@ jobs:
           readelf -W -d Core-Gleam/shadow6-gleam | grep -q BIND_NOW
           ! readelf -W -d Core-Gleam/shadow6-gleam | grep -q NEEDED
           ldd Core-Gleam/shadow6-gleam 2>&1 | grep -Eq 'statically linked|not a dynamic executable'
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: shadow6-gleam-${{ matrix.arch }}
           path: |
@@ -210,10 +210,10 @@ jobs:
     env:
       BUILD_HARE: '1'
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
         with: {go-version-file: Core-Go/go.mod}
-      - uses: actions/cache@v4
+      - uses: actions/cache@v5
         with:
           path: |
             ~/.cache/go-build
@@ -221,13 +221,13 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
           key: linux-${{ runner.os }}-${{ hashFiles('**/go.sum', '**/Cargo.lock') }}
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with: {python-version: '3.12'}
       - uses: dtolnay/rust-toolchain@stable
       - uses: goto-bus-stop/setup-zig@v2
         with: {version: '0.16.0'}
       - name: Cache Nim toolchain
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.choosenim
@@ -252,12 +252,12 @@ jobs:
           brew install chezscheme
           echo "$(brew --prefix chezscheme)/bin" >> "$GITHUB_PATH"
       - name: Download same-commit Gleam Linux builds
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: shadow6-gleam-x86_64
           path: Core-Gleam
       - name: Download same-commit Idris Linux builds
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: shadow6-idris-ubuntu-latest
           path: ${{ runner.temp }}/idris-artifact
@@ -404,7 +404,7 @@ jobs:
           python3 Benchmark/benchmark.py --config Benchmark/example.json --output benchmark-linux.json
           python3 CLI/shadow6.py benchmark --all --role feature-report --repeats 3 --output benchmark-cli-all.json
       - name: Upload Linux network benchmark reports (JSON/TXT/Markdown)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: shadow6-linux-network-benchmark
           path: |
@@ -432,7 +432,7 @@ jobs:
           for report in benchmark-*.json benchmark-*.txt benchmark-*.md; do
             if test -f "$report"; then echo "===== $report ====="; cat "$report"; fi
           done
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: shadow6-linux-release
           path: |
@@ -457,10 +457,10 @@ jobs:
   macos:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
         with: {go-version-file: Core-Go/go.mod}
-      - uses: actions/cache@v4
+      - uses: actions/cache@v5
         with:
           path: |
             ~/Library/Caches/go-build
@@ -513,7 +513,7 @@ jobs:
           .venv/bin/python Benchmark/benchmark.py --core go --core rust --core cpp --core zig --role network-chain --repeats 3 --output benchmark-macos.json
       - name: Upload macOS network reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: shadow6-macos-network-benchmark
           path: |
@@ -526,7 +526,7 @@ jobs:
         run: |
           { uname -a; python3 --version; go version; rustc --version; zig version; } 2>&1 || true
           for report in benchmark-*.json benchmark-*.txt benchmark-*.md; do test -f "$report" && { echo "===== $report ====="; cat "$report"; }; done
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: shadow6-macos-core-go
           path: |
@@ -546,14 +546,14 @@ jobs:
   windows:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
         with: {go-version-file: Core-Go/go.mod}
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with: {python-version: '3.12'}
       - name: Install network harness dependencies
         run: python -m pip install -r requirements.txt
-      - uses: actions/cache@v4
+      - uses: actions/cache@v5
         with:
           path: |
             ~/go/pkg/mod
@@ -575,7 +575,7 @@ jobs:
         run: python Benchmark/benchmark.py --core go --role network-chain --repeats 3 --require-network --output benchmark-windows
       - name: Upload Windows network reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: shadow6-windows-network-benchmark
           path: |
@@ -590,7 +590,7 @@ jobs:
           { uname -a; python --version; go version; } 2>&1 || true
           for report in benchmark-*.json benchmark-*.txt benchmark-*.md; do test -f "$report" && { echo "===== $report ====="; cat "$report"; }; done
           true
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: shadow6-windows-core-go
           path: |
@@ -602,7 +602,7 @@ jobs:
     runs-on: ubuntu-latest
     name: FreeBSD native tests
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: cross-platform-actions/action@24ef01df165c76df1ed2b9f9e9212e78dc2fc963 # v1.4.0
         with:
           operating_system: freebsd
@@ -649,7 +649,7 @@ jobs:
         run: .venv/bin/python Benchmark/benchmark.py --core go --core rust --role network-chain --repeats 3 --require-network --output benchmark-freebsd
       - name: Upload FreeBSD network reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: shadow6-freebsd-network-benchmark
           path: |
@@ -657,7 +657,7 @@ jobs:
             benchmark-freebsd.txt
             benchmark-freebsd.md
           if-no-files-found: warn
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: shadow6-freebsd-release
           path: |
@@ -677,7 +677,7 @@ jobs:
     runs-on: ubuntu-latest
     name: OpenBSD native tests
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: cross-platform-actions/action@24ef01df165c76df1ed2b9f9e9212e78dc2fc963 # v1.4.0, Node 24
         with:
           operating_system: openbsd
@@ -716,7 +716,7 @@ jobs:
         run: .venv/bin/python Benchmark/benchmark.py --core go --core cpp --role network-chain --repeats 3 --output benchmark-openbsd
       - name: Upload OpenBSD network reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: shadow6-openbsd-network-benchmark
           path: |
@@ -724,7 +724,7 @@ jobs:
             benchmark-openbsd.txt
             benchmark-openbsd.md
           if-no-files-found: error
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: shadow6-openbsd-release
           path: |
@@ -741,10 +741,10 @@ jobs:
     name: NetBSD native tests
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           persist-credentials: false
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: Core-Go/go.mod
           check-latest: true
@@ -784,7 +784,7 @@ jobs:
           .venv/bin/python Benchmark/benchmark.py --core go --role network-chain --repeats 3 --require-network --output benchmark-netbsd
       - name: Upload NetBSD network reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: shadow6-netbsd-network-benchmark
           path: |
@@ -799,7 +799,7 @@ jobs:
           if test -f /tmp/cross-platform-actions.log; then
             sudo tail -n 200 /tmp/cross-platform-actions.log
           fi
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: shadow6-netbsd-release
           path: |
@@ -810,18 +810,18 @@ jobs:
     runs-on: ubuntu-latest
     name: Android APK release
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with: {go-version-file: Core-Go/go.mod}
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-linux-android,x86_64-linux-android
       - name: Cache Android Nim toolchain
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.choosenim
@@ -835,12 +835,12 @@ jobs:
       - uses: dlang-community/setup-dlang@v2
         with:
           compiler: ldc-1.40.0
-      - uses: android-actions/setup-android@v3
+      - uses: android-actions/setup-android@v4
         with:
           packages: 'platform-tools'
       - name: Install Android SDK tools
         run: sdkmanager --install 'platforms;android-36' 'build-tools;36.0.0' 'ndk;28.2.13676358'
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v5
         with:
           gradle-version: '9.4.1'
       - name: Build Android OpenSSL and libsodium
@@ -883,7 +883,7 @@ jobs:
           done
       - name: Build debug APK
         run: gradle --no-daemon --no-configuration-cache --max-workers=16 --console=plain -Dorg.gradle.jvmargs='-Xms256m -Xmx2g -XX:MaxMetaspaceSize=768m -XX:ReservedCodeCacheSize=128m -XX:ActiveProcessorCount=8' -p Android assembleDebug
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: shadow6-android-debug
           path: Android/app/build/outputs/apk/debug/app-debug.apk
