@@ -174,9 +174,9 @@ class EchoTarget:
             self.error = exc
             self.ready.set()
 
-    def start(self) -> int:
+    def start(self, timeout: float = 3) -> int:
         self.thread.start()
-        if not self.ready.wait(3):
+        if not self.ready.wait(timeout):
             raise RuntimeError("echo target did not start")
         if self.error:
             raise self.error
@@ -229,6 +229,10 @@ class CompanionEchoTarget(EchoTarget):
         self.family, self.datagram = family, datagram
         self.backend, self.core, self.key_path = backend, core, key_path
         super().__init__(**kwargs)
+
+    def start(self) -> int:
+        # Include the worker's bounded key-validation/startup handshake.
+        return super().start(timeout=40)
 
     def _run(self):
         adapter = None
