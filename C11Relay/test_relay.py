@@ -16,8 +16,7 @@ def free_udp_port() -> int:
         return int(sock.getsockname()[1])
 
 
-def main() -> int:
-    binary = sys.argv[1] if len(sys.argv) > 1 else "./c11relay_test"
+def exercise(binary: str, mode: str) -> None:
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as echo:
         echo.bind(("127.0.0.1", 0))
         echo.settimeout(0.2)
@@ -46,13 +45,15 @@ def main() -> int:
                 f"127.0.0.1:{echo_port}",
                 "--max-peers",
                 "8",
+                "--mode",
+                mode,
             ],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
         )
         try:
-            for client_number in range(2):
+            for client_number in range(8):
                 with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as client:
                     client.settimeout(0.2)
                     payload = f"client-{client_number}".encode()
@@ -68,6 +69,22 @@ def main() -> int:
                         if response != b"echo:" + payload:
                             raise AssertionError(f"unexpected response: {response!r}")
                         break
+                    # Queue a burst so high-speed mode can exercise its
+                    # bounded batch receive path in both directions.
+                    outstanding = {f"burst-{client_number}-{item}".encode() for item in range(8)}
+                    for item in outstanding:
+                        client.sendto(item, ("127.0.0.1", relay_port))
+                    deadline = time.monotonic() + 5
+                    while outstanding:
+                        try:
+                            response, _ = client.recvfrom(65535)
+                        except socket.timeout:
+                            if time.monotonic() >= deadline:
+                                raise AssertionError(f"{mode}: relay lost burst replies")
+                            continue
+                        if not response.startswith(b"echo:") or response[5:] not in outstanding:
+                            raise AssertionError(f"{mode}: unexpected burst reply {response!r}")
+                        outstanding.remove(response[5:])
         finally:
             stopped.set()
             process.terminate()
@@ -76,10 +93,14 @@ def main() -> int:
         if process.returncode != 0:
             raise AssertionError(f"relay exited with {process.returncode}: {stdout}\n{stderr}")
 
+def main() -> int:
+    binary = sys.argv[1] if len(sys.argv) > 1 else "./c11relay_test"
+    for mode in ("normal", "high-speed"):
+        exercise(binary, mode)
     invalid = subprocess.run([binary, "--port", "0"], capture_output=True, text=True, check=False)
     if invalid.returncode == 0:
         raise AssertionError("invalid port was accepted")
-    print("[PASS] C11 relay bidirectional multi-client loopback integration")
+    print("[PASS] C11 relay normal and high-speed bidirectional multi-client loopback integration")
     return 0
 
 

@@ -1,3 +1,6 @@
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
 #define _POSIX_C_SOURCE 200809L
 
 #include <arpa/inet.h>
@@ -20,6 +23,7 @@
 #define MAX_DATAGRAM_BYTES 65535U
 #define MAX_EVENTS 64
 #define MAX_BATCH_DATAGRAMS 64
+#define HIGH_SPEED_BATCH 8U
 #define DEFAULT_MAX_PEERS 1024U
 #define HARD_MAX_PEERS 4096U
 
@@ -66,6 +70,31 @@ typedef struct {
     uint64_t bytes_out;
     uint64_t dropped;
 } RelayMetrics;
+
+#ifdef __linux__
+/* One bounded, reusable batch; no raw sockets, device access, or capabilities. */
+typedef struct {
+    struct mmsghdr messages[HIGH_SPEED_BATCH];
+    struct iovec vectors[HIGH_SPEED_BATCH];
+    struct sockaddr_storage addresses[HIGH_SPEED_BATCH];
+    uint8_t payloads[HIGH_SPEED_BATCH][MAX_DATAGRAM_BYTES];
+} RelayBatch;
+
+static int receive_batch(int fd, RelayBatch *batch, bool from_client) {
+    memset(batch->messages, 0, sizeof(batch->messages));
+    for (size_t i = 0; i < HIGH_SPEED_BATCH; ++i) {
+        batch->vectors[i].iov_base = batch->payloads[i];
+        batch->vectors[i].iov_len = MAX_DATAGRAM_BYTES;
+        batch->messages[i].msg_hdr.msg_iov = &batch->vectors[i];
+        batch->messages[i].msg_hdr.msg_iovlen = 1;
+        if (from_client) {
+            batch->messages[i].msg_hdr.msg_name = &batch->addresses[i];
+            batch->messages[i].msg_hdr.msg_namelen = sizeof(batch->addresses[i]);
+        }
+    }
+    return recvmmsg(fd, batch->messages, HIGH_SPEED_BATCH, MSG_DONTWAIT | MSG_TRUNC, NULL);
+}
+#endif
 
 static volatile sig_atomic_t stop_requested = 0;
 
@@ -411,6 +440,15 @@ static int run_relay(const RelayConfig *config, RelayMetrics *metrics) {
     for (size_t index = 0U; index < config->max_peers; ++index) {
         peers[index].upstream_fd = -1;
     }
+#ifdef __linux__
+    RelayBatch *fast_batch = config->mode == MODE_HIGH_SPEED ? calloc(1, sizeof(*fast_batch)) : NULL;
+    if (config->mode == MODE_HIGH_SPEED && fast_batch == NULL) {
+        free(peers);
+        (void)close(epoll_fd);
+        (void)close(listener);
+        return -1;
+    }
+#endif
     /* Level-triggered readiness permits a finite per-socket batch without
        losing pending packets, so a busy sender cannot starve replies/cleanup. */
     struct epoll_event listener_event = {.events = EPOLLIN};
@@ -418,6 +456,9 @@ static int run_relay(const RelayConfig *config, RelayMetrics *metrics) {
     if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, listener, &listener_event) != 0) {
         perror("epoll_ctl");
         free(peers);
+#ifdef __linux__
+        free(fast_batch);
+#endif
         (void)close(epoll_fd);
         (void)close(listener);
         return -1;
@@ -446,10 +487,34 @@ static int run_relay(const RelayConfig *config, RelayMetrics *metrics) {
         for (int event_index = 0; event_index < ready; ++event_index) {
             uint32_t identifier = (uint32_t)events[event_index].data.u64;
             if (identifier == 0U) {
-                for (size_t batch = 0U; batch < MAX_BATCH_DATAGRAMS && !stop_requested; ++batch) {
+                for (size_t batch = 0U; batch < MAX_BATCH_DATAGRAMS && !stop_requested;) {
+#ifdef __linux__
+                    int received_count = fast_batch != NULL ? receive_batch(listener, fast_batch, true) : 1;
+                    if (received_count < 0) {
+                        if (errno != EAGAIN && errno != EWOULDBLOCK) { ++metrics->dropped; }
+                        break;
+                    }
+                    if (received_count == 0) { break; }
+                    if (fast_batch != NULL && (size_t)received_count > MAX_BATCH_DATAGRAMS - batch) {
+                        received_count = (int)(MAX_BATCH_DATAGRAMS - batch);
+                    }
+#else
+                    int received_count = 1;
+#endif
+                    for (int item = 0; item < received_count; ++item) {
                     struct sockaddr_storage client;
                     socklen_t client_length = sizeof(client);
-                    ssize_t received = recvfrom(listener, input, sizeof(input), MSG_TRUNC, (struct sockaddr *)&client, &client_length);
+                    ssize_t received;
+                    const uint8_t *packet = input;
+#ifdef __linux__
+                    if (fast_batch != NULL) {
+                        received = (ssize_t)fast_batch->messages[item].msg_len;
+                        client = fast_batch->addresses[item];
+                        client_length = fast_batch->messages[item].msg_hdr.msg_namelen;
+                        packet = fast_batch->payloads[item];
+                    } else
+#endif
+                    { received = recvfrom(listener, input, sizeof(input), MSG_TRUNC, (struct sockaddr *)&client, &client_length); }
                     if (received < 0) {
                         if (errno == EAGAIN || errno == EWOULDBLOCK) {
                             break;
@@ -465,7 +530,7 @@ static int run_relay(const RelayConfig *config, RelayMetrics *metrics) {
                     metrics->bytes_in += (uint64_t)received;
                     const uint8_t *payload;
                     size_t payload_length;
-                    if (!transform_packet(config, true, input, (size_t)received, transformed,
+                    if (!transform_packet(config, true, packet, (size_t)received, transformed,
                         datagram_limit(config->target_address.ss_family), &payload, &payload_length)) {
                         ++metrics->dropped;
                         continue;
@@ -488,6 +553,8 @@ static int run_relay(const RelayConfig *config, RelayMetrics *metrics) {
                     if (sent < 0 || (size_t)sent != payload_length) {
                         ++metrics->dropped;
                     }
+                    }
+                    batch += (size_t)received_count;
                 }
             } else {
                 size_t peer_index = (size_t)(identifier - 1U);
@@ -496,8 +563,30 @@ static int run_relay(const RelayConfig *config, RelayMetrics *metrics) {
                     continue;
                 }
                 RelayPeer *peer = &peers[peer_index];
-                for (size_t batch = 0U; batch < MAX_BATCH_DATAGRAMS && !stop_requested; ++batch) {
-                    ssize_t received = recv(peer->upstream_fd, input, sizeof(input), MSG_TRUNC);
+                for (size_t batch = 0U; batch < MAX_BATCH_DATAGRAMS && !stop_requested;) {
+#ifdef __linux__
+                    int received_count = fast_batch != NULL ? receive_batch(peer->upstream_fd, fast_batch, false) : 1;
+                    if (received_count < 0) {
+                        if (errno != EAGAIN && errno != EWOULDBLOCK) { close_peer(epoll_fd, peer); }
+                        break;
+                    }
+                    if (received_count == 0) { break; }
+                    if (fast_batch != NULL && (size_t)received_count > MAX_BATCH_DATAGRAMS - batch) {
+                        received_count = (int)(MAX_BATCH_DATAGRAMS - batch);
+                    }
+#else
+                    int received_count = 1;
+#endif
+                    for (int item = 0; item < received_count; ++item) {
+                    ssize_t received;
+                    const uint8_t *packet = input;
+#ifdef __linux__
+                    if (fast_batch != NULL) {
+                        received = (ssize_t)fast_batch->messages[item].msg_len;
+                        packet = fast_batch->payloads[item];
+                    } else
+#endif
+                    { received = recv(peer->upstream_fd, input, sizeof(input), MSG_TRUNC); }
                     if (received < 0) {
                         if (errno == EAGAIN || errno == EWOULDBLOCK) {
                             break;
@@ -512,7 +601,7 @@ static int run_relay(const RelayConfig *config, RelayMetrics *metrics) {
                     peer->last_seen_ms = now;
                     const uint8_t *payload;
                     size_t payload_length;
-                    if (!transform_packet(config, false, input, (size_t)received, transformed,
+                    if (!transform_packet(config, false, packet, (size_t)received, transformed,
                         datagram_limit(peer->client_address.ss_family), &payload, &payload_length)) {
                         ++metrics->dropped;
                         continue;
@@ -531,6 +620,8 @@ static int run_relay(const RelayConfig *config, RelayMetrics *metrics) {
                         ++metrics->packets_out;
                         metrics->bytes_out += (uint64_t)sent;
                     }
+                    }
+                    batch += (size_t)received_count;
                 }
             }
         }
@@ -541,6 +632,10 @@ static int run_relay(const RelayConfig *config, RelayMetrics *metrics) {
     }
     secure_zero(input, sizeof(input));
     secure_zero(transformed, sizeof(transformed));
+#ifdef __linux__
+    secure_zero(fast_batch, fast_batch == NULL ? 0U : sizeof(*fast_batch));
+    free(fast_batch);
+#endif
     free(peers);
     (void)close(epoll_fd);
     (void)close(listener);

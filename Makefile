@@ -139,7 +139,7 @@ endif
 core-hare:
 ifeq ($(BUILD_HARE),1)
 	@command -v hare >/dev/null || { echo 'BUILD_HARE=1 requires the Hare toolchain' >&2; exit 1; }
-	@cd Core-Hare && LDFLAGS='-Wl,-z,relro,-z,now -Wl,-z,noexecstack' hare build -l sodium -o shadow6-hare src && chmod 0755 shadow6-hare
+	@cd Core-Hare && LDFLAGS='-static-pie -Wl,-z,relro,-z,now -Wl,-z,noexecstack' hare build -l sodium -o shadow6-hare src && chmod 0755 shadow6-hare
 else
 	@echo 'Core-Hare disabled; set BUILD_HARE=1 with the Hare toolchain installed to enable it'
 endif

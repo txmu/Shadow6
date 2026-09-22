@@ -177,6 +177,8 @@ class EchoTarget:
     def start(self, timeout: float = 3) -> int:
         self.thread.start()
         if not self.ready.wait(timeout):
+            if self.error:
+                raise self.error
             raise RuntimeError("echo target did not start")
         if self.error:
             raise self.error
@@ -232,7 +234,7 @@ class CompanionEchoTarget(EchoTarget):
 
     def start(self) -> int:
         # Include the worker's bounded key-validation/startup handshake.
-        return super().start(timeout=40)
+        return super().start(timeout=100)
 
     def _run(self):
         adapter = None
@@ -518,8 +520,13 @@ def run_engine(engine: str, benchmark: dict | None = None, backend: str = "nativ
             startup.callback(_DATAGRAM_START_LOCK.release)
         target_port = target.start()
         broker_port = free_port()
+        role_reservations = {}
         if datagram:
-            commands, endpoint = generate_commands(engine, binary, output, target_port)
+            commands, endpoint = generate_commands(engine, binary, output, target_port,
+                                                    role_reservations)
+            for group in role_reservations.values():
+                for reservation in group:
+                    resources.callback(reservation.close)
         else:
             asyncio.run(generate_configs(engine, output, target_port, broker_port))
             prefix = f"it-{engine}"
@@ -533,6 +540,10 @@ def run_engine(engine: str, benchmark: dict | None = None, backend: str = "nativ
         }
         try:
             def start_role(role: str) -> subprocess.Popen[str]:
+                # Hold each role's UDP ports until its process is launched.
+                # The handoff window is now only the process launch itself.
+                for reservation in role_reservations.get(role, ()):
+                    reservation.close()
                 popen_kwargs = {"stdout": log_files[role], "stderr": subprocess.STDOUT, "text": True}
                 if engine == "shadow6-gleam":
                     environment = dict(os.environ)

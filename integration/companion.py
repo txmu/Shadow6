@@ -30,7 +30,7 @@ class Adapter:
         # Key validation on Windows can invoke a bounded 30-second PowerShell
         # helper. Finish startup before applying the per-operation deadline.
         try:
-            if self.call("tick", timeout=35) != ([], []):
+            if self.call("tick", timeout=90) != ([], []):
                 raise ValueError("unexpected companion startup output")
         except BaseException:
             self.close()

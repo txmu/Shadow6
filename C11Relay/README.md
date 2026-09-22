@@ -11,7 +11,11 @@ upstream socket per client mapping so replies return to the correct client.
 Modes:
 
 - `normal`: ordinary datagram forwarding.
-- `high-speed`: the same wire format with performance-oriented labeling.
+- `high-speed`: on Linux, processes up to eight datagrams per `recvmmsg` call
+  in each direction, with one reusable bounded buffer and the same per-peer
+  limits. It uses ordinary UDP sockets and needs no capabilities or root.
+  Other supported hosts retain the ordinary receive loop with the same wire
+  format.
 - `data-saving`: framed RLE transport. Both ends must be C11Relay instances in
   data-saving mode; it is not compatible with an ordinary UDP endpoint.
 
