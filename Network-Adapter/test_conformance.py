@@ -17,7 +17,18 @@ class ConformanceTests(unittest.TestCase):
   kind,stream,message,index,count,payload=Codec(key,1200,1).decode(frame)
   self.assertEqual((kind,stream,message,index,count,payload),(1,9,77,0,1,b"node-to-python"))
  def test_cli_vectors_from_url_sensitive_path(self):
+  self.check_cli_vectors_from_url_sensitive_path(False)
+ @unittest.skipIf(os.name=='nt',"Creating directory symlinks requires Windows privileges")
+ def test_cli_vectors_from_symlinked_directory(self):
+  self.check_cli_vectors_from_url_sensitive_path(True)
+ def check_cli_vectors_from_url_sensitive_path(self,symlink_directory):
   with tempfile.TemporaryDirectory(prefix="shadow6-node-cli-") as directory:
+   if symlink_directory:
+    target=Path(directory)/"real directory"
+    target.mkdir()
+    alias=Path(directory)/"linked directory"
+    alias.symlink_to(target,target_is_directory=True)
+    directory=str(alias)
    script=Path(directory)/"adapter space # percent %.mjs"
    shutil.copyfile(HERE/"shadow6_network.mjs",script)
    key=bytes(range(32)); payload=b"path-regression"

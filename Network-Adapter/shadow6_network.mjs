@@ -61,4 +61,10 @@ export class DatagramEndpoint extends EventEmitter{
  sendExtension(stream,name,value){this.socket.send(this.adapter.extension(stream,name,value),this.peer.port,this.peer.host)}
  close(){if(this.timer)clearInterval(this.timer);this.socket.close()}
 }
-if(process.argv[1] && import.meta.url===pathToFileURL(path.resolve(process.argv[1])).href){let action=process.argv[2]||'catalog';if(action==='catalog')console.log(JSON.stringify({schema:'shadow6.network-adapter-catalog.v1',backend:'node',cores:POLICIES},null,2));else if(action==='decode-vector'){let x=JSON.parse(fs.readFileSync(0,'utf8')),c=new Codec(Buffer.from(x.key,'hex'),x.payload,x.side),r=c.decode(Buffer.from(x.frame,'hex'));console.log(JSON.stringify({...r,message:r.message.toString(),payload:r.payload.toString('hex')}))}else if(action==='encode-vector'){let x=JSON.parse(fs.readFileSync(0,'utf8')),c=new Codec(Buffer.from(x.key,'hex'),x.limit,x.side),wire=c.encode(x.kind,x.stream,BigInt(x.message),x.index,x.count,Buffer.from(x.payload,'hex'));console.log(JSON.stringify({frame:wire.toString('hex')}))}else{console.error('usage: shadow6-network-node [catalog|decode-vector|encode-vector]');process.exit(2)}}
+// Node resolves module symlinks; argv may retain aliases such as macOS /var.
+let isMain=false;
+if(process.argv[1]){
+ try{isMain=import.meta.url===pathToFileURL(fs.realpathSync(process.argv[1])).href;}
+ catch(error){if(error.code!=='ENOENT' && error.code!=='ENOTDIR')throw error;}
+}
+if(isMain){let action=process.argv[2]||'catalog';if(action==='catalog')console.log(JSON.stringify({schema:'shadow6.network-adapter-catalog.v1',backend:'node',cores:POLICIES},null,2));else if(action==='decode-vector'){let x=JSON.parse(fs.readFileSync(0,'utf8')),c=new Codec(Buffer.from(x.key,'hex'),x.payload,x.side),r=c.decode(Buffer.from(x.frame,'hex'));console.log(JSON.stringify({...r,message:r.message.toString(),payload:r.payload.toString('hex')}))}else if(action==='encode-vector'){let x=JSON.parse(fs.readFileSync(0,'utf8')),c=new Codec(Buffer.from(x.key,'hex'),x.limit,x.side),wire=c.encode(x.kind,x.stream,BigInt(x.message),x.index,x.count,Buffer.from(x.payload,'hex'));console.log(JSON.stringify({frame:wire.toString('hex')}))}else{console.error('usage: shadow6-network-node [catalog|decode-vector|encode-vector]');process.exit(2)}}
