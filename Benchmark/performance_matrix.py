@@ -15,8 +15,11 @@ def cases(stream_bytes: int = STREAM_BYTES):
     if type(stream_bytes) is not int or not 1048576 <= stream_bytes <= 1073741824:
         raise ValueError("stream_bytes must be 1 MiB..1 GiB")
     for payload in PAYLOADS:
-        requests = max(1, stream_bytes // payload)
         for rtt_ms, loss_percent in CONDITIONS:
+            requests = min(100000,max(1, stream_bytes // payload))
+            # Same effective byte budget for every engine/backend; keep the
+            # artificial pacing below 30 s and native sessions below 300 s.
+            if rtt_ms: requests=min(requests,max(1,int(30000/(rtt_ms*(1+loss_percent/100)))))
             yield {"payload_bytes": payload, "requests": requests,
                    "stream_bytes": payload * requests, "rtt_ms": rtt_ms,
                    "loss_percent": loss_percent}
@@ -43,6 +46,10 @@ def run(engines, stream_bytes=STREAM_BYTES, targets=None, backends=BACKENDS, con
                 for case in workloads:
                     row={"target":target["name"],"engine":"shadow6-"+engine,"backend":backend,
                          "concurrency":workers,"concurrency_scope":"independent-native-trios",**case}
+                    row["aggregate_stream_bytes"]=case["stream_bytes"]*workers
+                    if "endpoint" in target and (backend!="native" or workers!=1 or case["rtt_ms"] or case["loss_percent"]):
+                        row.update(status="not_applicable",reason="external endpoints support native backend, concurrency 1, and no local pacing only")
+                        rows.append(row); continue
                     command=[python,str(ROOT/"integration/stack_test.py"),"--engine","shadow6-"+engine,
                              "--backend",backend,"--benchmark","--payload-bytes",str(case["payload_bytes"]),
                              "--requests",str(case["requests"]),"--concurrency",str(workers),
@@ -52,19 +59,20 @@ def run(engines, stream_bytes=STREAM_BYTES, targets=None, backends=BACKENDS, con
                     started=time.perf_counter()
                     try:
                         code,out,err,usage=execute(command,240)
-                        row.update(status="ok" if code==0 else "failed",returncode=code,
+                        row.update(status="ok" if code==0 else "failed",returncode=code,process=usage,
                                    elapsed_seconds=time.perf_counter()-started,stderr=err[-2048:])
                         if code==0:
-                            row["network"]=network_result(out,engine,backend)
+                            row["network"]=network_result(out,engine,backend,{**case,"concurrency":workers})
                         else:
                             row["stdout"]=out[-2048:]
                     except (OSError,ValueError,KeyError,IndexError) as error:
                         row.update(status="failed",reason=str(error))
                     rows.append(row)
     return {"schema":"shadow6.performance-matrix.v1",
-            "environment":{"platform":platform.platform(),"model":"bounded-userspace-response-v1",
+            "environment":{"platform":platform.platform(),"model":"application-response-pacing-v2", "packet_loss_injected":False,
+             "commit":os.environ.get("GITHUB_SHA"),"runner":os.environ.get("RUNNER_NAME"),
              "note":"Identical payload/request/condition/concurrency cases for all 12 x 3 paths. Disabled deployment settings do not suppress tests. Local library IPC is included for both companions; no qdisc or route changes."},
-            "stream_bytes":stream_bytes,"results":rows}
+            "stream_bytes":stream_bytes,"expected_rows":len(selected)*len(backends)*len(concurrency)*len(workloads),"results":rows}
 def main():
     parser=argparse.ArgumentParser()
     parser.add_argument("--core",action="append",choices=ENGINES)

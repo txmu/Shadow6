@@ -31,7 +31,12 @@ state changes only after authentication. Both directions are supported.
 
 One pinned peer/session is admitted per process, with a five-minute monotonic
 deadline and one-million-iteration bound. Restart both endpoints for a fresh
-session. There is no broker discovery, retransmission or multi-client multiplexing.
+session. There is no broker discovery or multi-client multiplexing. The native
+endpoint path now confirms each authenticated application datagram and retries
+one outstanding ciphertext packet at one-second intervals, at most eight times.
+An authenticated reserved length value (65535) distinguishes ACKs from empty
+application datagrams. Duplicates are acknowledged again without redelivery;
+exhaustion ends the bounded session rather than claiming delivery.
 This protocol replaces the old unauthenticated fixed-port receiver and is not
 wire-compatible with it. Native end-to-end tests run with `make test-hare`.
 

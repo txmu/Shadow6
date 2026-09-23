@@ -27,6 +27,14 @@ class Adapter:
         self.lines = queue.Queue(maxsize=1)
         self.reader = threading.Thread(target=self._read, daemon=True)
         self.reader.start()
+        # Key validation on Windows can invoke a bounded 30-second PowerShell
+        # helper. Finish startup before applying the per-operation deadline.
+        try:
+            if self.call("tick", timeout=90) != ([], []):
+                raise ValueError("unexpected companion startup output")
+        except BaseException:
+            self.close()
+            raise
 
     def _read(self):
         while True:
@@ -35,11 +43,11 @@ class Adapter:
             if not line or len(line) > 32768:
                 break
 
-    def call(self, op, data=b""):
+    def call(self, op, data=b"", *, timeout=10):
         self.process.stdin.write(json.dumps({"op": op, "data": data.hex()}).encode() + b"\n")
         self.process.stdin.flush()
         try:
-            line = self.lines.get(timeout=10)
+            line = self.lines.get(timeout=timeout)
         except queue.Empty:
             raise TimeoutError("companion library deadline") from None
         if not line or len(line) > 32768:

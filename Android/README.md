@@ -100,3 +100,17 @@ host-wide OOM.  `make android-apk` also refuses to start below its minimum
 available-memory or disk thresholds.  Larger hosts may explicitly set
 `SHADOW6_ANDROID_BUILD_JOBS` (maximum 16) for the native-core phase, but the
 Gradle phase remains single-worker because this application has only one module.
+
+## S6NA VPN adapter
+
+The APK includes an optional, non-exported `VpnService` and a wire-compatible
+S6NA data-frame codec. Android creates the TUN descriptor only after the normal
+system VPN consent flow; it does not require root, Termux, route commands or a
+second VPN application. The session key, peer and side are fixed when the
+service starts and cannot be hot-reconfigured. Stopping and explicitly
+starting a new session is required for every configuration change.
+
+The Android service is still an optional companion: every bundled Core keeps
+its native data path. The VPN carrier authenticates packets before writing
+them to the Android TUN descriptor, pins one UDP peer, applies a 1400-byte MTU,
+and leaves retransmission/multiplexing policy to the full S6NA companion path.

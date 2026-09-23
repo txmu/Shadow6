@@ -38,6 +38,7 @@ esac
 excludes=(
     "$project_name/.git"
     "$project_name/.venv"
+    "$project_name/.venv-ft"
     "$project_name/.tools"
     "$project_name/.tmp"
     "$project_name/.runtime"

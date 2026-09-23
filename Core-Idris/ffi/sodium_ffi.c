@@ -266,6 +266,26 @@ static int native_open(unsigned char *plain,size_t *plainn,const unsigned char *
     if(crypto_generichash(nonce,sizeof nonce,frame,IDRIS_NATIVE_HEADER,key,32)||crypto_aead_xchacha20poly1305_ietf_decrypt(plain,&outn,NULL,frame+IDRIS_NATIVE_HEADER,n-IDRIS_NATIVE_HEADER,frame,IDRIS_NATIVE_HEADER,nonce,key)||outn!=claimed)return -1;
     if(!*session_set){memcpy(session,frame+16,16);*session_set=1;}*last=seq;*plainn=(size_t)outn;return 0;
 }
+/* Chain roles use an authenticated ACK with the data sequence in the header.
+ * Type 1 is part of AEAD associated data and cannot be mistaken for payload. */
+static int native_seal_ack(unsigned char *out,size_t *outn,unsigned char direction,uint64_t seq,const unsigned char session[16],const unsigned char key[32]){
+    const unsigned char marker=0;
+    if(!out||!outn||!session||!seq||(direction!=1&&direction!=2))return -1;
+    memcpy(out,"S6I1",4);out[4]=1;out[5]=direction;out[6]=1;out[7]=0;
+    put64(out+8,seq);memcpy(out+16,session,16);out[32]=0;out[33]=1;
+    unsigned char nonce[crypto_aead_xchacha20poly1305_ietf_NPUBBYTES];unsigned long long clen=0;
+    if(crypto_generichash(nonce,sizeof nonce,out,IDRIS_NATIVE_HEADER,key,32)||
+       crypto_aead_xchacha20poly1305_ietf_encrypt(out+IDRIS_NATIVE_HEADER,&clen,&marker,1,out,IDRIS_NATIVE_HEADER,NULL,nonce,key)||clen!=1+crypto_aead_xchacha20poly1305_ietf_ABYTES)return -1;
+    *outn=IDRIS_NATIVE_HEADER+(size_t)clen;
+    return 0;
+}
+static int native_open_ack(const unsigned char *frame,size_t n,unsigned char direction,uint64_t seq,const unsigned char key[32]){
+    if(n!=IDRIS_NATIVE_HEADER+1+crypto_aead_xchacha20poly1305_ietf_ABYTES||memcmp(frame,"S6I1",4)||frame[4]!=1||frame[5]!=direction||frame[6]!=1||frame[7]||get64(frame+8)!=seq||frame[32]||frame[33]!=1)return -1;
+    unsigned char nonce[crypto_aead_xchacha20poly1305_ietf_NPUBBYTES],marker=1;unsigned long long outn=0;
+    if(crypto_generichash(nonce,sizeof nonce,frame,IDRIS_NATIVE_HEADER,key,32)||
+       crypto_aead_xchacha20poly1305_ietf_decrypt(&marker,&outn,NULL,frame+IDRIS_NATIVE_HEADER,n-IDRIS_NATIVE_HEADER,frame,IDRIS_NATIVE_HEADER,nonce,key)||outn!=1||marker)return -1;
+    return 0;
+}
 #include "native_chain.h"
 
 int idris_native_relay(int role,const char *bind_ip,unsigned int bind_port,const char *peer_ip,unsigned int peer_port,const char *target_ip,unsigned int target_port,const char *key_path,unsigned int max_packets){
@@ -278,6 +298,8 @@ int idris_native_relay(int role,const char *bind_ip,unsigned int bind_port,const
     else if(load_native_keys(key_path,key,sizeof key))return -1;
     randombytes_buf(send_session,sizeof send_session);int receive_session_set=0;
     int net=socket(AF_INET,SOCK_DGRAM,0),local=socket(AF_INET,SOCK_DGRAM,0),rc=-1;uint64_t sent=0,received=0;unsigned int handled=0;socklen_t flen;
+    unsigned char pending_frame[IDRIS_NATIVE_FRAME]={0};size_t pending_length=0;
+    unsigned int retries=0;int64_t retry_at=0;
     if(net<0||local<0)goto done;
     struct timeval tv={.tv_sec=1,.tv_usec=0};
     if(setsockopt(net,SOL_SOCKET,SO_RCVTIMEO,&tv,sizeof tv)||setsockopt(local,SOL_SOCKET,SO_RCVTIMEO,&tv,sizeof tv))goto done;
@@ -291,12 +313,53 @@ int idris_native_relay(int role,const char *bind_ip,unsigned int bind_port,const
     if(chain){puts("session ready");fflush(stdout);}
     struct timespec activity,now;if(clock_gettime(CLOCK_MONOTONIC,&activity))goto done;
     time_t started=activity.tv_sec;
-    for(unsigned attempts=0;handled<max_packets&&attempts<1000000;++attempts){fd_set set;FD_ZERO(&set);FD_SET(net,&set);FD_SET(local,&set);int top=net>local?net:local;struct timeval wait={.tv_sec=1,.tv_usec=0};int ready=select(top+1,&set,NULL,NULL,&wait);if(ready<0&&errno==EINTR)continue;if(clock_gettime(CLOCK_MONOTONIC,&now)||ready<0||now.tv_sec-activity.tv_sec>=30||now.tv_sec-started>=300)break;
-        if(FD_ISSET(net,&set)){flen=sizeof from;ssize_t n=recvfrom(net,frame,sizeof frame,0,(struct sockaddr*)&from,&flen);size_t pn=0;if(n>0&&same_addr(&from,&peer_sa)&&native_open(plain,&pn,frame,(size_t)n,role==1?2:1,&received,receive_session,&receive_session_set,key)==0){if(role==1){if(app_peer.sin_port&&sendto(local,plain,pn,0,(struct sockaddr*)&app_peer,sizeof app_peer)==(ssize_t)pn)handled++;}else if(send(local,plain,pn,0)!=(ssize_t)pn)break;clock_gettime(CLOCK_MONOTONIC,&activity);}}
-        if(FD_ISSET(local,&set)){ssize_t n;if(role==1){flen=sizeof from;n=recvfrom(local,plain,sizeof plain,0,(struct sockaddr*)&from,&flen);if(n>0&&n<=IDRIS_NATIVE_MAX&&ntohl(from.sin_addr.s_addr)==INADDR_LOOPBACK&&(!app_peer.sin_port||same_addr(&from,&app_peer)))app_peer=from;else n=-1;}else n=recv(local,plain,sizeof plain,0);size_t wn=0;if(n>0&&native_seal(frame,&wn,plain,(size_t)n,role==1?1:2,++sent,send_session,key)==0){if(sendto(net,frame,wn,0,(struct sockaddr*)&peer_sa,sizeof peer_sa)==(ssize_t)wn){if(role==2)handled++;clock_gettime(CLOCK_MONOTONIC,&activity);}else break;}}
+    for(unsigned attempts=0;handled<max_packets&&attempts<1000000;++attempts){
+        fd_set set;FD_ZERO(&set);FD_SET(net,&set);if(!chain||!pending_length)FD_SET(local,&set);
+        int top=net>local?net:local;struct timeval wait={.tv_sec=chain?0:1,.tv_usec=chain?100000:0};
+        int ready=select(top+1,&set,NULL,NULL,&wait);if(ready<0&&errno==EINTR)continue;
+        if(clock_gettime(CLOCK_MONOTONIC,&now)||ready<0||now.tv_sec-activity.tv_sec>=30||now.tv_sec-started>=300)break;
+        int64_t milliseconds=(int64_t)now.tv_sec*1000+now.tv_nsec/1000000;
+        if(chain&&pending_length&&milliseconds>=retry_at){
+            if(retries++>=8||sendto(net,pending_frame,pending_length,0,(struct sockaddr*)&peer_sa,sizeof peer_sa)!=(ssize_t)pending_length)goto done;
+            retry_at=milliseconds+200;
+        }
+        if(FD_ISSET(net,&set)){
+            flen=sizeof from;ssize_t n=recvfrom(net,frame,sizeof frame,0,(struct sockaddr*)&from,&flen);size_t pn=0;
+            if(n>0&&same_addr(&from,&peer_sa)){
+                unsigned char direction=role==1?2:1;
+                if(chain&&pending_length&&native_open_ack(frame,(size_t)n,direction,sent,key)==0){
+                    pending_length=0;sodium_memzero(pending_frame,sizeof pending_frame);
+                    if(role==2)handled++;
+                    clock_gettime(CLOCK_MONOTONIC,&activity);
+                }else if((role!=1||!chain||app_peer.sin_port)&&native_open(plain,&pn,frame,(size_t)n,direction,&received,receive_session,&receive_session_set,key)==0){
+                    int delivered=0;
+                    if(role==1){if(app_peer.sin_port&&sendto(local,plain,pn,0,(struct sockaddr*)&app_peer,sizeof app_peer)==(ssize_t)pn){handled++;delivered=1;}}
+                    else if(send(local,plain,pn,0)==(ssize_t)pn)delivered=1;else break;
+                    if(delivered&&chain){size_t an=0;if(native_seal_ack(frame,&an,role==1?1:2,received,send_session,key)||sendto(net,frame,an,0,(struct sockaddr*)&peer_sa,sizeof peer_sa)!=(ssize_t)an)break;}
+                    clock_gettime(CLOCK_MONOTONIC,&activity);
+                }else if(chain&&received&&n>=IDRIS_NATIVE_HEADER&&frame[6]==0&&get64(frame+8)==received){
+                    uint64_t duplicate_last=received-1;unsigned char duplicate_session[16];int duplicate_set=receive_session_set;
+                    memcpy(duplicate_session,receive_session,sizeof duplicate_session);
+                    if(native_open(plain,&pn,frame,(size_t)n,direction,&duplicate_last,duplicate_session,&duplicate_set,key)==0){
+                        size_t an=0;if(native_seal_ack(frame,&an,role==1?1:2,received,send_session,key)||sendto(net,frame,an,0,(struct sockaddr*)&peer_sa,sizeof peer_sa)!=(ssize_t)an)break;
+                    }
+                }
+            }
+        }
+        if(FD_ISSET(local,&set)){
+            ssize_t n;if(role==1){flen=sizeof from;n=recvfrom(local,plain,sizeof plain,0,(struct sockaddr*)&from,&flen);if(n>0&&n<=IDRIS_NATIVE_MAX&&ntohl(from.sin_addr.s_addr)==INADDR_LOOPBACK&&(!app_peer.sin_port||same_addr(&from,&app_peer)))app_peer=from;else n=-1;}
+            else n=recv(local,plain,sizeof plain,0);
+            size_t wn=0;if(n>0&&native_seal(frame,&wn,plain,(size_t)n,role==1?1:2,++sent,send_session,key)==0){
+                if(sendto(net,frame,wn,0,(struct sockaddr*)&peer_sa,sizeof peer_sa)==(ssize_t)wn){
+                    if(chain){memcpy(pending_frame,frame,wn);pending_length=wn;retries=0;retry_at=milliseconds+200;}
+                    else if(role==2)handled++;
+                    clock_gettime(CLOCK_MONOTONIC,&activity);
+                }else break;
+            }
+        }
     }
     rc=(int)handled;
-done: if(net>=0)close(net);if(local>=0)close(local);sodium_memzero(config,sizeof config);sodium_memzero(key,sizeof key);sodium_memzero(plain,sizeof plain);sodium_memzero(send_session,sizeof send_session);sodium_memzero(receive_session,sizeof receive_session);return rc;
+done: if(net>=0)close(net);if(local>=0)close(local);sodium_memzero(config,sizeof config);sodium_memzero(key,sizeof key);sodium_memzero(plain,sizeof plain);sodium_memzero(pending_frame,sizeof pending_frame);sodium_memzero(send_session,sizeof send_session);sodium_memzero(receive_session,sizeof receive_session);return rc;
 }
 
 int idris_native_selftest(void){
@@ -304,7 +367,9 @@ int idris_native_selftest(void){
     randombytes_buf(key,sizeof key);randombytes_buf(plain,sizeof plain);randombytes_buf(send_session,sizeof send_session);
     if(native_seal(frame,&fn,plain,sizeof plain,1,1,send_session,key)||native_open(out,&on,frame,fn,1,&last,receive_session,&session_set,key)||on!=sizeof plain||sodium_memcmp(out,plain,sizeof plain))goto done;
     if(native_open(out,&on,frame,fn,1,&last,receive_session,&session_set,key)==0||native_open(out,&on,frame,fn,2,&last,receive_session,&session_set,key)==0)goto done;
-    frame[fn-1]^=1;last=0;if(native_open(out,&on,frame,fn,1,&last,receive_session,&session_set,key)==0)goto done;rc=0;
+    frame[fn-1]^=1;last=0;if(native_open(out,&on,frame,fn,1,&last,receive_session,&session_set,key)==0)goto done;
+    if(native_seal_ack(frame,&fn,2,1,send_session,key)||native_open_ack(frame,fn,2,1,key)||native_open_ack(frame,fn,2,2,key)==0)goto done;
+    frame[fn-1]^=1;if(native_open_ack(frame,fn,2,1,key)==0)goto done;rc=0;
 done: sodium_memzero(key,sizeof key);sodium_memzero(plain,sizeof plain);sodium_memzero(out,sizeof out);sodium_memzero(send_session,sizeof send_session);sodium_memzero(receive_session,sizeof receive_session);return rc;
 }
 

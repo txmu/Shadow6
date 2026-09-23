@@ -3,6 +3,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <netdb.h>
+#include <netinet/tcp.h>
 #include <poll.h>
 #include <signal.h>
 #include <stdint.h>
@@ -139,6 +140,8 @@ int64_t s6_clock(void) { struct timespec t; if (clock_gettime(CLOCK_MONOTONIC, &
 static struct { int used, fd; SSL *tls; SSL_CTX *ctx; } handles[SLOTS];
 static int valid(int h) { return h >= 0 && h < SLOTS && handles[h].used; }
 static int save(int fd) {
+    int yes = 1;
+    if (setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &yes, sizeof yes)) { close(fd); return -1; }
     for (int i = 0; i < SLOTS; i++) if (!handles[i].used) { handles[i].used = 1; handles[i].fd = fd; return i; }
     close(fd); return -1;
 }
@@ -225,6 +228,7 @@ int s6_read(int h, void *buf, int n, int exact) {
     if (!valid(h) || n < 0 || n > 65536) return -1;
     int used = 0; int64_t deadline = s6_clock() + 10000;
     while (used < n) {
+        if (s6_clock() >= deadline) return -1;
         int r = handles[h].tls ? SSL_read(handles[h].tls, (char *)buf+used, n-used) : (int)recv(handles[h].fd, (char *)buf+used, (size_t)(n-used), 0);
         if (r > 0) { used += r; if (!exact) break; continue; }
         if (r == 0) return used ? -1 : 0;
@@ -239,6 +243,7 @@ int s6_write(int h, const void *buf, int n) {
     if (!valid(h) || n < 0 || n > 65536) return -1;
     int used = 0; int64_t deadline = s6_clock() + 10000;
     while (used < n) {
+        if (s6_clock() >= deadline) return -1;
         int r = handles[h].tls ? SSL_write(handles[h].tls, (const char *)buf+used, n-used) : (int)send(handles[h].fd, (const char *)buf+used, (size_t)(n-used), MSG_NOSIGNAL);
         if (r > 0) { used += r; continue; }
         short events = POLLOUT;

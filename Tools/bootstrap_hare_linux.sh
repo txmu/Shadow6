@@ -2,7 +2,8 @@
 # Explicit CI provisioning, never called by ordinary build/test targets.
 set -euo pipefail
 test "$(uname -s)" = Linux
-test "$(uname -m)" = x86_64
+arch=$(uname -m)
+case "$arch" in x86_64|aarch64) ;; *) echo 'unsupported Hare build architecture' >&2; exit 1 ;; esac
 prefix=${1:?usage: bootstrap_hare_linux.sh ABSOLUTE_NEW_PREFIX}
 case "$prefix" in /*) ;; *) echo 'prefix must be absolute' >&2; exit 1 ;; esac
 if [[ -e "$prefix" || -L "$prefix" ]]; then
@@ -54,10 +55,10 @@ export PATH="$prefix/bin:$PATH"
 make -C "$work/qbe-1.2" -j2
 install -m 0755 "$work/qbe-1.2/qbe" "$prefix/bin/qbe"
 cp "$work/harec/configs/linux.mk" "$work/harec/config.mk"
-make -C "$work/harec" -j2 PREFIX="$prefix" VERSION=0.24.2
-make -C "$work/harec" install PREFIX="$prefix"
+make -C "$work/harec" -j2 PREFIX="$prefix" VERSION=0.24.2 ARCH="$arch"
+make -C "$work/harec" install PREFIX="$prefix" ARCH="$arch"
 cp "$work/hare/configs/linux.mk" "$work/hare/config.mk"
-make -C "$work/hare" -j2 .bin/hare PREFIX="$prefix" VERSION=0.24.2
-make -C "$work/hare" install-mods PREFIX="$prefix"
+make -C "$work/hare" -j2 .bin/hare PREFIX="$prefix" VERSION=0.24.2 ARCH="$arch"
+make -C "$work/hare" install-mods PREFIX="$prefix" ARCH="$arch"
 install -m 0755 "$work/hare/.bin/hare" "$prefix/bin/hare"
 hare version

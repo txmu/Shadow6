@@ -1,8 +1,31 @@
 import os, tempfile, unittest
 from pathlib import Path
-from shadow6_network import DatagramEndpoint, POLICIES, ReliableAdapter, load_key
+from shadow6_network import DatagramEndpoint, Limits, POLICIES, ReliableAdapter, load_key
 
 class AdapterTests(unittest.TestCase):
+    def test_lazy_message_retention_stays_within_backpressure_budget(self):
+        limits=Limits(max_message=4096,max_inflight=4096,payload_bytes=64,window_frames=1)
+        left=ReliableAdapter("hare",bytes(32),limits=limits); right=ReliableAdapter("hare",bytes(32),1,limits=limits)
+        frame=left.send(0,b"a"*4096)[0]
+        for ack in right.receive(frame)[0]: left.receive(ack)
+        with self.assertRaises(BufferError): left.send(1,b"b")
+        self.assertEqual(left.buffered,4096)
+        while left.buffered:
+            for frame in left.outbound():
+                for ack in right.receive(frame)[0]: left.receive(ack)
+        self.assertFalse(left.outgoing)
+        self.assertEqual(right.incoming_bytes,0)
+    def test_completed_duplicate_does_not_allocate_reassembly_state(self):
+        left=ReliableAdapter("hare",bytes(32)); right=ReliableAdapter("hare",bytes(32),1)
+        frame=left.send(0,b"a")[0]
+        right.receive(frame); right.receive(frame)
+        self.assertEqual(right.incoming,{})
+        self.assertEqual(right.incoming_bytes,0)
+    def test_startup_limits_are_immutable_and_bounded(self):
+        limits=Limits(max_message=32*1024*1024,max_streams=128,max_inflight=64*1024*1024,max_window=128,payload_bytes=4096,window_frames=96)
+        adapter=ReliableAdapter("idris",bytes(32),limits=limits); self.assertEqual((len(adapter.queues),adapter.codec.payload),(128,4096))
+        with self.assertRaises(Exception): limits.max_streams=2
+        with self.assertRaises(ValueError): Limits(max_message=1024,max_inflight=512)
     def test_large_message_reorders_deduplicates_and_retransmits(self):
         now=[0.0]; clock=lambda:now[0]; key=os.urandom(32)
         left=ReliableAdapter("pony",key,0,clock=clock); right=ReliableAdapter("pony",key,1,clock=clock)
@@ -52,5 +75,17 @@ class AdapterTests(unittest.TestCase):
                 if output: break
             self.assertEqual(len(output),1); self.assertEqual(len(output[0][1]),5000)
         finally: first.close(); second.close()
+
+class ThreadSafetyTests(unittest.TestCase):
+    def test_concurrent_sends_reserve_unique_sequences(self):
+        from concurrent.futures import ThreadPoolExecutor
+        adapter=ReliableAdapter("carp", bytes(32))
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            frames=list(pool.map(lambda _: adapter.send(0,b"x"),range(128)))
+        self.assertEqual(adapter.next_message[0],128)
+        self.assertEqual(adapter.buffered,128)
+        self.assertEqual(len(adapter.outgoing),128)
+        emitted=[frame for batch in frames for frame in batch]
+        self.assertEqual(len(set(emitted)),len(emitted))
 
 if __name__=="__main__": unittest.main()

@@ -22,6 +22,7 @@ import tempfile
 import threading
 import time
 import traceback
+from contextlib import ExitStack
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from native_configs import DATAGRAM_CORES, generate_commands
@@ -30,6 +31,7 @@ from companion import Adapter, BACKENDS, Channel, exchange
 
 ROOT = Path(__file__).resolve().parents[1]
 _BROKER_BIND_LOCK = threading.Lock()
+_DATAGRAM_START_LOCK = threading.Lock()
 
 # Each entry invokes the core's existing real loopback/network tests.  The
 # harness never substitutes a synthetic wire protocol for a missing core test.
@@ -172,9 +174,11 @@ class EchoTarget:
             self.error = exc
             self.ready.set()
 
-    def start(self) -> int:
+    def start(self, timeout: float = 3) -> int:
         self.thread.start()
-        if not self.ready.wait(3):
+        if not self.ready.wait(timeout):
+            if self.error:
+                raise self.error
             raise RuntimeError("echo target did not start")
         if self.error:
             raise self.error
@@ -227,6 +231,10 @@ class CompanionEchoTarget(EchoTarget):
         self.family, self.datagram = family, datagram
         self.backend, self.core, self.key_path = backend, core, key_path
         super().__init__(**kwargs)
+
+    def start(self) -> int:
+        # Include the worker's bounded key-validation/startup handshake.
+        return super().start(timeout=100)
 
     def _run(self):
         adapter = None
@@ -300,7 +308,7 @@ def evaluate_application(connection: socket.socket, datagram: bool, options: dic
     latencies = []
     channel = Channel(connection, datagram) if adapter else None
     started = time.perf_counter()
-    for _ in range(options["requests"]):
+    for request_index in range(options["requests"]):
         payload = os.urandom(size)
         request_started = time.perf_counter()
         for offset in range(0, size, 512):
@@ -312,14 +320,23 @@ def evaluate_application(connection: socket.socket, datagram: bool, options: dic
                 received = connection.recv(65536) if datagram else receive_exact(connection, len(part))
             if received != part:
                 raise AssertionError("application response mismatch")
+        # Pacing is per logical request on all transports/backends, never
+        # per recv() chunk (TCP segmentation would bias comparisons).
+        delay=options.get("rtt_ms",0)/1000
+        cadence=options.get("loss_percent",0)
+        if cadence and (request_index+1)%max(1,100//cadence)==0: delay*=2
+        if delay: time.sleep(delay)
         latencies.append(time.perf_counter() - request_started)
-    result = benchmark_metrics(payload, latencies, time.perf_counter() - started)
+    finished=time.perf_counter()
+    result = benchmark_metrics(payload, latencies, finished - started)
     result.update(application_chunk_bytes=min(size, 512),
+                  measurement_started=started,measurement_finished=finished,
+                  duration_scope="application-workload-only",
                   application_transport="udp" if datagram else "tcp",
                   roles=["broker", "agent", "client"],
-                  impairment={"model": "bounded-userspace-response-v1",
+                  impairment={"model": "application-response-pacing-v2", "packet_loss_injected":False,
                               "rtt_ms": options.get("rtt_ms", 0),
-                              "loss_percent": options.get("loss_percent", 0)})
+                              "recovery_delay_percent": options.get("loss_percent", 0)})
     return result
 
 
@@ -479,7 +496,8 @@ async def generate_configs(engine: str, output: Path, target_port: int, broker_p
     generate_local_configs(output, target_port, broker_port, engine)
 
 
-def run_engine(engine: str, benchmark: dict | None = None, backend: str = "native") -> dict | None:
+def run_engine(engine: str, benchmark: dict | None = None, backend: str = "native",
+               ready_barrier: threading.Barrier | None = None) -> dict | None:
     binary = CORE_BINARIES[engine]
     if engine == "shadow6-zig" and not binary.is_file():
         binary = ROOT / "Core-Zig/zig-out/bin/shadow6-zig"
@@ -489,21 +507,35 @@ def run_engine(engine: str, benchmark: dict | None = None, backend: str = "nativ
     options = benchmark or {"payload_bytes": 16384, "requests": 4}
     datagram = engine in DATAGRAM_CORES
     family = socket.AF_INET6 if engine == "shadow6-hare" else socket.AF_INET
-    impairment = {"rtt_ms": options.get("rtt_ms", 0), "loss_percent": options.get("loss_percent", 0)}
+    impairment = {"rtt_ms": 0, "loss_percent": 0}  # common logical-request pacing below
     target = DatagramEchoTarget(family, **impairment) if datagram else EchoTarget(**impairment)
     broker = agent = client = None
     success = False
     result = None
-    with tempfile.TemporaryDirectory(prefix=f"shadow6-it-{engine}-") as directory:
+    with ExitStack() as resources, tempfile.TemporaryDirectory(prefix=f"shadow6-it-{engine}-") as directory:
         output = Path(directory) / "configs"
         key_path = Path(directory) / "adapter.key"
         if backend != "native":
-            key_path.write_bytes(os.urandom(32)); key_path.chmod(0o600)
+            sys.path.insert(0, str(ROOT / 'Network-Adapter'))
+            from shadow6_network import create_key
+            create_key(key_path, os.urandom(32))
             target = CompanionEchoTarget(family, datagram, backend, engine.removeprefix("shadow6-"), key_path, **impairment)
+        # Config generation releases temporary UDP reservations. Keep another
+        # trio from choosing those ports until the native roles have bound them.
+        startup = resources.enter_context(ExitStack())
+        if datagram:
+            if not _DATAGRAM_START_LOCK.acquire(timeout=45):
+                raise TimeoutError("native UDP startup queue deadline")
+            startup.callback(_DATAGRAM_START_LOCK.release)
         target_port = target.start()
         broker_port = free_port()
+        role_reservations = {}
         if datagram:
-            commands, endpoint = generate_commands(engine, binary, output, target_port)
+            commands, endpoint = generate_commands(engine, binary, output, target_port,
+                                                    role_reservations)
+            for group in role_reservations.values():
+                for reservation in group:
+                    resources.callback(reservation.close)
         else:
             asyncio.run(generate_configs(engine, output, target_port, broker_port))
             prefix = f"it-{engine}"
@@ -517,6 +549,10 @@ def run_engine(engine: str, benchmark: dict | None = None, backend: str = "nativ
         }
         try:
             def start_role(role: str) -> subprocess.Popen[str]:
+                # Hold each role's UDP ports until its process is launched.
+                # The handoff window is now only the process launch itself.
+                for reservation in role_reservations.get(role, ()):
+                    reservation.close()
                 popen_kwargs = {"stdout": log_files[role], "stderr": subprocess.STDOUT, "text": True}
                 if engine == "shadow6-gleam":
                     environment = dict(os.environ)
@@ -548,12 +584,16 @@ def run_engine(engine: str, benchmark: dict | None = None, backend: str = "nativ
                 marker = "ready:" if engine == "shadow6-pony" else "session ready"
                 while time.monotonic() < deadline:
                     if any(p.poll() is not None for p in (broker, agent, client)):
-                        raise RuntimeError("native role exited before session readiness")
+                        exited = {role: process.returncode for role, process in
+                                  (("broker", broker), ("agent", agent), ("client", client))
+                                  if process.poll() is not None}
+                        raise RuntimeError(f"native role exited before session readiness: {exited}")
                     if all(marker in log_paths[r].read_text(errors="replace") for r in ("agent", "client")):
                         break
                     time.sleep(.02)
                 else:
                     raise TimeoutError("native session readiness timeout")
+                startup.close()
                 connection = socket.socket(family, socket.SOCK_DGRAM)
                 connection.connect(endpoint)
             else:
@@ -569,6 +609,10 @@ def run_engine(engine: str, benchmark: dict | None = None, backend: str = "nativ
                     if backend != "native":
                         adapter = Adapter(backend, engine.removeprefix("shadow6-"), key_path, 0)
                         connection.settimeout(.1)
+                    # Start the workload together even when UDP port handoff
+                    # needs serialized startup. A failed peer aborts this wait.
+                    if ready_barrier is not None:
+                        ready_barrier.wait(timeout=45)
                     result = evaluate_application(connection, datagram, options, adapter)
                     result["backend"] = backend
                 finally:
@@ -625,12 +669,22 @@ def run_external_proxy(endpoint: str, benchmark: dict) -> dict:
 def run_parallel(engine, options, backend):
     count = options["concurrency"]
     if count == 1:
-        return run_engine(engine, options, backend)
+        result=run_engine(engine, options, backend)
+        result.pop("measurement_started",None); result.pop("measurement_finished",None)
+        return result
     started = time.perf_counter()
+    ready_barrier = threading.Barrier(count)
+    def run_ready():
+        try:
+            return run_engine(engine, options, backend, ready_barrier)
+        except BaseException:
+            ready_barrier.abort()
+            raise
     with ThreadPoolExecutor(max_workers=count) as pool:
-        futures = [pool.submit(run_engine, engine, options, backend) for _ in range(count)]
+        futures = [pool.submit(run_ready) for _ in range(count)]
         results = [f.result() for f in futures]
-    duration = time.perf_counter() - started
+    lifecycle_duration = time.perf_counter() - started
+    duration=max(r["measurement_finished"] for r in results)-min(r["measurement_started"] for r in results)
     result = dict(results[0])
     result.update(concurrency=count, concurrency_scope="independent-native-trios",
                   requests=sum(r["requests"] for r in results),
@@ -641,7 +695,9 @@ def run_parallel(engine, options, backend):
                   latency_avg_seconds=sum(r["latency_avg_seconds"] for r in results)/count,
                   latency_p95_seconds=max(r["latency_p95_seconds"] for r in results),
                   latency_p95_aggregation="maximum-worker-p95",
-                  duration_scope="includes-trio-startup-and-teardown")
+                  lifecycle_duration_seconds=lifecycle_duration,
+                  duration_scope="application-workload-only")
+    result.pop("measurement_started",None); result.pop("measurement_finished",None)
     return result
 
 
@@ -663,12 +719,7 @@ def main() -> int:
     if args.external_proxy and (backend != "native" or args.concurrency != 1 or args.rtt_ms or args.loss_percent):
         parser.error("external endpoint requires native backend, concurrency 1, and zero local impairment")
     if args.engine == "all":
-        engines = tuple(engine for engine, binary in CORE_BINARIES.items()
-                        if binary.is_file() or (engine == "shadow6-zig" and
-                           (ROOT / "Core-Zig/zig-out/bin/shadow6-zig").is_file()))
-        skipped = sorted(set(CORE_BINARIES) - set(engines))
-        for engine in skipped:
-            print(f"[SKIP] {engine} native integration: binary was not built for this platform")
+        engines = tuple(CORE_BINARIES)
     else:
         engines = (args.engine,)
     benchmark_result = None

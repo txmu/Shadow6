@@ -10,7 +10,8 @@ from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 DATAGRAM_CORES = {"shadow6-hare", "shadow6-carp", "shadow6-idris", "shadow6-pony"}
 
 
-def generate_commands(engine: str, binary: Path, root: Path, target_port: int):
+def generate_commands(engine: str, binary: Path, root: Path, target_port: int,
+                      role_reservations: dict | None = None):
     family = socket.AF_INET6 if engine == "shadow6-hare" else socket.AF_INET
     host = "::1" if family == socket.AF_INET6 else "127.0.0.1"
     reservations = []
@@ -85,7 +86,18 @@ def generate_commands(engine: str, binary: Path, root: Path, target_port: int):
                                str(peer), host, str(application), str(path), "1000000"]
             path.chmod(0o600)
             commands[role] = command
+        if role_reservations is not None:
+            role_reservations["broker"] = [reservations[0]]
+            role_reservations["agent"] = [reservations[1]]
+            if engine == "shadow6-hare":
+                role_reservations["client"] = reservations[-2:]
+            else:
+                role_reservations["client"] = [reservations[2], reservations[3]]
+            if engine == "shadow6-pony":
+                role_reservations["broker"].append(reservations[4])
         return commands, (host, app)
     finally:
+        retained = {sock for group in (role_reservations or {}).values() for sock in group}
         for reservation in reservations:
-            reservation.close()
+            if reservation not in retained:
+                reservation.close()

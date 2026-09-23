@@ -16,9 +16,9 @@ one Core family consistently at every hop.
 | Zig | broker, agent, client | Go/Rust control dialects; authenticated reliable UDP | Optional Zig toolchain; data plane is not Go/Rust wire-compatible |
 | D | broker, agent, client | Authenticated WebSocket control; X25519/ChaCha20-Poly1305 stream | BetterC profile; retained UDP driver is single-session |
 | C++ | broker, agent, client | TLS 1.3 WebSocket control; SCTP tunnel data | Kernel SCTP support is required; independent C++ protocol |
-| Idris | broker, agent, client; legacy relay | Signed X25519 admission and encrypted fixed-peer UDP | 1024-byte application datagrams; no multi-client routing or native retransmission |
-| Hare | broker, agent, client; legacy endpoint | Signed fixed-route IPv6-loopback UDP | 978-byte datagrams; one session, no discovery/retransmission/multiplexing |
-| Carp | broker, agent, client; legacy codec/adapter | Signed fixed-route IPv4-loopback UDP with directional layer keys | 986-byte datagrams; one session, no native retransmission |
+| Idris | broker, agent, client; legacy relay | Signed X25519 admission and encrypted fixed-peer UDP | 1024-byte application datagrams; bounded signed-chain ACK/retry, no multi-client routing |
+| Hare | broker, agent, client; legacy endpoint | Signed fixed-route IPv6-loopback UDP | 978-byte datagrams; bounded ACK/retry, one session, no discovery/multiplexing |
+| Carp | broker, agent, client; legacy codec/adapter | Signed fixed-route IPv4-loopback UDP with directional layer keys | 986-byte datagrams; native three-role ACK/retry, one session |
 
 “Can deploy independently” means that a Core's documented native path can run
 without the Network Adapter or any other Companion. It does not mean that all
@@ -38,3 +38,6 @@ and identical bounded application workloads. Companions remain optional in
 deployment; tests select them explicitly without changing installed settings.
 See [Benchmark contracts](../Benchmark/README.md) for pressure semantics and
 the distinction between independent-trio concurrency and session multiplexing.
+
+See the [runtime and reliability review](network-runtime-review-2026-09.md) for
+retry bounds, legacy-mode differences and verification scope.

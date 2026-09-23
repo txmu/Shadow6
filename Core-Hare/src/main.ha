@@ -49,13 +49,17 @@ fn hex_digit(c: u8) u8 = {
 };
 
 fn read_secure(path: str) (str | void) = {
-	const file = match (os::open(path, fs::flag::RDONLY | fs::flag::NOFOLLOW | fs::flag::NONBLOCK)) {
+	// os::stat does not follow links; reject before opening as well as using
+	// the platform's NOFOLLOW flag to close the path replacement race.
+	const before = match (os::stat(path)) { case let s: fs::filestat => yield s; case => return; };
+	if (before.uid != unix::geteuid() || before.mode != (fs::mode::REG | fs::mode::USER_RW)) return;
+	const file = match (os::open(path, secure_open_flags())) {
 	case let f: io::file => yield f;
 	case => return;
 	};
 	defer io::close(file)!;
 	const st = os::fstat(file)!;
-	if (st.uid != unix::geteuid() || st.mode != (fs::mode::REG | fs::mode::USER_RW) || st.sz == 0 || st.sz > MAX_CONFIG) return;
+	if (st.inode != before.inode || st.uid != unix::geteuid() || st.mode != (fs::mode::REG | fs::mode::USER_RW) || st.sz == 0 || st.sz > MAX_CONFIG) return;
 	let data: []u8 = alloc([0...], MAX_CONFIG);
 	const n = match (io::read(file, data)) {
 	case let n: size => yield n;

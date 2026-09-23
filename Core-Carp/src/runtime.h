@@ -29,6 +29,11 @@ static int application_fd = -1, chain_role;
 static struct sockaddr_in application_peer;
 static unsigned char receive_keys[96];
 static uint64_t send_sequence;
+static struct packet pending_packet;
+static uint64_t pending_sequence;
+static unsigned int pending_attempts;
+static int pending_active;
+static int64_t pending_at;
 /* A=simplex, B=bidirectional, C=full duplex contract.  The mode is
  * authenticated as part of the session transcript and packet AD. */
 static unsigned char link_mode = 'A';
@@ -40,6 +45,11 @@ static time_t monotonic_seconds(void) {
     struct timespec now;
     if (clock_gettime(CLOCK_MONOTONIC, &now)) exit(2);
     return now.tv_sec;
+}
+static int64_t monotonic_millis(void) {
+    struct timespec now;
+    if (clock_gettime(CLOCK_MONOTONIC, &now)) exit(2);
+    return (int64_t)now.tv_sec * 1000 + now.tv_nsec / 1000000;
 }
 static const unsigned char operation[COMMAND] = "{\"op\":\"forward\",\"version\":1}";
 static int secure_keys(const char *path, unsigned char *keys) {
@@ -98,24 +108,50 @@ static int packet_peel(struct packet *p) {
     return 0;
 }
 static char *packet_command(struct packet *p) { return (char *)p->bytes + 3 * HEADER; }
+static int chain_ack(uint64_t sequence) {
+    struct packet ack = {0};
+    unsigned char *body = ack.bytes + 3 * HEADER;
+    memcpy(body, operation, COMMAND); body[COMMAND] = 0; body[COMMAND + 1] = 8;
+    body[COMMAND + 10] = 1; /* authenticated ACK marker in otherwise-zero padding */
+    for (int i = 0; i < 8; ++i) body[COMMAND + 2 + i] = (unsigned char)(sequence >> (56 - 8*i));
+    memcpy(ack.keys, session_keys, sizeof session_keys);
+    int ok = wrap(&ack, 8) == 0 && send(udp_fd, ack.bytes, WIRE, 0) == WIRE;
+    sodium_memzero(&ack, sizeof ack);
+    return ok ? 0 : -1;
+}
 static int packet_finish(struct packet *p, bool accepted) {
     unsigned char *body = p->bytes + 3 * HEADER;
     size_t n = (size_t)body[COMMAND] * 256 + body[COMMAND + 1];
     int ok = accepted && n <= BODY - COMMAND - 2;
-    for (size_t i = COMMAND + 2 + n; ok && i < BODY; ++i) if (body[i]) ok = 0;
+    int acknowledgement = endpoint_mode && chain_role && n == 8 && body[COMMAND + 10] == 1;
+    for (size_t i = COMMAND + 2 + n + (size_t)acknowledgement; ok && i < BODY; ++i) if (body[i]) ok = 0;
     if (ok && endpoint_mode) {
         uint64_t sequence = 0;
         if (n < 8) ok = 0;
         else {
             for (int i = 0; i < 8; ++i) sequence = (sequence << 8) | body[COMMAND + 2 + i];
-            if (sequence <= previous_sequence) ok = 0;
-            else previous_sequence = sequence;
+            if (!sequence) { sodium_memzero(p, sizeof *p); return 2; }
+            if (acknowledgement) {
+                if (pending_active && sequence == pending_sequence) {
+                    pending_active = 0; sodium_memzero(&pending_packet, sizeof pending_packet);
+                }
+                sodium_memzero(p, sizeof *p); return 0;
+            }
+            if (chain_role && sequence == previous_sequence) {
+                int acked = chain_ack(sequence);
+                sodium_memzero(p, sizeof *p); return acked ? 2 : 0;
+            }
+            if (sequence <= previous_sequence || (chain_role && sequence != previous_sequence + 1)) ok = 0;
         }
         if (ok && chain_role) {
             if (chain_role == 2) ok = send(application_fd, body + COMMAND + 10, n - 8, 0) == (ssize_t)(n - 8);
             else ok = application_peer.sin_port && sendto(application_fd, body + COMMAND + 10, n - 8, 0,
                 (struct sockaddr *)&application_peer, sizeof application_peer) == (ssize_t)(n - 8);
         } else if (ok) ok = write(STDOUT_FILENO, body + COMMAND + 10, n - 8) == (ssize_t)(n - 8);
+        if (ok) {
+            previous_sequence = sequence;
+            if (chain_role && chain_ack(sequence)) ok = 0;
+        }
     } else if (ok) ok = fwrite(body + COMMAND + 2, 1, n, stdout) == n && fflush(stdout) == 0;
     sodium_memzero(p, sizeof *p);
     return ok ? 0 : 2;
@@ -225,9 +261,13 @@ static int chain_application(int port, int client) {
  * received packet. Domain-separated keys prevent reflection between directions. */
 static struct packet chain_receive(void) {
     struct packet p = {0};
-    struct pollfd f[2] = {{.fd=udp_fd,.events=POLLIN}, {.fd=application_fd,.events=POLLIN}};
-    if (poll(f, 2, 1000) <= 0) return p;
-    if (f[1].revents & POLLIN) {
+    struct pollfd f[2] = {{.fd=udp_fd,.events=POLLIN}, {.fd=application_fd,.events=pending_active?0:POLLIN}};
+    if (pending_active && monotonic_millis() >= pending_at) {
+        if (pending_attempts++ >= 8 || send(udp_fd, pending_packet.bytes, WIRE, 0) != WIRE) exit(2);
+        pending_at = monotonic_millis() + 200;
+    }
+    if (poll(f, 2, 100) <= 0) return p;
+    if (!pending_active && (f[1].revents & POLLIN)) {
         unsigned char *body = p.bytes + 3 * HEADER;
         unsigned char input[BODY - COMMAND - 10 + 1];
         struct sockaddr_in source = {0}; socklen_t sl = sizeof source;
@@ -247,6 +287,9 @@ static struct packet chain_receive(void) {
         memcpy(body + COMMAND + 10, input, (size_t)n);
         memcpy(p.keys, session_keys, 96);
         if (wrap(&p, total) || send(udp_fd, p.bytes, WIRE, 0) != WIRE) exit(2);
+        memcpy(&pending_packet, &p, sizeof p); pending_sequence = send_sequence;
+        sodium_memzero(pending_packet.keys, sizeof pending_packet.keys);
+        pending_active = 1; pending_attempts = 0; pending_at = monotonic_millis() + 200;
         sodium_memzero(input, sizeof input); sodium_memzero(&p, sizeof p);
     }
     if (f[0].revents & POLLIN) {

@@ -85,6 +85,13 @@ class AndroidProjectTests(unittest.TestCase):
         gate = (ROOT / "app/src/main/java/org/shadow6/android/gate/GateRuntime.kt").read_text()
         self.assertIn("no Termux, Tailscale, or shell", gate)
         self.assertIn("Gate remains disabled until explicitly enabled", gate)
+        vpn = (ROOT / 'app/src/main/java/org/shadow6/android/vpn/Shadow6VpnService.kt').read_text()
+        codec = (ROOT / 'app/src/main/java/org/shadow6/android/vpn/S6naCodec.kt').read_text()
+        self.assertIn('android.permission.BIND_VPN_SERVICE', manifest)
+        self.assertIn('android:exported="false"', manifest)
+        self.assertIn('protect(channel.socket())', vpn)
+        self.assertNotIn('ProcessBuilder', vpn)
+        self.assertIn('ChaCha20-Poly1305', codec)
     def test_android_ui_controls_and_branding(self):
         manifest = (ROOT / "app/src/main/AndroidManifest.xml").read_text()
         activity = (ROOT / "app/src/main/java/org/shadow6/android/MainActivity.kt").read_text()

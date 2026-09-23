@@ -6,8 +6,8 @@ load or depend on either companion to obtain native network capability.
 
 | Companion | Runtime boundary | What it provides | What it does not provide |
 | --- | --- | --- | --- |
-| Python Network Adapter | Python 3, `Network-Adapter/shadow6_network.py` | Reference `S6NA/1` codec, carrier integration, installed-Core audit, conformance vectors and bounded retransmission state | It does not replace a Core, translate native Core protocols, or start an implicit public listener |
-| Node.js Network Adapter | Node.js 20+, `Network-Adapter/shadow6_network.mjs` | Wire-compatible high-concurrency `S6NA/1` codec and carrier integration using built-in modules only | It does not add a private wire extension, replace Core authorization, or require npm runtime dependencies |
+| Python Network Adapter | Python 3.14 GIL/free-threaded, compatible 3.11+ fallback, `Network-Adapter/shadow6_network.py` | Reference `S6NA/1` codec, carrier integration, installed-Core audit, conformance vectors and bounded retransmission state | It does not replace a Core, translate native Core protocols, or start an implicit public listener |
+| Node.js Network Adapter | Node.js 24 LTS (minimum 22), `Network-Adapter/shadow6_network.mjs` | Wire-compatible high-concurrency `S6NA/1` codec and carrier integration using built-in modules only | It does not add a private wire extension, replace Core authorization, or require npm runtime dependencies |
 
 Both companions provide the same bounded message contract:
 
@@ -40,3 +40,6 @@ into a Core nor modifies installed enablement settings. Missing dependencies
 produce visible failing rows. [Pressure tests](../Benchmark/README.md) apply
 identical workload cases; independent-trio concurrency is not advertised as
 multi-client multiplexing within a single native process.
+
+The [runtime review](network-runtime-review-2026-09.md) documents interpreter
+selection, per-instance locking and identical GIL-on/off component benchmarks.

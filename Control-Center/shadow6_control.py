@@ -55,6 +55,7 @@ from shadow6_slots import catalog as slot_catalog, invoke as invoke_slot, load_b
 from shadow6_extensions import invoke as invoke_extension  # noqa: E402
 from shadow6_pkg import activate as package_activate, install_package, list_packages, verify_package  # noqa: E402
 from shadow6_public import negotiate as public6_negotiate, offer_from_feature_report, read_json as public6_read_json, read_offer as public6_read_offer, suite_profile as public6_profile  # noqa: E402
+from virtual_broker import load_config as virtual_broker_load_config  # noqa: E402
 from shadow6_migrate import export as migration_export, import_bundle as migration_import, plan as migration_plan  # noqa: E402
 from shadow6_repo import build as repository_build, sync as repository_sync, verify as repository_verify, regular as repository_read  # noqa: E402
 from portmap import generate as portmap_generate, validate as portmap_validate  # noqa: E402
@@ -140,6 +141,7 @@ METHOD_SPECS: dict[str, dict[str, Any]] = {
     "public6.profile": _method("Return the Public6 suite and compatibility contract."),
     "public6.offer": _method("Create a strict Public6 offer from a Core feature report.", {"feature_report": _PATH}, ("feature_report",)),
     "public6.negotiate": _method("Negotiate two Public6 offers; only Core family and version determine base compatibility.", {"local": _PATH, "peer": _PATH}, ("local", "peer")),
+    "virtual_broker.validate": _method("Validate a bounded Virtual Broker configuration without opening listeners.", {"config": _PATH}, ("config",)),
     "slots.catalog": _method("Return the typed Slot catalog."),
     "slots.validate": _method("Validate signed Plugin Slot bindings.", {"root": _PATH, "plugin_root": _PATH, "trust_store": _PATH, "bindings": _PATH, "slot": _STRING, "payload": _OBJECT, "allow_privileged": _BOOL}, ("bindings",)),
     "slots.invoke": _method("Invoke one typed Slot through a signed isolated Plugin.", {"root": _PATH, "plugin_root": _PATH, "trust_store": _PATH, "bindings": _PATH, "slot": _STRING, "payload": _OBJECT, "allow_privileged": _BOOL}, ("bindings", "slot"), mutating=True),
@@ -227,7 +229,7 @@ def schema() -> dict[str, Any]:
         },
         "init_systems": ["systemd", "openrc", "runit", "sysv", "rc.d", "procd", "launchd", "guix"],
         "network_adapter_backends": ["python", "node"],
-        "config_kinds": [*sorted("core-" + core.removeprefix("shadow6-") for core in CONFIGURABLE_CORES), "topology", "security-policy", "plugin", "package", "slots", "public6-offer", "counterstrike-policy"],
+        "config_kinds": [*sorted("core-" + core.removeprefix("shadow6-") for core in CONFIGURABLE_CORES), "topology", "security-policy", "plugin", "package", "slots", "public6-offer", "virtual-broker", "counterstrike-policy"],
         "methods": METHOD_SPECS,
         "transport": {
             "jsonl": {"max_request_bytes": MAX_REQUEST, "mutations_default": False},
@@ -426,6 +428,11 @@ def dispatch(method: str, raw_params: Any = None) -> Any:
             value = CounterstrikePolicy.load(path).summary()
         elif kind == "public6-offer":
             value = public6_read_offer(path)
+        elif kind == "virtual-broker":
+            config=virtual_broker_load_config(path)
+            value={"cores":sorted(config.cores),"tenants":len(config.tenants),
+                   "anonymous_ports":[entry[0] for entry in config.anonymous_listeners],
+                   "datagram_ports":[entry[0] for entry in config.datagram_listeners]}
         else:
             raise ValueError("unsupported config kind")
         return {"kind": kind, "valid": True, "result": value}
@@ -490,6 +497,12 @@ def dispatch(method: str, raw_params: Any = None) -> Any:
     if method == "public6.negotiate":
         _only(params, {"local", "peer"})
         return public6_negotiate(public6_read_offer(Path(params["local"])), public6_read_offer(Path(params["peer"])))
+    if method == "virtual_broker.validate":
+        _only(params, {"config"})
+        config=virtual_broker_load_config(Path(params["config"]))
+        return {"valid":True,"cores":sorted(config.cores),"tenants":len(config.tenants),
+                "anonymous_ports":[entry[0] for entry in config.anonymous_listeners],
+                "datagram_ports":[entry[0] for entry in config.datagram_listeners]}
     if method == "gate.portmap.generate":
         _only(params,{"ports","start"});ports=params.get("ports")
         if not isinstance(ports,list): raise ValueError("ports must be a list")

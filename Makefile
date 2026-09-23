@@ -44,11 +44,15 @@ benchmark:
 performance-matrix:
 	@$(PYTHON) Benchmark/performance_matrix.py --output performance-matrix.json
 
+.PHONY: component-benchmark
+component-benchmark:
+	@$(PYTHON) Benchmark/component_benchmark.py --output component-benchmark.json
+
 benchmark-test:
 	@PYTHONPATH=Benchmark $(PYTHON) -m unittest Benchmark/test_benchmark.py
 
 network-adapter-test:
-	@PYTHONPATH=Network-Adapter $(PYTHON) -m unittest Network-Adapter/test_network.py Network-Adapter/test_conformance.py
+	@PYTHONPATH=Network-Adapter $(PYTHON) -m unittest Network-Adapter/test_network.py Network-Adapter/test_conformance.py Network-Adapter/test_secure_key.py
 	@node --test Network-Adapter/test_node.mjs
 
 network-adapter-benchmark:
@@ -139,7 +143,7 @@ endif
 core-hare:
 ifeq ($(BUILD_HARE),1)
 	@command -v hare >/dev/null || { echo 'BUILD_HARE=1 requires the Hare toolchain' >&2; exit 1; }
-	@cd Core-Hare && LDFLAGS='-Wl,-z,relro,-z,now -Wl,-z,noexecstack' hare build -l sodium -o shadow6-hare src && chmod 0755 shadow6-hare
+	@cd Core-Hare && LDFLAGS='-static-pie -Wl,-z,relro,-z,now -Wl,-z,noexecstack' hare build -l sodium -o shadow6-hare src && chmod 0755 shadow6-hare
 else
 	@echo 'Core-Hare disabled; set BUILD_HARE=1 with the Hare toolchain installed to enable it'
 endif
@@ -149,15 +153,17 @@ test-hare: core-hare
 ifeq ($(BUILD_HARE),1)
 	@$(PYTHON) Core-Hare/tests/test_runtime.py
 	@$(PYTHON) integration/test_native_chains.py NativeBrokerTests.test_hare_admission
+	@$(PYTHON) integration/test_native_reliability.py NativeReliabilityTests.test_hare
 endif
 
 core-carp:
-	@if test -x .tools/carp-v0.5.5-x86_64-linux/bin/carp || test -n "$(CARP)"; then bash Core-Carp/compile.sh; else echo 'Core-Carp disabled: provision Carp 0.5.5 explicitly'; fi
+	@if test -x .tools/carp-v0.5.5-x86_64-linux/bin/carp || test -n "$(CARP)" || test "$(CARP_GENERATED)" = 1; then bash Core-Carp/compile.sh; else echo 'Core-Carp disabled: provision Carp 0.5.5 explicitly'; fi
 
 test-carp:
 	@bash Core-Carp/compile.sh
 	@$(PYTHON) Core-Carp/tests/test_core.py
 	@$(PYTHON) integration/test_native_chains.py NativeBrokerTests.test_carp_admission
+	@$(PYTHON) integration/test_native_reliability.py NativeReliabilityTests.test_carp
 
 ifeq ($(BUILD_CARP),1)
 test: test-carp
@@ -244,7 +250,7 @@ public6-variants:
 
 public6-contract:
 ifeq ($(BUILD_PUBLIC6),1)
-	@$(PYTHON) -m py_compile Public6/shadow6_public.py
+	@$(PYTHON) -m py_compile Public6/shadow6_public.py Public6/virtual_broker.py Virtual-Adapter/shadow6_virtual_adapter.py
 	@$(PYTHON) Public6/shadow6_public.py profile >/dev/null
 endif
 
@@ -413,7 +419,7 @@ ifeq ($(BUILD_CROSED)$(BUILD_APP)$(BUILD_PLUGINS)$(BUILD_SLOTS),1111)
 	@PYTHONPATH=Extension-System:Crosed:Application-Layer:Plugin-System:Slot-System:Security-Assistants $(PYTHON) -m unittest -v Extension-System/test_extensions.py
 endif
 ifeq ($(BUILD_PUBLIC6),1)
-	@PYTHONPATH=Public6 $(PYTHON) -m unittest -v Public6/test_public6.py
+	@PYTHONPATH=Public6 $(PYTHON) -m unittest -v Public6/test_public6.py Public6/test_virtual_broker.py
 endif
 	@$(MAKE) integration-test BUILD_GO=$(BUILD_GO) BUILD_RUST=$(BUILD_RUST) BUILD_AUTO=$(BUILD_AUTO)
 
@@ -488,11 +494,14 @@ endif
 	@install -m 0755 CLI/shadow6.py "$(DESTDIR)$(PREFIX)/bin/shadow6"
 	@install -m 0755 Network-Adapter/shadow6_network.py "$(DESTDIR)$(PREFIX)/bin/shadow6-network"
 	@install -m 0755 Network-Adapter/shadow6_network.mjs "$(DESTDIR)$(PREFIX)/bin/shadow6-network-node"
+	@install -m 0644 Network-Adapter/secure_key_windows.ps1 "$(DESTDIR)$(PREFIX)/bin/"
 	@install -m 0644 CLI/shadow6_vcore.py CLI/vcore_adapters.py "$(DESTDIR)$(PREFIX)/bin/"
 	@install -d -m 0755 "$(DESTDIR)$(PREFIX)/share/shadow6/modules"
 	@install -m 0644 CLI/shadow6_vcore.py CLI/vcore_adapters.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/"
+	@install -m 0644 Tools/python_runtime.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/"
 	@install -m 0644 Network-Adapter/shadow6_network.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/"
 	@install -m 0644 Network-Adapter/shadow6_network.mjs "$(DESTDIR)$(PREFIX)/share/shadow6/modules/"
+	@install -m 0644 Network-Adapter/secure_key_windows.ps1 "$(DESTDIR)$(PREFIX)/share/shadow6/modules/"
 	@for name in d nim pony hare carp; do \
 		case "$$name" in d) directory=D;; nim) directory=Nim;; pony) directory=Pony;; hare) directory=Hare;; carp) directory=Carp;; esac; \
 		if test -x "Core-$$directory/shadow6-$$name"; then install -m 0755 "Core-$$directory/shadow6-$$name" "$(DESTDIR)$(PREFIX)/bin/"; fi; \
@@ -581,6 +590,7 @@ ifeq ($(BUILD_CONTROL),1)
 	@install -m 0644 Service-Init/shadow6_init.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/shadow6_init.py"
 	@install -m 0644 Package-Manager/shadow6_pkg.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/shadow6_pkg.py"
 	@install -m 0644 Public6/shadow6_public.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/shadow6_public.py"
+	@install -m 0644 Public6/virtual_broker.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/virtual_broker.py"
 	@install -m 0644 Migration/shadow6_migrate.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/shadow6_migrate.py"
 	@install -m 0644 Online-Repository/shadow6_repo.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/shadow6_repo.py"
 	@install -m 0644 Gate/portmap.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/portmap.py"
@@ -595,9 +605,14 @@ ifeq ($(BUILD_SLOTS),1)
 	@install -m 0644 Slot-System/bindings.example.json "$(DESTDIR)$(PREFIX)/share/shadow6/slots/bindings.example.json"
 endif
 ifeq ($(BUILD_PUBLIC6),1)
+	@install -d -m 0755 "$(DESTDIR)$(PREFIX)/share/shadow6/modules"
+	@install -m 0644 Tools/python_runtime.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/"
 	@install -m 0755 Public6/shadow6_public.py "$(DESTDIR)$(PREFIX)/bin/shadow6-public"
+	@install -m 0755 Public6/virtual_broker.py "$(DESTDIR)$(PREFIX)/bin/shadow6-virtual-broker"
+	@install -m 0755 Virtual-Adapter/shadow6_virtual_adapter.py "$(DESTDIR)$(PREFIX)/bin/shadow6-virtual-adapter"
 	@install -d -m 0755 "$(DESTDIR)$(PREFIX)/share/shadow6/public6"
 	@install -m 0644 Public6/README.md "$(DESTDIR)$(PREFIX)/share/shadow6/public6/README.md"
+	@install -m 0644 Public6/virtual-broker.example.json "$(DESTDIR)$(PREFIX)/share/shadow6/public6/virtual-broker.example.json"
 	@if test -f Core-Go/shadow6-go-public6; then install -m 0755 Core-Go/shadow6-go-public6 "$(DESTDIR)$(PREFIX)/bin/shadow6-go-public6"; fi
 	@if test -f Core-Rust/shadow6-rust-public6; then install -m 0755 Core-Rust/shadow6-rust-public6 "$(DESTDIR)$(PREFIX)/bin/shadow6-rust-public6"; fi
 endif
@@ -678,11 +693,12 @@ endif
 
 test-idris: core-idris
 ifeq ($(BUILD_IDRIS),1)
-	@if [ -x Core-Idris/shadow6-idris ]; then \
+	@set -e; if [ -x Core-Idris/shadow6-idris ]; then \
 		echo "Testing Core-Idris feature contract..."; \
 		LD_LIBRARY_PATH="$(CURDIR)/Core-Idris/ffi:$${LD_LIBRARY_PATH:-}" $(PYTHON) Core-Idris/test_core.py; \
 		LD_LIBRARY_PATH="$(CURDIR)/Core-Idris/ffi:$${LD_LIBRARY_PATH:-}" Core-Idris/shadow6-idris --native-self-test; \
 		$(PYTHON) Core-Idris/test_security.py; \
+		$(PYTHON) integration/test_native_reliability.py NativeReliabilityTests.test_idris; \
 	else \
 		echo "Core-Idris binary not found; tests skipped"; \
 	fi

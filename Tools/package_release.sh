@@ -16,6 +16,7 @@ zip_stage="$package_tmp/zip-stage"
 apk_source="$project_name/Android/app/build/outputs/apk/debug/app-debug.apk"
 apk_archive_path="$project_name/Android/dist/shadow6-android-debug.apk"
 apk_included=0
+tar_apk_options=()
 cleanup() {
     rm -rf -- "$package_tmp"
 }
@@ -26,9 +27,15 @@ if [[ -f "$apk_source" ]]; then
     mkdir -p "$project_name/Android/dist"
     install -m 0644 "$apk_source" "$apk_archive_path"
     apk_included=1
+else
+    # A cached dist APK may belong to an older build; leave it untouched but
+    # do not publish it as part of this source revision.
+    tar_apk_options=(--exclude="$project_name/Android/dist")
 fi
 tar --mode=go-w \
+    "${tar_apk_options[@]}" \
     --exclude="$project_name/.venv" \
+    --exclude="$project_name/.venv-ft" \
 	--exclude="$project_name/.git" \
     --exclude="$project_name/.tools" \
     --exclude="$project_name/.nim_runtime" \
@@ -74,6 +81,7 @@ fi
 mkdir -p "$zip_stage"
 cd "$parent_dir"
 tar --exclude="$project_name/.venv" \
+    --exclude="$project_name/.venv-ft" \
 	--exclude="$project_name/.git" \
     --exclude="$project_name/.tools" \
     --exclude="$project_name/.nim_runtime" \
