@@ -101,7 +101,7 @@ def _windows_key(operation, path, data=None):
     result=subprocess.run([str(shell),'-NoLogo','-NoProfile','-NonInteractive','-File',
         str(Path(__file__).with_name('secure_key_windows.ps1')),
         '-Operation',operation,'-KeyPath',str(path.absolute())],
-        input=base64.b64encode(data) if data is not None else b'',capture_output=True,timeout=30)
+        input=base64.b64encode(data)+b'\n' if data is not None else b'',capture_output=True,timeout=90)
     if result.returncode or (operation=='read' and len(result.stdout)!=44):
         raise PermissionError('Windows key file security validation failed')
     return base64.b64decode(result.stdout,validate=True) if operation=='read' else None

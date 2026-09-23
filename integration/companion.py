@@ -27,10 +27,10 @@ class Adapter:
         self.lines = queue.Queue(maxsize=1)
         self.reader = threading.Thread(target=self._read, daemon=True)
         self.reader.start()
-        # Key validation on Windows can invoke a bounded 30-second PowerShell
+        # Key validation on Windows can invoke a bounded 90-second PowerShell
         # helper. Finish startup before applying the per-operation deadline.
         try:
-            if self.call("tick", timeout=90) != ([], []):
+            if self.call("tick", timeout=120) != ([], []):
                 raise ValueError("unexpected companion startup output")
         except BaseException:
             self.close()
