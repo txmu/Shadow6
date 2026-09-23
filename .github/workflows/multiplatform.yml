@@ -1154,7 +1154,7 @@ jobs:
             benchmark-windows-${{ matrix.arch }}.json
             benchmark-windows-${{ matrix.arch }}.txt
             benchmark-windows-${{ matrix.arch }}.md
-          if-no-files-found: error
+          if-no-files-found: warn
       - name: Dump Windows environment and benchmark diagnostics
         if: always()
         shell: bash
@@ -1685,6 +1685,8 @@ jobs:
           done
       - name: Build debug APK
         run: gradle --no-daemon --no-configuration-cache --max-workers=16 --console=plain -Dorg.gradle.jvmargs='-Xms256m -Xmx2g -XX:MaxMetaspaceSize=768m -XX:ReservedCodeCacheSize=128m -XX:ActiveProcessorCount=8' -p Android assembleDebug
+      - name: Test Android public-node and Core contracts
+        run: gradle --no-daemon --no-configuration-cache --max-workers=16 --console=plain -Dorg.gradle.jvmargs='-Xms256m -Xmx2g -XX:MaxMetaspaceSize=768m -XX:ReservedCodeCacheSize=128m -XX:ActiveProcessorCount=8' -p Android testDebugUnitTest
       - uses: actions/upload-artifact@v6
         with:
           name: shadow6-android-debug

@@ -22,7 +22,7 @@ export function loadKey(keyPath){
   const shell=path.join(process.env.SystemRoot,'System32','WindowsPowerShell','v1.0','powershell.exe');
   const result=execFileSync(shell,['-NoLogo','-NoProfile','-NonInteractive','-File',
    fileURLToPath(new URL('./secure_key_windows.ps1',import.meta.url)),
-   '-Operation','read','-KeyPath',path.resolve(keyPath)],{timeout:30000,maxBuffer:65536,windowsHide:true});
+   '-Operation','read','-KeyPath',path.resolve(keyPath)],{timeout:90000,maxBuffer:65536,windowsHide:true});
   if(!/^[A-Za-z0-9+/]{43}=$/.test(result.toString('ascii')))throw Error('invalid secure key response');
   return Buffer.from(result.toString('ascii'),'base64');
  }

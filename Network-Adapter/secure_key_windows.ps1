@@ -87,8 +87,8 @@ public static class Shadow6KeyFile {
 if ($Operation -eq 'read') {
     [Console]::Out.Write([Convert]::ToBase64String([Shadow6KeyFile]::Read($KeyPath)))
 } else {
-    $buffer = New-Object char[] 45
-    $count = [Console]::In.ReadBlock($buffer, 0, 45)
-    if ($count -ne 44) { throw 'invalid key input length' }
-    [Shadow6KeyFile]::Create($KeyPath, [Convert]::FromBase64String((-join $buffer[0..43])))
+    # A line terminator makes stdin framing explicit on Windows PowerShell.
+    $encoded = [Console]::In.ReadLine()
+    if ($null -eq $encoded -or $encoded -cnotmatch '^[A-Za-z0-9+/]{43}=$') { throw 'invalid key input length' }
+    [Shadow6KeyFile]::Create($KeyPath, [Convert]::FromBase64String($encoded))
 }

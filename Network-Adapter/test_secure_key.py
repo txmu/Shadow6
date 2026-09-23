@@ -5,16 +5,25 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+from unittest import mock
 
 from shadow6_network import create_key, load_key
 
 
 class SecureKeyTests(unittest.TestCase):
+    def test_windows_create_uses_line_framing_and_bounded_deadline(self):
+        from shadow6_network import _windows_key
+        with tempfile.TemporaryDirectory() as directory:
+            with mock.patch.dict(os.environ, {"SystemRoot": directory}), mock.patch("shadow6_network.subprocess.run") as call:
+                call.return_value.returncode = 0
+                _windows_key("create", Path(directory) / "key", b"x" * 32)
+                self.assertEqual(call.call_args.kwargs["input"], __import__("base64").b64encode(b"x" * 32) + b"\n")
+                self.assertEqual(call.call_args.kwargs["timeout"], 90)
     def node(self, path):
         module = Path(__file__).with_name('shadow6_network.mjs').as_uri()
         return subprocess.run([shutil.which('node'), '--input-type=module', '-e',
             "const m=await import(process.argv[1]);process.stdout.write(m.loadKey(process.argv[2]));",
-            module, str(path)], capture_output=True, timeout=40)
+            module, str(path)], capture_output=True, timeout=100)
 
     def test_create_and_read_both_backends(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -102,6 +102,9 @@ import org.shadow6.android.core.CoreEngine
 import org.shadow6.android.core.CoreController
 import org.shadow6.android.core.CoreProfile
 import org.shadow6.android.core.CoreRole
+import org.shadow6.android.core.PublicNodeCode
+import org.shadow6.android.core.VirtualPeerController
+import org.shadow6.android.security.SecretStore
 import org.shadow6.android.core.CoreRuntime
 import org.shadow6.android.core.CoreService
 import org.shadow6.android.core.CoreStatus
@@ -306,7 +309,10 @@ private fun Page(title: String, subtitle: String? = null, content: @Composable C
 private fun OverviewScreen(runtime: CoreRuntime, status: CoreStatus, onStatusChange: (CoreStatus) -> Unit) {
     val context = LocalContext.current
     val preferences = remember { context.getSharedPreferences("core", Context.MODE_PRIVATE) }
+    val publicPreferences = remember { context.getSharedPreferences("public-node", Context.MODE_PRIVATE) }
+    val publicSecrets = remember { SecretStore(context, "public-node", "shadow6-public-node") }
     val gateRuntime = remember { GateController.runtime(context) }
+    val peerRuntime = remember { VirtualPeerController.runtime() }
     val defaultEngine = CoreEngine.entries.firstOrNull { runtime.available(it) } ?: CoreEngine.GO
     var engine by remember { mutableStateOf(runCatching { CoreEngine.valueOf(preferences.getString("engine", defaultEngine.name)!!) }.getOrDefault(defaultEngine)) }
     var role by remember { mutableStateOf(runCatching { CoreRole.valueOf(preferences.getString("role", CoreRole.BROKER.name)!!) }.getOrDefault(CoreRole.BROKER)) }
@@ -331,6 +337,7 @@ private fun OverviewScreen(runtime: CoreRuntime, status: CoreStatus, onStatusCha
     var alpn by remember { mutableStateOf(preferences.getString("alpn", "") ?: "") }
     var advanced by remember { mutableStateOf(false) }
     var gateEnabled by remember { mutableStateOf(preferences.getBoolean("gate_enabled", false)) }
+    var publicNodeEnabled by remember { mutableStateOf(false) }
     var gateRemoteHost by remember { mutableStateOf(preferences.getString("gate_remote_host", "") ?: "") }
     var gateLocalPort by remember { mutableStateOf(preferences.getInt("gate_local_port", 1086).toString()) }
     var gateExpected by remember { mutableStateOf(false) }
@@ -338,15 +345,16 @@ private fun OverviewScreen(runtime: CoreRuntime, status: CoreStatus, onStatusCha
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
-    LaunchedEffect(runtime, gateEnabled, gateExpected, status.running) {
+    LaunchedEffect(runtime, gateEnabled, publicNodeEnabled, gateExpected, status.running) {
         while (true) {
-            if (gateEnabled && gateExpected && status.running && !gateFailureReported) {
+            if ((gateEnabled || publicNodeEnabled) && gateExpected && status.running && !gateFailureReported) {
                 val gateAlive = withContext(Dispatchers.IO) { gateRuntime.running() }
-                if (!gateAlive) {
+                if (!gateAlive || (publicNodeEnabled && !peerRuntime.running())) {
                     val stopped = withContext(Dispatchers.IO) { runtime.stop() }
+                    peerRuntime.stop()
                     gateFailureReported = true
                     gateExpected = false
-                    onStatusChange(stopped.copy(detail = "Gate crashed unexpectedly"))
+                    onStatusChange(stopped.copy(detail = "Public-node path stopped unexpectedly"))
                 }
             }
             delay(500)
@@ -495,6 +503,12 @@ private fun OverviewScreen(runtime: CoreRuntime, status: CoreStatus, onStatusCha
             }
         }
 
+        if (publicPreferences.contains("profile") && role != CoreRole.BROKER && BuildConfig.INCLUDE_GATE) {
+            SectionLabel("Virtual Client / Agent")
+            SwitchRow("Use saved public node", publicNodeEnabled, { publicNodeEnabled = it }, !status.running && !busy)
+            if (publicNodeEnabled) Text(publicPreferences.getString("summary", "") ?: "", style = MaterialTheme.typography.bodySmall)
+        }
+
         Button(
             onClick = {
                 error = ""
@@ -504,23 +518,59 @@ private fun OverviewScreen(runtime: CoreRuntime, status: CoreStatus, onStatusCha
                         withContext(Dispatchers.IO) {
                             if (status.running) {
                                 gateExpected = false
+                                peerRuntime.stop()
                                 gateRuntime.stop()
                                 val stopped = runtime.stop()
                                 context.stopService(Intent(context, CoreService::class.java))
                                 stopped
                             } else {
                                 val selected = profile()
-                                selected.toJson(engine)
-                                persist()
-                                context.startForegroundService(Intent(context, CoreService::class.java).setAction(CoreService.ACTION_KEEP_ALIVE))
-                                runtime.start(engine, selected)
-                                    .also {
-                                        if (gateEnabled) {
+                                try {
+                                    val activeProfile = if (publicNodeEnabled) {
+                                        val code = publicSecrets.get("code")
+                                        val stored = org.shadow6.android.security.StrictJson.objectValue(
+                                            org.shadow6.android.security.StrictJson.parse(publicPreferences.getString("profile", "") ?: ""))
+                                        require(stored["lookup_id"] == PublicNodeCode.decode(code).lookupId) { "Saved public node does not match join code" }
+                                        val route = (stored["routes"] as? List<*>)?.map(org.shadow6.android.security.StrictJson::objectValue)
+                                            ?.singleOrNull { it["core"] == engine.name.lowercase() } ?: error("Selected Core is unavailable on this public node")
+                                        val remoteHost = route["gate_host"] as String
+                                        val remotePort = (route["gate_port"] as Long).toInt()
+                                        val carrier = route["transport"] as String
+                                        val localGatePort = gateLocalPort.toIntOrNull() ?: 1086
+                                        gateRuntime.start(GateProfile(true, localGatePort, remoteHost, "127.0.0.1:4433",
+                                            PublicNodeCode.seed(code, "gate").joinToString("") { "%02x".format(it.toInt() and 255) },
+                                            route["gate_public_key"] as String, "unconditional", remotePort, carrier))
+                                        peerRuntime.start(code, stored, engine.name.lowercase(), role, 1087, localGatePort)
+                                        gateFailureReported = false
+                                        gateExpected = true
+                                        val roleName = role.name.lowercase()
+                                        val inviteId = "invite-${PublicNodeCode.decode(code).lookupId.take(16)}"
+                                        selected.copy(brokerAddresses = "127.0.0.1:1087",
+                                            identityId = "$inviteId-$roleName",
+                                            privateKey = PublicNodeCode.seed(code, "core:${engine.name.lowercase()}:$roleName")
+                                                .joinToString("") { "%02x".format(it.toInt() and 255) },
+                                            publicKey = route["native_${roleName}_public_key"] as String,
+                                            brokerPublicKey = route["native_broker_public_key"] as String,
+                                            targetAgent = (route["default_agent_id"] as String).ifBlank { selected.targetAgent },
+                                            agentPublicKey = (route["default_agent_public_key"] as String).ifBlank { selected.agentPublicKey })
+                                    } else selected
+                                    activeProfile.toJson(engine)
+                                    persist()
+                                    context.startForegroundService(Intent(context, CoreService::class.java).setAction(CoreService.ACTION_KEEP_ALIVE))
+                                    runtime.start(engine, activeProfile).also {
+                                        if (!publicNodeEnabled && gateEnabled) {
                                             gateRuntime.start(GateProfile(true, gateLocalPort.toIntOrNull() ?: 0, gateRemoteHost.trim(), "127.0.0.1:4433", privateKey.trim(), brokerPublicKey.trim(), "unconditional"))
                                             gateFailureReported = false
                                             gateExpected = true
                                         }
                                     }
+                                } catch (failure: Exception) {
+                                    peerRuntime.stop()
+                                    gateRuntime.stop()
+                                    runtime.stop()
+                                    context.stopService(Intent(context, CoreService::class.java))
+                                    throw failure
+                                }
                             }
                         }
                     }
@@ -858,6 +908,16 @@ private fun executeMobileTool(context: Context, name: String, arguments: org.jso
 private fun SettingsScreen() {
     val context = LocalContext.current
     val preferences = remember { context.getSharedPreferences(MainActivity.UI_PREFERENCES, Context.MODE_PRIVATE) }
+    val nodePreferences = remember { context.getSharedPreferences("public-node", Context.MODE_PRIVATE) }
+    val nodeSecrets = remember { SecretStore(context, "public-node", "shadow6-public-node") }
+    val scope = rememberCoroutineScope()
+    var joinCode by remember { mutableStateOf("") }
+    var directory by remember { mutableStateOf(nodePreferences.getString("directory", "") ?: "") }
+    var manualProfile by remember { mutableStateOf("") }
+    var manualPin by remember { mutableStateOf("") }
+    var joinBusy by remember { mutableStateOf(false) }
+    var joinStatus by remember { mutableStateOf(nodePreferences.getString("summary", "") ?: "") }
+    val joinMode = remember(joinCode) { runCatching { PublicNodeCode.decode(joinCode).mode }.getOrNull() }
     var language by remember { mutableStateOf(preferences.getString(MainActivity.LANGUAGE_KEY, MainActivity.LANGUAGE_SYSTEM) ?: MainActivity.LANGUAGE_SYSTEM) }
     val labels = listOf(
         MainActivity.LANGUAGE_SYSTEM to stringResource(R.string.system_language),
@@ -884,6 +944,37 @@ private fun SettingsScreen() {
             }
         }
         Text(stringResource(R.string.language_note), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+        SectionLabel("公共节点 / Public node")
+        ConfigField(joinCode, { joinCode = it.take(40) }, "40-character join code", !joinBusy, password = true)
+        if (joinMode == "directory") ConfigField(directory, { directory = it.take(2048) }, "Trusted HTTPS directory", !joinBusy)
+        if (joinMode == "manual") {
+            ConfigField(manualProfile, { manualProfile = it.take(65_536) }, "Profile JSON", !joinBusy, minLines = 3)
+            ConfigField(manualPin, { manualPin = it.take(64) }, "Separately verified Gate public key", !joinBusy)
+        }
+        Button(onClick = {
+            joinBusy = true
+            joinStatus = ""
+            scope.launch {
+                runCatching {
+                    val code = joinCode
+                    val profile = withContext(Dispatchers.IO) { PublicNodeCode.profile(code, directory, manualProfile, manualPin) }
+                    val routes = profile["routes"] as List<*>
+                    nodeSecrets.put("code", code)
+                    val summary = "${profile["tenant"]}: ${routes.size} Core route(s) verified"
+                    check(nodePreferences.edit().putString("summary", summary).putString("profile", org.shadow6.android.security.StrictJson.canonical(profile))
+                        .putString("directory", directory).commit())
+                    joinCode = ""
+                    manualProfile = ""
+                    summary
+                }.onSuccess { joinStatus = it }.onFailure { joinStatus = it.message ?: "Join-code import failed" }
+                joinBusy = false
+            }
+        }, enabled = !joinBusy && joinMode != null) {
+            if (joinBusy) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+            else Text("Add public node")
+        }
+        if (joinStatus.isNotBlank()) Text(joinStatus, style = MaterialTheme.typography.bodySmall)
 
         SectionLabel(stringResource(R.string.build_modules))
         FeatureRows(

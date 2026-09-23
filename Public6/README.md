@@ -1,8 +1,9 @@
 # Public6
 
-Public6 is the explicit all-components Shadow6 suite. It includes both complete
-Core engines, compiles every optional Core feature, and leaves jurisdiction-
-specific compliance actions disabled. Core-Go and Core-Rust remain alternative
+Public6 is the explicit all-components Shadow6 suite. It includes the twelve
+independent Core families when their toolchains are enabled, compiles every
+optional Core feature, and leaves jurisdiction-specific compliance actions
+disabled. Core-Go and Core-Rust remain alternative
 stacks: peers must use the same Core family and exact Core version.
 
 Only that Core identity is a compatibility gate. Crosed level, application
@@ -76,6 +77,74 @@ Use `shadow6 virtual-broker --config FILE --check` for a read-only check.
 The Control Center exposes the same validation to AI tools as
 `virtual_broker.validate` with `{"config":"/absolute/path/config.json"}`;
 it never opens a listener or changes configuration.
+
+### Virtual Client, Virtual Agent, and 40-character invitations
+
+`shadow6 virtual-client` and `shadow6 virtual-agent` are loopback admission
+proxies. Each accepts one native Core family selected in an owner-only config,
+creates a fresh nonce and short Ed25519-signed admission record for every TCP
+connection or UDP datagram, and sends it through a separately configured local
+Gate client. They do not execute Core, Guard, or Gate commands. Run one proxy
+per selected Core and role; point that Core's broker endpoint at the proxy's
+loopback listener. The broker's real Core endpoint must use the same family.
+UDP through Gate follows Gate's one-reply-per-request behavior; only the four
+documented native datagram families have Virtual Broker datagram listeners.
+
+`shadow6 join-code issue --mode ipv4-https --host PUBLIC_IPV4 --port HTTPS_PORT`
+creates a 40-character base64url invitation. It is a **per-invite client
+credential**, not the Broker or Gate server private key. Separate Ed25519 keys
+for Gate and Virtual Broker admission are derived from the code. Anyone holding
+it can impersonate that invitee, so deliver it privately, store it in an
+owner-only secret store, and revoke it by removing both derived public keys
+from the server configurations. Never reuse one code for unrelated people.
+
+`shadow6 join-code provision --mode ipv4-https --host PUBLIC_IPV4 --port
+HTTPS_PORT --public-host PUBLIC_IPV4 --tenant TENANT --broker-config BROKER.json
+--gate go=GATE.json --native-key go=NATIVE_BROKER_PUBLIC_HEX
+--agent go=AGENT_ID:AGENT_PUBLIC_HEX --output-dir NEW_DIR` creates a reviewable private bundle:
+the code, a Virtual Broker config copy with the admission public key and
+approvals, a Gate config copy with the Gate client public key, a native Core
+authorization catalog with distinct Client/Agent public keys, and a public
+profile named by the code's SHA-256 lookup ID. Inputs must be owner-only and
+already configured. It does not start or reload services. Activate the checked
+config copies explicitly after reviewing the changes and place the profile at
+`/.well-known/shadow6/LOOKUP_ID.json` on the advertised HTTPS origin. Its TLS
+certificate must validate for the IPv4 address. Public-node Gate servers use a
+fixed port with `mtd.enabled:false`; adding a peer key to a rotating Gate
+changes the rotation result and would disconnect existing peers. Gate still
+authenticates each peer and protects TCP frames.
+
+The other two modes use the same 40-character format:
+
+- `directory`: host profiles on an operator-selected trusted HTTPS directory;
+  configure that directory once on each client.
+- `manual`: supply an owner-only profile over a separately authenticated
+  channel; Android also requires the full Gate public key as a manual pin.
+
+On a desktop, `shadow6 join-code install CODE --core go --role client
+--output-dir NEW_DIR` fetches and validates the profile (add `--directory URL`
+or `--profile FILE --pin GATE_PUBLIC_KEY` for the respective modes) and writes owner-only Gate and
+Virtual Peer configs. Check them with `shadow6-gate --config gate.json
+--check-config` and `shadow6 virtual-client --config virtual-peer.json --check`.
+Then start the Gate, Virtual Peer, and same-family native Core under your
+supervisor. The generated proxy listens at `127.0.0.1:1087`; Gate listens at
+`127.0.0.1:1086`. `core.seed` is a distinct per-family, per-role native Core
+identity derived from the code; put it in the Core's owner-only configuration
+using that family's documented format. The operator must apply the generated
+native authorization catalog to the real Broker and Agent ACLs before the
+invitee connects. The code contains no Broker or Agent server private key.
+
+Android can import all three code modes into its encrypted app-private secret
+store and validates the bounded HTTPS or manually pinned profile. When a
+compatible native Core is installed in the APK, its Client or Agent screen can
+select **Use saved public node**. That starts the packaged Gate, a bounded
+loopback Virtual Peer, and the selected same-family Core with the profile's
+pinned native Broker key. The native Core still needs its own local identity;
+the public Broker and Agent ACLs must authorize it. Android's Virtual Peer uses
+the platform Ed25519 provider, which is standard on Android 13+; older releases
+fail closed if no provider is available. Android packages only the Core families
+enabled for that APK/ABI. The full 12-family benchmark and platform builds run
+in Actions; an invitation cannot add a Core binary missing from a platform.
 
 An offer has this strict versioned form:
 

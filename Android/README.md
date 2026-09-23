@@ -16,6 +16,22 @@ For the Client role, the app parses the authenticated Core's loopback proxy
 endpoint, displays it live, and provides a direct button to open it in the
 system browser; Termux is not required.
 
+The Settings screen accepts a 40-character Public6 join code. IPv4 codes fetch
+a bounded profile over system-verified HTTPS to the encoded IP and port;
+directory codes use an operator-configured HTTPS directory; manual codes need
+a profile plus a separately verified full Gate public key. The code is an
+individual client credential stored with Android Keystore protection, never a
+shared Broker private key. After import, a compatible Client or Agent can
+select **Use saved public node**. The app starts Gate with the profile's fixed
+authenticated port, a bounded loopback Virtual Peer, then the selected native
+Core. The Broker and Agent must already authorize the Core identity. Ed25519
+native Client/Agent identities are derived separately from the code, so the
+operator can preauthorize their public keys without sharing server secrets.
+Ed25519
+admission signing needs a platform provider (standard on Android 13+); older
+systems without one reject activation. APK Core availability still depends on
+the selected build and ABI.
+
 Build modules can be excluded with Gradle properties such as
 `-Pshadow6.includeGames=false`; both cores default to true. Cross-build native
 cores first with `build_android_cores.py --ndk /absolute/path/to/ndk`, then use

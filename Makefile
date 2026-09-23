@@ -419,7 +419,7 @@ ifeq ($(BUILD_CROSED)$(BUILD_APP)$(BUILD_PLUGINS)$(BUILD_SLOTS),1111)
 	@PYTHONPATH=Extension-System:Crosed:Application-Layer:Plugin-System:Slot-System:Security-Assistants $(PYTHON) -m unittest -v Extension-System/test_extensions.py
 endif
 ifeq ($(BUILD_PUBLIC6),1)
-	@PYTHONPATH=Public6 $(PYTHON) -m unittest -v Public6/test_public6.py Public6/test_virtual_broker.py
+	@PYTHONPATH=Public6 $(PYTHON) -m unittest -v Public6/test_public6.py Public6/test_virtual_broker.py Public6/test_virtual_peer.py Public6/test_join_code.py
 endif
 	@$(MAKE) integration-test BUILD_GO=$(BUILD_GO) BUILD_RUST=$(BUILD_RUST) BUILD_AUTO=$(BUILD_AUTO)
 
@@ -609,10 +609,14 @@ ifeq ($(BUILD_PUBLIC6),1)
 	@install -m 0644 Tools/python_runtime.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/"
 	@install -m 0755 Public6/shadow6_public.py "$(DESTDIR)$(PREFIX)/bin/shadow6-public"
 	@install -m 0755 Public6/virtual_broker.py "$(DESTDIR)$(PREFIX)/bin/shadow6-virtual-broker"
+	@install -m 0755 Public6/virtual_peer.py "$(DESTDIR)$(PREFIX)/bin/shadow6-virtual-client"
+	@install -m 0755 Public6/virtual_peer.py "$(DESTDIR)$(PREFIX)/bin/shadow6-virtual-agent"
+	@install -m 0755 Public6/join_code.py "$(DESTDIR)$(PREFIX)/bin/shadow6-join-code"
 	@install -m 0755 Virtual-Adapter/shadow6_virtual_adapter.py "$(DESTDIR)$(PREFIX)/bin/shadow6-virtual-adapter"
 	@install -d -m 0755 "$(DESTDIR)$(PREFIX)/share/shadow6/public6"
 	@install -m 0644 Public6/README.md "$(DESTDIR)$(PREFIX)/share/shadow6/public6/README.md"
 	@install -m 0644 Public6/virtual-broker.example.json "$(DESTDIR)$(PREFIX)/share/shadow6/public6/virtual-broker.example.json"
+	@install -m 0644 Public6/virtual-peer.example.json "$(DESTDIR)$(PREFIX)/share/shadow6/public6/virtual-peer.example.json"
 	@if test -f Core-Go/shadow6-go-public6; then install -m 0755 Core-Go/shadow6-go-public6 "$(DESTDIR)$(PREFIX)/bin/shadow6-go-public6"; fi
 	@if test -f Core-Rust/shadow6-rust-public6; then install -m 0755 Core-Rust/shadow6-rust-public6 "$(DESTDIR)$(PREFIX)/bin/shadow6-rust-public6"; fi
 endif

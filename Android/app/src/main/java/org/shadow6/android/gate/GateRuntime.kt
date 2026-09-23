@@ -18,6 +18,8 @@ data class GateProfile(
     val privateKey: String = "",
     val peerPublicKey: String = "",
     val openMode: String = "unconditional",
+    val fixedRemotePort: Int = 0,
+    val protocol: String = "tcp",
 )
 
 /** Runs the packaged Gate directly from the APK; no Termux, Tailscale, or shell is involved. */
@@ -35,13 +37,18 @@ class GateRuntime(private val context: Context) {
         InetAddress.getByName(profile.remoteHost)
         require(profile.upstream == "127.0.0.1:4433" && profile.openMode == "unconditional") { "Unsupported Android Gate profile" }
         require(profile.privateKey.matches(Regex("^[0-9a-fA-F]{64}([0-9a-fA-F]{64})?$")) && profile.peerPublicKey.matches(Regex("^[0-9a-fA-F]{64}$"))) { "Invalid Gate identity" }
+        require(profile.fixedRemotePort == 0 || profile.fixedRemotePort in 1024..65534)
+        require(profile.protocol == "tcp" || profile.protocol == "udp")
         stop()
         val json=JSONObject().put("version",1).put("enabled",true).put("role","client").put("listen_host","127.0.0.1").put("listen_port",profile.localPort)
             .put("upstream",profile.upstream).put("remote_host",profile.remoteHost).put("private_key",profile.privateKey)
             .put("upstreams",JSONArray()).put("remote_hosts",JSONArray()).put("load_balance","round_robin")
-            .put("peer_public_keys",JSONArray().put(profile.peerPublicKey)).put("protocol",JSONArray().put("tcp").put("udp"))
+            .put("peer_public_keys",JSONArray().put(profile.peerPublicKey)).put("protocol",JSONArray().put(profile.protocol))
             .put("open_mode",profile.openMode).put("allowed_cidrs",JSONArray()).put("windows",JSONArray())
-            .put("mtd",JSONObject().put("enabled",true).put("period_seconds",300).put("min_port",49152).put("max_port",65535).put("grace_seconds",15))
+            .put("mtd",JSONObject().put("enabled",profile.fixedRemotePort == 0).put("period_seconds",300)
+                .put("min_port",if (profile.fixedRemotePort == 0) 49152 else profile.fixedRemotePort)
+                .put("max_port",if (profile.fixedRemotePort == 0) 65535 else profile.fixedRemotePort + 1)
+                .put("grace_seconds",15))
             .put("limits",JSONObject().put("max_connections",64).put("max_frame_bytes",65507).put("idle_seconds",120)).toString()+"\n"
         val config = writePrivateConfig(context.filesDir, "gate-config.json", json.toByteArray(Charsets.UTF_8))
         val binary=File(context.applicationInfo.nativeLibraryDir,"libshadow6_gate.so");require(binary.isFile)
