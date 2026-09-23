@@ -1,4 +1,6 @@
 """Loopback fault injection for each native datagram Core's three-role path."""
+import os
+import signal
 import select
 import socket
 import subprocess
@@ -50,7 +52,7 @@ class NativeReliabilityTests(unittest.TestCase):
                 try:
                     for role in ("agent", "client"):
                         for sock in reservations[role]: sock.close()
-                        process = subprocess.Popen(commands[role], stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0)
+                        process = subprocess.Popen(commands[role], stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0, start_new_session=True)
                         processes.append(process)
                         self.assertTrue(select.select([process.stdout], [], [], 4)[0])
                         self.assertEqual(process.stdout.readline(), b"control ready\n")
@@ -74,8 +76,15 @@ class NativeReliabilityTests(unittest.TestCase):
                     for sockets in reservations.values():
                         for sock in sockets: sock.close()
                     for process in processes:
-                        process.terminate()
-                        process.communicate(timeout=3)
+                        # Idris/Chez launchers may leave a child holding pipes.
+                        # Signal only the isolated process group created above.
+                        try: os.killpg(process.pid, signal.SIGTERM)
+                        except ProcessLookupError: pass
+                        try: process.communicate(timeout=3)
+                        except subprocess.TimeoutExpired:
+                            try: os.killpg(process.pid, signal.SIGKILL)
+                            except ProcessLookupError: pass
+                            process.communicate(timeout=3)
 
     def test_hare(self): self.check_loss("hare")
     def test_carp(self): self.check_loss("carp")
