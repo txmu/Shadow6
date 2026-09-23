@@ -1,0 +1,13 @@
+{
+  "schema": "shadow6.virtual-peer.v1",
+  "role": "client",
+  "core": "go",
+  "tenant": "example",
+  "identity": "invite-device-01-client",
+  "private_key_file": "/run/shadow6/virtual-peer/admission.seed",
+  "transport": "tcp",
+  "listen": {"host": "127.0.0.1", "port": 1087},
+  "gate": {"host": "127.0.0.1", "port": 1086},
+  "max_connections": 32,
+  "idle_seconds": 120
+}

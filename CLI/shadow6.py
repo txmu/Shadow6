@@ -14,6 +14,9 @@ from install_layout import tree_root  # noqa: E402
 ROOT=tree_root(__file__)
 COMPONENTS={"repo":ROOT/"Online-Repository/shadow6_repo.py","portmap":ROOT/"Gate/portmap.py","go":ROOT/"Core-Go/shadow6-go","rust":ROOT/"Core-Rust/shadow6-rust","zig":ROOT/"Core-Zig/shadow6-zig","ada":ROOT/"Core-Ada/shadow6-ada","d":ROOT/"Core-D/shadow6-d","nim":ROOT/"Core-Nim/shadow6-nim","cpp":ROOT/"Core-Cpp/shadow6-cpp","pony":ROOT/"Core-Pony/shadow6-pony","hare":ROOT/"Core-Hare/shadow6-hare","carp":ROOT/"Core-Carp/shadow6-carp","gleam":ROOT/"Core-Gleam/shadow6-gleam","idris":ROOT/"Core-Idris/shadow6-idris","network":ROOT/"Network-Adapter/shadow6_network.py","network-node":ROOT/"Network-Adapter/shadow6_network.mjs","gate":ROOT/"Gate/shadow6-gate","relay":ROOT/"C11Relay/bridge_relay","guard":ROOT/"Guard/shadow6-guard","control":ROOT/"Control-Center/shadow6_control.py","plugins":ROOT/"Plugin-System/shadow6_plugins.py","sign-plugin":ROOT/"Plugin-System/sign_plugin.py","migrate":ROOT/"Migration/shadow6_migrate.py","auto":ROOT/"Auto-Orchestrator/shadow6_auto.py","detector":ROOT/"Detector/shadow6_detector.py","counterstrike":ROOT/"Detector/counterstrike.py","watch":ROOT/"Detector/watch.py","security":ROOT/"Security-Assistants/shadow6_security.py","infra":ROOT/"Infrastructure-Assistants/shadow6_infra.py","slots":ROOT/"Slot-System/shadow6_slots.py","packages":ROOT/"Package-Manager/shadow6_pkg.py","public6":ROOT/"Public6/shadow6_public.py","init":ROOT/"Service-Init/shadow6_init.py"}
 COMPONENTS["virtual-broker"]=ROOT/"Public6/virtual_broker.py"
+COMPONENTS["virtual-client"]=ROOT/"Public6/virtual_peer.py"
+COMPONENTS["virtual-agent"]=ROOT/"Public6/virtual_peer.py"
+COMPONENTS["join-code"]=ROOT/"Public6/join_code.py"
 if not (ROOT/"Makefile").is_file():
  bin_dir=Path(sys.argv[0]).resolve().parent
  COMPONENTS={name:bin_dir/("shadow6-"+name) for name in COMPONENTS}
@@ -111,11 +114,15 @@ def main():
  c=sub.add_parser("component");c.add_argument("name",choices=sorted(COMPONENTS));c.add_argument("args",nargs=argparse.REMAINDER)
  for name in sorted(TRANSPORTS):q=sub.add_parser(name);q.add_argument("args",nargs=argparse.REMAINDER)
  for name in sorted(COMPONENTS):
-  if name=="virtual-broker":continue
+  if name in {"virtual-broker","virtual-client","virtual-agent"}:continue
   q=sub.add_parser(name);q.add_argument("args",nargs=argparse.REMAINDER)
  q=sub.add_parser("virtual-broker",help="run or validate a configured Virtual Broker")
  q.add_argument("--config",type=Path,required=True)
  q.add_argument("--check",action="store_true")
+ for name in ("virtual-client","virtual-agent"):
+  q=sub.add_parser(name,help="run or validate a configured Virtual Peer")
+  q.add_argument("--config",type=Path,required=True)
+  q.add_argument("--check",action="store_true")
  add_hands_parser(sub)
  q=sub.add_parser("features");q.add_argument("--component",choices=("go","rust","gate"),action="append",default=[])
  q=sub.add_parser("vcore",help="discover installed cores and capability intersection");q.add_argument("args",nargs=argparse.REMAINDER)
@@ -137,6 +144,8 @@ def main():
  if a.command=="hands":return run_hands(a)
  if a.command=="component":return run(a.name,tail(a.args),a.json_events)
  if a.command=="virtual-broker":return run("virtual-broker",["--config",str(a.config)]+(["--check"] if a.check else []),a.json_events)
+ if a.command in ("virtual-client","virtual-agent"):
+  return run(a.command,["--config",str(a.config),"--role",a.command.removeprefix("virtual-")]+(["--check"] if a.check else []),a.json_events)
  if a.command in COMPONENTS:return run(a.command,tail(a.args),a.json_events)
  if a.command in TRANSPORTS:return run("control",[a.command]+tail(a.args),a.json_events)
  if a.command=="features":return max(run(n,["--feature-report"],a.json_events) for n in (a.component or ["go","rust","gate"]))
