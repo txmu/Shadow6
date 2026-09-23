@@ -42,6 +42,41 @@ C11Relay control socket is declared for the supervised deployment boundary.
 No Core process or Core protocol is modified. The supplied hardened systemd
 unit refuses to run without Guard and Gate services.
 
+Anonymous access is an explicit per-port TCP listener on the configured
+loopback host. Set `anonymous_listeners` to entries such as
+`{"port": 7446, "tenant": "example", "core": "go"}`. This skips only the
+Virtual Broker admission record; the listener remains behind Guard and Gate
+and uses that tenant's connection and byte quotas. Every port maps to one
+tenant and Core route. The default list is empty. Operator-configured ports
+must be unique and between 1 and 65535.
+An anonymous-only tenant may set `public_keys` to an empty list; tenants with
+no anonymous listener still require at least one Ed25519 public key.
+
+Pony, Hare, Carp and Idris may use `datagram_listeners` entries with `port`,
+`tenant`, `core`, `carrier` (`gate` or `s6na`), and `anonymous` (boolean).
+Example: `{"port": 7447, "tenant": "example", "core": "hare",
+"carrier": "gate", "anonymous": false}`. Each listener is loopback-only
+and forwards bounded request datagrams to a dedicated same-Core native
+Broker UDP endpoint. Gate mode returns at most one reply per request, matching
+Gate's transaction behavior. S6NA mode pins one upstream UDP socket to each
+client source until the idle deadline, so ACK and data replies can share a
+session. Signed
+requests begin with a 2-byte big-endian admission JSON length, the existing
+signed admission JSON, and then the opaque Core datagram. A fresh nonce is
+needed for each datagram. Anonymous mode sends the opaque Core datagram alone.
+The Gate ingress must authenticate remote peers before forwarding to the local
+listener; S6NA mode requires an independently configured S6NA carrier and key.
+The Virtual Broker cannot verify the Gate envelope or S6NA AEAD after those
+layers have unwrapped it. It keeps the tenant quota and no public listener.
+Gate itself retains UDP semantics; this relay does not convert Gate UDP to TCP
+or add stream reliability. S6NA provides reliable messages through its own
+adapter. Both modes leave the native Core wire format opaque.
+
+Use `shadow6 virtual-broker --config FILE --check` for a read-only check.
+The Control Center exposes the same validation to AI tools as
+`virtual_broker.validate` with `{"config":"/absolute/path/config.json"}`;
+it never opens a listener or changes configuration.
+
 An offer has this strict versioned form:
 
 ```json

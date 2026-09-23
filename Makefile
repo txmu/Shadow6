@@ -590,6 +590,7 @@ ifeq ($(BUILD_CONTROL),1)
 	@install -m 0644 Service-Init/shadow6_init.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/shadow6_init.py"
 	@install -m 0644 Package-Manager/shadow6_pkg.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/shadow6_pkg.py"
 	@install -m 0644 Public6/shadow6_public.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/shadow6_public.py"
+	@install -m 0644 Public6/virtual_broker.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/virtual_broker.py"
 	@install -m 0644 Migration/shadow6_migrate.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/shadow6_migrate.py"
 	@install -m 0644 Online-Repository/shadow6_repo.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/shadow6_repo.py"
 	@install -m 0644 Gate/portmap.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/portmap.py"

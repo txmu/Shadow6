@@ -5,6 +5,13 @@ from benchmark import _load_config, execute, network_unavailable, network_result
 from performance_matrix import ENGINES, cases
 
 class ConfigTests(unittest.TestCase):
+    def test_virtual_broker_datagram_benchmark_covers_all_modes(self):
+        import asyncio
+        from virtual_broker_datagram_benchmark import run as datagram_run
+        report=asyncio.run(datagram_run(2,16))
+        self.assertEqual(report['expected_rows'],16)
+        self.assertEqual(len(report['results']),16)
+        self.assertTrue(all(row['status']=='ok' and row['throughput_bps']>0 for row in report['results']))
     def test_component_matrix_has_identical_backend_workloads(self):
         from component_benchmark import run as component_run
         def success(spec):

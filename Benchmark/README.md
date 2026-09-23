@@ -87,6 +87,13 @@ GIL state and complete coverage; extension-triggered GIL fallback is not silentl
 counted as a successful no-GIL measurement. Normal application startup can fall
 back safely; CI's explicitly requested no-GIL gate must pass as requested.
 
+`virtual_broker_datagram_benchmark.py` adds a small, bounded loopback relay
+measurement for Hare, Carp, Pony and Idris across Gate and S6NA listener modes,
+each with signed or anonymous admission. It checks every returned payload and
+reports throughput and p95 latency. The echo target is synthetic; the numbers
+exclude the Gate envelope, S6NA codec and native Core runtime. For end-to-end
+transport measurements, use the native network matrix.
+
 The native network matrix's impairment model is `application-response-pacing-v2`:
 response delay is charged once per logical request, equally across backends,
 not per TCP receive chunk. It does **not** drop packets. Delayed-case request
