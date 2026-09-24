@@ -25,6 +25,9 @@ extern(C) {
     int d_read(int, void*, int, int);
     int d_write(int, const(void)*, int);
     int d_ready(int);
+    int d_wait_pair(int, int);
+    alias RelayWorker = int function(void*) nothrow @nogc;
+    int d_run_pair(int, int, RelayWorker, void*, void*);
     void d_pause();
     void d_close(int);
     void d_half_close(int);

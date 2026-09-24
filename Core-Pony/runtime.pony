@@ -26,7 +26,9 @@ actor SocketActor is (UDPSocketActor & UDPLifecycleEventReceiver)
       _inflight = _inflight + 1
       _receiver.received(consume data, from, _application, this)
     end
-    YieldReading
+    // UDPSocket limits each turn to 16 datagrams; retain the 32-credit
+    // mailbox bound while avoiding an actor reschedule for every packet.
+    KeepReading
   be consumed() => if _inflight > 0 then _inflight = _inflight - 1 end
   be send(data: Array[U8] val, target: NetAddress val) =>
     if _udp.is_open() then _udp.send_to(data, target) end

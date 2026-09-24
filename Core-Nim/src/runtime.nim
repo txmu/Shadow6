@@ -179,9 +179,11 @@ proc forward(dc: cint; cfg: JsonNode; client: bool) =
   let deadline = clock()+int64(seconds)*1000
   while not (localEof and peerEof and pending.len == 0):
     require(clock() < deadline and isOpen(dc),"session closed or expired")
+    var progressed = false
     if not localEof and buffered(dc) < 131072:
       let n = tcpRead(socket,addr buffer[0],buffer.len.cint)
       if n >= 0:
+        progressed = true
         require(outgoing < high(uint32))
         var payload = newString(n)
         if n > 0: copyMem(addr payload[0],addr buffer[0],n)
@@ -193,6 +195,7 @@ proc forward(dc: cint; cfg: JsonNode; client: bool) =
     if pending.len == 0 and not peerEof:
       let wire = receive(dc,true)
       if wire.len > 0:
+        progressed = true
         require(incoming < high(uint32))
         let frame = frames.decode(wire,incoming)
         inc incoming
@@ -203,10 +206,13 @@ proc forward(dc: cint; cfg: JsonNode; client: bool) =
     if pending.len > 0:
       let n = tcpWrite(socket,unsafeAddr pending[offset],(pending.len-offset).cint)
       if n > 0:
+        progressed = true
         offset += n
         if offset == pending.len: pending = ""; offset = 0
       else: require(n == -2)
-    sleep(2)
+    # Drain available TCP/RTC work before yielding. Sleeping after every
+    # frame imposes a throughput ceiling independent of CPU or encryption.
+    if not progressed: sleep(2)
 
 proc endpointRun(cfg: JsonNode; client: bool) =
   let ws = wsClient(cfg["broker_addrs"][0].getStr.cstring)

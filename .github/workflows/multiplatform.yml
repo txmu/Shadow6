@@ -512,7 +512,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             build-essential pkg-config libssl-dev libsodium-dev libunistring-dev \
-            gnat gprbuild ldc shellcheck unzip
+            gnat gprbuild ldc shellcheck unzip iperf3
           # Idris2's compiled Chez images require the exact Chez fasl ABI used
           # by the producer job. Install the same Homebrew Chez on this Ubuntu
           # consumer instead of executing with the distro's older ABI.
@@ -789,6 +789,18 @@ jobs:
           profiles = {row['core'] for row in rows if row['component'] == 'adapter'}
           assert len(profiles) == 12
           PY
+      - name: Real iperf3 data through all twelve native ABC deployments
+        timeout-minutes: 20
+        run: |
+          .venv/bin/python -m unittest discover -s Benchmark -p 'test_iperf_chain.py'
+          .venv/bin/python Benchmark/iperf_chain.py --seconds 3 --require-gbps --output benchmark-iperf-chain
+      - name: Upload native iperf3 receiver results and raw evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: shadow6-linux-iperf-chain
+          path: benchmark-iperf-chain/
+          if-no-files-found: warn
       - name: Upload Linux network benchmark reports (JSON/TXT/Markdown)
         if: always()
         uses: actions/upload-artifact@v6

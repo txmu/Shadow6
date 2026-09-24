@@ -74,6 +74,8 @@ class Channel:
     def __init__(self, connection, datagram, peer=None):
         self.connection, self.datagram, self.peer = connection, datagram, peer
         self.buffer = bytearray()
+        if not datagram:
+            connection.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
 
     def send(self, frames):
         for frame in frames:

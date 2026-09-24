@@ -122,14 +122,25 @@ class CoreDTests(unittest.TestCase):
                     if cp.poll() is not None:
                         self.fail(cp.stderr.read())
                 self.assertIsNotNone(match, "client did not publish its local proxy")
-                payload = os.urandom(192 * 1024 + 37)
+                payload = os.urandom(2 * 1024 * 1024 + 37)
                 with socket.create_connection(("127.0.0.1", int(match.group(1))), timeout=5) as app:
                     app.settimeout(10)
-                    app.sendall(payload)
-                    app.shutdown(socket.SHUT_WR)
+                    app.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 4096)
+                    errors = []
+                    def send():
+                        try:
+                            app.sendall(payload)
+                            app.shutdown(socket.SHUT_WR)
+                        except OSError as error:
+                            errors.append(error)
+                    writer = threading.Thread(target=send, daemon=True)
+                    writer.start()
                     received = bytearray()
                     while chunk := app.recv(65536):
                         received.extend(chunk)
+                    writer.join(10)
+                    self.assertFalse(writer.is_alive(), "writer stalled under backpressure")
+                    self.assertFalse(errors, errors)
                 self.assertEqual(bytes(received), payload)
                 self.assertEqual(cp.wait(timeout=5), 0, cp.stderr.read())
                 self.assertEqual(ap.wait(timeout=5), 0, ap.stderr.read())

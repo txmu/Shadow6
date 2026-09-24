@@ -26,14 +26,14 @@ private void header(ref ubyte[HEADER] outBytes, ubyte kind, uint sequence, ushor
 private void nonce(ref ubyte[12] outBytes, ubyte kind, uint sequence) {
     outBytes[] = 0; outBytes[0] = kind; put32(outBytes[4 .. 8], sequence);
 }
-private bool sendFrame(int socket, ubyte kind, uint sequence, const(ubyte)[] payload, ref const Key key) {
+private bool encodeFrame(ubyte[] frame, ubyte kind, uint sequence, const(ubyte)[] payload, ref const Key key) {
     if ((kind != DATA && kind != CLOSE) || payload.length > MAX_CHUNK ||
-        (kind == DATA) != (payload.length > 0) || sequence == uint.max) return false;
-    ubyte[HEADER] head; ubyte[12] n; ubyte[MAX_CHUNK + 16] cipher;
+        (kind == DATA) != (payload.length > 0) || sequence == uint.max ||
+        frame.length != HEADER + payload.length + 16) return false;
+    ubyte[HEADER] head; ubyte[12] n;
     header(head, kind, sequence, cast(ushort)(payload.length + 16)); nonce(n, kind, sequence);
-    return encrypt(key, n, head, payload, cipher[0 .. payload.length + 16]) &&
-           d_write(socket, head.ptr, HEADER) == 0 &&
-           d_write(socket, cipher.ptr, cast(int)payload.length + 16) == 0;
+    frame[0 .. HEADER] = head[];
+    return encrypt(key, n, head, payload, frame[HEADER .. $]);
 }
 private int receiveFrame(int socket, ref uint expected, ubyte[] payload, ref const Key key) {
     ubyte[HEADER] head; ubyte[MAX_CHUNK + 16] cipher; ubyte[12] n;
@@ -41,7 +41,7 @@ private int receiveFrame(int socket, ref uint expected, ubyte[] payload, ref con
         head[4] != 1 || head[6] || head[7]) return -1;
     ubyte kind = head[5]; uint sequence = get32(head[8 .. 12]);
     uint length = (cast(uint)head[12] << 8) | head[13];
-    if ((kind != DATA && kind != CLOSE) || sequence != expected || length < 16 ||
+    if ((kind != DATA && kind != CLOSE) || sequence != expected || sequence == uint.max || length < 16 ||
         length > MAX_CHUNK + 16 || d_read(socket, cipher.ptr, cast(int)length, 1) != length) return -1;
     nonce(n, kind, sequence);
     if (!decrypt(key, n, head, cipher[0 .. length], payload[0 .. length - 16])) return -1;
@@ -50,30 +50,54 @@ private int receiveFrame(int socket, ref uint expected, ubyte[] payload, ref con
     return length > 16 ? cast(int)length - 16 : -1;
 }
 
+private struct Direction {
+    int local, remote;
+    const(Key)* key;
+    long deadline;
+    bool sending;
+}
+
+private extern(C) int transfer(void* argument) {
+    auto state = cast(Direction*)argument;
+    uint sequence;
+    // A worker owns its sequence, buffers and key direction for its lifetime.
+    enum BATCH = 16;
+    ubyte[MAX_CHUNK * BATCH] buffer;
+    ubyte[MAX_FRAME * BATCH] wire;
+    scope(exit) d_wipe(buffer.ptr, cast(int)buffer.length);
+    while (d_clock() < state.deadline) {
+        int input = state.sending ? state.local : state.remote;
+        if (!d_ready(input)) {
+            if (d_wait_pair(input, -1) < 0) return 0;
+            continue;
+        }
+        if (state.sending) {
+            int n = d_read(input, buffer.ptr, cast(int)buffer.length, 0);
+            if (n < 0 || sequence == uint.max) return 0;
+            size_t used, offset;
+            do {
+                size_t count = cast(size_t)n - offset;
+                if (count > MAX_CHUNK) count = MAX_CHUNK;
+                size_t length = HEADER + count + 16;
+                if (!encodeFrame(wire[used .. used + length], n == 0 ? CLOSE : DATA,
+                                 sequence, buffer[offset .. offset + count], *state.key)) return 0;
+                ++sequence; used += length; offset += count;
+            } while (offset < n);
+            if (d_write(state.remote, wire.ptr, cast(int)used)) return 0;
+            if (n == 0) return 1;
+        } else {
+            int n = receiveFrame(input, sequence, buffer, *state.key);
+            if (n < 0 || (n > 0 && d_write(state.local, buffer.ptr, n))) return 0;
+            if (n == 0) { d_half_close(state.local); return 1; }
+        }
+    }
+    return 0;
+}
+
 bool relay(int local, int remote, ref const Key tx, ref const Key rx, uint lifetimeSeconds) {
     if (local < 0 || remote < 0 || !lifetimeSeconds || lifetimeSeconds > 86400) return false;
     long deadline = d_clock() + cast(long)lifetimeSeconds * 1000;
-    uint sendSequence, receiveSequence; bool localOpen = true, remoteOpen = true;
-    ubyte[MAX_CHUNK] buffer;
-    while ((localOpen || remoteOpen) && d_clock() < deadline) {
-        bool progressed;
-        if (localOpen && d_ready(local)) {
-            int n = d_read(local, buffer.ptr, MAX_CHUNK, 0);
-            if (n < 0 || (n > 0 && (sendSequence == uint.max || !sendFrame(remote, DATA, sendSequence, buffer[0 .. n], tx)))) return false;
-            if (n > 0) ++sendSequence;
-            if (n == 0) {
-                if (sendSequence == uint.max || !sendFrame(remote, CLOSE, sendSequence, null, tx)) return false;
-                ++sendSequence;
-                localOpen = false; progressed = true;
-            } else progressed = true;
-        }
-        if (remoteOpen && d_ready(remote)) {
-            int n = receiveFrame(remote, receiveSequence, buffer, rx);
-            if (n < 0 || (n > 0 && d_write(local, buffer.ptr, n))) return false;
-            if (n == 0) { d_half_close(local); remoteOpen = false; }
-            progressed = true;
-        }
-        if (!progressed) d_pause();
-    }
-    return !localOpen && !remoteOpen;
+    Direction sender = Direction(local, remote, &tx, deadline, true);
+    Direction receiver = Direction(local, remote, &rx, deadline, false);
+    return d_run_pair(local, remote, &transfer, &sender, &receiver) != 0;
 }

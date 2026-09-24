@@ -501,7 +501,7 @@ async def generate_configs(engine: str, output: Path, target_port: int, broker_p
 
 
 def run_engine(engine: str, benchmark: dict | None = None, backend: str = "native",
-               ready_barrier: threading.Barrier | None = None) -> dict | None:
+               ready_barrier: threading.Barrier | None = None, *, workload=None, target_factory=None) -> dict | None:
     binary = CORE_BINARIES[engine]
     if engine == "shadow6-zig" and not binary.is_file():
         binary = ROOT / "Core-Zig/zig-out/bin/shadow6-zig"
@@ -513,6 +513,10 @@ def run_engine(engine: str, benchmark: dict | None = None, backend: str = "nativ
     family = socket.AF_INET6 if engine == "shadow6-hare" else socket.AF_INET
     impairment = {"rtt_ms": 0, "loss_percent": 0}  # common logical-request pacing below
     target = DatagramEchoTarget(family, **impairment) if datagram else EchoTarget(**impairment)
+    if target_factory is not None:
+        if backend != "native" or workload is None:
+            raise ValueError("custom targets require a native workload")
+        target = target_factory(family, datagram)
     broker = agent = client = None
     success = False
     result = None
@@ -599,41 +603,49 @@ def run_engine(engine: str, benchmark: dict | None = None, backend: str = "nativ
                 else:
                     raise TimeoutError("native session readiness timeout")
                 startup.close()
-                connection = socket.socket(family, socket.SOCK_DGRAM)
-                connection.connect(endpoint)
             else:
                 proxy_wait = 30 if engine == "shadow6-gleam" else 20
                 proxy_port = wait_for_proxy(client, log_paths["client"], time.monotonic() + proxy_wait)
-                connection = socket.create_connection(("127.0.0.1", proxy_port), timeout=5)
-            with connection:
-                connection.settimeout(10)
-                if any(p.poll() is not None for p in (broker, agent, client)):
-                    raise RuntimeError("native role exited before application evaluation")
-                adapter = None
-                try:
-                    if backend != "native":
-                        adapter = Adapter(backend, engine.removeprefix("shadow6-"), key_path, 0)
-                        connection.settimeout(.1)
-                    # Start the workload together even when UDP port handoff
-                    # needs serialized startup. A failed peer aborts this wait.
-                    if ready_barrier is not None:
-                        ready_barrier.wait(timeout=45)
-                    result = evaluate_application(connection, datagram, options, adapter)
-                    result["backend"] = backend
-                finally:
-                    if adapter:
-                        adapter.close()
-                # Complete the stream with an explicit FIN before the child
-                # processes are torn down.  Abruptly closing a Windows TCP
-                # handle while the echo target still has unread bytes causes
-                # WSAECONNRESET and hides an otherwise real lifecycle bug.
-                if not datagram:
+                endpoint = ("127.0.0.1", proxy_port)
+            if workload is not None:
+                if ready_barrier is not None:
+                    ready_barrier.wait(timeout=45)
+                result = workload(endpoint, target, (broker, agent, client))
+            else:
+                if datagram:
+                    connection = socket.socket(family, socket.SOCK_DGRAM)
+                    connection.connect(endpoint)
+                else:
+                    connection = socket.create_connection(endpoint, timeout=5)
+                with connection:
                     connection.settimeout(10)
-                    connection.shutdown(socket.SHUT_WR)
-                    while connection.recv(65536):
-                        pass
-            if not datagram and not target.wait_for_connection_close(3):
-                raise AssertionError(f"{engine}: target connection did not complete graceful close")
+                    if any(p.poll() is not None for p in (broker, agent, client)):
+                        raise RuntimeError("native role exited before application evaluation")
+                    adapter = None
+                    try:
+                        if backend != "native":
+                            adapter = Adapter(backend, engine.removeprefix("shadow6-"), key_path, 0)
+                            connection.settimeout(.1)
+                        # Start the workload together even when UDP port handoff
+                        # needs serialized startup. A failed peer aborts this wait.
+                        if ready_barrier is not None:
+                            ready_barrier.wait(timeout=45)
+                        result = evaluate_application(connection, datagram, options, adapter)
+                        result["backend"] = backend
+                    finally:
+                        if adapter:
+                            adapter.close()
+                    # Complete the stream with an explicit FIN before the child
+                    # processes are torn down.  Abruptly closing a Windows TCP
+                    # handle while the echo target still has unread bytes causes
+                    # WSAECONNRESET and hides an otherwise real lifecycle bug.
+                    if not datagram:
+                        connection.settimeout(10)
+                        connection.shutdown(socket.SHUT_WR)
+                        while connection.recv(65536):
+                            pass
+                if not datagram and not target.wait_for_connection_close(3):
+                    raise AssertionError(f"{engine}: target connection did not complete graceful close")
             success = True
             print(f"[PASS] {engine} backend={backend} native broker/agent/client application contract")
         finally:
@@ -642,6 +654,10 @@ def run_engine(engine: str, benchmark: dict | None = None, backend: str = "nativ
             terminate(broker, "broker")
             for log_file in log_files.values():
                 log_file.close()
+            if target_factory is not None:
+                for role, path in log_paths.items():
+                    # Persist bounded diagnostics, never generated private configs.
+                    (target.directory / f"{role}.log").write_bytes(path.read_bytes()[-262144:])
             for process, label in ((client, "client"), (agent, "agent"), (broker, "broker")):
                 if process is not None:
                     if not success or process.returncode not in (0, -signal.SIGTERM):
@@ -650,7 +666,7 @@ def run_engine(engine: str, benchmark: dict | None = None, backend: str = "nativ
             target.close()
             if target.error:
                 raise target.error
-    return result if benchmark else None
+    return result if benchmark or workload is not None else None
 
 def run_external_proxy(endpoint: str, benchmark: dict) -> dict:
     host, separator, port_text = endpoint.rpartition(":")

@@ -265,9 +265,9 @@ endif
 core-d:
 	@command -v ldc2 >/dev/null || (echo "ldc2 is required for Core-D" >&2; exit 2)
 	@mkdir -p Core-D/obj
-	@$(CC) -O2 -fPIC -fstack-protector-strong -D_FORTIFY_SOURCE=2 -c Core-D/src/platform.c -o Core-D/obj/platform.o
+	@$(CC) -O2 -pthread -fPIC -fstack-protector-strong -D_FORTIFY_SOURCE=2 -c Core-D/src/platform.c -o Core-D/obj/platform.o
 	@$(CC) -O2 -fPIC -fstack-protector-strong -D_FORTIFY_SOURCE=2 -c Core-D/src/launcher.c -o Core-D/obj/launcher.o
-	@ldc2 -betterC -O2 -release -relocation-model=pic -I Core-D/src -of=Core-D/shadow6-d Core-D/src/main.d Core-D/src/benchmark.d Core-D/src/bounded.d Core-D/src/json.d Core-D/src/native.d Core-D/src/packet.d Core-D/src/stream.d Core-D/src/runtime.d Core-D/src/config.d Core-D/src/websocket.d Core-D/obj/platform.o Core-D/obj/launcher.o -L-pie -L-z -Lrelro -L-z -Lnow -L-z -Lnoexecstack -L-lcrypto -L-lssl -L-lsodium
+	@ldc2 -betterC -O2 -release -relocation-model=pic -I Core-D/src -of=Core-D/shadow6-d Core-D/src/main.d Core-D/src/benchmark.d Core-D/src/bounded.d Core-D/src/json.d Core-D/src/native.d Core-D/src/packet.d Core-D/src/stream.d Core-D/src/runtime.d Core-D/src/config.d Core-D/src/websocket.d Core-D/obj/platform.o Core-D/obj/launcher.o -L-lpthread -L-pie -L-z -Lrelro -L-z -Lnow -L-z -Lnoexecstack -L-lcrypto -L-lssl -L-lsodium
 	@chmod 0755 Core-D/shadow6-d
 
 .PHONY: test-d

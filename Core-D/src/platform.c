@@ -6,6 +6,7 @@
 #include <netdb.h>
 #include <netinet/tcp.h>
 #include <poll.h>
+#include <pthread.h>
 #include <signal.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -254,5 +255,47 @@ int d_ready(int h) {
     struct pollfd p = {handles[h].fd, POLLIN, 0};
     return poll(&p, 1, 0) > 0 && p.revents ? 1 : 0;
 }
+/* Sleep until either stream can progress, including TLS buffered plaintext.
+ * Closed halves use -1; retain a bounded wait for the session deadline. */
+int d_wait_pair(int a, int b) {
+    struct pollfd p[2];
+    int hs[2] = {a, b};
+    for (int i = 0; i < 2; ++i) {
+        if (hs[i] != -1 && !valid(hs[i])) return -1;
+        if (valid(hs[i]) && handles[hs[i]].tls && SSL_pending(handles[hs[i]].tls)) return 1;
+        p[i] = (struct pollfd){valid(hs[i]) ? handles[hs[i]].fd : -1, POLLIN, 0};
+    }
+    int result = poll(p, 2, 100);
+    return result < 0 && errno == EINTR ? 0 : result;
+}
 void d_pause(void) { struct timespec t = {0, 10000000}; nanosleep(&t, NULL); }
 void d_half_close(int h) { if (valid(h)) shutdown(handles[h].fd, SHUT_WR); }
+
+/* The relay owns both handles until this join returns. Each worker exclusively
+ * owns one read direction, one write direction and its cryptographic state. */
+struct d_relay_job { int (*run)(void *); void *argument; int local, remote, result; };
+static void *relay_worker(void *argument) {
+    struct d_relay_job *job = argument;
+    job->result = job->run(job->argument);
+    if (!job->result) {
+        shutdown(handles[job->local].fd, SHUT_RDWR);
+        shutdown(handles[job->remote].fd, SHUT_RDWR);
+    }
+    return NULL;
+}
+int d_run_pair(int local, int remote, int (*run)(void *), void *tx, void *rx) {
+    if (!valid(local) || !valid(remote) || local == remote || !run ||
+        handles[local].tls || handles[remote].tls) return 0;
+    struct d_relay_job writer = {run, tx, local, remote, 0};
+    struct d_relay_job reader = {run, rx, local, remote, 0};
+    pthread_t worker;
+    pthread_attr_t attributes;
+    if (pthread_attr_init(&attributes)) return 0;
+    int error = pthread_attr_setstacksize(&attributes, 256 * 1024);
+    if (!error) error = pthread_create(&worker, &attributes, relay_worker, &writer);
+    pthread_attr_destroy(&attributes);
+    if (error) return 0;
+    relay_worker(&reader);
+    if (pthread_join(worker, NULL)) abort(); /* cannot return with live stack references */
+    return writer.result && reader.result;
+}

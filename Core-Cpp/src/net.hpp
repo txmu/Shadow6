@@ -7,6 +7,12 @@
 #include <openssl/ssl.h>
 #include <poll.h>
 #include <sys/socket.h>
+#include <netinet/tcp.h>
+#if __has_include(<netinet/sctp.h>)
+#include <netinet/sctp.h>
+#elif defined(__linux__) && __has_include(<linux/sctp.h>)
+#include <linux/sctp.h>
+#endif
 
 namespace shadow6 {
 inline volatile std::sig_atomic_t stopped = 0;
@@ -49,9 +55,19 @@ struct Fd {
   explicit operator bool() const { return value >= 0; }
 };
 inline bool nonblocking(int fd) { int f = fcntl(fd, F_GETFL); return f >= 0 && fcntl(fd, F_SETFL, f | O_NONBLOCK) == 0 && fcntl(fd, F_SETFD, FD_CLOEXEC) == 0; }
+inline bool stream_options(int fd, int protocol) {
+  int one = 1;
+  if (protocol == IPPROTO_TCP)
+    return setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one)) == 0;
+#ifdef SCTP_NODELAY
+  if (protocol == sctp_protocol)
+    return setsockopt(fd, sctp_protocol, SCTP_NODELAY, &one, sizeof(one)) == 0;
+#endif
+  return true; // Platforms without the SCTP option retain their native default.
+}
 inline Fd listen_socket(const Endpoint &ep, int protocol) {
   Fd fd(socket(ep.address.ss_family, SOCK_STREAM, protocol));
-  if (!fd || !nonblocking(fd.value)) return Fd{};
+  if (!fd || !nonblocking(fd.value) || !stream_options(fd.value, protocol)) return Fd{};
   int one = 1;
   if (setsockopt(fd.value, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one)) != 0 ||
       bind(fd.value, reinterpret_cast<const sockaddr *>(&ep.address), ep.size) || listen(fd.value, 128)) return Fd{};
@@ -59,7 +75,7 @@ inline Fd listen_socket(const Endpoint &ep, int protocol) {
 }
 inline Fd connect_socket(const Endpoint &ep, int protocol) {
   Fd fd(socket(ep.address.ss_family, SOCK_STREAM, protocol));
-  if (!fd || !nonblocking(fd.value)) return Fd{};
+  if (!fd || !nonblocking(fd.value) || !stream_options(fd.value, protocol)) return Fd{};
   if (connect(fd.value, reinterpret_cast<const sockaddr *>(&ep.address), ep.size) != 0) {
     if (errno != EINPROGRESS || !wait_fd(fd.value, POLLOUT, deadline())) return Fd{};
     int error{}; socklen_t n = sizeof(error);
