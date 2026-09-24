@@ -39,3 +39,18 @@ PY
 ## 解读
 
 `sum_received.bits_per_second` 是接收侧汇总速率。loopback 数值受内核、CPU 配额、调度和内存拷贝影响，不能表示网卡带宽、WAN 吞吐或 Shadow6 加密链路吞吐。Shadow6 链路使用 `Benchmark/benchmark.py --role network-chain --require-network` 另行测量；其最高单次并发由测试程序限制为 8。
+
+## CI 全矩阵
+
+`.github/workflows/multiplatform.yml` 的 `iperf3-matrix` 作业在 Linux x86_64/arm64、macOS x86_64/arm64 和 Windows amd64/arm64 上分别运行；`iperf3-musl` 在原生架构的 Alpine 容器中运行；`iperf3-bsd` 在 FreeBSD、OpenBSD、NetBSD 的 x86_64/arm64 虚拟机中运行。驱动为 `Tools/iperf3_matrix.py`，每个平台上传独立的 `shadow6-iperf3-<platform>` Artifact，包含 `report.json`、`report.md` 和每项的原始 iperf3 JSON。Windows 采用固定版本的 Chocolatey 社区包；若该架构上无法取得可执行文件，报告明确标记为 `unavailable`。其它平台缺少工具或实测失败会使该作业失败。
+
+默认矩阵为 IPv4/IPv6 × 正向/反向 × TCP 1、2、4、8、12 流和 UDP 1、4、12 流，共 32 项。每项只运行 6 秒；UDP 目标总速率取同一地址族、同一方向已测 TCP 峰值的一半，最高 2 Gbit/s，避免向小型 CI runner 发起无界包洪泛。无法使用 IPv6 时，IPv6 行保留为 `not_applicable`。失败项仍记录并上传报告，矩阵不会静默省略。
+
+本机快速验证可运行：
+
+```sh
+python3 Tools/iperf3_matrix.py --output-dir /tmp/shadow6-iperf-smoke \
+  --duration 1 --max-streams 2 --families 4 --udp-cap-mbps 100
+```
+
+选择本次专用的输出目录以保留报告；脚本会创建它。CI 使用作业工作目录中的专用目录。完整矩阵使用默认参数即可。

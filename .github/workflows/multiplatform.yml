@@ -59,6 +59,139 @@ jobs:
           path: |
             python-runtime.json
             benchmark-python-runtime.json
+  iperf3-matrix:
+    name: iperf3 loopback pressure (${{ matrix.label }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {label: linux-x86_64, runner: ubuntu-24.04, os: linux, python_arch: x64}
+          - {label: linux-arm64, runner: ubuntu-24.04-arm, os: linux, python_arch: arm64}
+          - {label: macos-x86_64, runner: macos-15-intel, os: macos, python_arch: x64}
+          - {label: macos-arm64, runner: macos-15, os: macos, python_arch: arm64}
+          - {label: windows-amd64, runner: windows-latest, os: windows, python_arch: x64}
+          - {label: windows-arm64, runner: windows-11-arm, os: windows, python_arch: x64}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          architecture: ${{ matrix.python_arch }}
+      - name: Install iperf3 on Linux
+        if: matrix.os == 'linux'
+        run: |
+          sudo apt-get update -qq
+          sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq iperf3
+      - name: Install iperf3 on macOS
+        if: matrix.os == 'macos'
+        run: brew install iperf3
+      - name: Try verified Chocolatey iperf3 package on Windows
+        if: matrix.os == 'windows'
+        shell: pwsh
+        run: |
+          choco install iperf3 --version=3.20.0 --yes --no-progress
+          if ($LASTEXITCODE -ne 0) {
+            Write-Warning 'iperf3 is unavailable on this Windows runner; the matrix will record unavailable cases.'
+          }
+          exit 0
+      - name: Run bounded TCP and UDP loopback matrix
+        shell: bash
+        run: |
+          args=()
+          if [ '${{ matrix.os }}' = windows ]; then args+=(--allow-missing); fi
+          python Tools/iperf3_matrix.py --output-dir iperf3-matrix \
+            --duration 6 --max-streams 12 --udp-cap-mbps 2000 "${args[@]}"
+      - name: Upload separate iperf3 report and raw cases
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: shadow6-iperf3-${{ matrix.label }}
+          path: iperf3-matrix/
+          if-no-files-found: warn
+  iperf3-musl:
+    name: iperf3 Alpine musl (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {arch: x86_64, runner: ubuntu-24.04}
+          - {arch: aarch64, runner: ubuntu-24.04-arm}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Run native Alpine TCP and UDP loopback matrix
+        run: |
+          docker run --rm --volume "$GITHUB_WORKSPACE:/workspace" \
+            --workdir /workspace alpine:3.23 /bin/sh -eu -c '
+              apk add --no-cache python3 iperf3
+              python3 Tools/iperf3_matrix.py --output-dir iperf3-musl \
+                --duration 6 --max-streams 12 --udp-cap-mbps 2000
+            '
+      - name: Upload separate Alpine iperf3 report and raw cases
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: shadow6-iperf3-alpine-${{ matrix.arch }}
+          path: iperf3-musl/
+          if-no-files-found: warn
+  iperf3-bsd:
+    name: iperf3 ${{ matrix.os }} (${{ matrix.arch }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: freebsd, version: '14.4', arch: x86-64}
+          - {os: freebsd, version: '14.4', arch: arm64}
+          - {os: openbsd, version: '7.9', arch: x86-64}
+          - {os: openbsd, version: '7.9', arch: arm64}
+          - {os: netbsd, version: '10.1', arch: x86-64}
+          - {os: netbsd, version: '10.1', arch: arm64}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: cross-platform-actions/action@e0b9770014ba65d5e0815f15b74031c3a635f641 # v1.6.0
+        with:
+          operating_system: ${{ matrix.os }}
+          version: ${{ matrix.version }}
+          architecture: ${{ matrix.arch }}
+          cpu_count: 2
+          memory: 4G
+      - name: Install native iperf3 and run loopback matrix
+        shell: cpa.sh {0}
+        run: |
+          set -eu
+          case '${{ matrix.os }}' in
+            freebsd)
+              sudo pkg update -f
+              sudo pkg install -y python3 iperf3
+              python=python3
+              ;;
+            openbsd)
+              sudo pkg_add python-3.13.13 iperf3
+              python=python3.13
+              ;;
+            netbsd)
+              sudo pkgin -y update
+              sudo pkgin -y install python311 iperf3
+              python=/usr/pkg/bin/python3.11
+              ;;
+          esac
+          "$python" Tools/iperf3_matrix.py --output-dir iperf3-bsd \
+            --duration 6 --max-streams 12 --udp-cap-mbps 2000
+      - name: Recover BSD reports after guest failure
+        if: failure()
+        run: cpa.sh --sync-files vm-to-runner
+      - name: Upload separate BSD iperf3 report and raw cases
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: shadow6-iperf3-${{ matrix.os }}-${{ matrix.arch }}
+          path: iperf3-bsd/
+          if-no-files-found: warn
   node-adapter:
     name: Network Adapter (Node ${{ matrix.node }})
     runs-on: ubuntu-latest
