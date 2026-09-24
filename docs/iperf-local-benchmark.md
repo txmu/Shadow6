@@ -42,7 +42,7 @@ PY
 
 ## CI 全矩阵
 
-`.github/workflows/multiplatform.yml` 的 `iperf3-matrix` 作业在 Linux x86_64/arm64、macOS x86_64/arm64 和 Windows amd64/arm64 上分别运行；`iperf3-musl` 在原生架构的 Alpine 容器中运行；`iperf3-bsd` 在 FreeBSD、OpenBSD、NetBSD 的 x86_64/arm64 虚拟机中运行。驱动为 `Tools/iperf3_matrix.py`，每个平台上传独立的 `shadow6-iperf3-<platform>` Artifact，包含 `report.json`、`report.md` 和每项的原始 iperf3 JSON。Windows 使用 MSYS2 官方仓库中的 iperf3；工具安装失败或任一实测失败均使作业失败。若某架构暂不支持 MSYS2，CI 会如实报错，不将未运行的压测计为成功。
+`.github/workflows/multiplatform.yml` 的 `iperf3-matrix` 作业在 Linux x86_64/arm64、macOS x86_64/arm64 和 Windows amd64/arm64 上分别运行；`iperf3-musl` 在原生架构的 Alpine 容器中运行；`iperf3-bsd` 在 FreeBSD、OpenBSD、NetBSD 的 x86_64/arm64 虚拟机中运行。驱动为 `Tools/iperf3_matrix.py`，每个平台上传独立的 `shadow6-iperf3-<platform>` Artifact，包含 `report.json`、`report.md` 和每项的原始 iperf3 JSON。Windows 使用 MSYS2 官方仓库中的 iperf3。双架构实测发现 iperf3 3.21 的多流 UDP 会超时或报 `Resource temporarily unavailable`，与 [iperf3 上游报告](https://github.com/esnet/iperf/issues/2026)一致。Windows 仍运行双地址族、双方向的 20 项 TCP 与 4 项单流 UDP；8 项多流 UDP 在报告中逐项标记 `not_applicable`，总状态为 `partial`。工具安装失败或实际运行的用例失败均使作业失败。
 
 默认矩阵为 IPv4/IPv6 × 正向/反向 × TCP 1、2、4、8、12 流和 UDP 1、4、12 流，共 32 项。每项只运行 6 秒；UDP 目标总速率取同一地址族、同一方向已测 TCP 峰值的一半，最高 2 Gbit/s，避免向小型 CI runner 发起无界包洪泛。命令显式传递 `-4`/`-6`，并在 IPv6 测试前预检 `iperf3` 是否能绑定 `::1`；无法使用时，IPv6 行保留为 `not_applicable`。失败项仍记录并上传报告，矩阵不会静默省略。
 

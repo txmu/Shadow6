@@ -204,6 +204,8 @@ def main() -> int:
     parser.add_argument("--udp-cap-mbps", type=int, default=2000)
     parser.add_argument("--families", choices=("4", "6", "both"), default="both")
     parser.add_argument("--allow-missing", action="store_true")
+    parser.add_argument("--skip-parallel-udp", action="store_true",
+                        help="record unsupported multi-stream UDP cases as not applicable")
     args = parser.parse_args()
     if not 1 <= args.duration <= 15 or not 1 <= args.max_streams <= 12 or not 10 <= args.udp_cap_mbps <= 4000:
         parser.error("duration, streams, or UDP rate exceeds bounded limits")
@@ -229,7 +231,8 @@ def main() -> int:
                               "run_id": os.environ.get("GITHUB_RUN_ID"),
                               "runner": os.environ.get("RUNNER_NAME")},
               "parameters": {"duration_seconds": args.duration, "max_streams": args.max_streams,
-                             "udp_cap_mbps": args.udp_cap_mbps, "families": families},
+                             "udp_cap_mbps": args.udp_cap_mbps, "families": families,
+                             "skip_parallel_udp": args.skip_parallel_udp},
               "results": []}
     available = {family: iperf_family_available(binary, family) if binary
                  else (family_available(family), "iperf3 executable not installed")
@@ -239,6 +242,10 @@ def main() -> int:
             row = dict(spec, status="unavailable", reason="iperf3 executable not installed")
         elif not available[spec["family"]][0]:
             row = dict(spec, status="not_applicable", reason=available[spec["family"]][1])
+        elif args.skip_parallel_udp and spec["protocol"] == "udp" and spec["streams"] > 1:
+            row = dict(spec, status="not_applicable",
+                       reason="Windows MSYS2 iperf3 multi-stream UDP platform limitation; "
+                              "single-stream UDP and all TCP stream counts are tested")
         else:
             target = udp_rate(report["results"], spec["family"], spec["direction"],
                               args.udp_cap_mbps) if spec["protocol"] == "udp" else None
@@ -248,13 +255,15 @@ def main() -> int:
         (output / "report.json").write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         (output / "report.md").write_text(render(report), encoding="utf-8")
     statuses = {row["status"] for row in report["results"]}
-    report["status"] = "failed" if "failed" in statuses else "unavailable" if "unavailable" in statuses else "ok"
+    report["status"] = ("failed" if "failed" in statuses else
+                        "unavailable" if "unavailable" in statuses else
+                        "partial" if "not_applicable" in statuses else "ok")
     report["complete"] = True
     (output / "report.json").write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     (output / "report.md").write_text(render(report), encoding="utf-8")
     if report["status"] == "unavailable" and args.allow_missing:
         return 0
-    return 0 if report["status"] == "ok" else 1
+    return 0 if report["status"] in ("ok", "partial") else 1
 
 
 if __name__ == "__main__":

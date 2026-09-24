@@ -103,7 +103,8 @@ jobs:
         shell: msys2 {0}
         run: |
           python Tools/iperf3_matrix.py --output-dir iperf3-matrix \
-            --duration 6 --max-streams 12 --udp-cap-mbps 2000
+            --duration 6 --max-streams 12 --udp-cap-mbps 2000 \
+            --skip-parallel-udp
       - name: Upload separate iperf3 report and raw cases
         if: always()
         uses: actions/upload-artifact@v6
