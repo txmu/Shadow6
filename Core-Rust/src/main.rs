@@ -106,6 +106,16 @@ struct ClientConfig {
     pub transport: Option<String>,
 }
 
+// Keep a bounded buffer per copy direction to amortize small async reads.
+async fn copy_data<R, W>(reader: &mut R, writer: &mut W) -> std::io::Result<u64>
+where
+    R: tokio::io::AsyncRead + Unpin,
+    W: tokio::io::AsyncWrite + Unpin,
+{
+    let mut buffered = tokio::io::BufReader::with_capacity(64 * 1024, reader);
+    tokio::io::copy_buf(&mut buffered, writer).await
+}
+
 const CORE_VERSION: &str = "1.1.0";
 const TARGET_THROUGHPUT_BITS_PER_SECOND: u64 = 10_000_000_000;
 const DESIGN_ROUND_TRIP_MILLISECONDS: u64 = 50;
@@ -1810,8 +1820,8 @@ async fn provision_access(
                         while let Ok((mut send, mut recv)) = connection.accept_bi().await {
                             if let Ok(target) = TcpStream::connect(format!("127.0.0.1:{}", target_p)).await {
                                 let (mut t_read, mut t_write) = target.into_split();
-                                let c1 = tokio::spawn(async move { tokio::io::copy(&mut recv, &mut t_write).await });
-                                let c2 = tokio::spawn(async move { tokio::io::copy(&mut t_read, &mut send).await });
+                                let c1 = tokio::spawn(async move { copy_data(&mut recv, &mut t_write).await });
+                                let c2 = tokio::spawn(async move { copy_data(&mut t_read, &mut send).await });
                                 let _ = tokio::try_join!(c1, c2);
                             }
                         }
@@ -2705,9 +2715,9 @@ async fn start_client(cfg: Config) -> Result<(), String> {
             let _permit = permit;
             let (mut local_read, mut local_write) = user_conn.into_split();
             let upload =
-                tokio::spawn(async move { tokio::io::copy(&mut local_read, &mut send).await });
+                tokio::spawn(async move { copy_data(&mut local_read, &mut send).await });
             let download =
-                tokio::spawn(async move { tokio::io::copy(&mut recv, &mut local_write).await });
+                tokio::spawn(async move { copy_data(&mut recv, &mut local_write).await });
             let _ = tokio::try_join!(upload, download);
         });
     }

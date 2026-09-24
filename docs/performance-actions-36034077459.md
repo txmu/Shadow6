@@ -28,6 +28,10 @@
 
 ## 可由源码确认的问题与本次修改
 
+- Go：此路径实际使用 AES-GCM，不能把它的结果统一解释成 ChaCha20 瓶颈。现在复用每方向有界缓冲区、原地认证解密并立即清除已交付明文，帧头与密文合并写出；保留写锁和 nonce 单调计数。
+- Rust：现有 Tokio 多线程运行时保留，QUIC/TCP 拷贝方向使用 64 KiB 有界读缓冲，减少小粒度 copy 调度。
+- Ada：发送任务与接收任务分离，分别独占序列号/重组状态；单批最多 35 个既有 512 字节 cell，随机填充批量获取、密文批量写出。共享健康状态受 protected object 保护，失败时 shutdown 唤醒并由 Ada task master 等待退出；SPARK Cells 验证算法保持原样。
+
 - D：空闲循环固定等待 10 ms；每个 1 KiB 记录分开写帧头和密文。现改为事件等待、独占序列号的双向线程、最多 16 个原有格式记录合并一次写出；错误时唤醒对端并 join，线程栈和缓冲区固定上限，TLS 对象不跨线程共用。没有更改线上帧格式。
 - Pony：原来每收到一个 UDP 包就主动让出 actor；现使用运行库已有的 16 包/轮限制批量读取，仍保留 32 包 ingress credit 上限。Pony 已有多线程 actor runtime，这项变化不等于已解决会话内串行处理。
 - Nim：转发循环每次迭代都 sleep(2)，现在只在无进展时休眠；libdatachannel 本身已有线程，Nim 对象仍由其所属线程访问。
@@ -47,9 +51,9 @@ iperf3 的 TCP 控制连接直接走 loopback；测量的数据经过 Core 的�
 
 ## 验证与未完成项
 
-本地按用户要求仅做轻量验证：D 模块编译、C/C++ 语法检查、Python 编译检查、4 项 receiver 统计单测及各 1 秒的 TCP/UDP 夹具冒烟。完整构建、安全/可靠性回归、性能验收交给 CI。没有本地执行完整 release workflow、变体构建、审计或打包。
+本地按用户要求仅做轻量验证：D 模块编译、Ada 语义检查、C/C++ 语法检查、Python 编译检查、4 项 receiver 统计单测及各 1 秒的 TCP/UDP 夹具冒烟。完整构建、安全/可靠性回归、性能验收交给 CI。没有本地执行完整 release workflow、变体构建、审计或打包。
 
-截至提交前，不能宣称所有核心已多线程化或全部达到 Gbps。Go/Rust/Gleam/Pony/C++/Zig 已有相应并发运行机制，D 在此改为双向线程；Ada/Hare/Carp/Idris 的原生数据路径以及 Nim 主循环仍需继续设计和验证。安全控制保留，真实性能结论必须等待 CI。
+截至提交前，不能宣称所有核心已多线程化或全部达到 Gbps。Go/Rust/Gleam/Pony/C++/Zig 已有相应并发运行机制，D/Ada 在此改为双向线程；Hare/Carp/Idris 的原生数据路径以及 Nim 主循环仍需继续设计和验证。安全控制保留，真实性能结论必须等待 CI。
 
 ## 下载文件 SHA-256
 
@@ -96,3 +100,5 @@ c4e172d32d95d30e1282b6808da157a6578c7a0774b5a50eed39266eedffe249  shadow6-linux-
 e05dcc0235cff12f7db903771e617bc29fba53ac22eb69ede531d331b69417c7  shadow6-linux-network-benchmark/benchmark-linux-pressure.md
 d894c0fee83c88fdd039ac72f83855eaed60f6a427c34916a165865f4ec220c9  shadow6-linux-network-benchmark/benchmark-linux-pressure.txt
 ```
+
+CI 首次提交运行：[36074413850](https://github.com/txmu/Shadow6/actions/runs/36074413850)。结果另行记录，不以触发成功代表测试通过。

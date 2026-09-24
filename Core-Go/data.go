@@ -42,6 +42,8 @@ type aeadConn struct {
 	net.Conn
 	aead        cipher.AEAD
 	decoded     []byte
+	readFrame   []byte // owned by readMutex; bounded by maxAEADPlaintext + framing
+	writeFrame  []byte // owned by writeMutex; contains ciphertext, never plaintext
 	readMutex   sync.Mutex
 	writeMutex  sync.Mutex
 	readEOF     bool
@@ -102,17 +104,19 @@ func (connection *aeadConn) writeFrameLocked(plaintext []byte) (int, error) {
 	if connection.sendCounter >= uint64(^uint32(0)) {
 		return 0, errors.New("AEAD nonce counter exhausted")
 	}
-	nonce := make([]byte, connection.aead.NonceSize())
+	nonceSize := connection.aead.NonceSize()
+	size := 4 + nonceSize + len(plaintext) + connection.aead.Overhead()
+	if cap(connection.writeFrame) < size {
+		connection.writeFrame = make([]byte, size)
+	}
+	frame := connection.writeFrame[:size]
+	nonce := frame[4 : 4+nonceSize]
 	copy(nonce, connection.noncePrefix[:])
 	connection.sendCounter++
 	binary.BigEndian.PutUint32(nonce[len(nonce)-4:], uint32(connection.sendCounter))
-	ciphertext := connection.aead.Seal(nonce, nonce, plaintext, nil)
-	var length [4]byte
-	binary.BigEndian.PutUint32(length[:], uint32(len(ciphertext)))
-	if err := writeFull(connection.Conn, length[:]); err != nil {
-		return 0, err
-	}
-	if err := writeFull(connection.Conn, ciphertext); err != nil {
+	frame = connection.aead.Seal(frame[:4+nonceSize], nonce, plaintext, nil)
+	binary.BigEndian.PutUint32(frame[:4], uint32(len(frame)-4))
+	if err := writeFull(connection.Conn, frame); err != nil {
 		return 0, err
 	}
 	return len(plaintext), nil
@@ -129,6 +133,7 @@ func (connection *aeadConn) Read(destination []byte) (int, error) {
 	}
 	if len(connection.decoded) != 0 {
 		count := copy(destination, connection.decoded)
+		clear(connection.decoded[:count])
 		connection.decoded = connection.decoded[count:]
 		return count, nil
 	}
@@ -142,12 +147,15 @@ func (connection *aeadConn) Read(destination []byte) (int, error) {
 	if length < minimum || length > maximum {
 		return 0, errors.New("invalid AEAD frame length")
 	}
-	ciphertext := make([]byte, length)
+	if cap(connection.readFrame) < length {
+		connection.readFrame = make([]byte, length)
+	}
+	ciphertext := connection.readFrame[:length]
 	if _, err := io.ReadFull(connection.Conn, ciphertext); err != nil {
 		return 0, err
 	}
 	nonceSize := connection.aead.NonceSize()
-	plaintext, err := connection.aead.Open(nil, ciphertext[:nonceSize], ciphertext[nonceSize:], nil)
+	plaintext, err := connection.aead.Open(ciphertext[nonceSize:nonceSize], ciphertext[:nonceSize], ciphertext[nonceSize:], nil)
 	if err != nil {
 		return 0, fmt.Errorf("AEAD authentication failed: %w", err)
 	}
@@ -156,6 +164,7 @@ func (connection *aeadConn) Read(destination []byte) (int, error) {
 		return 0, io.EOF
 	}
 	count := copy(destination, plaintext)
+	clear(plaintext[:count])
 	connection.decoded = plaintext[count:]
 	return count, nil
 }

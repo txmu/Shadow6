@@ -687,3 +687,55 @@ func TestStrictSchemasAndWriteProgress(t *testing.T) {
 type zeroWriter struct{}
 
 func (zeroWriter) Write(_ []byte) (int, error) { return 0, nil }
+
+func TestAEADRepeatedFramesWithPartialReads(t *testing.T) {
+	left, right := net.Pipe()
+	defer left.Close()
+	defer right.Close()
+	_ = left.SetDeadline(time.Now().Add(5 * time.Second))
+	_ = right.SetDeadline(time.Now().Add(5 * time.Second))
+	key := bytes.Repeat([]byte{7}, 32)
+	sender, err := newAEADConn(left, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receiver, err := newAEADConn(right, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payloads [][]byte
+	var want []byte
+	for index, size := range []int{1, 4097, 3, 65536, 17, 8192, 1} {
+		payload := bytes.Repeat([]byte{byte(index + 1)}, size)
+		payloads = append(payloads, payload)
+		want = append(want, payload...)
+	}
+	done := make(chan error, 1)
+	go func() {
+		for _, payload := range payloads {
+			if _, err := sender.Write(payload); err != nil {
+				done <- err
+				return
+			}
+		}
+		done <- sender.writeEOF()
+	}()
+	var got []byte
+	buffer := make([]byte, 37)
+	for {
+		n, err := receiver.Read(buffer)
+		got = append(got, buffer[:n]...)
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Fatal("frame reuse corrupted partial reads or frame boundaries")
+	}
+}

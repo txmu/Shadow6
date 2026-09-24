@@ -273,3 +273,8 @@ void s6_wait_readable(int first, int second) {
     (void)poll(fds, count, 100);
 }
 void s6_half_close(int h) { if (valid(h)) shutdown(handles[h].fd, SHUT_WR); }
+void s6_abort_io(int h) { if (valid(h)) shutdown(handles[h].fd, SHUT_RDWR); }
+int s6_plain_pair(int first, int second) {
+    return valid(first) && valid(second) && first != second &&
+        !handles[first].tls && !handles[second].tls;
+}

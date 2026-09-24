@@ -31,4 +31,6 @@ package Native with SPARK_Mode => Off is
    procedure Wait_Readable (First, Second : Int) with Import, Convention => C, External_Name => "s6_wait_readable";
    procedure Pause with Import, Convention => C, External_Name => "s6_pause";
    procedure Half_Close (H : Int) with Import, Convention => C, External_Name => "s6_half_close";
+   procedure Abort_IO (H : Int) with Import, Convention => C, External_Name => "s6_abort_io";
+   function Plain_Pair (First, Second : Int) return Int with Import, Convention => C, External_Name => "s6_plain_pair";
 end Native;
