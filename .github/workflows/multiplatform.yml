@@ -79,6 +79,12 @@ jobs:
         with:
           python-version: '3.12'
           architecture: ${{ matrix.python_arch }}
+      - name: Install MSYS2 iperf3 on Windows
+        if: matrix.os == 'windows'
+        uses: msys2/setup-msys2@66cd2cce69caa17b53920067426061ca1de3a884 # v2
+        with:
+          msystem: MSYS
+          install: iperf3 python
       - name: Install iperf3 on Linux
         if: matrix.os == 'linux'
         run: |
@@ -87,22 +93,17 @@ jobs:
       - name: Install iperf3 on macOS
         if: matrix.os == 'macos'
         run: brew install iperf3
-      - name: Try verified Chocolatey iperf3 package on Windows
-        if: matrix.os == 'windows'
-        shell: pwsh
-        run: |
-          choco install iperf3 --version=3.20.0 --yes --no-progress
-          if ($LASTEXITCODE -ne 0) {
-            Write-Warning 'iperf3 is unavailable on this Windows runner; the matrix will record unavailable cases.'
-          }
-          exit 0
       - name: Run bounded TCP and UDP loopback matrix
-        shell: bash
+        if: matrix.os != 'windows'
         run: |
-          args=()
-          if [ '${{ matrix.os }}' = windows ]; then args+=(--allow-missing); fi
           python Tools/iperf3_matrix.py --output-dir iperf3-matrix \
-            --duration 6 --max-streams 12 --udp-cap-mbps 2000 "${args[@]}"
+            --duration 6 --max-streams 12 --udp-cap-mbps 2000
+      - name: Run bounded TCP and UDP loopback matrix on Windows
+        if: matrix.os == 'windows'
+        shell: msys2 {0}
+        run: |
+          python Tools/iperf3_matrix.py --output-dir iperf3-matrix \
+            --duration 6 --max-streams 12 --udp-cap-mbps 2000
       - name: Upload separate iperf3 report and raw cases
         if: always()
         uses: actions/upload-artifact@v6
