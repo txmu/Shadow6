@@ -1,0 +1,75 @@
+{
+  "config": {
+    "args": {},
+    "backends": [
+      "native"
+    ],
+    "cores": [
+      "zig"
+    ],
+    "network": {
+      "concurrency": 8,
+      "payload_bytes": 4096,
+      "requests": 8
+    },
+    "repeats": 1,
+    "require_network": true,
+    "roles": [
+      "network-chain"
+    ]
+  },
+  "environment": {
+    "commit": null,
+    "companion_measurement": "real S6NA/1 through native Core trio; includes equal local library-driver IPC",
+    "machine": "x86_64",
+    "network": "loopback; no WAN emulation",
+    "platform": "Linux-6.12.107+deb13-cloud-amd64-x86_64-with-glibc2.41",
+    "python": "3.13.5",
+    "run_id": null,
+    "runner": null,
+    "throughput": "one-direction useful application bits / exchange duration"
+  },
+  "results": [
+    {
+      "backend": "native",
+      "core": "zig",
+      "deployment_enabled": "not-consulted; explicit isolated benchmark activation",
+      "elapsed_seconds": 2.181418422027491,
+      "measurement": "network-chain",
+      "path": "native broker/agent/client trio -> application echo target",
+      "process": {
+        "context_switches": {
+          "state": "valid",
+          "value": 1804
+        },
+        "io_read_operations": {
+          "state": "valid",
+          "value": 9552
+        },
+        "io_write_operations": {
+          "state": "valid",
+          "value": 0
+        },
+        "peak_rss_kib": {
+          "state": "valid",
+          "value": 33536
+        },
+        "system_seconds": {
+          "state": "valid",
+          "value": 0.28221999999999997
+        },
+        "user_seconds": {
+          "state": "valid",
+          "value": 1.793845
+        }
+      },
+      "repeat": 1,
+      "returncode": 1,
+      "role": "network-chain",
+      "status": "failed",
+      "stderr": "unner/work/Shadow6/Shadow6/Core-Zig/src/config.zig:66:31: 0x5558be8fa449 in validate (shadow6-zig)\n/home/runner/work/Shadow6/Shadow6/Core-Zig/src/main.zig:90:24: 0x5558be89bdc6 in run (shadow6-zig)\n???:?:?: 0x7f9dcb290ca7 in ??? (/lib/x86_64-linux-gnu/libc.so.6)\n???:?:?: 0x7f9dcb290d64 in ??? (/lib/x86_64-linux-gnu/libc.so.6)\n???:?:?: 0x5558be899164 in ??? (???)\n\n[FAIL] shadow6-zig: client exited with -6: Illegal instruction at address 0x5558be9276c3\n/opt/hostedtoolcache/zig/0.16.0/x64/lib/std/crypto/25519/edwards25519.zig:202:22: 0x5558be9276c3 in pcSelect__anon_51105 (shadow6-zig)\n/opt/hostedtoolcache/zig/0.16.0/x64/lib/std/crypto/25519/edwards25519.zig:395:19: 0x5558be9b0b19 in clampedMul (shadow6-zig)\n/home/runner/work/Shadow6/Shadow6/Core-Zig/src/config.zig:90:54: 0x5558be8f8eb5 in privateKey (shadow6-zig)\n/home/runner/work/Shadow6/Shadow6/Core-Zig/src/config.zig:66:31: 0x5558be8fa449 in validate (shadow6-zig)\n/home/runner/work/Shadow6/Shadow6/Core-Zig/src/main.zig:90:24: 0x5558be89bdc6 in run (shadow6-zig)\n???:?:?: 0x7f9dcb290ca7 in ??? (/lib/x86_64-linux-gnu/libc.so.6)\n???:?:?: 0x7f9dcb290d64 in ??? (/lib/x86_64-linux-gnu/libc.so.6)\n???:?:?: 0x5558be899164 in ??? (???)\n\nNetwork contract failures:\n  shadow6-zig: client exited with -6: Illegal instruction at address 0x5558be9276c3\n/opt/hostedtoolcache/zig/0.16.0/x64/lib/std/crypto/25519/edwards25519.zig:202:22: 0x5558be9276c3 in pcSelect__anon_51105 (shadow6-zig)\n/opt/hostedtoolcache/zig/0.16.0/x64/lib/std/crypto/25519/edwards25519.zig:395:19: 0x5558be9b0b19 in clampedMul (shadow6-zig)\n/home/runner/work/Shadow6/Shadow6/Core-Zig/src/config.zig:90:54: 0x5558be8f8eb5 in privateKey (shadow6-zig)\n/home/runner/work/Shadow6/Shadow6/Core-Zig/src/config.zig:66:31: 0x5558be8fa449 in validate (shadow6-zig)\n/home/runner/work/Shadow6/Shadow6/Core-Zig/src/main.zig:90:24: 0x5558be89bdc6 in run (shadow6-zig)\n???:?:?: 0x7f9dcb290ca7 in ??? (/lib/x86_64-linux-gnu/libc.so.6)\n???:?:?: 0x7f9dcb290d64 in ??? (/lib/x86_64-linux-gnu/libc.so.6)\n???:?:?: 0x5558be899164 in ??? (???)\n\n",
+      "stdout": "{\"results\": {\"shadow6-zig\": {\"backend\": \"native\", \"reason\": \"client exited with -6: Illegal instruction at address 0x5558be9276c3\\n/opt/hostedtoolcache/zig/0.16.0/x64/lib/std/crypto/25519/edwards25519.zig:202:22: 0x5558be9276c3 in pcSelect__anon_51105 (shadow6-zig)\\n/opt/hostedtoolcache/zig/0.16.0/x64/lib/std/crypto/25519/edwards25519.zig:395:19: 0x5558be9b0b19 in clampedMul (shadow6-zig)\\n/home/runner/work/Shadow6/Shadow6/Core-Zig/src/config.zig:90:54: 0x5558be8f8eb5 in privateKey (shadow6-zig)\\n/home/runner/work/Shadow6/Shadow6/Core-Zig/src/config.zig:66:31: 0x5558be8fa449 in validate (shadow6-zig)\\n/home/runner/work/Shadow6/Shadow6/Core-Zig/src/main.zig:90:24: 0x5558be89bdc6 in run (shadow6-zig)\\n???:?:?: 0x7f9dcb290ca7 in ??? (/lib/x86_64-linux-gnu/libc.so.6)\\n???:?:?: 0x7f9dcb290d64 in ??? (/lib/x86_64-linux-gnu/libc.so.6)\\n???:?:?: 0x5558be899164 in ??? (???)\\n\", \"status\": \"failed\"}}, \"schema\": \"shadow6.network-suite.v1\"}\n"
+    }
+  ],
+  "schema": "shadow6.benchmark.v2"
+}

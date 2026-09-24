@@ -23,6 +23,7 @@ broker_loop(Broker,Peers,Pending)->
           true->
             monitor(process,Pid),Old=[P||{P,V}<-maps:to_list(Peers),maps:get(id,V)=:=Id],
             lists:foreach(fun(P)->P!stop end,Old),NextPeers=maps:without(Old,Peers),
+            Pid!registered,
             broker_loop(Broker,NextPeers#{Pid=>#{socket=>S,id=>Id,kind=>Kind,allowed=>Allowed,public=>Public,ip=>IP}},Pending)
         end;
       {message,Pid,Message}->
@@ -71,8 +72,9 @@ server_session(S,Broker)->
       true=shadow6_sodium:verify_ed25519(Sig,signed(<<"shadow6-gleam-control-auth-v1">>,[Id,Nonce]),Public),
       {2,PeerNonce}=recv_frame(S,true),32=byte_size(PeerNonce),Seed=shadow6_config:private_seed(maps:get(<<"private_key">>,Broker)),
       BrokerSig=base64:encode(shadow6_sodium:sign_ed25519(signed(<<"shadow6-gleam-control-auth-v1">>,[<<"broker">>,PeerNonce]),Seed)),
-      ok=send_json(S,#{<<"id">>=><<"broker">>,<<"signature">>=>BrokerSig}),
-      {ok,{IP,_}}=inet:peername(S),BrokerPid=self_broker(),BrokerPid!{connected,self(),S,Id,Kind,Allowed,Public,IP},server_read(S,BrokerPid)
+      {ok,{IP,_}}=inet:peername(S),BrokerPid=self_broker(),BrokerPid!{connected,self(),S,Id,Kind,Allowed,Public,IP},
+      receive registered->ok;stop->erlang:error(connection_limit) after 5000->erlang:error(registration_timeout) end,
+      ok=send_json(S,#{<<"id">>=><<"broker">>,<<"signature">>=>BrokerSig}),server_read(S,BrokerPid)
     catch Class:Reason->io:format(standard_error,"[Broker] control session failed: ~p:~p~n",[Class,Reason]),gen_tcp:close(S) end.
 
 %% The broker pid is installed before each session enters its blocking reader.

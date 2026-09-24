@@ -1,0 +1,105 @@
+{
+  "config": {
+    "args": {},
+    "backends": [
+      "native"
+    ],
+    "cores": [
+      "idris"
+    ],
+    "network": {
+      "concurrency": 8,
+      "payload_bytes": 4096,
+      "requests": 8
+    },
+    "repeats": 1,
+    "require_network": true,
+    "roles": [
+      "network-chain"
+    ]
+  },
+  "environment": {
+    "commit": null,
+    "companion_measurement": "real S6NA/1 through native Core trio; includes equal local library-driver IPC",
+    "machine": "x86_64",
+    "network": "loopback; no WAN emulation",
+    "platform": "Linux-6.12.107+deb13-cloud-amd64-x86_64-with-glibc2.41",
+    "python": "3.13.5",
+    "run_id": null,
+    "runner": null,
+    "throughput": "one-direction useful application bits / exchange duration"
+  },
+  "results": [
+    {
+      "backend": "native",
+      "core": "idris",
+      "deployment_enabled": "not-consulted; explicit isolated benchmark activation",
+      "elapsed_seconds": 13.275771935004741,
+      "measurement": "network-chain",
+      "network": {
+        "application_chunk_bytes": 512,
+        "application_transport": "udp",
+        "backend": "native",
+        "bytes_received": 262144,
+        "bytes_sent": 262144,
+        "concurrency": 8,
+        "concurrency_scope": "independent-native-trios",
+        "duration_scope": "application-workload-only",
+        "duration_seconds": 0.07291027397150174,
+        "impairment": {
+          "model": "application-response-pacing-v2",
+          "packet_loss_injected": false,
+          "recovery_delay_percent": 0,
+          "rtt_ms": 0
+        },
+        "latency_avg_seconds": 0.007575385236123111,
+        "latency_p95_aggregation": "maximum-worker-p95",
+        "latency_p95_seconds": 0.012761808990035206,
+        "lifecycle_duration_seconds": 13.11218022601679,
+        "payload_bytes": 4096,
+        "requests": 64,
+        "roles": [
+          "broker",
+          "agent",
+          "client"
+        ],
+        "schema": "shadow6.network-chain.v1",
+        "success_rate": 1.0,
+        "throughput_bps": 28763463.443021882
+      },
+      "path": "native broker/agent/client trio -> application echo target",
+      "process": {
+        "context_switches": {
+          "state": "valid",
+          "value": 2222
+        },
+        "io_read_operations": {
+          "state": "valid",
+          "value": 0
+        },
+        "io_write_operations": {
+          "state": "valid",
+          "value": 0
+        },
+        "peak_rss_kib": {
+          "state": "valid",
+          "value": 34084
+        },
+        "system_seconds": {
+          "state": "valid",
+          "value": 0.079265
+        },
+        "user_seconds": {
+          "state": "valid",
+          "value": 0.271014
+        }
+      },
+      "repeat": 1,
+      "returncode": 0,
+      "role": "network-chain",
+      "status": "ok",
+      "stderr": ""
+    }
+  ],
+  "schema": "shadow6.benchmark.v2"
+}

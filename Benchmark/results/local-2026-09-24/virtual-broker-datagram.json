@@ -1,0 +1,183 @@
+{
+  "expected_rows": 16,
+  "results": [
+    {
+      "anonymous": false,
+      "carrier": "gate",
+      "core": "hare",
+      "duration_seconds": 0.04206042300211266,
+      "latency_p95_seconds": 0.0008422009996138513,
+      "payload_bytes": 512,
+      "requests": 64,
+      "status": "ok",
+      "throughput_bps": 6232557.385046573
+    },
+    {
+      "anonymous": true,
+      "carrier": "gate",
+      "core": "hare",
+      "duration_seconds": 0.017044020991306752,
+      "latency_p95_seconds": 0.00049011898227036,
+      "payload_bytes": 512,
+      "requests": 64,
+      "status": "ok",
+      "throughput_bps": 15380408.187346501
+    },
+    {
+      "anonymous": false,
+      "carrier": "s6na",
+      "core": "hare",
+      "duration_seconds": 0.0397791110444814,
+      "latency_p95_seconds": 0.0009508609655313194,
+      "payload_bytes": 512,
+      "requests": 64,
+      "status": "ok",
+      "throughput_bps": 6589991.407974602
+    },
+    {
+      "anonymous": true,
+      "carrier": "s6na",
+      "core": "hare",
+      "duration_seconds": 0.01065173395909369,
+      "latency_p95_seconds": 0.00021286198170855641,
+      "payload_bytes": 512,
+      "requests": 64,
+      "status": "ok",
+      "throughput_bps": 24610453.19069391
+    },
+    {
+      "anonymous": false,
+      "carrier": "gate",
+      "core": "carp",
+      "duration_seconds": 0.03634794900426641,
+      "latency_p95_seconds": 0.0006013910169713199,
+      "payload_bytes": 512,
+      "requests": 64,
+      "status": "ok",
+      "throughput_bps": 7212071.30474488
+    },
+    {
+      "anonymous": true,
+      "carrier": "gate",
+      "core": "carp",
+      "duration_seconds": 0.015460122027434409,
+      "latency_p95_seconds": 0.0004017309984192252,
+      "payload_bytes": 512,
+      "requests": 64,
+      "status": "ok",
+      "throughput_bps": 16956140.419514045
+    },
+    {
+      "anonymous": false,
+      "carrier": "s6na",
+      "core": "carp",
+      "duration_seconds": 0.03381924901623279,
+      "latency_p95_seconds": 0.0005400169757194817,
+      "payload_bytes": 512,
+      "requests": 64,
+      "status": "ok",
+      "throughput_bps": 7751325.284431194
+    },
+    {
+      "anonymous": true,
+      "carrier": "s6na",
+      "core": "carp",
+      "duration_seconds": 0.010241033975034952,
+      "latency_p95_seconds": 0.00020892597967758775,
+      "payload_bytes": 512,
+      "requests": 64,
+      "status": "ok",
+      "throughput_bps": 25597415.323398076
+    },
+    {
+      "anonymous": false,
+      "carrier": "gate",
+      "core": "pony",
+      "duration_seconds": 0.035705952963326126,
+      "latency_p95_seconds": 0.000559142034035176,
+      "payload_bytes": 512,
+      "requests": 64,
+      "status": "ok",
+      "throughput_bps": 7341744.954104718
+    },
+    {
+      "anonymous": true,
+      "carrier": "gate",
+      "core": "pony",
+      "duration_seconds": 0.013715383014641702,
+      "latency_p95_seconds": 0.00031836703419685364,
+      "payload_bytes": 512,
+      "requests": 64,
+      "status": "ok",
+      "throughput_bps": 19113137.396174144
+    },
+    {
+      "anonymous": false,
+      "carrier": "s6na",
+      "core": "pony",
+      "duration_seconds": 0.034192494000308216,
+      "latency_p95_seconds": 0.0006029230426065624,
+      "payload_bytes": 512,
+      "requests": 64,
+      "status": "ok",
+      "throughput_bps": 7666711.881199336
+    },
+    {
+      "anonymous": true,
+      "carrier": "s6na",
+      "core": "pony",
+      "duration_seconds": 0.01036347501212731,
+      "latency_p95_seconds": 0.0002195719862356782,
+      "payload_bytes": 512,
+      "requests": 64,
+      "status": "ok",
+      "throughput_bps": 25294990.309065234
+    },
+    {
+      "anonymous": false,
+      "carrier": "gate",
+      "core": "idris",
+      "duration_seconds": 0.03761115198722109,
+      "latency_p95_seconds": 0.0006286500138230622,
+      "payload_bytes": 512,
+      "requests": 64,
+      "status": "ok",
+      "throughput_bps": 6969847.668826178
+    },
+    {
+      "anonymous": true,
+      "carrier": "gate",
+      "core": "idris",
+      "duration_seconds": 0.0133628019830212,
+      "latency_p95_seconds": 0.0002965700114145875,
+      "payload_bytes": 512,
+      "requests": 64,
+      "status": "ok",
+      "throughput_bps": 19617442.534363724
+    },
+    {
+      "anonymous": false,
+      "carrier": "s6na",
+      "core": "idris",
+      "duration_seconds": 0.03692383604357019,
+      "latency_p95_seconds": 0.0006923910113982856,
+      "payload_bytes": 512,
+      "requests": 64,
+      "status": "ok",
+      "throughput_bps": 7099587.369271969
+    },
+    {
+      "anonymous": true,
+      "carrier": "s6na",
+      "core": "idris",
+      "duration_seconds": 0.010623788984958082,
+      "latency_p95_seconds": 0.00025253603234887123,
+      "payload_bytes": 512,
+      "requests": 64,
+      "status": "ok",
+      "throughput_bps": 24675188.89646266
+    }
+  ],
+  "schema": "shadow6.virtual-broker-datagram-benchmark.v1",
+  "scope": "loopback Virtual Broker UDP relay to echo target; carrier and Core binaries are not exercised"
+}

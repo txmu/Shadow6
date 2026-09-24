@@ -1,0 +1,111 @@
+{
+  "assistant": "doctor",
+  "version": "1.0.0",
+  "status": "pass",
+  "score": {
+    "passed": 20,
+    "total": 20
+  },
+  "checks": [
+    {
+      "name": "component-surface",
+      "passed": true,
+      "detail": "complete"
+    },
+    {
+      "name": "default-minimum-privilege",
+      "passed": true,
+      "detail": "12 registered Core contracts checked"
+    },
+    {
+      "name": "privileged-variant-contract",
+      "passed": true,
+      "detail": "matching L5 variants"
+    },
+    {
+      "name": "feature-report:Core-Pony/shadow6-pony",
+      "passed": true,
+      "detail": "valid family-specific contract"
+    },
+    {
+      "name": "feature-report:Core-Pony/shadow6-pony-crosed",
+      "passed": true,
+      "detail": "valid family-specific contract"
+    },
+    {
+      "name": "feature-report:Core-Gleam/shadow6-gleam",
+      "passed": true,
+      "detail": "valid family-specific contract"
+    },
+    {
+      "name": "feature-report:Core-Gleam/shadow6-gleam-crosed",
+      "passed": true,
+      "detail": "valid family-specific contract"
+    },
+    {
+      "name": "feature-report:Core-Zig/shadow6-zig",
+      "passed": true,
+      "detail": "valid family-specific contract"
+    },
+    {
+      "name": "feature-report:Core-Ada/shadow6-ada",
+      "passed": true,
+      "detail": "valid family-specific contract"
+    },
+    {
+      "name": "feature-report:Core-Ada/shadow6-ada-crosed",
+      "passed": true,
+      "detail": "valid family-specific contract"
+    },
+    {
+      "name": "feature-report:Core-D/shadow6-d",
+      "passed": true,
+      "detail": "valid family-specific contract"
+    },
+    {
+      "name": "feature-report:Core-Nim/shadow6-nim",
+      "passed": true,
+      "detail": "valid family-specific contract"
+    },
+    {
+      "name": "feature-report:Core-Nim/shadow6-nim-crosed",
+      "passed": true,
+      "detail": "valid family-specific contract"
+    },
+    {
+      "name": "feature-report:Core-Cpp/shadow6-cpp",
+      "passed": true,
+      "detail": "valid family-specific contract"
+    },
+    {
+      "name": "feature-report:Core-Hare/shadow6-hare",
+      "passed": true,
+      "detail": "valid family-specific contract"
+    },
+    {
+      "name": "feature-report:Core-Carp/shadow6-carp",
+      "passed": true,
+      "detail": "valid family-specific contract"
+    },
+    {
+      "name": "feature-report:Core-Idris/shadow6-idris",
+      "passed": true,
+      "detail": "valid family-specific contract"
+    },
+    {
+      "name": "feature-report:Core-Idris/shadow6-idris-crosed",
+      "passed": true,
+      "detail": "valid family-specific contract"
+    },
+    {
+      "name": "signed-plugins",
+      "passed": true,
+      "detail": "all bundled manifests and code digests verified"
+    },
+    {
+      "name": "source-audit",
+      "passed": true,
+      "detail": "offline source checks passed"
+    }
+  ]
+}

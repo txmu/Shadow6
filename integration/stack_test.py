@@ -148,11 +148,15 @@ class EchoTarget:
                         continue
                     try:
                         with connection:
-                            connection.settimeout(10)
+                            # Parallel trios can wait at the workload barrier
+                            # after their echo target connects. Allow bounded
+                            # startup time before the first application byte.
+                            connection.settimeout(60)
                             while not self.stop.is_set():
                                 data = connection.recv(65536)
                                 if not data:
                                     break
+                                connection.settimeout(10)
                                 self.responses += 1
                                 # Bounded deterministic userspace model: delay
                                 # every response by the configured RTT and add
@@ -567,11 +571,12 @@ def run_engine(engine: str, benchmark: dict | None = None, backend: str = "nativ
                     wait_until(lambda: tcp_port_open(broker_port), broker, log_paths["broker"],
                                time.monotonic() + 20, "gleam broker did not listen")
                 agent = start_role("agent")
-                wait_until(lambda: established_loopback_count(broker_port) >= 1, agent, log_paths["agent"],
-                           time.monotonic() + 20, "gleam agent control handshake did not connect")
-                settled = time.monotonic() + 1.0
-                wait_until(lambda: time.monotonic() >= settled and established_loopback_count(broker_port) >= 1,
-                           agent, log_paths["agent"], settled + 0.2, "gleam agent control session dropped")
+                # The agent prints this only after the broker has registered
+                # its authenticated control session. /proc TCP snapshots can
+                # miss a live connection under heavy concurrent startup.
+                wait_until(lambda: "[Agent] control authenticated" in captured_log(log_paths["agent"]),
+                           agent, log_paths["agent"], time.monotonic() + 20,
+                           "gleam agent control handshake did not complete")
                 client = start_role("client")
             else:
                 broker = start_role("broker")
@@ -682,7 +687,21 @@ def run_parallel(engine, options, backend):
             raise
     with ThreadPoolExecutor(max_workers=count) as pool:
         futures = [pool.submit(run_ready) for _ in range(count)]
-        results = [f.result() for f in futures]
+        outcomes = []
+        failures = []
+        for future in futures:
+            try:
+                outcomes.append(future.result())
+            except BaseException as error:
+                failures.append(error)
+        if failures:
+            # A failed lane aborts the barrier in its peers. Report that
+            # lane's actual startup or transport error, not a peer's
+            # secondary BrokenBarrierError.
+            primary = next((error for error in failures
+                            if not isinstance(error, threading.BrokenBarrierError)), failures[0])
+            raise primary
+        results = outcomes
     lifecycle_duration = time.perf_counter() - started
     duration=max(r["measurement_finished"] for r in results)-min(r["measurement_started"] for r in results)
     result = dict(results[0])

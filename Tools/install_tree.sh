@@ -92,6 +92,17 @@ printf 'shadow6-installed-tree\n' > "$marker"
 u_mask=$(umask)
 umask "$u_mask"
 tar "${tar_arguments[@]}" -cf - "$project_name" | tar --mode=go-w -xf - -C "$destination" --strip-components=1
+# The Idris launcher searches its adjacent _app directory for this FFI. The
+# source archive also carries a copy at Core-Idris/libsodium_ffi.so, but the
+# generated _app directories do not necessarily contain it.
+if [[ -f "$destination/Core-Idris/libsodium_ffi.so" ]]; then
+    for app in shadow6-idris_app shadow6-idris-crosed_app; do
+        if [[ -d "$destination/Core-Idris/$app" ]]; then
+            install -m 0755 "$destination/Core-Idris/libsodium_ffi.so" \
+                "$destination/Core-Idris/$app/libsodium_ffi.so"
+        fi
+    done
+fi
 # Enforce non-writable Core binaries explicitly; extraction has already
 # preserved their execute bits while clearing group/other write.
 find "$destination" \

@@ -77,6 +77,8 @@ test-nim:
 	@if test -x Core-Nim/shadow6-nim; then $(NIM) c -r --mm:arc --nimcache:Core-Nim/obj/test --path:Core-Nim/src -o:Core-Nim/test_protocol Core-Nim/tests/test_protocol.nim; $(PYTHON) Core-Nim/test_core.py; else echo 'libdatachannel unavailable; Core-Nim protocol tests skipped'; fi
 
 .PHONY: core-zig test-zig
+ZIG_TARGET ?= $(if $(filter Linux-x86_64,$(shell uname -s)-$(shell uname -m)),x86_64-linux-gnu,)
+ZIG_TARGET_ARG = $(if $(ZIG_TARGET),-Dtarget=$(ZIG_TARGET),)
 
 .PHONY: core-ada test-ada prove-ada ada-crosed-variant
 core-ada:
@@ -102,11 +104,11 @@ test: test-ada
 endif
 
 core-zig:
-	@cd Core-Zig && zig build -j1 -Doptimize=ReleaseSafe
+	@cd Core-Zig && zig build -j1 -Doptimize=ReleaseSafe $(ZIG_TARGET_ARG)
 	@install -m 0755 Core-Zig/zig-out/bin/shadow6-zig Core-Zig/shadow6-zig
 
 test-zig: core-zig
-	@cd Core-Zig && zig build test -j1
+	@cd Core-Zig && zig build test -j1 $(ZIG_TARGET_ARG)
 	@$(PYTHON) Core-Zig/test_core.py
 
 ifeq ($(BUILD_ZIG),1)

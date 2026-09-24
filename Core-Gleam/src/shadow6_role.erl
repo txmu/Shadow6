@@ -9,7 +9,7 @@ start(#{<<"role">> := <<"agent">>, <<"agent">> := Agent}) -> agent(Agent),done;
 start(#{<<"role">> := <<"client">>, <<"client">> := Client}) -> client(Client),done.
 
 agent(Config)->
-    Control=shadow6_control:dial(Config),Grant=shadow6_control:recv_json(Control),
+    Control=shadow6_control:dial(Config),io:format("[Agent] control authenticated~n"),Grant=shadow6_control:recv_json(Control),
     exact(Grant,[<<"type">>,<<"client">>,<<"ephemeral">>,<<"signature">>]),<<"grant">>=maps:get(<<"type">>,Grant),
     ClientId=maps:get(<<"client">>,Grant),ClientEphemeral=unhex(maps:get(<<"ephemeral">>,Grant),32),
     ClientKeys=maps:get(<<"client_pubkeys">>,Config),ClientIdentity=unhex(maps:get(ClientId,ClientKeys),32),
