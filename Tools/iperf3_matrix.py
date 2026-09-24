@@ -52,6 +52,34 @@ def free_port(family: int) -> int:
         return sock.getsockname()[1]
 
 
+def iperf_family_available(binary: str, family: int) -> tuple[bool, str]:
+    if not family_available(family):
+        return False, "OS loopback address family unavailable"
+    if family == 4:
+        return True, ""
+    _, host = loopback(family)
+    try:
+        probe = subprocess.Popen([binary, "-s", "-6", "-B", host, "-p",
+                                  str(free_port(family)), "-1"],
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+    except OSError as error:
+        return False, f"iperf3 IPv6 listener unavailable: {error}"
+    try:
+        time.sleep(0.5)
+        if probe.poll() is not None:
+            _, stderr = probe.communicate(timeout=3)
+            return False, f"iperf3 IPv6 listener unavailable: {stderr[-300:]}"
+        return True, ""
+    finally:
+        if probe.poll() is None:
+            probe.terminate()
+            try:
+                probe.communicate(timeout=3)
+            except subprocess.TimeoutExpired:
+                probe.kill()
+                probe.communicate(timeout=3)
+
+
 def metric(document: dict, protocol: str) -> dict:
     end = document.get("end", {})
     if protocol == "tcp":
@@ -78,7 +106,8 @@ def run_case(binary: str, spec: dict, duration: int, udp_aggregate_bps: int | No
     _, host = loopback(spec["family"])
     port = free_port(spec["family"])
     server: subprocess.Popen[str] | None = None
-    command = [binary, "-c", host, "-p", str(port), "-P", str(spec["streams"]),
+    family_flag = "-4" if spec["family"] == 4 else "-6"
+    command = [binary, family_flag, "-c", host, "-p", str(port), "-P", str(spec["streams"]),
                "-t", str(duration), "--json"]
     if spec["direction"] == "reverse":
         command.append("-R")
@@ -91,7 +120,7 @@ def run_case(binary: str, spec: dict, duration: int, udp_aggregate_bps: int | No
     row["duration_requested_seconds"] = duration
     started = time.monotonic()
     try:
-        server = subprocess.Popen([binary, "-s", "-B", host, "-p", str(port), "-1"],
+        server = subprocess.Popen([binary, "-s", family_flag, "-B", host, "-p", str(port), "-1"],
                                   stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
         time.sleep(0.5)
         if server.poll() is not None:
@@ -202,12 +231,14 @@ def main() -> int:
               "parameters": {"duration_seconds": args.duration, "max_streams": args.max_streams,
                              "udp_cap_mbps": args.udp_cap_mbps, "families": families},
               "results": []}
-    available = {family: family_available(family) for family in families}
+    available = {family: iperf_family_available(binary, family) if binary
+                 else (family_available(family), "iperf3 executable not installed")
+                 for family in families}
     for spec in cases:
         if not binary:
             row = dict(spec, status="unavailable", reason="iperf3 executable not installed")
-        elif not available[spec["family"]]:
-            row = dict(spec, status="not_applicable", reason="loopback address family unavailable")
+        elif not available[spec["family"]][0]:
+            row = dict(spec, status="not_applicable", reason=available[spec["family"]][1])
         else:
             target = udp_rate(report["results"], spec["family"], spec["direction"],
                               args.udp_cap_mbps) if spec["protocol"] == "udp" else None
