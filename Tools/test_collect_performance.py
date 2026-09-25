@@ -9,6 +9,29 @@ from collect_performance import collect
 
 
 class PerformanceBundleTests(unittest.TestCase):
+    def test_final_measurements_keep_workload_and_failed_target(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / 'input' / 'shadow6-linux-iperf-chain'
+            source.mkdir(parents=True)
+            (source / 'report.json').write_text(json.dumps({
+                'schema': 'shadow6.iperf-chain.v1', 'results': [
+                    {'core': 'go', 'baseline': False, 'direction': 'reverse',
+                     'status': 'ok', 'receiver_bps': 500000000, 'target_met': False},
+                    {'core': 'go', 'baseline': True, 'direction': 'reverse',
+                     'status': 'ok', 'receiver_bps': 12000000000, 'target_met': True},
+                    {'core': 'hare', 'status': 'failed', 'reason': 'timeout'}]}))
+            collect(root / 'input', root / 'all.zip', {}, None)
+            with zipfile.ZipFile(root / 'all.zip') as archive:
+                rows = json.loads(archive.read('measurements.json'))['results']
+                self.assertEqual(len(rows), 3)
+                self.assertEqual(rows[0]['throughput_bps'], 500000000)
+                self.assertIs(rows[0]['target_met'], False)
+                self.assertIs(rows[1]['workload']['baseline'], True)
+                self.assertEqual(rows[2]['reason'], 'timeout')
+                self.assertIsNone(rows[2]['throughput_bps'])
+                self.assertIn(b'| 2 | 1 | 0 | 2 | 1 |', archive.read('SUMMARY.md'))
+
     def test_same_names_keep_platform_sources_and_hashes(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

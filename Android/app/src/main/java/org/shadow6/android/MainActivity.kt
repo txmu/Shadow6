@@ -110,6 +110,7 @@ import org.shadow6.android.core.CoreService
 import org.shadow6.android.core.CoreStatus
 import org.shadow6.android.gate.GateController
 import org.shadow6.android.gate.GateProfile
+import org.shadow6.android.vpn.VpnControls
 import org.shadow6.android.packages.RemoteRepository
 import java.util.Locale
 
@@ -612,6 +613,7 @@ private fun OverviewScreen(runtime: CoreRuntime, status: CoreStatus, onStatusCha
             }
         }
 
+        VpnControls()
         ElevatedCard(Modifier.fillMaxWidth(), colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
             Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Outlined.Info, null, tint = MaterialTheme.colorScheme.primary)

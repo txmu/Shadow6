@@ -31,6 +31,23 @@ func TestPolicyDefaultClosed(t *testing.T) {
 		t.Fatal("disabled Gate opened")
 	}
 }
+
+func TestPublicAutomaticAdmissionRejectsMTD(t *testing.T) {
+	c := testConfig(t)
+	c.PublicAutoAdmission = true
+	if err := validateConfig(c); err == nil {
+		t.Fatal("public automatic admission accepted rotating ports")
+	}
+	c.MTD.Enabled = false
+	if err := validateConfig(c); err != nil {
+		t.Fatal(err)
+	}
+	c.PublicAutoAdmission = false
+	c.MTD.Enabled = true
+	if err := validateConfig(c); err != nil {
+		t.Fatalf("private deployment lost MTD support: %v", err)
+	}
+}
 func TestSecureHandshake(t *testing.T) {
 	apub, apriv, _ := ed25519.GenerateKey(nil)
 	bpub, bpriv, _ := ed25519.GenerateKey(nil)

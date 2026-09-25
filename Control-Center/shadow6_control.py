@@ -9,6 +9,7 @@ import base64
 import contextlib
 import hmac
 import ipaddress
+import io
 import json
 import os
 import re
@@ -17,6 +18,7 @@ import subprocess
 import sys
 import time
 import threading
+import zipfile
 from pathlib import Path
 from typing import Any
 
@@ -39,6 +41,7 @@ for directory in (
     ROOT / "Online-Repository", ROOT / "Gate",
     ROOT / "Service-Init",
     ROOT / "CLI",
+    ROOT / "Virtual-Adapter",
     ROOT / "Detector",
     HERE.parent / "share" / "shadow6" / "modules",
     HERE.parent / "share" / "shadow6" / "assistants",
@@ -142,6 +145,11 @@ METHOD_SPECS: dict[str, dict[str, Any]] = {
     "public6.offer": _method("Create a strict Public6 offer from a Core feature report.", {"feature_report": _PATH}, ("feature_report",)),
     "public6.negotiate": _method("Negotiate two Public6 offers; only Core family and version determine base compatibility.", {"local": _PATH, "peer": _PATH}, ("local", "peer")),
     "virtual_broker.validate": _method("Validate a bounded Virtual Broker configuration without opening listeners.", {"config": _PATH}, ("config",)),
+    "network.interface_plan": _method("Plan TUN/TAP creation for a local root operator; never execute network changes.", {
+        "name": {"type": "string", "maxLength": 15}, "mode": {"type": "string", "enum": ["tun", "tap"]},
+        "owner": {"type": "integer", "minimum": 0, "maximum": 2147483647},
+        "mtu": {"type": "integer", "minimum": 1280, "maximum": 9000}, "address": _STRING}, ("name", "owner")),
+    "performance.summary": _method("Read the final summary from a bounded CI performance ZIP without extracting it.", {"bundle": _PATH}, ("bundle",)),
     "slots.catalog": _method("Return the typed Slot catalog."),
     "slots.validate": _method("Validate signed Plugin Slot bindings.", {"root": _PATH, "plugin_root": _PATH, "trust_store": _PATH, "bindings": _PATH, "slot": _STRING, "payload": _OBJECT, "allow_privileged": _BOOL}, ("bindings",)),
     "slots.invoke": _method("Invoke one typed Slot through a signed isolated Plugin.", {"root": _PATH, "plugin_root": _PATH, "trust_store": _PATH, "bindings": _PATH, "slot": _STRING, "payload": _OBJECT, "allow_privileged": _BOOL}, ("bindings", "slot"), mutating=True),
@@ -361,6 +369,22 @@ def dispatch(method: str, raw_params: Any = None) -> Any:
         raise ValueError("unknown method")
     validate_portable(params)
     _validate_input(params, METHOD_SPECS[method]["input_schema"])
+    if method == "network.interface_plan":
+        from setup_interface import plan
+        return plan(**params)
+    if method == "performance.summary":
+        data = secure_read(Path(params["bundle"]), 128 * 1024 * 1024)
+        with zipfile.ZipFile(io.BytesIO(data)) as archive:
+            entries = archive.infolist()
+            summaries = [entry for entry in entries if entry.filename == "SUMMARY.md"]
+            if len(entries) > 20003 or len(summaries) != 1 or summaries[0].file_size > 262144:
+                raise ValueError("performance ZIP summary is missing, duplicate, or oversized")
+            with archive.open(summaries[0]) as stream:
+                markdown = stream.read(262145)
+            if len(markdown) > 262144:
+                raise ValueError("performance ZIP summary is oversized")
+        return {"schema": "shadow6.performance-summary.v1", "summary": markdown.decode("utf-8"),
+                "source": "CI report; workload scopes and producer failures remain authoritative"}
     if method == "system.schema":
         _only(params, set())
         return schema()

@@ -145,7 +145,7 @@ endif
 core-hare:
 ifeq ($(BUILD_HARE),1)
 	@command -v hare >/dev/null || { echo 'BUILD_HARE=1 requires the Hare toolchain' >&2; exit 1; }
-	@cd Core-Hare && LDFLAGS='-static-pie -Wl,-z,relro,-z,now -Wl,-z,noexecstack' hare build -l sodium -o shadow6-hare src && chmod 0755 shadow6-hare
+	@cd Core-Hare && bash ./compile.sh
 else
 	@echo 'Core-Hare disabled; set BUILD_HARE=1 with the Hare toolchain installed to enable it'
 endif
@@ -615,6 +615,8 @@ ifeq ($(BUILD_PUBLIC6),1)
 	@install -m 0755 Public6/virtual_peer.py "$(DESTDIR)$(PREFIX)/bin/shadow6-virtual-agent"
 	@install -m 0755 Public6/join_code.py "$(DESTDIR)$(PREFIX)/bin/shadow6-join-code"
 	@install -m 0755 Virtual-Adapter/shadow6_virtual_adapter.py "$(DESTDIR)$(PREFIX)/bin/shadow6-virtual-adapter"
+	@install -m 0755 Virtual-Adapter/setup_interface.py "$(DESTDIR)$(PREFIX)/bin/shadow6-interface"
+	@install -m 0644 Virtual-Adapter/setup_interface.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/setup_interface.py"
 	@install -d -m 0755 "$(DESTDIR)$(PREFIX)/share/shadow6/public6"
 	@install -m 0644 Public6/README.md "$(DESTDIR)$(PREFIX)/share/shadow6/public6/README.md"
 	@install -m 0644 Public6/virtual-broker.example.json "$(DESTDIR)$(PREFIX)/share/shadow6/public6/virtual-broker.example.json"

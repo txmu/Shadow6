@@ -109,4 +109,16 @@
     <string name="gate_local_port">本地 Gate 端口</string>
     <string name="gate_mtd_note">远端高位端口由认证公钥确定性轮换；无需 Termux 或配套 VPN 应用。</string>
     <string name="remote_repository">远程签名在线源</string><string name="repository_https_url">在线源 HTTPS 地址</string><string name="repository_public_key">在线源 Ed25519 公钥</string><string name="connect_repository">验证并连接</string><string name="repository_saved">签名在线源已验证并保存，仅供只读查看；不会下载或安装软件包。</string>
+    <string name="vpn_title">VPN 隧道</string>
+    <string name="vpn_description">连接兼容的 S6NA IP 网关，可独立于 Core 运行。两端配置相同的全新 32 字节会话密钥，并选择相反的 side。普通 Core 代理不是 IP 网关。停止后不能复用会话密钥。IPv4 和 IPv6 流量进入隧道，DNS 通过隧道访问 1.1.1.1。</string>
+    <string name="vpn_notification">VPN 服务已启动，可打开 Shadow6 查看状态或断开</string>
+    <string name="vpn_peer">S6NA 对端 IP 地址</string>
+    <string name="vpn_key">全新会话密钥（Base64，32 字节）</string>
+    <string name="vpn_side">使用 side 1（关闭为 side 0）</string>
+    <string name="vpn_start">启动 VPN</string>
+    <string name="vpn_stop">停止 VPN</string>
+    <string name="vpn_starting">正在启动 VPN…</string>
+    <string name="vpn_active">VPN 接口已启用（尚未验证对端可达）</string>
+    <string name="vpn_consent_denied">未获得系统 VPN 授权。</string>
+    <string name="vpn_invalid_config">请输入对端 IP、1–65535 的端口以及全新 32 字节 Base64 密钥。</string>
 </resources>

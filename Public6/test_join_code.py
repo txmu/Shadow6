@@ -111,6 +111,22 @@ class JoinCodeTests(unittest.TestCase):
             self.assertEqual(config["identity"], updated_broker["approvals"][0]["client"])
             with self.assertRaises(FileExistsError):
                 install_peer(code, profile, "go", "client", client)
+            broker["tenants"][0]["approval"] = "default-approved"
+            broker_path.write_text(json.dumps(broker))
+            public_bundle = root / "automatic"
+            provision("ipv4-https", "tenant", broker_path, [f"go={gate_path}"],
+                      public_bundle, "198.51.100.10", "198.51.100.10", 443,
+                      ["go=" + "b" * 64], ["go=nas-1:" + "c" * 64])
+            self.assertIs(json.loads((public_bundle / "gate-go.json").read_text())[
+                "public_auto_admission"], True)
+            gate["mtd"]["enabled"] = True
+            gate_path.write_text(json.dumps(gate))
+            rejected = root / "rotating"
+            with self.assertRaisesRegex(ValueError, "non-rotating"):
+                provision("ipv4-https", "tenant", broker_path, [f"go={gate_path}"],
+                          rejected, "198.51.100.10", "198.51.100.10", 443,
+                          ["go=" + "b" * 64], ["go=nas-1:" + "c" * 64])
+            self.assertFalse(rejected.exists())
 
 
 if __name__ == "__main__":

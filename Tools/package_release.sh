@@ -81,6 +81,8 @@ fi
 mkdir -p "$zip_stage"
 cd "$parent_dir"
 tar --exclude="$project_name/.venv" \
+    --exclude="$project_name/Benchmark/results" \
+    --exclude="$project_name/work" \
     --exclude="$project_name/.venv-ft" \
 	--exclude="$project_name/.git" \
     --exclude="$project_name/.tools" \

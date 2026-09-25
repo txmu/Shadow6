@@ -9,9 +9,23 @@ across platforms and architectures. `manifest.json` records the commit, run and
 attempt, producer outcomes, file sizes and SHA-256 hashes; `SUMMARY.md` and the
 Actions Summary list available and missing artifacts. Partial results are still
 uploaded after producer failures, and those failures remain visible in CI.
-Android and extra Unix build jobs currently produce no performance measurements.
+The final summary counts successful, failed, unsupported/incomplete and
+below-target rows for each report. `measurements.json` retains individual
+throughputs with their source row and workload dimensions, including baseline
+versus native ABC and direction; startup-only samples have no inferred rate.
+OmniOS adds a host iperf3 matrix with the same bounded TCP/UDP workload. Android,
+DragonFly and QEMU component jobs currently produce no performance measurements.
 The bundle keeps each workload's units and scope; it does not combine host
 ceilings, component microbenchmarks and native end-to-end throughput into one rate.
+
+The performance objective remains 10 Gbit/s for each Core and the Guard, Gate
+and C11Relay data paths, with bounded concurrency and existing authentication
+and reliability controls. This is a target, not a verified capability. Native
+ABC receiver throughput, UDP loss, CPU usage and a same-run host baseline must
+substantiate it. QEMU execution verifies architecture correctness only. Heavy
+benchmarks and platform builds run in Actions; local checks stay focused on the
+changed code. `Benchmark/results/` is excluded from the source ZIP, including
+local packaging; CI performance artifacts preserve the raw measurements.
 
 `benchmark.py` runs fixed, bounded commands for any subset of the twelve cores.
 Use a JSON config to select `cores`, `roles` (`feature-report`, `version`, or

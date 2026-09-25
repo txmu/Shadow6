@@ -109,4 +109,16 @@
     <string name="gate_local_port">Local Gate port</string>
     <string name="gate_mtd_note">The remote high port rotates deterministically from authenticated public keys; no Termux or companion VPN app is required.</string>
     <string name="remote_repository">Remote signed repository</string><string name="repository_https_url">Repository HTTPS URL</string><string name="repository_public_key">Repository Ed25519 public key</string><string name="connect_repository">Verify and connect</string><string name="repository_saved">Signed source verified and saved for read-only viewing. Packages are not downloaded or installed.</string>
+    <string name="vpn_title">VPN tunnel</string>
+    <string name="vpn_description">Connect to a compatible S6NA IP gateway, independently of the Core. Configure the same fresh 32-byte session key on both peers and opposite side values. A raw Core proxy is not an IP gateway. Keys cannot be reused after stopping. IPv4 and IPv6 traffic use the tunnel; DNS is 1.1.1.1 through the tunnel.</string>
+    <string name="vpn_notification">VPN service active — open Shadow6 to view status or disconnect</string>
+    <string name="vpn_peer">S6NA peer IP address</string>
+    <string name="vpn_key">Fresh session key (Base64, 32 bytes)</string>
+    <string name="vpn_side">Use side 1 (off = side 0)</string>
+    <string name="vpn_start">Start VPN</string>
+    <string name="vpn_stop">Stop VPN</string>
+    <string name="vpn_starting">Starting VPN…</string>
+    <string name="vpn_active">VPN interface active (peer reachability is not verified)</string>
+    <string name="vpn_consent_denied">VPN authorization was not granted.</string>
+    <string name="vpn_invalid_config">Enter a peer IP, a port from 1 to 65535, and a fresh 32-byte Base64 key.</string>
 </resources>

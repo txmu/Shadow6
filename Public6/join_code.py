@@ -280,6 +280,12 @@ def provision(mode: str, tenant: str, broker_path: Path, gate_paths: list[str],
         mtd = gate.get("mtd")
         if type(mtd) is not dict or mtd.get("enabled") is not False or type(mtd.get("min_port")) is not int or not 1024 <= mtd["min_port"] <= 65534:
             raise ValueError("public-node Gate must use a fixed, non-rotating port")
+        # Shared Gates can carry any tenant of this Broker. Retain the
+        # deployment restriction in the Gate's runtime configuration.
+        gate["public_auto_admission"] = (
+            any(item.approval == "default-approved" for item in loaded.tenants.values())
+            or bool(loaded.anonymous_listeners)
+            or any(item[4] for item in loaded.datagram_listeners))
         if type(gate.get("peer_public_keys")) is not list or len(gate["peer_public_keys"]) >= 256:
             raise ValueError("Gate peer key limit reached")
         protocol = gate.get("protocol")

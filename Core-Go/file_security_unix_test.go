@@ -7,9 +7,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"syscall"
 	"testing"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 func TestSecureConfigExactMode(t *testing.T) {
@@ -104,7 +105,7 @@ func TestConfigOpenDoesNotBlockOnFIFO(t *testing.T) {
 		return
 	}
 	path := filepath.Join(t.TempDir(), "fifo")
-	if err := syscall.Mkfifo(path, 0o600); err != nil {
+	if err := unix.Mkfifo(path, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

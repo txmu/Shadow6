@@ -72,7 +72,11 @@ artifact, including compiled default Core binaries and preserved Crosed
 variants. The ZIP is a text-only source exchange artifact: every regular file
 is strict UTF-8 and its complete original name receives a `.txt` suffix. It
 deliberately excludes binaries, APKs, generated native libraries, dependency
-environments, generated configuration, and caches.
+environments, generated configuration, caches, `Benchmark/results/`, and the
+repository-root `work/` directory.
+The benchmark source and documentation remain in the ZIP; raw measurements
+are distributed through CI's separate performance artifact bundle. This
+exclusion also applies to local packaging and does not remove working files.
 
 ## Feature contracts
 

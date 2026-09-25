@@ -20,24 +20,25 @@ type Window struct {
 	End   string `json:"end"`
 }
 type Config struct {
-	Version        int       `json:"version"`
-	Enabled        bool      `json:"enabled"`
-	Role           string    `json:"role"`
-	ListenHost     string    `json:"listen_host"`
-	ListenPort     int       `json:"listen_port"`
-	Upstream       string    `json:"upstream"`
-	Upstreams      []string  `json:"upstreams"`
-	RemoteHost     string    `json:"remote_host"`
-	RemoteHosts    []string  `json:"remote_hosts"`
-	LoadBalance    string    `json:"load_balance"`
-	PrivateKey     string    `json:"private_key"`
-	PeerPublicKeys []string  `json:"peer_public_keys"`
-	Protocol       []string  `json:"protocol"`
-	OpenMode       string    `json:"open_mode"`
-	AllowedCIDRs   []string  `json:"allowed_cidrs"`
-	Windows        []Window  `json:"windows"`
-	MTD            MTDConfig `json:"mtd"`
-	Limits         Limits    `json:"limits"`
+	Version             int       `json:"version"`
+	Enabled             bool      `json:"enabled"`
+	Role                string    `json:"role"`
+	ListenHost          string    `json:"listen_host"`
+	ListenPort          int       `json:"listen_port"`
+	Upstream            string    `json:"upstream"`
+	Upstreams           []string  `json:"upstreams"`
+	RemoteHost          string    `json:"remote_host"`
+	RemoteHosts         []string  `json:"remote_hosts"`
+	LoadBalance         string    `json:"load_balance"`
+	PrivateKey          string    `json:"private_key"`
+	PeerPublicKeys      []string  `json:"peer_public_keys"`
+	Protocol            []string  `json:"protocol"`
+	OpenMode            string    `json:"open_mode"`
+	AllowedCIDRs        []string  `json:"allowed_cidrs"`
+	Windows             []Window  `json:"windows"`
+	MTD                 MTDConfig `json:"mtd"`
+	PublicAutoAdmission bool      `json:"public_auto_admission,omitempty"`
+	Limits              Limits    `json:"limits"`
 }
 type MTDConfig struct {
 	Enabled       bool `json:"enabled"`
@@ -68,6 +69,9 @@ func loadConfig(path string) (Config, error) {
 	return c, validateConfig(c)
 }
 func validateConfig(c Config) error {
+	if c.PublicAutoAdmission && c.MTD.Enabled {
+		return errors.New("public automatic-admission Broker paths must disable MTD")
+	}
 	if c.Version != 1 {
 		return errors.New("version must be 1")
 	}

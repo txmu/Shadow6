@@ -4,6 +4,15 @@ Gate is an independently built TCP/UDP path to a Broker. It is included by
 default but refuses to run until a strict configuration sets `enabled:true`.
 It never loads into either Core and does not replace Qubes/qrexec isolation.
 
+Set `public_auto_admission:true` when this Gate fronts a public Broker that
+automatically admits tenants or has anonymous admission listeners. Such a
+configuration rejects `mtd.enabled:true` at startup, including when Gate itself
+is disabled. Public6 provisioning sets the marker from the Broker tenant and
+listener policy. Independently managed deployments must declare the same
+policy explicitly; Gate cannot inspect an unrelated upstream process. Private
+deployments retain optional MTD. Authentication and resource bounds still apply
+to every admitted connection.
+
 TCP peers mutually authenticate with Ed25519, establish ephemeral X25519 keys,
 and protect bounded frames with AES-GCM. UDP datagrams carry an Ed25519 identity,
 timestamp and cryptographic nonce; use the Broker's encrypted transport or

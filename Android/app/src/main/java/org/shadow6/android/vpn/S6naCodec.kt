@@ -13,6 +13,10 @@ class S6naCodec(master: ByteArray, private val payloadLimit: Int, side: Int) {
     private val tx = derive(master, side)
     private val rx = derive(master, 1 - side)
     private var sequence = 0L
+    private var highestReceived = -1L
+    private val received = LongArray(1024) { -1L }
+    private val encryptor = Cipher.getInstance("ChaCha20-Poly1305")
+    private val decryptor = Cipher.getInstance("ChaCha20-Poly1305")
 
     private fun derive(key: ByteArray, direction: Int): ByteArray = Mac.getInstance("HmacSHA256").run {
         init(SecretKeySpec(key, "HmacSHA256")); doFinal("shadow6-network-v1:".toByteArray() + direction.toByte())
@@ -21,9 +25,10 @@ class S6naCodec(master: ByteArray, private val payloadLimit: Int, side: Int) {
         .digest("shadow6-network-nonce-v1".toByteArray() + header).copyOf(12)
     fun encode(packet: ByteArray): ByteArray {
         require(packet.isNotEmpty() && packet.size <= payloadLimit)
+        check(sequence < Long.MAX_VALUE) { "VPN sequence exhausted; establish a fresh session" }
         val header = ByteBuffer.allocate(32).put("S6NA".toByteArray()).put(1.toByte()).put(1.toByte()).putShort(0.toShort())
             .putLong(0L).putLong(sequence++).putShort(0.toShort()).putShort(1.toShort()).putInt(packet.size).array()
-        val cipher = Cipher.getInstance("ChaCha20-Poly1305")
+        val cipher = encryptor
         cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(tx, "ChaCha20"), IvParameterSpec(nonce(header)))
         cipher.updateAAD(header)
         return header + cipher.doFinal(packet)
@@ -34,11 +39,19 @@ class S6naCodec(master: ByteArray, private val payloadLimit: Int, side: Int) {
         val magic = ByteArray(4); input.get(magic)
         require(magic.contentEquals("S6NA".toByteArray()) && input.get().toInt() == 1 && input.get().toInt() == 1)
         require(input.short.toInt() == 0 && input.long == 0L)
-        input.long; require(input.short.toInt() == 0 && input.short.toInt() == 1)
-        val length = input.int; require(length == frame.size - 48)
-        val cipher = Cipher.getInstance("ChaCha20-Poly1305")
+        val message = input.long
+        require(message >= 0 && message > highestReceived - received.size)
+        val slot = (message % received.size).toInt()
+        require(received[slot] != message) { "replayed VPN frame" }
+        require(input.short.toInt() == 0 && input.short.toInt() == 1)
+        val length = input.int; require(length > 0 && length == frame.size - 48)
+        val cipher = decryptor
         cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(rx, "ChaCha20"), IvParameterSpec(nonce(header)))
         cipher.updateAAD(header)
-        return cipher.doFinal(frame.copyOfRange(32, frame.size))
+        val packet = cipher.doFinal(frame.copyOfRange(32, frame.size))
+        // Authentication precedes replay-state updates, including high values.
+        received[slot] = message
+        highestReceived = maxOf(highestReceived, message)
+        return packet
     }
 }

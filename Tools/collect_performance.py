@@ -3,6 +3,7 @@
 import argparse
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import stat
@@ -10,9 +11,73 @@ import tempfile
 import zipfile
 
 
+REPORT_SCHEMAS = {
+    "shadow6.iperf3-matrix.v1", "shadow6.iperf-chain.v1",
+    "shadow6.benchmark.v2", "shadow6.component-benchmark.v1",
+}
+
+
+def measurements(path, relative):
+    """Retain each workload separately; never infer rates from startup times."""
+    if path.suffix != ".json":
+        return []
+    try:
+        report = json.loads(path.read_text(encoding="utf-8"))
+    except (ValueError, UnicodeError):
+        return []  # Incomplete raw diagnostics are still included and hashed.
+    if not isinstance(report, dict) or report.get("schema") not in REPORT_SCHEMAS:
+        return []
+    rows = report.get("results")
+    if not isinstance(rows, list):
+        raise ValueError(f"invalid benchmark results: {relative}")
+    normalized = []
+    for index, row in enumerate(rows):
+        if not isinstance(row, dict):
+            raise ValueError(f"invalid benchmark row: {relative}#{index}")
+        network = row.get("network") or row.get("metrics") or row
+        rate = network.get("throughput_bps", row.get("receiver_bps"))
+        if rate is not None and (type(rate) not in (int, float) or not math.isfinite(rate) or rate < 0):
+            raise ValueError(f"invalid throughput: {relative}#{index}")
+        dimensions = {key: row[key] for key in (
+            "core", "component", "backend", "measurement", "protocol", "direction",
+            "family", "streams", "baseline", "concurrency", "payload_bytes",
+            "loss_percent", "reorder", "repeat") if key in row}
+        for key in ("concurrency", "payload_bytes", "impairment", "duration_scope"):
+            if key in network:
+                dimensions[key] = network[key]
+        normalized.append({"source": relative, "row": index, "schema": report["schema"],
+                           "environment": report.get("environment", {}), "workload": dimensions,
+                           "status": row.get("status", "unknown"), "throughput_bps": rate,
+                           "target_met": row.get("target_met"), "reason": row.get("reason")})
+    return normalized
+
+
+def measurement_summary(rows):
+    # One row per report; no cross-platform or cross-workload throughput sum.
+    reports = {}
+    for row in rows:
+        counts = reports.setdefault(row["source"], {"ok": 0, "failed": 0, "other": 0, "rates": 0, "below": 0})
+        status = row["status"]
+        counts[status if status in ("ok", "failed") else "other"] += 1
+        counts["rates"] += row["throughput_bps"] is not None
+        counts["below"] += row["target_met"] is False
+    lines = ["", "## Final benchmark summary", "",
+             "Every measured rate and its workload/platform dimensions are in `measurements.json`.",
+             "Rates retain their original scope and are never summed across workloads or architectures.",
+             "Other statuses include unsupported and incomplete cases; they are not passes.", "",
+             "| Report | OK | Failed | Other | Rate samples | Below target |",
+             "|---|---:|---:|---:|---:|---:|"]
+    for name, counts in sorted(reports.items()):
+        safe = name.replace("|", "\\|").replace("\n", " ").replace("\r", " ")
+        lines.append(f"| {safe} | {counts['ok']} | {counts['failed']} | {counts['other']} | {counts['rates']} | {counts['below']} |")
+    if not reports:
+        lines.append("No recognized benchmark reports were available.")
+    return lines
+
+
 def expected_artifacts():
     names = {"shadow6-linux-network-benchmark", "shadow6-linux-arm64-network-benchmark",
-             "shadow6-linux-iperf-chain"}
+             "shadow6-linux-iperf-chain", "shadow6-iperf3-omnios-x86-64"}
     names.update(f"shadow6-idris-network-benchmark-{platform}" for platform in
                  ("ubuntu-latest", "ubuntu-24.04-arm", "macos-latest"))
     for platform, arches in (("linux", ("x86_64", "arm64")),
@@ -41,7 +106,7 @@ def collect(source, output, needs, summary):
                 "run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT"),
                 "commit": os.environ.get("GITHUB_SHA"),
                 "jobs": needs, "artifacts": []}
-    files, total = [], 0
+    files, total, samples = [], 0, []
     for artifact in sorted(source.iterdir()):
         if artifact.is_symlink() or not artifact.is_dir():
             raise ValueError("expected artifact directories")
@@ -63,6 +128,9 @@ def collect(source, output, needs, summary):
                     digest.update(block)
             entry["files"].append({"path": relative, "bytes": size, "sha256": digest.hexdigest()})
             files.append((path, "artifacts/" + relative))
+            samples.extend(measurements(path, relative))
+            if len(samples) > 100000:
+                raise ValueError("performance measurement count exceeds 100000")
         manifest["artifacts"].append(entry)
     manifest["missing_artifacts"] = sorted(expected_artifacts() - {
         entry["name"] for entry in manifest["artifacts"] if entry["files"]})
@@ -82,8 +150,9 @@ def collect(source, output, needs, summary):
     if manifest["missing_artifacts"]:
         lines += ["", "Expected performance artifacts without data:", ""]
         lines += [f"- `{name}`" for name in manifest["missing_artifacts"]]
-    lines += ["", "Android and extra Unix component builds do not currently emit performance measurements.",
+    lines += ["", "Android, DragonFly and QEMU component builds do not currently emit performance measurements; OmniOS emits a host iperf3 matrix.",
               "See manifest.json for file hashes and all producer outcomes; this bundle is not a throughput pass certificate."]
+    lines += measurement_summary(samples)
     markdown = "\n".join(lines) + "\n"
     # Stage atomically outside the input tree; no archive member is extracted.
     with tempfile.TemporaryDirectory(prefix="shadow6-performance-", dir=output.parent) as temp:
@@ -91,6 +160,8 @@ def collect(source, output, needs, summary):
         with zipfile.ZipFile(staged, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as archive:
             archive.writestr("manifest.json", json.dumps(manifest, indent=2) + "\n")
             archive.writestr("SUMMARY.md", markdown)
+            archive.writestr("measurements.json", json.dumps({
+                "schema": "shadow6.performance-measurements.v1", "results": samples}, indent=2) + "\n")
             for path, relative in files:
                 archive.write(path, relative)
         staged.replace(output)

@@ -4,6 +4,7 @@ import json
 import asyncio
 import io
 import stat
+import zipfile
 import subprocess
 import sys
 import tempfile
@@ -19,6 +20,22 @@ CONTROL = Path(__file__).with_name("shadow6_control.py")
 
 
 class ControlCenterTests(unittest.TestCase):
+    def test_interface_plan_is_read_only(self):
+        self.assertFalse(control.METHOD_SPECS["network.interface_plan"]["mutating"])
+        result=dispatch("network.interface_plan", {"name":"tun90","owner":1000})
+        self.assertEqual(result["schema"],"shadow6.interface-plan.v1")
+        with self.assertRaises(ValueError):
+            dispatch("network.interface_plan", {"name":"tun90","owner":1000,"apply":True})
+
+    def test_performance_summary_reads_zip_without_extraction(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path=Path(temp)/"performance.zip"
+            with zipfile.ZipFile(path,"w") as archive:
+                archive.writestr("SUMMARY.md","# Results\n1 failed workload\n")
+                archive.writestr("../not-extracted","unused")
+            result=dispatch("performance.summary",{"bundle":str(path)})
+            self.assertIn("1 failed",result["summary"])
+            self.assertEqual(list(Path(temp).iterdir()),[path])
     def test_abc_control_session_is_monotonic_and_replay_protected(self):
         session = control.ABCControlSession(ttl=10)
         self.assertEqual(session.advance("B", 1)["phase"], "B")

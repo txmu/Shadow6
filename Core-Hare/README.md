@@ -10,6 +10,11 @@ the default build detects the toolchain. `BUILD_HARE=1` requires it and fails
 early when it is missing; `BUILD_HARE=0` disables both build and installation.
 The multiplatform Linux release job provisions a pinned toolchain and requires
 the native binary and its feature/configuration tests with `make test-hare`.
+FreeBSD x86-64 CI builds the same pinned Hare 0.24.2 toolchain using its native
+FreeBSD configuration, then runs the contract, admission and reliability tests
+and the native ABC benchmark. FreeBSD ARM64 remains an explicit toolchain
+boundary: the pinned backend does not support that target. Linux linker flags
+are not imposed on the FreeBSD build.
 
 The runtime has native `broker`, `agent` and `client` roles. Legacy two-endpoint
 configuration remains supported. Generate each
