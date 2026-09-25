@@ -78,13 +78,14 @@ static int idris_chain_broker(const struct sockaddr_in *bind_sa,
         struct sockaddr_in source; socklen_t sl=sizeof source;
         ssize_t n=recvfrom(fd,frame,sizeof frame,0,(struct sockaddr *)&source,&sl);
         const struct sockaddr_in *destination=NULL;
+        int admission_frame=0;
         if (phase==0 && same_addr(&source,client) && n==132) {
             if (memcmp(frame,"S6I3",4) || crypto_sign_verify_detached(frame+68,frame,68,pins+32)) continue;
-            memcpy(challenge,frame,68);phase=1;destination=agent;
+            memcpy(challenge,frame,68);phase=1;destination=agent;admission_frame=1;
         } else if (phase==1 && same_addr(&source,agent) && n==196) {
             if (sodium_memcmp(challenge,frame,68) || memcmp(frame+68,"S6I3",4) ||
                 crypto_sign_verify_detached(frame+132,frame,132,pins+64)) continue;
-            phase=2;destination=client;
+            phase=2;destination=client;admission_frame=1;
         } else if (phase==2 && n>50 && n<=IDRIS_NATIVE_FRAME && !memcmp(frame,"S6I2",4) &&
                    frame[4]==2 && frame[6]<=1 && !frame[7] &&
                    n==50+(ssize_t)(((unsigned)frame[32]<<8)|frame[33])) {
@@ -118,6 +119,9 @@ static int idris_chain_broker(const struct sockaddr_in *bind_sa,
         if (!destination) continue;
         if (sendto(fd,frame,(size_t)n,0,(const struct sockaddr *)destination,sizeof *destination)!=n) goto done;
         activity=now;
+        /* Preserve the broker's established limit accounting: both signed
+         * admission frames consume the same forwarding budget as data. */
+        if (admission_frame && forwarded<limit) ++forwarded;
     }
     rc=(int)forwarded;
 done:
