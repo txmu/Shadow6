@@ -22,6 +22,7 @@ jobs:
       - name: Build and stage a zero-Core installation
         run: |
           set -euo pipefail
+          source .venv/bin/activate
           ./configure --disable-cores
           stage_dir="$(mktemp -d /tmp/shadow6-coreless.XXXXXX)"
           trap 'rm -rf -- "$stage_dir"' EXIT
