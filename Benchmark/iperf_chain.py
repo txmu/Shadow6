@@ -30,17 +30,32 @@ sys.path.insert(0, str(ROOT / 'integration'))
 from stack_test import CORE_BINARIES, DATAGRAM_CORES, run_engine
 
 
-def receiver_result(document, datagram):
+def receiver_result(document, datagram, *, reverse):
     if document.get('error'):
         raise ValueError(document['error'])
-    # Never substitute UDP's legacy sum, which can describe the sender.
-    receiver = document['end']['sum_received']
+    # Read the receiving endpoint's own report. In forward TCP reports iperf
+    # can label the client's remote sum_received with the client's sender flag;
+    # forward UDP can also carry a loss percentage using the sender's count.
+    # --get-server-output supplies the server's authoritative forward metrics.
+    report = document if reverse else document['server_output_json']
+    if report.get('error'):
+        raise ValueError(report['error'])
+    receiver = dict(report['end']['sum_received'])
     bps = receiver.get('bits_per_second')
     if type(bps) not in (int, float) or not math.isfinite(bps) or bps <= 0 or receiver.get('sender') is not False:
         raise ValueError('missing or invalid receiver throughput')
     loss = receiver.get('lost_percent', 0 if not datagram else None)
     if type(loss) not in (int, float) or not math.isfinite(loss) or not 0 <= loss <= 100:
         raise ValueError('missing or invalid receiver loss')
+    if datagram:
+        packets, lost = receiver.get('packets'), receiver.get('lost_packets')
+        if type(packets) is not int or type(lost) is not int or not 0 <= lost <= packets or packets <= 0:
+            raise ValueError('missing or invalid receiver packet counts')
+        # Some iperf versions divide even the receiving client's loss by the
+        # remote sender count. Use the receiver's observed sequence range.
+        receiver['reported_lost_percent'] = loss
+        loss = 100 * lost / packets
+        receiver['lost_percent'] = loss
     return receiver, bps >= 1_000_000_000 and loss <= 0.1
 
 
@@ -203,8 +218,9 @@ def measure(endpoint, target, processes, seconds, reverse, rate, baseline=False)
     if result.returncode or document.get('error'):
         raise RuntimeError(document.get('error', result.stderr.decode(errors='replace')))
     end = document['end']
-    receiver, target_met = receiver_result(document, target.datagram)
+    receiver, target_met = receiver_result(document, target.datagram, reverse=reverse)
     return {'status': 'ok', 'receiver_bps': receiver['bits_per_second'], 'receiver': receiver,
+            'receiver_report': 'client' if reverse else 'server_output_json',
             'elapsed_seconds': elapsed, 'roles_before': before, 'roles_after': after,
             'fixture_errors': front.errors, 'command': command,
             'retransmits': end.get('sum_sent', {}).get('retransmits'),
