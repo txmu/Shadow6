@@ -9,6 +9,32 @@ on:
   pull_request:
   workflow_dispatch:
 jobs:
+  standalone-coreless:
+    name: Zero-Core security components and protocol adapters
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare Python dependencies
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install -r requirements.txt
+      - name: Build and stage a zero-Core installation
+        run: |
+          set -euo pipefail
+          ./configure --disable-cores
+          stage_dir="$(mktemp -d /tmp/shadow6-coreless.XXXXXX)"
+          trap 'rm -rf -- "$stage_dir"' EXIT
+          make install PYTHON="$PWD/.venv/bin/python" DESTDIR="$stage_dir" PREFIX=/usr/local
+          prefix="$stage_dir/usr/local"
+          for core in go rust cpp gleam pony zig hare ada carp d nim idris; do
+            test ! -e "$prefix/bin/shadow6-$core"
+            test ! -e "$prefix/share/shadow6/tree/Core-${core^}/shadow6-$core"
+          done
+          "$prefix/bin/shadow6" standalone gate --feature-report
+          "$prefix/bin/shadow6" standalone security doctor --standalone --root "$prefix" --component guard --component gate --component detector --component security
+          "$prefix/bin/shadow6" openai-tools >/dev/null
+          "$prefix/bin/shadow6" --json-events mcp </dev/null >/dev/null
   python-network-runtime:
     name: Python networking (${{ matrix.os }}, ${{ matrix.python }}, GIL=${{ matrix.gil }})
     runs-on: ${{ matrix.os }}

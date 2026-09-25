@@ -9,6 +9,8 @@ BUILD_ZIG ?= 0
 BUILD_HARE ?= $(if $(shell command -v hare 2>/dev/null),1,0)
 BUILD_ADA ?= 0
 BUILD_CARP ?= $(if $(or $(wildcard .tools/carp-v0.5.5-x86_64-linux/bin/carp),$(CARP)),1,0)
+BUILD_D ?= 0
+BUILD_NIM ?= 0
 ADA_CROSED_LEVEL ?= 0
 export ADA_CROSED_LEVEL
 BUILD_RELAY ?= 1
@@ -159,7 +161,7 @@ ifeq ($(BUILD_HARE),1)
 endif
 
 core-carp:
-	@if test -x .tools/carp-v0.5.5-x86_64-linux/bin/carp || test -n "$(CARP)" || test "$(CARP_GENERATED)" = 1; then bash Core-Carp/compile.sh; else echo 'Core-Carp disabled: provision Carp 0.5.5 explicitly'; fi
+	@if test "$(BUILD_CARP)" = 1 && { test -x .tools/carp-v0.5.5-x86_64-linux/bin/carp || test -n "$(CARP)" || test "$(CARP_GENERATED)" = 1; }; then bash Core-Carp/compile.sh; else echo 'Core-Carp disabled'; fi
 
 test-carp:
 	@bash Core-Carp/compile.sh
@@ -460,7 +462,7 @@ package:
 
 install: build
 	@install -d "$(DESTDIR)$(PREFIX)/bin"
-	@if test -x Core-Carp/shadow6-carp; then install -m 0755 Core-Carp/shadow6-carp "$(DESTDIR)$(PREFIX)/bin/shadow6-carp"; fi
+	@if test "$(BUILD_CARP)" = 1 && test -x Core-Carp/shadow6-carp; then install -m 0755 Core-Carp/shadow6-carp "$(DESTDIR)$(PREFIX)/bin/shadow6-carp"; fi
 ifeq ($(BUILD_HARE),1)
 	@install -m 0755 Core-Hare/shadow6-hare "$(DESTDIR)$(PREFIX)/bin/shadow6-hare"
 endif
@@ -504,7 +506,8 @@ endif
 	@install -m 0644 Network-Adapter/shadow6_network.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/"
 	@install -m 0644 Network-Adapter/shadow6_network.mjs "$(DESTDIR)$(PREFIX)/share/shadow6/modules/"
 	@install -m 0644 Network-Adapter/secure_key_windows.ps1 "$(DESTDIR)$(PREFIX)/share/shadow6/modules/"
-	@for name in d nim pony hare carp; do \
+	@for entry in d:$(BUILD_D) nim:$(BUILD_NIM) pony:$(BUILD_PONY) hare:$(BUILD_HARE) carp:$(BUILD_CARP); do \
+		name=$${entry%%:*}; enabled=$${entry#*:}; test "$$enabled" = 1 || continue; \
 		case "$$name" in d) directory=D;; nim) directory=Nim;; pony) directory=Pony;; hare) directory=Hare;; carp) directory=Carp;; esac; \
 		if test -x "Core-$$directory/shadow6-$$name"; then install -m 0755 "Core-$$directory/shadow6-$$name" "$(DESTDIR)$(PREFIX)/bin/"; fi; \
 	done
@@ -512,17 +515,18 @@ endif
 # feature-contract checks require them, so an installation that omits them
 # cannot satisfy its own verification.
 	@for variant in \
-		go:Go:-crosed go:Go:-public6 rust:Rust:-crosed rust:Rust:-public6 \
-		gleam:Gleam:-crosed ada:Ada:-crosed nim:Nim:-crosed pony:Pony:-crosed \
-		idris:Idris:-crosed idris:Idris:-public6; do \
-		name=$${variant%%:*}; rest=$${variant#*:}; directory=$${rest%%:*}; suffix=$${rest#*:}; \
+		go:Go:-crosed:$(BUILD_GO) go:Go:-public6:$(BUILD_GO) rust:Rust:-crosed:$(BUILD_RUST) rust:Rust:-public6:$(BUILD_RUST) \
+		gleam:Gleam:-crosed:$(BUILD_GLEAM) ada:Ada:-crosed:$(BUILD_ADA) nim:Nim:-crosed:$(BUILD_NIM) pony:Pony:-crosed:$(BUILD_PONY) \
+		idris:Idris:-crosed:$(BUILD_IDRIS) idris:Idris:-public6:$(BUILD_IDRIS); do \
+		name=$${variant%%:*}; rest=$${variant#*:}; directory=$${rest%%:*}; rest=$${rest#*:}; suffix=$${rest%%:*}; enabled=$${rest#*:}; \
+		test "$$enabled" = 1 || continue; \
 		source="Core-$$directory/shadow6-$$name$$suffix"; \
 		if test -x "$$source"; then install -m 0755 "$$source" "$(DESTDIR)$(PREFIX)/bin/shadow6-$$name$$suffix"; fi; \
 	done
 # The generated Idris launcher adds only its own directory to the loader path,
 # so the sodium FFI library ships beside the compiled image to keep the
 # installed Core-Idris self-contained.
-	@for launcher in Core-Idris/shadow6-idris Core-Idris/shadow6-idris-crosed; do \
+	@if test "$(BUILD_IDRIS)" = 1; then for launcher in Core-Idris/shadow6-idris Core-Idris/shadow6-idris-crosed; do \
 		if test -x "$$launcher"; then \
 			install -m 0755 "$$launcher" "$(DESTDIR)$(PREFIX)/bin/"; \
 			app="$${launcher}_app"; \
@@ -535,7 +539,7 @@ endif
 				fi; \
 			fi; \
 		fi; \
-	done
+	done; fi
 	@install -m 0755 Online-Repository/shadow6_repo.py "$(DESTDIR)$(PREFIX)/bin/shadow6-repo"
 	@install -m 0755 Gate/portmap.py "$(DESTDIR)$(PREFIX)/bin/shadow6-portmap"
 	@install -d -m 0755 "$(DESTDIR)$(PREFIX)/share/shadow6/i18n"
@@ -621,8 +625,8 @@ ifeq ($(BUILD_PUBLIC6),1)
 	@install -m 0644 Public6/README.md "$(DESTDIR)$(PREFIX)/share/shadow6/public6/README.md"
 	@install -m 0644 Public6/virtual-broker.example.json "$(DESTDIR)$(PREFIX)/share/shadow6/public6/virtual-broker.example.json"
 	@install -m 0644 Public6/virtual-peer.example.json "$(DESTDIR)$(PREFIX)/share/shadow6/public6/virtual-peer.example.json"
-	@if test -f Core-Go/shadow6-go-public6; then install -m 0755 Core-Go/shadow6-go-public6 "$(DESTDIR)$(PREFIX)/bin/shadow6-go-public6"; fi
-	@if test -f Core-Rust/shadow6-rust-public6; then install -m 0755 Core-Rust/shadow6-rust-public6 "$(DESTDIR)$(PREFIX)/bin/shadow6-rust-public6"; fi
+	@if test "$(BUILD_GO)" = 1 && test -f Core-Go/shadow6-go-public6; then install -m 0755 Core-Go/shadow6-go-public6 "$(DESTDIR)$(PREFIX)/bin/shadow6-go-public6"; fi
+	@if test "$(BUILD_RUST)" = 1 && test -f Core-Rust/shadow6-rust-public6; then install -m 0755 Core-Rust/shadow6-rust-public6 "$(DESTDIR)$(PREFIX)/bin/shadow6-rust-public6"; fi
 endif
 ifeq ($(BUILD_COMPLIANCE),1)
 	@echo "Compliance changes require explicit manual execution; see 中国内地用户必须执行.sh"
@@ -632,7 +636,10 @@ endif
 	@echo "Installed the Shadow6 tree at $(DESTDIR)$(PREFIX)/share/shadow6/tree"
 
 install-tree:
-	@bash Tools/install_tree.sh "$(DESTDIR)$(PREFIX)/share/shadow6/tree"
+	@bash Tools/install_tree.sh "$(DESTDIR)$(PREFIX)/share/shadow6/tree" \
+		"Go:$(BUILD_GO)" "Rust:$(BUILD_RUST)" "Cpp:$(BUILD_CPP)" "Gleam:$(BUILD_GLEAM)" \
+		"Pony:$(BUILD_PONY)" "Zig:$(BUILD_ZIG)" "Hare:$(BUILD_HARE)" "Ada:$(BUILD_ADA)" \
+		"Carp:$(BUILD_CARP)" "D:$(BUILD_D)" "Nim:$(BUILD_NIM)" "Idris:$(BUILD_IDRIS)"
 
 clean:
 	@rm -f Core-Hare/shadow6-hare Core-Go/shadow6-go Core-Go/shadow6-go-crosed Core-Go/shadow6-go-public6 Core-Rust/shadow6-rust Core-Rust/shadow6-rust-crosed Core-Rust/shadow6-rust-public6 Core-Gleam/shadow6-gleam Core-Gleam/shadow6-gleam-crosed Core-Cpp/shadow6-cpp C11Relay/bridge_relay C11Relay/c11relay_test Guard/shadow6-guard Gate/shadow6-gate

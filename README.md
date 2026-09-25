@@ -284,3 +284,19 @@ periodic operational review.
 
 See the [network reliability and Python runtime review](docs/network-runtime-review-2026-09.md) for
 GIL-mode coverage, measured performance scope and remaining platform limits.
+# Security components without Cores
+
+Use `./configure --disable-cores` before `make install` to install Guard, Gate,
+Detector, Security Assistant, and the other selected components with zero Core
+binaries. The installed tree filters out stale Core executables from an earlier
+build. Gate still starts disabled until an operator explicitly enables its
+configuration.
+
+The unified CLI accepts `shadow6 standalone guard`, `shadow6 standalone gate`,
+`shadow6 standalone detector`, and `shadow6 standalone security` with the
+component's normal arguments. For an external installation prefix, run
+`shadow6 standalone security doctor --standalone --root /path/to/prefix
+--component guard --component gate --component detector --component security`.
+This mode checks only the selected executable entry points; use the regular
+`doctor` for a complete Shadow6 deployment audit. A copied CLI can also route
+to companion `shadow6-*` binaries beside it without a Shadow6 source tree.
