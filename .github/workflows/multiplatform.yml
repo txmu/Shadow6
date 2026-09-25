@@ -36,6 +36,36 @@ jobs:
           "$prefix/bin/shadow6" standalone security doctor --standalone --root "$prefix" --component guard --component gate --component detector --component security
           "$prefix/bin/shadow6" openai-tools >/dev/null
           "$prefix/bin/shadow6" --json-events mcp </dev/null >/dev/null
+      - name: Check modern and legacy tool protocol contracts
+        run: |
+          source .venv/bin/activate
+          python3 - <<'PY'
+          import json
+          import subprocess
+          from pathlib import Path
+          root = Path.cwd()
+          cli = root / 'CLI/shadow6.py'
+          metadata = {'io.modelcontextprotocol/protocolVersion': '2026-07-28',
+                      'io.modelcontextprotocol/clientCapabilities': {}}
+          requests = [
+              {'jsonrpc': '2.0', 'id': 1, 'method': 'server/discover', 'params': {'_meta': metadata}},
+              {'jsonrpc': '2.0', 'id': 2, 'method': 'tools/list', 'params': {'_meta': metadata}},
+              {'jsonrpc': '2.0', 'id': 3, 'method': 'tools/call',
+               'params': {'_meta': metadata, 'name': 'shadow6_privacy_report', 'arguments': {}}},
+          ]
+          process = subprocess.run(['python3', str(cli), '--json-events', 'mcp'],
+                                   input=''.join(json.dumps(item) + '\n' for item in requests),
+                                   text=True, capture_output=True, check=True, timeout=20)
+          replies = [json.loads(line) for line in process.stdout.splitlines()]
+          assert len(replies) == 3
+          assert replies[0]['result']['supportedVersions'][0] == '2026-07-28'
+          assert replies[1]['result']['resultType'] == 'complete'
+          assert replies[2]['result']['structuredContent']['profile'] == 'aggregate-only'
+          tools = json.loads(subprocess.check_output(['python3', str(cli), 'openai-tools'], text=True))
+          by_name = {tool['name']: tool for tool in tools}
+          assert by_name['shadow6_privacy_report']['strict'] is True
+          assert by_name['shadow6_system_guide']['parameters']['required'] == ['lang']
+          PY
   python-network-runtime:
     name: Python networking (${{ matrix.os }}, ${{ matrix.python }}, GIL=${{ matrix.gil }})
     runs-on: ${{ matrix.os }}
