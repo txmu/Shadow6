@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -183,6 +184,40 @@ func TestUDPReplayBindingAndBounds(t *testing.T) {
 	}
 	if _, err := udpEnvelope(privateKey(c), make([]byte, 65507), nil); err == nil {
 		t.Fatal("UDP wire size overflow accepted")
+	}
+}
+
+func TestConcurrentUDPVerificationAcceptsNonceOnce(t *testing.T) {
+	c := testConfig(t)
+	state := newGateState(32)
+	packet, err := udpEnvelope(privateKey(c), []byte("concurrent"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := make(chan struct{})
+	results := make(chan bool, 32)
+	var workers sync.WaitGroup
+	now := time.Now()
+	for i := 0; i < cap(results); i++ {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			<-start
+			_, ok := validEnvelope(c, state, packet, nil, now)
+			results <- ok
+		}()
+	}
+	close(start)
+	workers.Wait()
+	close(results)
+	accepted := 0
+	for ok := range results {
+		if ok {
+			accepted++
+		}
+	}
+	if accepted != 1 {
+		t.Fatalf("concurrent replay accepted %d times, want 1", accepted)
 	}
 }
 

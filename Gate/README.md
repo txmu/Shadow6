@@ -9,6 +9,12 @@ and protect bounded frames with AES-GCM. UDP datagrams carry an Ed25519 identity
 timestamp and cryptographic nonce; use the Broker's encrypted transport or
 WireGuard when UDP payload confidentiality is required.
 
+UDP signature verification and upstream transactions share the configured
+bounded concurrency slots. Each admitted datagram owns its buffer, so Go can
+verify signatures concurrently across CPU threads while the listener continues
+receiving. Replay admission remains atomic across workers and port rotations;
+overload drops new datagrams without evicting live replay records.
+
 MTD ports are selected from the configured high range. Each authenticated TCP
 session receives an encrypted current/next-port notice before data forwarding.
 If negotiation is unavailable, all peers independently derive the same port

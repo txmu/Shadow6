@@ -36,8 +36,8 @@ func udpPayloadLimit(c Config) int {
 }
 
 // The cache is shared by listeners and rotations. Entries survive the entire
-// timestamp window, including future-dated packets; a full cache evicts the
-// soonest-expiring entry to preserve service for authenticated peers.
+// timestamp window, including future-dated packets; a full cache rejects new
+// entries until expired records can be reclaimed.
 func (state *gateState) acceptNonce(pub, nonce []byte, timestamp, now int64) bool {
 	var key [48]byte
 	copy(key[:32], pub)
@@ -147,21 +147,26 @@ func runUDP(ctx context.Context, c Config, localPort int, until time.Time, state
 		if n > wireLimit || !allowed(c, src, time.Now()) {
 			continue
 		}
-		packet := buffer[:n]
-		var nonce []byte
-		if c.Role != "client" {
-			payload, ok := validEnvelope(c, state, packet, nil, time.Now())
-			if !ok {
-				continue
-			}
-			nonce = append([]byte(nil), packet[13:29]...)
-			packet = payload
-		}
 		select {
 		case state.slots <- struct{}{}:
-			payload := append([]byte(nil), packet...)
+			// Own the datagram before the listener reuses its buffer. Admission
+			// bounds signature verification as well as upstream transactions.
+			packet := append([]byte(nil), buffer[:n]...)
 			go func() {
 				defer func() { <-state.slots }()
+				if ctx.Err() != nil {
+					return
+				}
+				payload := packet
+				var nonce []byte
+				if c.Role != "client" {
+					var ok bool
+					payload, ok = validEnvelope(c, state, packet, nil, time.Now())
+					if !ok {
+						return
+					}
+					nonce = packet[13:29]
+				}
 				handleUDP(ctx, c, state, pc, src, payload, nonce)
 			}()
 		default:
