@@ -15,6 +15,16 @@ mkdir -p "$output"
 command -v "$emulator"
 export GOOS=linux GOARCH="$goarch" CGO_ENABLED=0
 export QEMU_LD_PREFIX="/usr/$triple"
+cc="$triple-gcc"
+if [[ "$goarch" == loong64 ]]; then cc="$triple-gcc-14"; fi
+# These Go backends require the target C linker for PIE.
+if [[ "$goarch" == riscv64 || "$goarch" == s390x ]]; then
+    export CGO_ENABLED=1 CC="$cc"
+fi
+go_tags=()
+# Go 1.25's MIPS64 XOR assembly faults on unaligned AEAD buffers under
+# QEMU. Use the portable crypto implementation for both products and tests.
+if [[ "$goarch" == mips64le ]]; then go_tags=(purego); fi
 build_flags=(-buildvcs=false -trimpath -ldflags='-s -w -buildid=')
 # Go does not implement PIE for MIPS64; the other Linux targets retain it.
 if [[ "$goarch" != mips64le ]]; then build_flags+=(-buildmode=pie); fi
@@ -22,10 +32,10 @@ for component in Core-Go Gate Guard; do
     case "$component" in Core-Go) name=go ;; Gate) name=gate ;; Guard) name=guard ;; esac
     (
         cd "$root/$component"
-        go build "${build_flags[@]}" -o "$output/shadow6-$name" .
+        go build "${build_flags[@]}" -tags "${go_tags[*]}" -o "$output/shadow6-$name" .
         # binfmt is enabled by the CI setup so tests' child processes also
         # execute as the target architecture, including FIFO-open regressions.
-        go test -buildvcs=false -count=1 -timeout=10m -exec "$emulator" ./...
+        go test -buildvcs=false -tags "${go_tags[*]}" -count=1 -timeout=10m -exec "$emulator" ./...
     )
 done
 "$emulator" "$output/shadow6-go" --feature-report > "$output/go-l0.json"
@@ -34,7 +44,7 @@ done
 (
     cd "$root/Core-Go"
     go build "${build_flags[@]}" \
-        -tags 'crosed,crosed_l5,app_transport' -o "$output/shadow6-go-crosed" .
+        -tags "crosed crosed_l5 app_transport ${go_tags[*]}" -o "$output/shadow6-go-crosed" .
 )
 "$emulator" "$output/shadow6-go-crosed" --feature-report > "$output/go-l5.json"
 python3 - "$output" <<'PY'
@@ -46,8 +56,6 @@ for level in (0, 5):
 assert json.loads((root / "gate.json").read_text())["enabled_by_default"] is False
 PY
 if [[ -n "$triple" ]]; then
-    cc="$triple-gcc"
-    if [[ "$goarch" == loong64 ]]; then cc="$triple-gcc-14"; fi
     (cd "$root/C11Relay" && CC="$cc" bash ./compile.sh)
     mv "$root/C11Relay/bridge_relay" "$output/bridge_relay"
     "$emulator" -L "/usr/$triple" "$output/bridge_relay" --run-tests
@@ -66,5 +74,6 @@ fi
     echo 'relay=compiled-and-tested'
     echo 'performance=not measured; QEMU correctness does not establish native Gbps'
     if [[ "$goarch" == mips64le ]]; then echo 'go-pie=unavailable: Go MIPS64 backend does not implement PIE'; fi
+    if [[ "$goarch" == mips64le ]]; then echo 'go-crypto=purego: avoid unaligned MIPS64 assembly accesses under QEMU'; fi
     echo 'other-cores=not yet covered by this cross-toolchain matrix'
 } > "$output/support.txt"
