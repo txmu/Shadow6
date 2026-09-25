@@ -12,8 +12,11 @@ Modes:
 
 - `normal`: ordinary datagram forwarding.
 - `high-speed`: on Linux, processes up to eight datagrams per `recvmmsg` call
-  in each direction, with one reusable bounded buffer and the same per-peer
-  limits. It uses ordinary UDP sockets and needs no capabilities or root.
+  in each direction and sends a client's queued replies with `sendmmsg`, with
+  one reusable bounded buffer and the same per-peer limits. Partial sends
+  advance only the completed prefix; backpressure drops the unsent remainder
+  with metrics instead of blocking other peers. It uses ordinary UDP sockets
+  and needs no capabilities or root.
   Other supported hosts retain the ordinary receive loop with the same wire
   format.
 - `data-saving`: framed RLE transport. Both ends must be C11Relay instances in

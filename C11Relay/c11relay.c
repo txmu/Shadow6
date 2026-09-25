@@ -71,6 +71,8 @@ typedef struct {
     uint64_t dropped;
 } RelayMetrics;
 
+static size_t datagram_limit(sa_family_t family);
+
 #ifdef __linux__
 /* One bounded, reusable batch; no raw sockets, device access, or capabilities. */
 typedef struct {
@@ -93,6 +95,51 @@ static int receive_batch(int fd, RelayBatch *batch, bool from_client) {
         }
     }
     return recvmmsg(fd, batch->messages, HIGH_SPEED_BATCH, MSG_DONTWAIT | MSG_TRUNC, NULL);
+}
+
+/* High-speed mode preserves raw datagrams, so received buffers can be sent
+ * directly. A partial send consumes only its completed prefix; never resend
+ * that prefix or let a busy/non-writable client block the event loop. */
+static void send_reply_batch(int listener, RelayBatch *batch, int count,
+    RelayPeer *peer, RelayMetrics *metrics, uint64_t now) {
+    struct mmsghdr messages[HIGH_SPEED_BATCH] = {0};
+    struct iovec vectors[HIGH_SPEED_BATCH];
+    unsigned int valid = 0U;
+    for (int item = 0; item < count; ++item) {
+        size_t length = batch->messages[item].msg_len;
+        if (length > MAX_DATAGRAM_BYTES || length > datagram_limit(peer->client_address.ss_family)) {
+            ++metrics->dropped;
+            continue;
+        }
+        vectors[valid].iov_base = batch->payloads[item];
+        vectors[valid].iov_len = length;
+        messages[valid].msg_hdr.msg_iov = &vectors[valid];
+        messages[valid].msg_hdr.msg_iovlen = 1U;
+        messages[valid].msg_hdr.msg_name = &peer->client_address;
+        messages[valid].msg_hdr.msg_namelen = peer->client_length;
+        ++valid;
+    }
+    if (valid == 0U) { return; }
+    peer->last_seen_ms = now;
+    unsigned int sent = 0U, interrupted = 0U;
+    while (sent < valid) {
+        int completed = sendmmsg(listener, messages + sent, valid - sent, MSG_DONTWAIT | MSG_NOSIGNAL);
+        if (completed < 0 && errno == EINTR && ++interrupted < HIGH_SPEED_BATCH) { continue; }
+        if (completed <= 0) {
+            metrics->dropped += valid - sent;
+            break;
+        }
+        for (int item = 0; item < completed; ++item) {
+            unsigned int index = sent + (unsigned int)item;
+            if (messages[index].msg_len != vectors[index].iov_len) {
+                ++metrics->dropped;
+            } else {
+                ++metrics->packets_out;
+                metrics->bytes_out += messages[index].msg_len;
+            }
+        }
+        sent += (unsigned int)completed;
+    }
 }
 #endif
 
@@ -573,6 +620,11 @@ static int run_relay(const RelayConfig *config, RelayMetrics *metrics) {
                     if (received_count == 0) { break; }
                     if (fast_batch != NULL && (size_t)received_count > MAX_BATCH_DATAGRAMS - batch) {
                         received_count = (int)(MAX_BATCH_DATAGRAMS - batch);
+                    }
+                    if (fast_batch != NULL) {
+                        send_reply_batch(listener, fast_batch, received_count, peer, metrics, now);
+                        batch += (size_t)received_count;
+                        continue;
                     }
 #else
                     int received_count = 1;
