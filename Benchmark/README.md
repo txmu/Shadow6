@@ -1,5 +1,18 @@
 # Shadow6 Benchmark
 
+The multiplatform workflow's final Summary job gathers all produced performance
+artifacts from the same workflow run into `shadow6-performance-all`, containing
+`shadow6-performance-all.zip`. It includes native Core/ABC reports, host iperf3
+matrices, Linux adapter/component reports, Idris and ARM64 reports, and Python
+runtime/GIL comparisons. Source artifact directories prevent filename collisions
+across platforms and architectures. `manifest.json` records the commit, run and
+attempt, producer outcomes, file sizes and SHA-256 hashes; `SUMMARY.md` and the
+Actions Summary list available and missing artifacts. Partial results are still
+uploaded after producer failures, and those failures remain visible in CI.
+Android and extra Unix build jobs currently produce no performance measurements.
+The bundle keeps each workload's units and scope; it does not combine host
+ceilings, component microbenchmarks and native end-to-end throughput into one rate.
+
 `benchmark.py` runs fixed, bounded commands for any subset of the twelve cores.
 Use a JSON config to select `cores`, `roles` (`feature-report`, `version`, or
 `network-chain`), `repeats` (1..1000), fixed network load, and optional

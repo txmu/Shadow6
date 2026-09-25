@@ -345,6 +345,13 @@ jobs:
           "$RUNNER_TEMP/idris-network-env/bin/python" Core-Idris/test_security.py
           "$RUNNER_TEMP/idris-network-env/bin/python" integration/test_native_chains.py NativeBrokerTests.test_idris_admission
           "$RUNNER_TEMP/idris-network-env/bin/python" Benchmark/benchmark.py --core idris --role network-chain --payload-bytes 4096 --requests 8 --concurrency 4 --require-network --output idris-network
+      - name: Upload Idris network reports
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: shadow6-idris-network-benchmark-${{ matrix.os }}
+          path: idris-network.*
+          if-no-files-found: warn
       - name: Collect Core-Idris build outputs
         shell: bash
         run: |
@@ -704,11 +711,11 @@ jobs:
       - name: Benchmark both S6NA backends
         run: |
           set -euo pipefail
-          .venv/bin/python Network-Adapter/benchmark_backends.py > /tmp/shadow6-network-adapter-benchmark.json
+          .venv/bin/python Network-Adapter/benchmark_backends.py > benchmark-linux-adapter.json
           .venv/bin/python - <<'PY'
           import json
           from pathlib import Path
-          report = json.loads(Path('/tmp/shadow6-network-adapter-benchmark.json').read_text())
+          report = json.loads(Path('benchmark-linux-adapter.json').read_text())
           assert report['schema'] == 'shadow6.benchmark.v2'
           rows = report['results']
           assert len(rows) == 36
@@ -807,6 +814,13 @@ jobs:
         with:
           name: shadow6-linux-network-benchmark
           path: |
+            benchmark-linux-adapter.json
+            benchmark-linux.json
+            benchmark-linux.txt
+            benchmark-linux.md
+            benchmark-cli-all.json
+            benchmark-cli-all.txt
+            benchmark-cli-all.md
             benchmark-linux-network.json
             benchmark-linux-network.txt
             benchmark-linux-network.md
@@ -1022,6 +1036,13 @@ jobs:
           benchmark_args=()
           for core in "${benchmark_cores[@]}"; do benchmark_args+=(--core "$core"); done
           .venv/bin/python Benchmark/benchmark.py "${benchmark_args[@]}" --role network-chain --repeats 3 --require-network --output benchmark-linux-arm64
+      - name: Upload Linux ARM64 network reports
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: shadow6-linux-arm64-network-benchmark
+          path: benchmark-linux-arm64.*
+          if-no-files-found: warn
       - name: Collect Linux ARM64 support manifest and artifacts
         run: |
           set -euo pipefail
@@ -1843,6 +1864,10 @@ jobs:
     name: Cross-platform support summary
     if: always()
     needs:
+      - python-network-runtime
+      - iperf3-matrix
+      - iperf3-musl
+      - iperf3-bsd
       - node-adapter
       - pony-only
       - idris
@@ -1859,6 +1884,10 @@ jobs:
       - android
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
       - name: Write platform result matrix
         env:
           NODE_ADAPTER: ${{ needs['node-adapter'].result }}
@@ -1908,3 +1937,31 @@ jobs:
           name: shadow6-platform-results
           path: support-summary/platform-results.json
           if-no-files-found: error
+      - name: Download same-run performance reports from every platform
+        if: always()
+        uses: actions/download-artifact@v7
+        with:
+          pattern: '@(shadow6-*network-benchmark*|shadow6-*iperf*|python-network-*)'
+          merge-multiple: false
+          path: performance-input
+      - name: Summarize and package all performance evidence
+        if: always()
+        env:
+          PERFORMANCE_NEEDS: ${{ toJSON(needs) }}
+        run: |
+          python -m unittest discover -s Tools -p test_collect_performance.py
+          python Tools/collect_performance.py --input performance-input --output performance-output/shadow6-performance-all.zip
+      - name: Upload consolidated performance ZIP
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: shadow6-performance-all
+          path: performance-output/shadow6-performance-all.zip
+          compression-level: 0
+          if-no-files-found: error
+      - name: Preserve performance producer failures
+        if: always()
+        env:
+          PERFORMANCE_NEEDS: ${{ toJSON(needs) }}
+        run: |
+          python -c 'import json,os,sys; jobs=json.loads(os.environ["PERFORMANCE_NEEDS"]); sys.exit(any(v["result"] in ("failure","cancelled") for v in jobs.values()))'
