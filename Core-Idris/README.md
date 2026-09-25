@@ -39,7 +39,7 @@ logical streams; neither companion supplies durable replay state across
 restarts. Native roles remain usable without either companion.
 
 The new native three-role mode authenticates fresh X25519 exchanges with pinned
-Ed25519 identities (`S6I2`) and derives the data key from the handshake and a
+Ed25519 identities (`S6I3`) and derives the data key from the handshake and a
 deployment binding. Start broker, agent, then client:
 
 ```sh
@@ -57,17 +57,23 @@ the exact configured peers; it never receives an endpoint private/data key.
 The application listener remains loopback-only. Other bind/peer IPv4 addresses
 must be explicitly configured; host network policy remains the operator's job.
 
+The signed `S6I3` marker is checked in both handshake legs. Chain data and ACKs
+use authenticated `S6I2` version-2 frames; older chain endpoints fail closed,
+while the separate `--native-client`/`--native-agent` legacy contract remains
+unchanged. Each endpoint has a 256-datagram send window, a 256-datagram ordered
+receive buffer, exact-wire retransmission every 200 ms up to eight retries,
+and sequence-bound ACKs after application delivery. ACK authentication pins
+the peer's session identifier just like data authentication. The broker tracks
+bounded per-direction in-flight sequence slots, drains all outstanding ACKs
+after its frame limit, then allows a three-second retransmission grace period.
+
 All three roles are bounded to five minutes and one million loop iterations;
 the explicit limit additionally bounds endpoint transactions/broker forwarded
 frames. Admission expires after five seconds, broker inactivity after 60
 seconds and endpoint inactivity after 30 seconds. Application datagrams remain
 1..1024 bytes; this is one fixed route without multi-client multiplexing.
-Chain endpoints now authenticate a separate ACK frame type, retransmit one
-outstanding data frame every 200 ms up to eight times, and acknowledge
-duplicates without redelivery. The broker forwards ACKs after its data-frame
-limit long enough to finish the last transaction. Retry exhaustion stops the
-session; the legacy `--native-client`/`--native-agent` path above retains its
-original unreliable wire contract. Protocols remain family-specific.
+Chain endpoints acknowledge duplicates without redelivery. Retry exhaustion
+stops the session; protocol families remain wire-incompatible.
 
 The shared `integration/stack_test.py --engine shadow6-idris --benchmark`
 evaluates native, Python and Node.js paths. Actions builds the Idris executable

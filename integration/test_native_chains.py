@@ -47,8 +47,8 @@ class NativeBrokerTests(unittest.TestCase):
                             if time.monotonic() >= deadline:
                                 self.fail("broker readiness timeout")
                             time.sleep(.01)
-                        prefix = b"S6I2" if name == "idris" else b""
-                        hello = prefix + os.urandom(64)
+                        prefix = b"S6I3" if name == "idris" else b"S6W2"
+                        hello = prefix + os.urandom(64 - len(prefix))
                         signed = hello + Ed25519PrivateKey.from_private_bytes(seeds[0]).sign(hello)
                         for rejected in (bytes(len(signed)), signed[:-1]+bytes([signed[-1]^1]), signed+b"x"):
                             c.sendto(rejected, (host, broker))
@@ -57,7 +57,9 @@ class NativeBrokerTests(unittest.TestCase):
                         with self.assertRaises(socket.timeout): a.recv(2048)
                         c.sendto(signed, (host, broker))
                         self.assertEqual(a.recv(2048), signed)
-                        reply = hello + os.urandom(64)
+                        reply_message = bytearray(hello + os.urandom(64))
+                        reply_message[len(hello):len(hello) + 4] = prefix
+                        reply = bytes(reply_message)
                         reply += Ed25519PrivateKey.from_private_bytes(seeds[1]).sign(reply)
                         a.sendto(reply[:-1]+bytes([reply[-1]^1]), (host, broker))
                         with self.assertRaises(socket.timeout): c.recv(2048)

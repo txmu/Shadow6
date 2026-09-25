@@ -32,13 +32,15 @@ state changes only after authentication. Both directions are supported.
 One pinned peer/session is admitted per process, with a five-minute monotonic
 deadline and one-million-iteration bound. Restart both endpoints for a fresh
 session. There is no broker discovery or multi-client multiplexing. The native
-endpoint path now confirms each authenticated application datagram and retries
-one outstanding ciphertext packet at one-second intervals, at most eight times.
-An authenticated reserved length value (65535) distinguishes ACKs from empty
-application datagrams. Duplicates are acknowledged again without redelivery;
-exhaustion ends the bounded session rather than claiming delivery.
-This protocol replaces the old unauthenticated fixed-port receiver and is not
-wire-compatible with it. Native end-to-end tests run with `make test-hare`.
+endpoint path uses a 256-datagram selective-repeat send window and a separate
+256-datagram receive reorder buffer. It retries the exact authenticated packet
+after 200 ms, at most eight times, and ACKs only after ordered delivery to the
+application. Data and ACK counters use separate nonce domains. An authenticated
+reserved length value (65535) distinguishes ACKs from empty application
+datagrams. Duplicates are ACKed again without redelivery; exhausted retries end
+the bounded session. The signed `S6W2` marker appears in both challenge and
+response, so old peers fail closed instead of silently negotiating the changed
+data contract. Native end-to-end tests run with `make test-hare`.
 
 For a three-role path, start a broker, agent and client of this family. The
 client's `target_port` is the broker's `listen_port`; the agent's `target_port`
@@ -50,7 +52,8 @@ remains the application service. The broker configuration contains exactly:
 
 It contains no private or session key. The broker pins both IPv6-loopback
 ports, verifies the client hello and the agent signature over the same fresh
-challenge, then forwards only 1024-byte ciphertext packets. Unknown sources,
+challenge, requires `S6W2` in both signed handshake legs, then forwards only
+1024-byte ciphertext packets. Unknown sources,
 wrong signatures, oversized frames and a second admission fail closed. One
 route is bounded to five minutes/one million iterations; admission expires
 after five seconds and established-route inactivity after 60 seconds.

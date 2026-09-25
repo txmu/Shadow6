@@ -37,7 +37,15 @@
 - Nim：转发循环每次迭代都 sleep(2)，现在只在无进展时休眠；libdatachannel 本身已有线程，Nim 对象仍由其所属线程访问。
 - C++：为 TCP/SCTP socket 设置对应 NODELAY（SCTP 选项在平台提供时启用），既有 16 个会话 worker 上限不变。
 - 测试适配器：TCP carrier 设置 NODELAY，避免 ACK 与回声被小包合并等待放大。
-- Hare/Carp 等原生路径仍有单包待 ACK 限制；提高调度线程数量不能直接消除这个窗口。扩展窗口需要独立的乱序、重放、重传、nonce 和资源边界验证，不能用裸 UDP 替换现有安全协议。
+- 本报告对应的 Hare/Carp/Idris 旧二进制确实是单包待 ACK。后续窗口修复见下节；窗口并发改善链路占用，不代表密码学本身已多线程化。
+
+## 后续窗口修复
+
+Hare、Carp、Idris 的三角色端点各使用 256 个有界发送槽和 256 个有界乱序接收槽，约占半 MiB 缓冲空间。每个槽只保存一个 datagram；发送端缓存已认证的完整 wire frame，按 200 ms 定时原样重传，最多八次。重传队列每 20 ms 扫描一次，避免每个到包都遍历窗口。接收端只在鉴权后入窗、按序交付，并在应用交付成功后发 ACK；窗口外序号拒绝，旧重复帧重新 ACK 而不重复交付。这样能在单个事件循环里容纳更多 RTT 在途帧，但不等价于把 ChaCha/XChaCha 计算并行化。
+
+Hare 与 Carp 的有符号握手在 client hello 和 agent response 都校验 `S6W2`；Idris 使用 `S6I3` 握手标记及 `S6I2`/version 2 数据帧。三角色的旧版对端会在握手阶段失败关闭，避免协商成功后静默解释不同的 ACK/窗口语义。Idris broker 维护每方向 64 项序号状态，在转发数量到限后排空所有在途 ACK，并在无在途帧后保留 3 秒以覆盖有界重传。Idris ACK 也校验并 pin 对端 session ID。传统 legacy 路径仍用旧协议。
+
+更新了 native-chain admission 和丢包回归夹具以识别新签名版本。完整丢包/乱序回归和 iperf3 链路容量仍由 CI 执行；此处没有声明三核或全部十二核达到 Gbps。
 
 ## CI 的新验收
 
@@ -53,7 +61,7 @@ iperf3 的 TCP 控制连接直接走 loopback；测量的数据经过 Core 的�
 
 本地按用户要求仅做轻量验证：D 模块编译、Ada 语义检查、C/C++ 语法检查、Python 编译检查、4 项 receiver 统计单测及各 1 秒的 TCP/UDP 夹具冒烟。完整构建、安全/可靠性回归、性能验收交给 CI。没有本地执行完整 release workflow、变体构建、审计或打包。
 
-截至提交前，不能宣称所有核心已多线程化或全部达到 Gbps。Go/Rust/Gleam/Pony/C++/Zig 已有相应并发运行机制，D/Ada 在此改为双向线程；Hare/Carp/Idris 的原生数据路径以及 Nim 主循环仍需继续设计和验证。安全控制保留，真实性能结论必须等待 CI。
+不能宣称所有核心已多线程化或全部达到 Gbps。Go/Rust/Gleam/Pony/C++/Zig 已有相应并发运行机制，D/Ada 在此改为双向线程；本次 Hare/Carp/Idris 增加的是可靠性窗口，仍由单个数据路径事件循环处理。真实性能结论必须等待 CI 的 receiver-side ABC iperf3 结果。
 
 ## 下载文件 SHA-256
 

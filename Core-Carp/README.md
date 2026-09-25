@@ -78,11 +78,13 @@ Carp schema check and enforce monotonic replay state. The maximum application
 datagram is 986 bytes. One application source, one session and one fixed route
 are supported. Five-minute/one-million-iteration bounds apply; broker admission
 expires after five seconds and route inactivity after 60 seconds. The `T`
-contract now confirms authenticated application datagrams, retransmits one
-outstanding ciphertext packet every 200 ms up to eight times, and acknowledges
-duplicates without redelivery. An authenticated marker in the otherwise-zero
-padding distinguishes ACKs from empty application datagrams. Retry exhaustion
-ends the session; multi-client routing and stream semantics remain unsupported.
+contract now uses a bounded 256-datagram selective-repeat send window and a
+256-datagram reorder buffer. It retransmits each exact authenticated ciphertext
+packet every 200 ms up to eight times, delivers in sequence, and ACKs only after
+application delivery. An authenticated marker in the otherwise-zero padding
+distinguishes ACKs from empty application datagrams; the signed `S6W2` marker is
+required in both handshake legs. Retry exhaustion ends the session; multi-client
+routing and stream semantics remain unsupported.
 
 `integration/stack_test.py --engine shadow6-carp --benchmark` evaluates all
 three backend paths through the real native trio, without stdin/stdout routing

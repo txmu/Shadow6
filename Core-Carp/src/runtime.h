@@ -18,6 +18,14 @@
 /* Three fixed 40-byte headers: 24-byte nonce and 16-byte detached tag.
  * Each layer authenticates its layer index and the full inner envelope. */
 enum { BODY = 1024, HEADER = 40, WIRE = BODY + 3 * HEADER, COMMAND = 28 };
+#define CARP_WINDOW 256u
+struct carp_pending { unsigned char bytes[WIRE]; uint64_t sequence; int64_t retry_at; unsigned retries; int used; };
+struct carp_received { unsigned char bytes[BODY - COMMAND - 10]; size_t length; uint64_t sequence; };
+static struct carp_pending chain_pending[CARP_WINDOW];
+static struct carp_received chain_reordered[CARP_WINDOW];
+static unsigned chain_inflight;
+static uint64_t chain_next_receive = 1;
+static int64_t chain_retry_scan;
 struct packet { unsigned char bytes[WIRE], keys[96]; int valid; };
 static int udp_fd = -1;
 static unsigned char session_keys[96];
@@ -29,11 +37,6 @@ static int application_fd = -1, chain_role;
 static struct sockaddr_in application_peer;
 static unsigned char receive_keys[96];
 static uint64_t send_sequence;
-static struct packet pending_packet;
-static uint64_t pending_sequence;
-static unsigned int pending_attempts;
-static int pending_active;
-static int64_t pending_at;
 /* A=simplex, B=bidirectional, C=full duplex contract.  The mode is
  * authenticated as part of the session transcript and packet AD. */
 static unsigned char link_mode = 'A';
@@ -132,25 +135,44 @@ static int packet_finish(struct packet *p, bool accepted) {
             for (int i = 0; i < 8; ++i) sequence = (sequence << 8) | body[COMMAND + 2 + i];
             if (!sequence) { sodium_memzero(p, sizeof *p); return 2; }
             if (acknowledgement) {
-                if (pending_active && sequence == pending_sequence) {
-                    pending_active = 0; sodium_memzero(&pending_packet, sizeof pending_packet);
+                if (chain_role) {
+                    unsigned slot = (unsigned)(sequence & (CARP_WINDOW - 1));
+                    if (chain_pending[slot].used && chain_pending[slot].sequence == sequence) {
+                        sodium_memzero(&chain_pending[slot], sizeof chain_pending[slot]);
+                        if (!chain_inflight) { sodium_memzero(p, sizeof *p); return 2; }
+                        --chain_inflight;
+                    }
                 }
                 sodium_memzero(p, sizeof *p); return 0;
             }
-            if (chain_role && sequence == previous_sequence) {
-                int acked = chain_ack(sequence);
-                sodium_memzero(p, sizeof *p); return acked ? 2 : 0;
-            }
-            if (sequence <= previous_sequence || (chain_role && sequence != previous_sequence + 1)) ok = 0;
+            if (!chain_role && sequence <= previous_sequence) ok = 0;
         }
         if (ok && chain_role) {
-            if (chain_role == 2) ok = send(application_fd, body + COMMAND + 10, n - 8, 0) == (ssize_t)(n - 8);
-            else ok = application_peer.sin_port && sendto(application_fd, body + COMMAND + 10, n - 8, 0,
-                (struct sockaddr *)&application_peer, sizeof application_peer) == (ssize_t)(n - 8);
+            if (sequence >= chain_next_receive && sequence - chain_next_receive < CARP_WINDOW) {
+                unsigned slot = (unsigned)(sequence & (CARP_WINDOW - 1));
+                if (chain_reordered[slot].sequence && chain_reordered[slot].sequence != sequence) ok = 0;
+                else if (!chain_reordered[slot].sequence) {
+                    chain_reordered[slot].sequence = sequence;
+                    chain_reordered[slot].length = n - 8;
+                    memcpy(chain_reordered[slot].bytes, body + COMMAND + 10, n - 8);
+                }
+                while (ok && chain_reordered[chain_next_receive & (CARP_WINDOW - 1)].sequence == chain_next_receive) {
+                    struct carp_received *item = &chain_reordered[chain_next_receive & (CARP_WINDOW - 1)];
+                    if (chain_role == 2)
+                        ok = send(application_fd, item->bytes, item->length, 0) == (ssize_t)item->length;
+                    else
+                        ok = application_peer.sin_port && sendto(application_fd, item->bytes, item->length, 0,
+                            (struct sockaddr *)&application_peer, sizeof application_peer) == (ssize_t)item->length;
+                    if (!ok || chain_ack(chain_next_receive)) { ok = 0; break; }
+                    sodium_memzero(item, sizeof *item);
+                    ++chain_next_receive;
+                }
+            } else if (sequence < chain_next_receive) {
+                ok = chain_ack(sequence) == 0;
+            }
         } else if (ok) ok = write(STDOUT_FILENO, body + COMMAND + 10, n - 8) == (ssize_t)(n - 8);
-        if (ok) {
+        if (ok && !chain_role) {
             previous_sequence = sequence;
-            if (chain_role && chain_ack(sequence)) ok = 0;
         }
     } else if (ok) ok = fwrite(body + COMMAND + 2, 1, n, stdout) == n && fflush(stdout) == 0;
     sodium_memzero(p, sizeof *p);
@@ -200,15 +222,20 @@ static int establish(int fd, unsigned char *config, int sender) {
     randombytes_buf(eph, 32);
     if (sender) {
         randombytes_buf(request, 32);
+        if (link_mode == 'T') memcpy(request, "S6W2", 4);
         crypto_scalarmult_curve25519_base(request + 32, eph);
         crypto_sign_detached(request + 64, NULL, request, 64, sk);
         if (send(fd, request, 128, 0) != 128 || receive_timeout(fd, in, sizeof in, 5000) != 192) goto done;
-        if (sodium_memcmp(request, in, 64) || crypto_sign_verify_detached(in + 128, in, 128, config + 32)) goto done;
+        if (sodium_memcmp(request, in, 64) ||
+            (link_mode == 'T' && memcmp(in + 64, "S6W2", 4)) ||
+            crypto_sign_verify_detached(in + 128, in, 128, config + 32)) goto done;
         memcpy(reply, in, 192);
         if (crypto_scalarmult_curve25519(shared, eph, reply + 96)) goto done;
     } else {
         if (receive_timeout(fd, in, sizeof in, 30000) != 128 || crypto_sign_verify_detached(in + 64, in, 64, config + 32)) goto done;
+        if (link_mode == 'T' && memcmp(in, "S6W2", 4)) goto done;
         memcpy(reply, in, 64); randombytes_buf(reply + 64, 32);
+        if (link_mode == 'T') memcpy(reply + 64, "S6W2", 4);
         crypto_scalarmult_curve25519_base(reply + 96, eph);
         if (crypto_scalarmult_curve25519(shared, eph, reply + 32)) goto done;
         crypto_sign_detached(reply + 128, NULL, reply, 128, sk);
@@ -261,13 +288,21 @@ static int chain_application(int port, int client) {
  * received packet. Domain-separated keys prevent reflection between directions. */
 static struct packet chain_receive(void) {
     struct packet p = {0};
-    struct pollfd f[2] = {{.fd=udp_fd,.events=POLLIN}, {.fd=application_fd,.events=pending_active?0:POLLIN}};
-    if (pending_active && monotonic_millis() >= pending_at) {
-        if (pending_attempts++ >= 8 || send(udp_fd, pending_packet.bytes, WIRE, 0) != WIRE) exit(2);
-        pending_at = monotonic_millis() + 200;
+    int64_t now = monotonic_millis();
+    if (now >= chain_retry_scan) {
+        for (unsigned i = 0; i < CARP_WINDOW; ++i) if (chain_pending[i].used && now >= chain_pending[i].retry_at) {
+            if (chain_pending[i].retries++ >= 8 || send(udp_fd, chain_pending[i].bytes, WIRE, 0) != WIRE) exit(2);
+            chain_pending[i].retry_at = now + 200;
+        }
+        chain_retry_scan = now + 20;
     }
-    if (poll(f, 2, 100) <= 0) return p;
-    if (!pending_active && (f[1].revents & POLLIN)) {
+    unsigned next_slot = (unsigned)((send_sequence + 1) & (CARP_WINDOW - 1));
+    int can_send = chain_inflight < CARP_WINDOW && !chain_pending[next_slot].used;
+    struct pollfd f[2] = {{.fd=udp_fd,.events=POLLIN},
+        {.fd=application_fd,.events=can_send ? POLLIN : 0}};
+    int timeout = chain_inflight ? 20 : 100;
+    if (poll(f, 2, timeout) <= 0) return p;
+    if (can_send && (f[1].revents & POLLIN)) {
         unsigned char *body = p.bytes + 3 * HEADER;
         unsigned char input[BODY - COMMAND - 10 + 1];
         struct sockaddr_in source = {0}; socklen_t sl = sizeof source;
@@ -286,10 +321,12 @@ static struct packet chain_receive(void) {
         for (int i = 0; i < 8; ++i) body[COMMAND + 2 + i] = (unsigned char)(send_sequence >> (56 - 8*i));
         memcpy(body + COMMAND + 10, input, (size_t)n);
         memcpy(p.keys, session_keys, 96);
-        if (wrap(&p, total) || send(udp_fd, p.bytes, WIRE, 0) != WIRE) exit(2);
-        memcpy(&pending_packet, &p, sizeof p); pending_sequence = send_sequence;
-        sodium_memzero(pending_packet.keys, sizeof pending_packet.keys);
-        pending_active = 1; pending_attempts = 0; pending_at = monotonic_millis() + 200;
+        if (chain_pending[next_slot].used || wrap(&p, total)) exit(2);
+        memcpy(chain_pending[next_slot].bytes, p.bytes, WIRE);
+        chain_pending[next_slot].sequence = send_sequence;
+        chain_pending[next_slot].retry_at = monotonic_millis() + 200;
+        chain_pending[next_slot].used = 1; ++chain_inflight;
+        if (send(udp_fd, p.bytes, WIRE, 0) != WIRE) exit(2);
         sodium_memzero(input, sizeof input); sodium_memzero(&p, sizeof p);
     }
     if (f[0].revents & POLLIN) {
@@ -321,10 +358,11 @@ static int chain_broker(const char *path, int local, int client, int agent) {
         if (n < 0 || source.sin_addr.s_addr != htonl(INADDR_LOOPBACK)) continue;
         int port = ntohs(source.sin_port), destination = 0;
         if (phase == 0 && port == client && n == 128) {
-            if (crypto_sign_verify_detached(frame + 64, frame, 64, pins + 32)) continue;
+            if (memcmp(frame, "S6W2", 4) || crypto_sign_verify_detached(frame + 64, frame, 64, pins + 32)) continue;
             memcpy(challenge, frame, 64); phase = 1; destination = agent;
         } else if (phase == 1 && port == agent && n == 192) {
-            if (sodium_memcmp(challenge, frame, 64) || crypto_sign_verify_detached(frame + 128, frame, 128, pins + 64)) continue;
+            if (sodium_memcmp(challenge, frame, 64) || memcmp(frame + 64, "S6W2", 4) ||
+                crypto_sign_verify_detached(frame + 128, frame, 128, pins + 64)) continue;
             phase = 2; destination = client;
         } else if (phase == 2 && n == WIRE) {
             if (port == client) destination = agent;
@@ -344,6 +382,8 @@ static struct packet packet_receive(void) {
         if (++packets > 1000000 || monotonic_seconds() >= session_deadline) {
             sodium_memzero(session_keys, sizeof session_keys);
             sodium_memzero(receive_keys, sizeof receive_keys);
+            sodium_memzero(chain_pending, sizeof chain_pending);
+            sodium_memzero(chain_reordered, sizeof chain_reordered);
             if (application_fd >= 0) close(application_fd);
             close(udp_fd); exit(0);
         }

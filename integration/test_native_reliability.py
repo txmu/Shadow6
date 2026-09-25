@@ -32,6 +32,7 @@ class NativeReliabilityTests(unittest.TestCase):
                 relay.bind((host, ports["broker"])); relay.settimeout(.1)
                 stop = threading.Event()
                 dropped = {"client": False, "agent": False}
+                reordered = {"held": None, "done": False}
 
                 def forward():
                     while not stop.is_set():
@@ -40,7 +41,17 @@ class NativeReliabilityTests(unittest.TestCase):
                         side = "client" if source[1] == ports["client"] else "agent" if source[1] == ports["agent"] else None
                         if side is None: continue
                         data_frame = len(frame) == (1024 if name == "hare" else 1144 if name == "carp" else 0)
-                        if name == "idris": data_frame = frame.startswith(b"S6I1")
+                        if name == "idris": data_frame = frame.startswith(b"S6I2")
+                        if data_frame and side == "client" and not reordered["done"]:
+                            if reordered["held"] is None:
+                                reordered["held"] = frame
+                                continue
+                            # Send sequence two first, then lose sequence one.
+                            relay.sendto(frame, (host, ports["agent"]))
+                            reordered["held"] = None
+                            reordered["done"] = True
+                            dropped["client"] = True
+                            continue
                         if data_frame and not dropped[side]:
                             dropped[side] = True
                             continue
@@ -61,16 +72,26 @@ class NativeReliabilityTests(unittest.TestCase):
                         self.assertEqual(process.stdout.readline(), b"session ready\n")
                     with socket.socket(family, socket.SOCK_DGRAM) as application:
                         application.settimeout(8)
-                        # A second transaction cannot start until the first
-                        # lost ACK has been recovered. It also exposes any
-                        # duplicate delivery of the retransmitted first data.
-                        for payload in (b"native-loss-recovery",bytes(range(256))*3,b"after-lost-ack"):
+                        # Multiple transactions may overlap in the transport
+                        # window. The relay reverses the first two frames and
+                        # drops sequence one plus the first ACK from the agent.
+                        payloads = (b"native-loss-recovery", bytes(range(256))*3,
+                                    b"after-lost-ack", b"window-four", b"window-five")
+                        for payload in payloads:
                             application.sendto(payload, (host, app_port))
+                        observed = []
+                        for _ in payloads:
                             data, source = target.recvfrom(2048)
-                            self.assertEqual(data, payload)
+                            observed.append((data, source))
+                        self.assertEqual([data for data, _ in observed], list(payloads))
+                        for data, source in observed:
                             target.sendto(data, source)
-                            self.assertEqual(application.recvfrom(2048)[0], payload)
+                        self.assertEqual([application.recvfrom(2048)[0] for _ in payloads], list(payloads))
+                        application.settimeout(.5)
+                        with self.assertRaises(socket.timeout):
+                            application.recvfrom(2048)
                     self.assertEqual(dropped, {"client": True, "agent": True})
+                    self.assertTrue(reordered["done"])
                 finally:
                     stop.set(); worker.join(1); relay.close()
                     for sockets in reservations.values():
