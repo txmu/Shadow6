@@ -477,6 +477,28 @@ def doctor(root: Path) -> dict[str, Any]:
     }
 
 
+def standalone_doctor(root: Path, components: list[str]) -> dict[str, Any]:
+    """Inspect selected defensive entry points in an external install prefix."""
+    root = root.resolve(strict=True)
+    allowed = {"guard", "gate", "detector", "security"}
+    if not components or any(name not in allowed for name in components):
+        raise ValueError("standalone doctor requires selected guard, gate, detector or security components")
+    checks = []
+    for name in dict.fromkeys(components):
+        candidate = root / "bin" / f"shadow6-{name}"
+        try:
+            mode = candidate.lstat().st_mode
+            passed = stat.S_ISREG(mode) and bool(mode & 0o111) and not bool(mode & 0o022)
+        except OSError:
+            passed = False
+        checks.append({"name": name, "passed": passed,
+                       "detail": "regular, executable, owner-controlled" if passed else "missing or unsafe entry point"})
+    passed_count = sum(item["passed"] for item in checks)
+    return {"assistant": "standalone-doctor", "version": VERSION,
+            "status": "pass" if passed_count == len(checks) else "fail",
+            "score": {"passed": passed_count, "total": len(checks)}, "checks": checks}
+
+
 def parse_go_modules(path: Path) -> list[dict[str, str]]:
     components = []
     for line in secure_read(path).decode("utf-8").splitlines():
@@ -824,6 +846,8 @@ def main() -> int:
     doctor_parser = commands.add_parser("doctor")
     doctor_parser.add_argument("--root", type=Path, default=tree_root(__file__))
     doctor_parser.add_argument("--output", type=Path)
+    doctor_parser.add_argument("--standalone", action="store_true", help="inspect selected external component entry points")
+    doctor_parser.add_argument("--component", action="append", choices=("guard", "gate", "detector", "security"))
     sbom = commands.add_parser("sbom")
     sbom.add_argument("--root", type=Path, default=tree_root(__file__))
     sbom.add_argument("--output", type=Path)
@@ -848,7 +872,7 @@ def main() -> int:
         emit({"version": VERSION, "assistants": ASSISTANTS})
         return 0
     if args.command == "doctor":
-        result = doctor(args.root)
+        result = standalone_doctor(args.root, args.component or []) if args.standalone else doctor(args.root)
         emit(result, args.output)
         return 0 if result["status"] == "pass" else 1
     if args.command == "sbom":

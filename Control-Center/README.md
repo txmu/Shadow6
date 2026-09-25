@@ -68,6 +68,12 @@ sending, topology application, Slot invocation and signed runbook actions are
 returned as denied tool results unless the operator deliberately adds
 `--allow-mutations` to the server arguments.
 
+The server accepts the current MCP 2026-07-28 stateless request metadata and
+`server/discover`, as well as legacy `initialize` clients. Each modern request
+supplies `params._meta.io.modelcontextprotocol/protocolVersion` and
+`params._meta.io.modelcontextprotocol/clientCapabilities`. Unsupported versions
+receive a bounded JSON-RPC error. Tool names and listing order are stable.
+
 Interactive or perpetual orchestrator UI commands are represented by bounded
 equivalents: `dashboard` becomes a snapshot, `mtd-daemon` becomes one rotation
 that an external service manager may schedule, and `rpc-server` becomes one ACL
@@ -77,7 +83,7 @@ reports the complete mapping.
 
 ## LSP and OpenAI function tools
 
-`shadow6-control lsp` is an LSP 3.17 stdio server. It advertises all tools as
+`shadow6-control lsp` is an LSP 3.18 stdio server. It advertises all tools as
 `workspace/executeCommand` commands and also answers the custom read-only
 `shadow6/tools` request. An execute-command call accepts zero arguments or one
 JSON object. Mutations have the same explicit `--allow-mutations` gate as MCP.
@@ -88,7 +94,11 @@ the model's `function_call` items, one JSON object per line, to
 `function_call_output`. The adapter parses the `arguments` JSON string, rejects
 unknown tool parameters in the shared dispatcher, bounds input/output, and does
 not make a network request to OpenAI itself.
+Closed function schemas use strict mode, with optional fields represented as
+nullable required fields. Free-form object inputs retain explicit non-strict
+schemas and are still checked by the local dispatcher. Protocol messages must
+remain on stdout; `shadow6 --json-events` sends progress events to stderr.
 
-Protocol references: [MCP tools](https://modelcontextprotocol.io/specification/2025-06-18/server/tools),
-[LSP 3.17](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/),
+Protocol references: [MCP tools](https://modelcontextprotocol.io/specification/2026-07-28/server/tools),
+[LSP 3.18](https://microsoft.github.io/language-server-protocol/),
 and [OpenAI function calling](https://developers.openai.com/api/docs/guides/function-calling).

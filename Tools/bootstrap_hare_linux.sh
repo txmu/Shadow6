@@ -2,8 +2,8 @@
 # Explicit CI provisioning, never called by ordinary build/test targets.
 set -euo pipefail
 case "$(uname -s)" in
-    Linux) platform=linux; build_make=make ;;
-    FreeBSD) platform=freebsd; build_make=gmake ;;
+    Linux) platform=linux; build_make='make' ;;
+    FreeBSD) platform=freebsd; build_make='gmake' ;;
     *) echo 'Hare CI bootstrap supports Linux and FreeBSD' >&2; exit 1 ;;
 esac
 arch=$(uname -m)

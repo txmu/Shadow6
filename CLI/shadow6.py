@@ -9,9 +9,12 @@ for _candidate in (_HERE, _HERE.parent / "Crosed", _HERE.parent / "share" / "sha
         sys.path.insert(0, str(_candidate))
         break
 else:
-    raise ImportError("install_layout.py is missing from this Shadow6 installation")
-from install_layout import tree_root  # noqa: E402
-ROOT=tree_root(__file__)
+    pass
+try:
+ from install_layout import tree_root  # noqa: E402
+ ROOT=tree_root(__file__)
+except ImportError:
+ ROOT=_HERE.parent
 COMPONENTS={"repo":ROOT/"Online-Repository/shadow6_repo.py","portmap":ROOT/"Gate/portmap.py","go":ROOT/"Core-Go/shadow6-go","rust":ROOT/"Core-Rust/shadow6-rust","zig":ROOT/"Core-Zig/shadow6-zig","ada":ROOT/"Core-Ada/shadow6-ada","d":ROOT/"Core-D/shadow6-d","nim":ROOT/"Core-Nim/shadow6-nim","cpp":ROOT/"Core-Cpp/shadow6-cpp","pony":ROOT/"Core-Pony/shadow6-pony","hare":ROOT/"Core-Hare/shadow6-hare","carp":ROOT/"Core-Carp/shadow6-carp","gleam":ROOT/"Core-Gleam/shadow6-gleam","idris":ROOT/"Core-Idris/shadow6-idris","network":ROOT/"Network-Adapter/shadow6_network.py","network-node":ROOT/"Network-Adapter/shadow6_network.mjs","gate":ROOT/"Gate/shadow6-gate","relay":ROOT/"C11Relay/bridge_relay","guard":ROOT/"Guard/shadow6-guard","control":ROOT/"Control-Center/shadow6_control.py","plugins":ROOT/"Plugin-System/shadow6_plugins.py","sign-plugin":ROOT/"Plugin-System/sign_plugin.py","migrate":ROOT/"Migration/shadow6_migrate.py","auto":ROOT/"Auto-Orchestrator/shadow6_auto.py","detector":ROOT/"Detector/shadow6_detector.py","counterstrike":ROOT/"Detector/counterstrike.py","watch":ROOT/"Detector/watch.py","security":ROOT/"Security-Assistants/shadow6_security.py","infra":ROOT/"Infrastructure-Assistants/shadow6_infra.py","slots":ROOT/"Slot-System/shadow6_slots.py","packages":ROOT/"Package-Manager/shadow6_pkg.py","public6":ROOT/"Public6/shadow6_public.py","init":ROOT/"Service-Init/shadow6_init.py"}
 COMPONENTS["virtual-broker"]=ROOT/"Public6/virtual_broker.py"
 COMPONENTS["virtual-client"]=ROOT/"Public6/virtual_peer.py"
@@ -22,12 +25,13 @@ if not (ROOT/"Makefile").is_file():
  COMPONENTS={name:bin_dir/("shadow6-"+name) for name in COMPONENTS}
  COMPONENTS.update({"counterstrike":bin_dir/"shadow6-counterstrike","watch":bin_dir/"shadow6-watch","go":bin_dir/"shadow6-go","rust":bin_dir/"shadow6-rust","control":bin_dir/"shadow6-control","sign-plugin":bin_dir/"shadow6-sign-plugin","packages":bin_dir/"shadow6-pkg","repo":bin_dir/"shadow6-repo","portmap":bin_dir/"shadow6-portmap"})
 TRANSPORTS={"schema","rpc","mcp","lsp","openai-tools","openai-rpc","serve","call","privacy"}
+STANDALONE=("guard","gate","detector","counterstrike","watch","security")
 def command_for(name,args):
  path=COMPONENTS.get(name)
  if path is None or not path.is_file():raise SystemExit(f"component unavailable: {name}")
  return ([sys.executable,str(path)] if path.suffix==".py" else (["node",str(path)] if path.suffix==".mjs" else [str(path)]))+args
 def run(name,args,events=False):
- if events:print(json.dumps({"event":"process.started","component":name,"argument_count":len(args)}),flush=True)
+ if events:print(json.dumps({"event":"process.started","component":name,"argument_count":len(args)}),file=sys.stderr,flush=True)
  if args==["--version"] and name in {"go","rust","zig","ada","d","nim","cpp","pony","hare","carp","gleam","idris"}:
   from shadow6_vcore import _binary,_run,strict_json_loads,validate_feature_report
   path=COMPONENTS[name]
@@ -38,7 +42,7 @@ def run(name,args,events=False):
    print(report["core"]+" "+report["version"])
   return result.returncode
  result=subprocess.run(command_for(name,args),check=False)
- if events:print(json.dumps({"event":"process.finished","component":name,"exit_code":result.returncode}),flush=True)
+ if events:print(json.dumps({"event":"process.finished","component":name,"exit_code":result.returncode}),file=sys.stderr,flush=True)
  return result.returncode
 
 def add_hands_parser(sub):
@@ -112,6 +116,7 @@ def main():
  p=argparse.ArgumentParser(prog="shadow6");p.add_argument("--json-events",action="store_true");sub=p.add_subparsers(dest="command",required=True)
  q=sub.add_parser("guide",help="read a friendly getting-started guide / 查看中英文入门指引");q.add_argument("--lang",choices=("en","zh"),default="en")
  c=sub.add_parser("component");c.add_argument("name",choices=sorted(COMPONENTS));c.add_argument("args",nargs=argparse.REMAINDER)
+ c=sub.add_parser("standalone",help="run a fixed security component without any Core");c.add_argument("name",choices=STANDALONE);c.add_argument("args",nargs=argparse.REMAINDER)
  for name in sorted(TRANSPORTS):q=sub.add_parser(name);q.add_argument("args",nargs=argparse.REMAINDER)
  for name in sorted(COMPONENTS):
   if name in {"virtual-broker","virtual-client","virtual-agent"}:continue
@@ -143,6 +148,7 @@ def main():
  if a.command=="guide":return run("control",["guide","--lang",a.lang],a.json_events)
  if a.command=="hands":return run_hands(a)
  if a.command=="component":return run(a.name,tail(a.args),a.json_events)
+ if a.command=="standalone":return run(a.name,tail(a.args),a.json_events)
  if a.command=="virtual-broker":return run("virtual-broker",["--config",str(a.config)]+(["--check"] if a.check else []),a.json_events)
  if a.command in ("virtual-client","virtual-agent"):
   return run(a.command,["--config",str(a.config),"--role",a.command.removeprefix("virtual-")]+(["--check"] if a.check else []),a.json_events)

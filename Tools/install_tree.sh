@@ -10,12 +10,13 @@
 # environments, caches and vcs metadata.
 set -euo pipefail
 
-if [[ $# -ne 1 ]]; then
-    echo "usage: install_tree.sh DESTINATION" >&2
+if [[ $# -lt 1 ]]; then
+    echo "usage: install_tree.sh DESTINATION [CoreName:0|1 ...]" >&2
     exit 2
 fi
 
 destination=$1
+shift
 if [[ -z "$destination" || "$destination" != /* ]]; then
     echo "install_tree.sh requires an absolute destination path" >&2
     exit 2
@@ -61,6 +62,23 @@ excludes=(
     "$project_name/Android/app/build"
     "$project_name/Android/app/src/main/jniLibs"
 )
+
+# An installation may select no Cores, even when its source checkout contains
+# binaries from an earlier build. Keep source files for the component catalog.
+for selection in "$@"; do
+    case "$selection" in
+        Go:0|Rust:0|Cpp:0|Gleam:0|Pony:0|Zig:0|Hare:0|Ada:0|Carp:0|D:0|Nim:0|Idris:0)
+            core=${selection%%:*}
+            core_name=${core,,}
+            excludes+=("$project_name/Core-$core/shadow6-$core_name")
+            excludes+=("$project_name/Core-$core/shadow6-$core_name-crosed")
+            excludes+=("$project_name/Core-$core/shadow6-$core_name-public6")
+            excludes+=("$project_name/Core-$core/*_app")
+            ;;
+        Go:1|Rust:1|Cpp:1|Gleam:1|Pony:1|Zig:1|Hare:1|Ada:1|Carp:1|D:1|Nim:1|Idris:1) ;;
+        *) echo "invalid Core selection: $selection" >&2; exit 2 ;;
+    esac
+done
 
 tar_arguments=()
 for pattern in "${excludes[@]}"; do

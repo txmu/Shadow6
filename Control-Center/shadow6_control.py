@@ -75,11 +75,14 @@ MAX_REQUEST = 65_536
 MAX_RESPONSE = 1_048_576
 SAFE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 BUILD_FLAGS = (
-    "build_go", "build_rust", "build_cpp", "build_relay", "build_guard", "build_auto",
+    "build_go", "build_rust", "build_cpp", "build_gleam", "build_pony",
+    "build_zig", "build_hare", "build_ada", "build_carp", "build_d", "build_nim", "build_idris",
+    "build_relay", "build_guard", "build_auto",
     "build_detector", "build_plugins", "build_crosed", "build_app",
     "build_assistants", "build_control", "build_compliance",
     "build_slots", "build_public6", "build_gate", "build_migration",
 )
+OPTIONAL_CORE_FLAGS = {"build_gleam", "build_pony", "build_zig", "build_hare", "build_ada", "build_carp", "build_d", "build_nim", "build_idris"}
 
 
 def _input_schema(properties: dict[str, Any] | None = None, required: tuple[str, ...] = ()) -> dict[str, Any]:
@@ -233,7 +236,7 @@ def schema() -> dict[str, Any]:
             "crosed_level": {"type": "integer", "minimum": 0, "maximum": 5, "default": 0},
             "app_transport": {"type": "boolean", "default": False},
             "qubes_isolation": {"type": "boolean", "default": False},
-            **{flag: {"type": "boolean", "default": flag != "build_compliance"} for flag in BUILD_FLAGS},
+            **{flag: {"type": "boolean", "default": flag not in OPTIONAL_CORE_FLAGS and flag != "build_compliance"} for flag in BUILD_FLAGS},
         },
         "init_systems": ["systemd", "openrc", "runit", "sysv", "rc.d", "procd", "launchd", "guix"],
         "network_adapter_backends": ["python", "node"],
@@ -242,8 +245,8 @@ def schema() -> dict[str, Any]:
         "transport": {
             "jsonl": {"max_request_bytes": MAX_REQUEST, "mutations_default": False},
             "http": {"loopback_only": True, "bearer_token": True, "mutations_default": False},
-            "mcp": {"stdio": True, "protocol_version": "2025-06-18", "mutations_default": False},
-            "lsp": {"stdio": True, "execute_command": True, "mutations_default": False},
+            "mcp": {"stdio": True, "protocol_version": "2026-07-28", "legacy_initialize": True, "mutations_default": False},
+            "lsp": {"stdio": True, "protocol_version": "3.18", "execute_command": True, "mutations_default": False},
             "openai": {"responses_function_tools": True, "jsonl": True, "mutations_default": False},
         },
     }
@@ -341,7 +344,7 @@ def render_build_config(params: dict[str, Any]) -> bytes:
     _only(params, allowed)
     values: dict[str, int] = {}
     for flag in BUILD_FLAGS:
-        value = params.get(flag, flag != "build_compliance")
+        value = params.get(flag, flag not in OPTIONAL_CORE_FLAGS and flag != "build_compliance")
         if not isinstance(value, bool):
             raise ValueError(f"{flag} must be boolean")
         values[flag.upper()] = int(value)
@@ -768,6 +771,33 @@ def _tool_name(method: str) -> str:
 TOOL_METHODS = {_tool_name(method): method for method in METHOD_SPECS}
 
 
+def _openai_schema(contract: dict[str, Any]) -> dict[str, Any] | None:
+    """Make closed tool arguments compatible with Responses strict mode."""
+    result = dict(contract)
+    if result.get("type") == "object":
+        if "properties" not in result:
+            return None  # A free-form object cannot be expressed as a strict tool.
+        properties = {}
+        required = set(result.get("required", []))
+        for key, child in result["properties"].items():
+            converted = _openai_schema(child)
+            if converted is None:
+                return None
+            if key not in required:
+                kind = converted.get("type")
+                converted["type"] = [kind, "null"] if isinstance(kind, str) else [*kind, "null"]
+                if "enum" in converted:
+                    converted["enum"] = [*converted["enum"], None]
+            properties[key] = converted
+        result.update(properties=properties, required=list(properties), additionalProperties=False)
+    elif result.get("type") == "array" and "items" in result:
+        items = _openai_schema(result["items"])
+        if items is None:
+            return None
+        result["items"] = items
+    return result
+
+
 def _tool_definitions(protocol: str) -> list[dict[str, Any]]:
     definitions = []
     for name, method in TOOL_METHODS.items():
@@ -784,14 +814,13 @@ def _tool_definitions(protocol: str) -> list[dict[str, Any]]:
                 },
             })
         elif protocol == "openai":
+            strict_schema = _openai_schema(spec["input_schema"])
             definitions.append({
                 "type": "function",
                 "name": name,
                 "description": spec["description"],
-                "parameters": spec["input_schema"],
-                # Dispatch rejects unknown fields.  This is false because some
-                # optional parameters are omitted rather than represented as null.
-                "strict": False,
+                "parameters": strict_schema or spec["input_schema"],
+                "strict": strict_schema is not None,
             })
     return definitions
 
@@ -809,6 +838,8 @@ def _invoke_tool(name: str, arguments: Any, allow_mutations: bool) -> Any:
         raise ValueError("unknown tool")
     if method in MUTATING_METHODS and not allow_mutations:
         raise PermissionError("mutating tool is disabled; restart this adapter with --allow-mutations")
+    if not isinstance(arguments, dict):
+        raise ValueError("tool arguments must be an object")
     validate_portable(arguments)
     _transport_execution_policy(method, _params(arguments))
     # Component progress may contain paths and identities. Discard it at the
@@ -827,6 +858,8 @@ def mcp(allow_mutations: bool = False) -> int:
     """Serve MCP JSON-RPC over bounded newline-delimited stdio."""
     initialized = False
     supported_versions = {"2024-11-05", "2025-03-26", "2025-06-18"}
+    latest_version = "2026-07-28"
+    server_info = {"name": "shadow6-control", "version": VERSION}
     for raw in _bounded_lines():
         request: Any = None
         request_id = None
@@ -846,6 +879,19 @@ def mcp(allow_mutations: bool = False) -> int:
                 params = request.get("params", {})
                 if not isinstance(method, str) or not isinstance(params, dict):
                     raise ValueError("method and params have invalid types")
+                meta = params.get("_meta", {})
+                if not isinstance(meta, dict):
+                    raise ValueError("invalid MCP metadata")
+                modern = meta.get("io.modelcontextprotocol/protocolVersion") == latest_version
+                if "io.modelcontextprotocol/protocolVersion" in meta and not modern:
+                    reply = _jsonrpc_error(request_id, -32022, "unsupported protocol version")
+                    reply["error"]["data"] = {"supported": [latest_version, *sorted(supported_versions)],
+                                              "requested": meta["io.modelcontextprotocol/protocolVersion"]}
+                    if "id" in request:
+                        print(_bounded_json(reply), flush=True)
+                    continue
+                if modern and not isinstance(meta.get("io.modelcontextprotocol/clientCapabilities"), dict):
+                    raise ValueError("MCP client capabilities must be an object")
                 if method == "initialize":
                     requested = params.get("protocolVersion")
                     version = requested if requested in supported_versions else "2025-06-18"
@@ -853,20 +899,29 @@ def mcp(allow_mutations: bool = False) -> int:
                     reply = {"jsonrpc": "2.0", "id": request_id, "result": {
                         "protocolVersion": version,
                         "capabilities": {"tools": {"listChanged": False}},
-                        "serverInfo": {"name": "shadow6-control", "version": VERSION},
+                        "serverInfo": server_info,
+                    }}
+                elif method == "server/discover":
+                    reply = {"jsonrpc": "2.0", "id": request_id, "result": {
+                        "supportedVersions": [latest_version, *sorted(supported_versions)],
+                        "capabilities": {"tools": {"listChanged": False}},
+                        "ttlMs": 60000, "cacheScope": "public",
                     }}
                 elif method in {"notifications/initialized", "notifications/cancelled"}:
                     continue
                 elif method == "ping":
                     reply = {"jsonrpc": "2.0", "id": request_id, "result": {}}
-                elif not initialized:
+                elif not initialized and not modern:
                     reply = _jsonrpc_error(request_id, -32002, "server is not initialized")
                 elif method == "tools/list":
-                    if set(params) - {"cursor"} or params.get("cursor") not in (None, ""):
+                    if set(params) - {"cursor", "_meta"} or params.get("cursor") not in (None, ""):
                         raise ValueError("pagination cursor is not supported")
-                    reply = {"jsonrpc": "2.0", "id": request_id, "result": {"tools": _tool_definitions("mcp")}}
+                    listing = {"tools": _tool_definitions("mcp")}
+                    if modern:
+                        listing.update(resultType="complete", ttlMs=60000, cacheScope="public")
+                    reply = {"jsonrpc": "2.0", "id": request_id, "result": listing}
                 elif method == "tools/call":
-                    if set(params) - {"name", "arguments"} or not isinstance(params.get("name"), str):
+                    if set(params) - {"name", "arguments", "_meta"} or not isinstance(params.get("name"), str):
                         raise ValueError("tools/call requires only name and arguments")
                     try:
                         result = _invoke_tool(params["name"], params.get("arguments", {}), allow_mutations)
@@ -882,6 +937,9 @@ def mcp(allow_mutations: bool = False) -> int:
                         }}
                 else:
                     reply = _jsonrpc_error(request_id, -32601, "method not found")
+                if modern and reply is not None and "result" in reply:
+                    reply["result"].setdefault("resultType", "complete")
+                    reply["result"].setdefault("_meta", {})["io.modelcontextprotocol/serverInfo"] = server_info
             except (UnicodeDecodeError, json.JSONDecodeError, SecurityError):
                 reply = _jsonrpc_error(None, -32700, "invalid JSON")
             except (ValueError, TypeError) as exc:
@@ -937,8 +995,9 @@ def _write_lsp_message(value: dict[str, Any]) -> None:
 
 
 def lsp(allow_mutations: bool = False) -> int:
-    """Serve a small LSP 3.17 command server for IDE integrations."""
+    """Serve bounded LSP 3.18 workspace commands for IDE integrations."""
     shutdown = False
+    initialized = False
     while True:
         try:
             request = _read_lsp_message()
@@ -963,8 +1022,14 @@ def lsp(allow_mutations: bool = False) -> int:
             if shutdown:
                 raise ValueError("server has shut down")
             if method == "initialize":
+                if initialized or not isinstance(params, dict):
+                    raise ValueError("invalid repeated initialize")
+                initialized = True
                 result = {"capabilities": {"executeCommandProvider": {"commands": sorted(TOOL_METHODS)}},
                           "serverInfo": {"name": "shadow6-control", "version": VERSION}}
+            elif not initialized:
+                _write_lsp_message(_jsonrpc_error(request_id, -32002, "server is not initialized"))
+                continue
             elif method == "shutdown":
                 shutdown = True
                 result = None
@@ -1005,6 +1070,8 @@ def openai_jsonl(allow_mutations: bool = False) -> int:
             arguments = item.get("arguments", "{}")
             if isinstance(arguments, str):
                 arguments = strict_json_loads(arguments, limit=MAX_REQUEST)
+            if isinstance(arguments, dict) and _openai_schema(METHOD_SPECS[TOOL_METHODS.get(item.get("name"), "system.schema")]["input_schema"]) is not None:
+                arguments = {key: value for key, value in arguments.items() if value is not None}
             result = {"ok": True, "result": _invoke_tool(item.get("name"), arguments, allow_mutations)}
         except Exception as exc:
             result = {"ok": False, "error": {"code": type(exc).__name__, "message": _safe_error(exc)}}
