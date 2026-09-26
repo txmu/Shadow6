@@ -141,7 +141,9 @@ def run_case(binary: str, spec: dict, duration: int, udp_aggregate_bps: int | No
         row.update(metric(document, spec["protocol"]))
         row["raw_file"] = f"raw/{name}.json"
         row["status"] = "ok"
-    except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired, json.JSONDecodeError) as error:
+    except subprocess.TimeoutExpired as error:
+        row.update(status="failed", reason=str(error)[-1200:], timed_out=True)
+    except (OSError, ValueError, RuntimeError, json.JSONDecodeError) as error:
         row.update(status="failed", reason=str(error)[-1200:])
     finally:
         row["elapsed_seconds"] = time.monotonic() - started
@@ -156,7 +158,22 @@ def run_case(binary: str, spec: dict, duration: int, udp_aggregate_bps: int | No
             except subprocess.TimeoutExpired:
                 server.kill()
                 server.communicate(timeout=3)
-                row.update(status="failed", reason="iperf3 server did not exit")
+                row.update(status="failed", reason="iperf3 server did not exit", timed_out=True)
+    return row
+
+
+def run_case_with_timeout_retry(binary: str, spec: dict, duration: int,
+                                udp_aggregate_bps: int | None, raw_dir: Path,
+                                timeout_retries: int) -> dict:
+    attempts = []
+    for _ in range(timeout_retries + 1):
+        row = run_case(binary, spec, duration, udp_aggregate_bps, raw_dir)
+        attempts.append({"status": row["status"], "reason": row.get("reason"),
+                         "elapsed_seconds": row["elapsed_seconds"]})
+        if not row.get("timed_out"):
+            break
+    if len(attempts) > 1:
+        row["attempts"] = attempts
     return row
 
 
@@ -206,6 +223,8 @@ def main() -> int:
     parser.add_argument("--allow-missing", action="store_true")
     parser.add_argument("--skip-parallel-udp", action="store_true",
                         help="record unsupported multi-stream UDP cases as not applicable")
+    parser.add_argument("--timeout-retries", type=int, choices=(0, 1), default=0,
+                        help="retry a timed-out case once; retain both attempt outcomes")
     args = parser.parse_args()
     if not 1 <= args.duration <= 15 or not 1 <= args.max_streams <= 12 or not 10 <= args.udp_cap_mbps <= 4000:
         parser.error("duration, streams, or UDP rate exceeds bounded limits")
@@ -232,7 +251,8 @@ def main() -> int:
                               "runner": os.environ.get("RUNNER_NAME")},
               "parameters": {"duration_seconds": args.duration, "max_streams": args.max_streams,
                              "udp_cap_mbps": args.udp_cap_mbps, "families": families,
-                             "skip_parallel_udp": args.skip_parallel_udp},
+                             "skip_parallel_udp": args.skip_parallel_udp,
+                             "timeout_retries": args.timeout_retries},
               "results": []}
     available = {family: iperf_family_available(binary, family) if binary
                  else (family_available(family), "iperf3 executable not installed")
@@ -249,7 +269,8 @@ def main() -> int:
         else:
             target = udp_rate(report["results"], spec["family"], spec["direction"],
                               args.udp_cap_mbps) if spec["protocol"] == "udp" else None
-            row = run_case(binary, spec, args.duration, target, raw_dir)
+            row = run_case_with_timeout_retry(binary, spec, args.duration,
+                                              target, raw_dir, args.timeout_retries)
         report["results"].append(row)
         print(f"IPv{row['family']} {row['protocol']} {row['direction']} P{row['streams']}: {row['status']}", flush=True)
         (output / "report.json").write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
