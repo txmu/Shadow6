@@ -124,7 +124,7 @@ class SecurityFFI(unittest.TestCase):
         key = self.directory / "native.key"
         key.write_bytes(os.urandom(32)); key.chmod(0o600)
         echo = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        echo.bind(("127.0.0.1", target_port)); echo.settimeout(5)
+        echo.bind(("127.0.0.1", target_port)); echo.settimeout(7)
         echo_error = []
         def echo_once():
             try:
@@ -138,13 +138,29 @@ class SecurityFFI(unittest.TestCase):
         def relay(name, role, bind_port, peer_port, target):
             results[name] = self.lib.idris_native_relay(role, b"127.0.0.1", bind_port,
                 b"127.0.0.1", peer_port, b"127.0.0.1", target, os.fsencode(key), 1)
-        agent = threading.Thread(target=relay, args=("agent", 2, agent_port, client_port, target_port))
-        client = threading.Thread(target=relay, args=("client", 1, client_port, agent_port, app_port))
-        agent.start(); client.start(); time.sleep(0.1)
-        application = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); application.settimeout(5)
-        application.sendto(b"native-idris", ("127.0.0.1", app_port))
-        self.assertEqual(application.recvfrom(2048)[0], b"native-idris")
-        application.close(); agent.join(5); client.join(5); echo_thread.join(5); echo.close()
+        agent = threading.Thread(target=relay, args=("agent", 2, agent_port, client_port, target_port), daemon=True)
+        client = threading.Thread(target=relay, args=("client", 1, client_port, agent_port, app_port), daemon=True)
+        agent.start(); client.start()
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as application:
+                application.settimeout(0.2)
+                # Legacy UDP has no retransmission or startup handshake. A
+                # fixed sleep loses the only probe on busy macOS runners.
+                # Retry this idempotent echo only, under one absolute deadline.
+                deadline = time.monotonic() + 5
+                while True:
+                    application.sendto(b"native-idris", ("127.0.0.1", app_port))
+                    try:
+                        data = application.recvfrom(2048)[0]
+                        break
+                    except socket.timeout:
+                        if time.monotonic() >= deadline or any(value < 0 for value in tuple(results.values())):
+                            self.fail(f"native relay startup/echo timed out: {results!r}; echo={echo_error!r}")
+                self.assertEqual(data, b"native-idris")
+            agent.join(5); client.join(5); echo_thread.join(5)
+            self.assertFalse(agent.is_alive() or client.is_alive() or echo_thread.is_alive())
+        finally:
+            echo.close()
         self.assertFalse(echo_error)
         self.assertEqual(results, {"agent": 1, "client": 1})
 

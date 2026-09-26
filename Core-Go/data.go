@@ -210,8 +210,16 @@ func configureKCP(session *kcp.UDPSession) {
 
 func copyWithPooledBuffer(destination io.Writer, source io.Reader) (int64, error) {
 	buffer := proxyBufferPool.Get().(*[]byte)
-	defer proxyBufferPool.Put(buffer)
-	return io.CopyBuffer(destination, source, *buffer)
+	defer func() {
+		clear(*buffer)
+		proxyBufferPool.Put(buffer)
+	}()
+	// TCPConn implements WriterTo and ReaderFrom. CopyBuffer otherwise invokes
+	// those methods and silently ignores our platform-sized buffer, falling
+	// back to small generic copies when the other endpoint is an AEAD stream.
+	// Hide both optional interfaces so each encryption frame can use the
+	// bounded data-plane budget on both the agent and client paths.
+	return io.CopyBuffer(struct{ io.Writer }{destination}, struct{ io.Reader }{source}, *buffer)
 }
 
 func closeWrite(conn net.Conn) {
@@ -946,7 +954,7 @@ func startClient(config *Config) error {
 				defer secure.Close()
 				done := make(chan struct{}, 2)
 				go func() {
-					_, copyErr := io.Copy(secure, localConnection)
+					_, copyErr := copyWithPooledBuffer(secure, localConnection)
 					if copyErr != nil && !isExpectedCloseError(copyErr) {
 						log.Printf("[Client] local-to-KCP copy failed: %v", copyErr)
 					} else if copyErr != nil {
@@ -958,7 +966,7 @@ func startClient(config *Config) error {
 					done <- struct{}{}
 				}()
 				go func() {
-					_, copyErr := io.Copy(localConnection, secure)
+					_, copyErr := copyWithPooledBuffer(localConnection, secure)
 					if copyErr != nil && !isExpectedCloseError(copyErr) {
 						log.Printf("[Client] KCP-to-local copy failed: %v", copyErr)
 					} else if copyErr != nil {

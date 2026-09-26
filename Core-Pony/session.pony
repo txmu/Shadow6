@@ -84,7 +84,17 @@ primitive AgentHandshake
     (consume out, OCapToken(consume keys)?)
 
 primitive Frame
-  fun empty(): Array[U8] iso^ => recover iso Array[U8].init(0, 12) end
+  fun empty(): Array[U8] iso^ =>
+    let packet = recover iso Array[U8](28) end
+    var i: USize = 0
+    while i < 12 do packet.push(0); i = i + 1 end
+    consume packet
+  fun payload(bytes: Array[U8] val): Array[U8] iso^ =>
+    let packet = recover iso Array[U8](bytes.size() + 28) end
+    var i: USize = 0
+    while i < 12 do packet.push(0); i = i + 1 end
+    packet.append(bytes)
+    consume packet
   fun sequence(packet: Array[U8] iso): U64 ? =>
     var n: U64 = 0
     var i: USize = 4

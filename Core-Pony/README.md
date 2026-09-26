@@ -30,7 +30,16 @@ an inactive confirmed route expires after 60 seconds. Agent sessions are
 allocated only after signature verification. Admission uses a 256-token burst,
 64 tokens/second refill, a 256-session cap, and a 1024-entry replay table whose
 60-second entries cannot be evicted by capacity pressure. Per-socket ingress
-credits cap outstanding cross-actor datagrams at 32.
+credits cap outstanding cross-actor datagrams at 256, with at most 16 unknown
+peer admissions in flight. Malformed wire headers and unknown-peer DATA are
+discarded at the socket actor, before admission or cryptography. Established
+IPv4 peers use a bounded binary address/port route table, forwarding directly
+to their session actor without address formatting or the runtime mailbox.
+These routes do not authenticate packets; the session still verifies every
+AEAD tag. Each socket requests 1 MiB send and receive buffers, subject to OS
+limits, without changing host settings. Socket scheduling yields after at most
+16 datagrams per turn. Ordered DATA bypasses the reorder map; reordered DATA
+retains the same bounded window and retransmission behavior.
 
 Transport v2 uses `S6Q1/S6Q2` handshakes and `S6E` DATA/ACK frames. Both ends
 must be upgraded together; old frames fail closed. The authenticated hello

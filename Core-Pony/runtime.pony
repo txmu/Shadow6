@@ -12,6 +12,8 @@ actor SocketActor is (UDPSocketActor & UDPLifecycleEventReceiver)
   let _receiver: DatagramReceiver
   let _application: Bool
   var _inflight: USize = 0
+  var _admitting: USize = 0
+  let _routes: Map[U64, DatagramReceiver] = Map[U64, DatagramReceiver]
   new create(auth: NetAuth, host: String, port: String, receiver: DatagramReceiver, application: Bool) =>
     _receiver = receiver
     _application = application
@@ -19,17 +21,54 @@ actor SocketActor is (UDPSocketActor & UDPLifecycleEventReceiver)
       DefaultReadBufferSize(), IP4, 16)
   fun ref _socket(): UDPSocket => _udp
   fun ref _on_bind_failure() => _receiver.failed()
-  fun ref _on_bound() => _receiver.bound(_application)
+  fun ref _on_bound() =>
+    // Per-socket requests only; the OS may clamp these bounded buffers.
+    _udp.set_so_rcvbuf(1_048_576)
+    _udp.set_so_sndbuf(1_048_576)
+    _receiver.bound(_application)
   fun ref _on_received(data: Array[U8] iso, from: NetAddress val): ReadAction =>
-    // Cross-actor credit bounds the mailbox when consumers are slower than UDP.
-    if (data.size() <= ProtocolLimits.max_frame()) and (_inflight < 256) then
-      _inflight = _inflight + 1
-      _receiver.received(consume data, from, _application, this)
+    if (data.size() > ProtocolLimits.max_frame()) or (_inflight >= 256) then
+      return KeepReading
     end
-    // UDPSocket limits each turn to 16 datagrams; retain the 32-credit
-    // mailbox bound while avoiding an actor reschedule for every packet.
+    if not _application then
+      try
+        if not ProtocolLimits.wire_frame(data.size(), data(0)?, data(1)?, data(2)?, data(3)?) then
+          return KeepReading
+        end
+      else return KeepReading end
+      try
+        // All configured sockets are IPv4. A packed address/port avoids
+        // getnameinfo, String allocations and a Runtime mailbox hop per frame.
+        let receiver = _routes(PeerRoute(from)?)?
+        _inflight = _inflight + 1
+        receiver.received(consume data, from, false, this)
+        return KeepReading
+      end
+      // Unknown peers can only request admission with a shaped hello. Keep
+      // their work separate so a flood cannot fill all established credits.
+      if (data.size() != 140) or (_admitting >= 16) then return KeepReading end
+      try if (data(2)? != 81) or (data(3)? != 49) then return KeepReading end end
+      _admitting = _admitting + 1
+    end
+    _inflight = _inflight + 1
+    _receiver.received(consume data, from, _application, this)
+    // Keep the 16-datagram scheduler turn and 256 outstanding-packet bound.
     KeepReading
   be consumed() => if _inflight > 0 then _inflight = _inflight - 1 end
+  be admitted() =>
+    if _admitting > 0 then _admitting = _admitting - 1 end
+  be route(peer: NetAddress val, receiver: DatagramReceiver) =>
+    try
+      let id = PeerRoute(peer)?
+      if _routes.contains(id) or (_routes.size() < SessionLimits.max_clients()) then
+        _routes(id) = receiver
+      end
+    end
+  be unroute(peer: NetAddress val, receiver: DatagramReceiver) =>
+    try
+      let id = PeerRoute(peer)?
+      if _routes(id)? is receiver then _routes.remove(id)? end
+    end
   be send(data: Array[U8] val, target: NetAddress val) =>
     if _udp.is_open() then _udp.send_to(data, target) end
 
@@ -42,6 +81,11 @@ primitive PeerID
   fun apply(from: NetAddress val): String ? =>
     (let host, let port) = from.name()?
     host + ":" + port
+
+primitive PeerRoute
+  fun apply(from: NetAddress val): U64 ? =>
+    if not from.ip4() then error end
+    (from.ipv4_addr().u64() << 16) or from.port().u64()
 
 // Only a signed, pinned hello may allocate an agent session or app socket.
 // Each actor receives its own token, never the listener's signing secrets.
@@ -84,6 +128,7 @@ actor Runtime is DatagramReceiver
       try
         let id = PeerID(_peer)?
         _sessions(id) = ClientSession.client(_auth, _cfg, this, _network, _peer, id, _out)
+        _network.route(_peer, _sessions(id)?)
       else failed() end
     else _out.print(if _cfg.broker then "ready: broker" else "ready: listener" end) end
   be tick() =>
@@ -93,6 +138,7 @@ actor Runtime is DatagramReceiver
       try
         let id = PeerID(_peer)?
         _sessions(id) = ClientSession.client(_auth, _cfg, this, _network, _peer, id, _out)
+        _network.route(_peer, _sessions(id)?)
         _reconnect_at = 0
       end
     end
@@ -120,6 +166,7 @@ actor Runtime is DatagramReceiver
     if extra > 0 then _credits = (_credits + extra).min(256); _refilled = now end
     if _credits == 0 then false else _credits = _credits - 1; true end
   be received(data: Array[U8] iso, from: NetAddress val, application: Bool, source: SocketActor) =>
+    source.admitted()
     if _closed then source.consumed(); return end
     try
       let id = PeerID(from)?
@@ -139,6 +186,7 @@ actor Runtime is DatagramReceiver
         if _relays.size() >= SessionLimits.max_clients() then source.consumed(); return end
         let hello: Array[U8] val = consume data
         _relays(id) = RelaySession(_auth, _cfg.bind_host, this, _network, id, from, _peer, hello)
+        _network.route(from, _relays(id)?)
       else
         if (_sessions.size() >= SessionLimits.max_clients()) or (_recent.size() >= 1024) then
           source.consumed(); return
@@ -157,6 +205,7 @@ actor Runtime is DatagramReceiver
         _recent(nonce) = Time.nanos() + 60_000_000_000
         _sessions(id) = ClientSession.agent(_auth, _cfg.bind_host, this, _network,
           from, _target, id, hello, consume response, token, _out)
+        _network.route(from, _sessions(id)?)
       end
     end
     source.consumed()
@@ -184,7 +233,10 @@ actor RelaySession is DatagramReceiver
   be failed() => _close()
   be close() => _close()
   fun ref _close() =>
-    if not _closed then _closed = true; _upstream.dispose(); _owner.relay_retired(_id, this) end
+    if not _closed then
+      _closed = true; _upstream.dispose(); _network.unroute(_client, this)
+      _owner.relay_retired(_id, this)
+    end
   be tick(now: U64) =>
     if (now >= _last) and ((now - _last) >
       (if _confirmed then U64(60_000_000_000) else U64(5_000_000_000) end)) then _close() end
@@ -238,6 +290,7 @@ actor ClientSession is DatagramReceiver
   fun ref _close() =>
     if not _closed then
       _closed = true; _handshake.clear(); _token = None; _session.clear()
+      _network.unroute(_peer, this)
       _app.dispose(); _owner.retired(_id, this)
     end
   be tick(now: U64) =>
@@ -269,9 +322,8 @@ actor ClientSession is DatagramReceiver
     end
     let token = _token as OCapToken
     let sequence = _session.next_sequence()?
-    let packet = Frame.empty()
     let bytes: Array[U8] val = consume data
-    packet.append(bytes)
+    let packet = Frame.payload(bytes)
     let wire: Array[U8] val = token.seal(consume packet, sequence, 2)?
     _session.sent(sequence, wire, Time.nanos())
     _network.send(wire, _peer)
@@ -313,14 +365,21 @@ actor ClientSession is DatagramReceiver
     end
     if kind != 2 then return end
     packet.trim_in_place(12)
-    if not _session.accept_receive(sequence, consume packet) then return end
+    if _session.receive_in_order(sequence) then
+      // Normal ordered traffic needs neither a receive-map entry nor a
+      // temporary delivery array. Drain the map only after actual reordering.
+      let payload: Array[U8] val = consume packet
+      _deliver(payload)
+    elseif not _session.accept_receive(sequence, consume packet) then return end
     _last_activity = Time.nanos()
     let ack = Frame.empty()
     _network.send(token.seal(consume ack, sequence, 3)?, _peer)
-    for payload in _session.deliver().values() do
-      match _local
-      | let local: NetAddress val => _app.send(payload, local)
-      end
+    if _session.has_buffered() then
+      for payload in _session.deliver().values() do _deliver(payload) end
+    end
+  fun _deliver(payload: Array[U8] val) =>
+    match _local
+    | let local: NetAddress val => _app.send(payload, local)
     end
   fun _same(a: Array[U8] iso, b: Array[U8] box): Bool =>
     if a.size() != b.size() then return false end

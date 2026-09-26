@@ -77,7 +77,8 @@ def measurement_summary(rows):
 
 def expected_artifacts():
     names = {"shadow6-linux-network-benchmark", "shadow6-linux-arm64-network-benchmark",
-             "shadow6-linux-iperf-chain", "shadow6-iperf3-omnios-x86-64"}
+             "shadow6-linux-iperf-chain", "shadow6-pony-iperf-chain",
+             "shadow6-iperf3-omnios-x86-64"}
     names.update(f"shadow6-idris-network-benchmark-{platform}" for platform in
                  ("ubuntu-latest", "ubuntu-24.04-arm", "macos-latest"))
     for platform, arches in (("linux", ("x86_64", "arm64")),

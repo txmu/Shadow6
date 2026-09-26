@@ -5,6 +5,17 @@ use "collections"
 primitive ProtocolLimits
   fun max_frame(): USize => 1200
   fun handshake_window(): U64 => 30_000
+  // Cheap structural rejection before an untrusted datagram crosses actors.
+  // This is not authentication: every accepted frame still passes the AEAD
+  // or pinned Ed25519 verifier at the session/admission boundary.
+  fun wire_frame(size: USize, a: U8, b: U8, c: U8, kind: U8): Bool =>
+    if (size < 4) or (size > max_frame()) then return false end
+    if (a != 83) or (b != 54) then return false end
+    if c == 69 then
+      (size >= 28) and (kind <= 3) and ((kind == 2) or (size == 28))
+    elseif c == 81 then
+      ((kind == 49) and (size == 140)) or ((kind == 50) and (size == 172))
+    else false end
 
 class val HandshakeTranscript
   let version: U8
@@ -99,6 +110,12 @@ class ref ReliableSession
   fun ref sent(sequence: U64, wire: Array[U8] val, now: U64) =>
     _sent(sequence) = PendingPacket(wire, now, rto())
   fun retry_delay(): U64 => SessionLimits.reconnect_delay(_attempt)
+  fun ref receive_in_order(sequence: U64): Bool =>
+    if (sequence == _receive_next) and (sequence < U64.max_value()) then
+      _receive_next = _receive_next + 1
+      true
+    else false end
+  fun has_buffered(): Bool => _received.size() > 0
   fun ref accept_receive(sequence: U64, payload: Array[U8] iso): Bool =>
     if (sequence < 2) or (sequence == U64.max_value()) then false
     elseif sequence < _receive_next then true

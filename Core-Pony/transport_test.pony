@@ -3,6 +3,23 @@
 primitive TransportSelfTest
   fun apply(): Bool =>
     try
+      if ProtocolLimits.wire_frame(1201, 83, 54, 69, 2) then return false end
+      if ProtocolLimits.wire_frame(28, 0, 54, 69, 2) then return false end
+      if ProtocolLimits.wire_frame(27, 83, 54, 69, 2) then return false end
+      if ProtocolLimits.wire_frame(29, 83, 54, 69, 3) then return false end
+      if ProtocolLimits.wire_frame(28, 83, 54, 69, 4) then return false end
+      if not ProtocolLimits.wire_frame(28, 83, 54, 69, 3) then return false end
+      if not ProtocolLimits.wire_frame(1200, 83, 54, 69, 2) then return false end
+      if not ProtocolLimits.wire_frame(140, 83, 54, 81, 49) then return false end
+      if not ProtocolLimits.wire_frame(172, 83, 54, 81, 50) then return false end
+      let ordered_fast = ReliableSession
+      if ordered_fast.receive_in_order(3) then return false end
+      if not ordered_fast.accept_receive(3, recover iso [U8(3)] end) then return false end
+      if not ordered_fast.receive_in_order(2) then return false end
+      if ordered_fast.receive_in_order(2) then return false end
+      let after_gap = ordered_fast.deliver()
+      if (after_gap.size() != 1) or (after_gap(0)?(0)? != 3) then return false end
+      if ordered_fast.has_buffered() then return false end
       let session = ReliableSession
       session.connected()
       let wire: Array[U8] val = recover val [U8(1); 2; 3] end
@@ -26,7 +43,10 @@ primitive TransportSelfTest
       if not session.accept_receive(2, recover iso [U8(2)] end) then return false end
       if session.deliver().size() != 0 then return false end
       if session.accept_receive(U64.max_value(), recover iso Array[U8] end) then return false end
-      if session.accept_receive(4098, recover iso Array[U8] end) then return false end
+      // Two deliveries advanced receive-next to 4; reject the first sequence
+      // outside the current window, not a stale boundary based on 2.
+      if session.accept_receive(4 + SessionLimits.max_pending().u64(),
+        recover iso Array[U8] end) then return false end
       let retry = ReliableSession
       retry.connected()
       let seq = retry.next_sequence()?

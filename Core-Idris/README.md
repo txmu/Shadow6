@@ -75,6 +75,13 @@ seconds and endpoint inactivity after 30 seconds. Application datagrams remain
 Chain endpoints acknowledge duplicates without redelivery. Retry exhaustion
 stops the session; protocol families remain wire-incompatible.
 
+Native UDP sockets request 1 MiB receive/send queues per socket (the operating
+system may clamp them) to accommodate the fixed 256-frame window and ACKs.
+The broker drains at most 64 datagrams per readiness check using nonblocking
+receives; each attempt still counts against its existing iteration limit.
+These bounds require no host sysctl changes and do not enlarge protocol frames
+or windows. Throughput remains deployment-dependent and must be measured in CI.
+
 The shared `integration/stack_test.py --engine shadow6-idris --benchmark`
 evaluates native, Python and Node.js paths. Actions builds the Idris executable
 and runs this matrix plus concurrent pressure and broker rejection tests.

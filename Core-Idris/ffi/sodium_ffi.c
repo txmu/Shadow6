@@ -252,6 +252,13 @@ static int native_addr(const char *text,unsigned int port,struct sockaddr_in *ou
     return 0;
 }
 static int same_addr(const struct sockaddr_in *a,const struct sockaddr_in *b){return a->sin_port==b->sin_port&&a->sin_addr.s_addr==b->sin_addr.s_addr;}
+/* A complete 256-frame window must fit alongside ACKs and socket metadata.
+ * Kernels may clamp these per-socket requests; no global tuning is needed. */
+static void native_socket_buffers(int fd){
+    const int bytes=1024*1024;
+    (void)setsockopt(fd,SOL_SOCKET,SO_RCVBUF,&bytes,sizeof bytes);
+    (void)setsockopt(fd,SOL_SOCKET,SO_SNDBUF,&bytes,sizeof bytes);
+}
 static int native_seal(unsigned char *out,size_t *outn,const unsigned char *plain,size_t n,unsigned char direction,uint64_t seq,const unsigned char session[16],const unsigned char key[32]){
     if(!out||!outn||!plain||!session||!n||n>IDRIS_NATIVE_MAX||!seq||(direction!=1&&direction!=2))return -1;
     memcpy(out,"S6I1",4);out[4]=1;out[5]=direction;out[6]=out[7]=0;put64(out+8,seq);memcpy(out+16,session,16);out[32]=(unsigned char)(n>>8);out[33]=(unsigned char)n;
@@ -351,6 +358,7 @@ int idris_native_relay(int role,const char *bind_ip,unsigned int bind_port,const
     unsigned pending_count=0;
     int64_t next_retry_scan=0;
     if(net<0||local<0)goto done;
+    native_socket_buffers(net);native_socket_buffers(local);
     struct timeval tv={.tv_sec=0,.tv_usec=100000};
     if(setsockopt(net,SOL_SOCKET,SO_RCVTIMEO,&tv,sizeof tv)||setsockopt(local,SOL_SOCKET,SO_RCVTIMEO,&tv,sizeof tv))goto done;
     if(bind(net,(struct sockaddr*)&bind_sa,sizeof bind_sa))goto done;

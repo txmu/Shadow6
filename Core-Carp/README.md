@@ -86,6 +86,13 @@ distinguishes ACKs from empty application datagrams; the signed `S6W2` marker is
 required in both handshake legs. Retry exhaustion ends the session; multi-client
 routing and stream semantics remain unsupported.
 
+Each UDP socket requests bounded 1 MiB receive/send queues to absorb scheduling
+bursts at the application, endpoint and broker hops. The kernel may clamp these
+requests; no host buffer limits are changed. The authenticated 256-packet window,
+retry limits and session deadlines are unchanged.
+The broker drains at most 64 nonblocking receives per readiness check; every
+receive still consumes its original iteration budget and validates its source.
+
 `integration/stack_test.py --engine shadow6-carp --benchmark` evaluates all
 three backend paths through the real native trio, without stdin/stdout routing
 or an internal benchmark protocol.

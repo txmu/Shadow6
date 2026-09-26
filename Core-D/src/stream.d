@@ -35,14 +35,41 @@ private bool encodeFrame(ubyte[] frame, ubyte kind, uint sequence, const(ubyte)[
     frame[0 .. HEADER] = head[];
     return encrypt(key, n, head, payload, frame[HEADER .. $]);
 }
-private int receiveFrame(int socket, ref uint expected, ubyte[] payload, ref const Key key) {
+// The sender coalesces records. Preserve that batching across reads instead
+// of issuing two socket reads (header/body) for every 1 KiB authenticated frame.
+// This worker-owned buffer never changes framing or the authentication order.
+private struct FrameReader {
+    @nogc nothrow:
+    ubyte[16 * MAX_FRAME] bytes;
+    size_t start, end;
+
+    bool pending() const { return start < end; }
+
+    bool readExact(int socket, ubyte[] destination) {
+        while (destination.length) {
+            if (!pending()) {
+                int n = d_read(socket, bytes.ptr, cast(int)bytes.length, 0);
+                if (n <= 0) return false;
+                start = 0; end = cast(size_t)n;
+            }
+            size_t n = end - start;
+            if (n > destination.length) n = destination.length;
+            destination[0 .. n] = bytes[start .. start + n];
+            start += n;
+            destination = destination[n .. $];
+        }
+        return true;
+    }
+}
+
+private int receiveFrame(int socket, ref FrameReader reader, ref uint expected, ubyte[] payload, ref const Key key) {
     ubyte[HEADER] head; ubyte[MAX_CHUNK + 16] cipher; ubyte[12] n;
-    if (d_read(socket, head.ptr, HEADER, 1) != HEADER || memcmp(head.ptr, "S6DS".ptr, 4) ||
+    if (!reader.readExact(socket, head[]) || memcmp(head.ptr, "S6DS".ptr, 4) ||
         head[4] != 1 || head[6] || head[7]) return -1;
     ubyte kind = head[5]; uint sequence = get32(head[8 .. 12]);
     uint length = (cast(uint)head[12] << 8) | head[13];
     if ((kind != DATA && kind != CLOSE) || sequence != expected || sequence == uint.max || length < 16 ||
-        length > MAX_CHUNK + 16 || d_read(socket, cipher.ptr, cast(int)length, 1) != length) return -1;
+        length > MAX_CHUNK + 16 || !reader.readExact(socket, cipher[0 .. length])) return -1;
     nonce(n, kind, sequence);
     if (!decrypt(key, n, head, cipher[0 .. length], payload[0 .. length - 16])) return -1;
     ++expected;
@@ -64,10 +91,11 @@ private extern(C) int transfer(void* argument) {
     enum BATCH = 16;
     ubyte[MAX_CHUNK * BATCH] buffer;
     ubyte[MAX_FRAME * BATCH] wire;
+    FrameReader reader;
     scope(exit) d_wipe(buffer.ptr, cast(int)buffer.length);
     while (d_clock() < state.deadline) {
         int input = state.sending ? state.local : state.remote;
-        if (!d_ready(input)) {
+        if ((state.sending || !reader.pending()) && !d_ready(input)) {
             if (d_wait_pair(input, -1) < 0) return 0;
             continue;
         }
@@ -86,7 +114,7 @@ private extern(C) int transfer(void* argument) {
             if (d_write(state.remote, wire.ptr, cast(int)used)) return 0;
             if (n == 0) return 1;
         } else {
-            int n = receiveFrame(input, sequence, buffer, *state.key);
+            int n = receiveFrame(input, reader, sequence, buffer, *state.key);
             if (n < 0 || (n > 0 && d_write(state.local, buffer.ptr, n))) return 0;
             if (n == 0) { d_half_close(state.local); return 1; }
         }

@@ -88,6 +88,17 @@ class NetworkTests(unittest.TestCase):
                     ready, _, _ = select.select([process.stdout], [], [], 8)
                     self.assertTrue(ready, "handshake readiness timeout")
                     self.assertIn(b"ready:", process.stdout.readline())
+                # Fixed-size loopback rejection check, not a load generator:
+                # malformed, oversized, unknown-peer DATA and unsigned hello
+                # packets must leave the established signed session usable.
+                with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as noise:
+                    noise.bind(("127.0.0.1", 0))
+                    noise.settimeout(1)
+                    for wire in (b"bad", b"x" * 1201,
+                                 b"S6E\x02" + bytes(24), b"S6Q1" + bytes(136)):
+                        for _ in range(16):
+                            for port in (a, c):
+                                noise.sendto(wire, ("127.0.0.1", port))
                 for payload in (b"", b"hello", bytes(range(256)), b"x" * 1172):
                     local.sendto(payload, ("127.0.0.1", app))
                     data, address = target.recvfrom(2048)

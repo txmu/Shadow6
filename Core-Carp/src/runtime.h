@@ -197,8 +197,20 @@ static int port_number(const char *s) {
     }
     return n >= 1024 && n <= 65535 ? (int)n : -1;
 }
-static int udp_open(int local, int peer) {
+static int bounded_udp_socket(void) {
     int fd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (fd < 0) return -1;
+    /* Absorb short scheduling bursts without changing host limits or the
+     * 256-packet protocol window. Kernels may clamp these per-socket requests. */
+    int bytes = 1024 * 1024;
+    if (setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &bytes, sizeof bytes) ||
+        setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &bytes, sizeof bytes)) {
+        close(fd); return -1;
+    }
+    return fd;
+}
+static int udp_open(int local, int peer) {
+    int fd = bounded_udp_socket();
     if (fd < 0) return -1;
     struct sockaddr_in addr = {0};
     addr.sin_family = AF_INET; addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
@@ -275,7 +287,7 @@ static void sender_loop(int fd) {
 }
 
 static int chain_application(int port, int client) {
-    int fd = socket(AF_INET, SOCK_DGRAM, 0);
+    int fd = bounded_udp_socket();
     if (fd < 0) return -1;
     struct sockaddr_in a = {0}; a.sin_family = AF_INET;
     a.sin_addr.s_addr = htonl(INADDR_LOOPBACK); a.sin_port = htons((uint16_t)port);
@@ -346,16 +358,26 @@ static int chain_broker(const char *path, int local, int client, int agent) {
     int fd = chain_application(local, 1);
     if (fd < 0) return 2;
     int phase = 0, rc = 0;
+    unsigned burst = 0;
     time_t started = monotonic_seconds(), activity = started;
     puts("broker ready");
     for (unsigned count = 0; count < 1000000; ++count) {
         time_t now = monotonic_seconds();
         if (now - started >= 300 || now - activity >= (phase == 2 ? 60 : 5)) break;
-        struct pollfd poller = {.fd=fd,.events=POLLIN};
-        if (poll(&poller, 1, 1000) <= 0) continue;
+        if (!burst) {
+            struct pollfd poller = {.fd=fd,.events=POLLIN};
+            if (poll(&poller, 1, 1000) <= 0 || !(poller.revents & POLLIN)) continue;
+            burst = 64;
+        }
+        --burst;
         struct sockaddr_in source; socklen_t sl = sizeof source;
-        ssize_t n = recvfrom(fd, frame, sizeof frame, 0, (struct sockaddr *)&source, &sl);
-        if (n < 0 || source.sin_addr.s_addr != htonl(INADDR_LOOPBACK)) continue;
+        ssize_t n = recvfrom(fd, frame, sizeof frame, MSG_DONTWAIT, (struct sockaddr *)&source, &sl);
+        if (n < 0) {
+            burst = 0;
+            if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) continue;
+            rc = 2; break;
+        }
+        if (source.sin_addr.s_addr != htonl(INADDR_LOOPBACK)) continue;
         int port = ntohs(source.sin_port), destination = 0;
         if (phase == 0 && port == client && n == 128) {
             if (memcmp(frame, "S6W2", 4) || crypto_sign_verify_detached(frame + 64, frame, 64, pins + 32)) continue;

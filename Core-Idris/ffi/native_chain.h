@@ -66,17 +66,30 @@ static int idris_chain_broker(const struct sockaddr_in *bind_sa,
     int fd = socket(AF_INET, SOCK_DGRAM, 0), rc = -1, phase = 0;
     unsigned int forwarded = 0;time_t final_until=0;
     if (fd < 0) return -1;
+    native_socket_buffers(fd);
     if (bind(fd, (const struct sockaddr *)bind_sa, sizeof *bind_sa)) goto done;
     time_t started = idris_chain_now(), activity = started;
     if (!started) goto done;
     puts("broker ready"); fflush(stdout);
+    unsigned burst = 0;
     for (unsigned int count=0; count<1000000; ++count) {
         time_t now = idris_chain_now();
         if (!now || now-started>=300 || now-activity>=(phase==2?60:5) || (final_until&&now>=final_until)) break;
-        struct pollfd p = {.fd=fd,.events=POLLIN};
-        if (poll(&p, 1, 1000)<=0) continue;
+        /* Amortize readiness checks across a bounded burst. Every receive is
+         * nonblocking and still consumes the original iteration budget. */
+        if (!burst) {
+            struct pollfd p = {.fd=fd,.events=POLLIN};
+            if (poll(&p, 1, 1000)<=0 || !(p.revents&POLLIN)) continue;
+            burst = 64;
+        }
+        --burst;
         struct sockaddr_in source; socklen_t sl=sizeof source;
-        ssize_t n=recvfrom(fd,frame,sizeof frame,0,(struct sockaddr *)&source,&sl);
+        ssize_t n=recvfrom(fd,frame,sizeof frame,MSG_DONTWAIT,(struct sockaddr *)&source,&sl);
+        if (n < 0) {
+            burst = 0;
+            if (errno==EAGAIN || errno==EWOULDBLOCK || errno==EINTR) continue;
+            goto done;
+        }
         const struct sockaddr_in *destination=NULL;
         int admission_frame=0;
         if (phase==0 && same_addr(&source,client) && n==132) {
