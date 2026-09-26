@@ -58,17 +58,23 @@ fn read_secure(path: str) (str | void) = {
 	case => return;
 	};
 	defer io::close(file)!;
-	const st = os::fstat(file)!;
-	if (st.inode != before.inode || st.uid != unix::geteuid() || st.mode != (fs::mode::REG | fs::mode::USER_RW) || st.sz == 0 || st.sz > MAX_CONFIG) return;
+	// FreeBSD's Hare os::fstat is unsupported by its filesystem adapter.
+	// Query the opened descriptor directly on both supported platforms.
+	let st = rt::st { ... };
+	if (rt::fstat(file, &st) is rt::errno) return;
+	if (st.sz <= 0) return;
+	const config_size = st.sz: size;
+	if (st.ino != before.inode || (st.uid: uint) != unix::geteuid() || (st.mode: fs::mode) != (fs::mode::REG | fs::mode::USER_RW) || config_size > MAX_CONFIG) return;
 	let data: []u8 = alloc([0...], MAX_CONFIG);
 	const n = match (io::read(file, data)) {
 	case let n: size => yield n;
 	case io::EOF => { free(data); return; };
 	case io::error => { free(data); return; };
 	};
-	if (n == 0 || n != st.sz: size) { wipe(&data[0], len(data)); free(data); return; };
-	const st2 = os::fstat(file)!;
-	if (st2.uid != st.uid || st2.mode != (fs::mode::REG | fs::mode::USER_RW) || st2.mode != st.mode || st2.sz != st.sz) { free(data); return; };
+	if (n == 0 || n != config_size) { wipe(&data[0], len(data)); free(data); return; };
+	let st2 = rt::st { ... };
+	if (rt::fstat(file, &st2) is rt::errno) { wipe(&data[0], len(data)); free(data); return; };
+	if (st2.ino != st.ino || st2.uid != st.uid || st2.mode != st.mode || st2.sz != st.sz) { wipe(&data[0], len(data)); free(data); return; };
 	return strings::fromutf8(data[..n])!;
 };
 
