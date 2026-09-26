@@ -26,7 +26,7 @@ primitive TransportSelfTest
       if not session.accept_receive(2, recover iso [U8(2)] end) then return false end
       if session.deliver().size() != 0 then return false end
       if session.accept_receive(U64.max_value(), recover iso Array[U8] end) then return false end
-      if session.accept_receive(260, recover iso Array[U8] end) then return false end
+      if session.accept_receive(4098, recover iso Array[U8] end) then return false end
       let retry = ReliableSession
       retry.connected()
       let seq = retry.next_sequence()?

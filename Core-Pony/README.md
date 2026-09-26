@@ -39,7 +39,7 @@ Selectors route verification to a pinned key and never substitute for verifying
 the signature. AEAD nonces include frame kind and a 64-bit sequence, so
 full-duplex DATA and ACK packets cannot reuse a nonce under the same key.
 
-Each session has a 256-packet send and receive window (1200-byte wire MTU,
+Each session has a bounded 4096-packet send and receive window (1200-byte wire MTU,
 1172-byte payload). Receive buffers deliver in order, duplicate packets receive
 ACKs without redelivery, and retransmissions reuse immutable ciphertext.
 RTT estimation follows the RFC 6298 SRTT/RTTVAR equations and Karn's rule, with
