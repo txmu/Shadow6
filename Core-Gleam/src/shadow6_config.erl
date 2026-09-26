@@ -22,7 +22,7 @@ validate_role(<<"agent">>, null, Agent, null) when is_map(Agent) ->
     required(Agent, [<<"id">>,<<"broker_addrs">>,<<"broker_pubkey">>,<<"private_key">>,
       <<"target_port">>,<<"auto_close_after">>,<<"allow_local_discovery">>],
       [<<"client_pubkeys">>,<<"sni">>,<<"alpn">>,<<"transport">>]),
-    common_endpoint(Agent), <<"secure-stream">>=maps:get(<<"transport">>,Agent),
+    common_endpoint(Agent), valid_transport(maps:get(<<"transport">>,Agent)),
     Target=maps:get(<<"target_port">>,Agent),true=is_integer(Target) andalso Target>=1 andalso Target=<65535,
     Lifetime=maps:get(<<"auto_close_after">>,Agent),true=is_integer(Lifetime) andalso Lifetime>=1 andalso Lifetime=<86400,
     false=maps:get(<<"allow_local_discovery">>,Agent),Clients=maps:get(<<"client_pubkeys">>,Agent),
@@ -32,7 +32,7 @@ validate_role(<<"client">>, null, null, Client) when is_map(Client) ->
     required(Client, [<<"id">>,<<"broker_addrs">>,<<"broker_pubkey">>,<<"private_key">>,
       <<"target_agent">>,<<"on_success">>,<<"allow_local_discovery">>],
       [<<"agent_pubkey">>,<<"sni">>,<<"alpn">>,<<"transport">>]), common_endpoint(Client),
-    <<"secure-stream">>=maps:get(<<"transport">>,Client),true=valid_id(maps:get(<<"target_agent">>,Client)),
+    valid_transport(maps:get(<<"transport">>,Client)),true=valid_id(maps:get(<<"target_agent">>,Client)),
     32=byte_size(unhex(maps:get(<<"agent_pubkey">>,Client))),<<>>=maps:get(<<"on_success">>,Client),
     false=maps:get(<<"allow_local_discovery">>,Client),ok.
 
@@ -42,6 +42,8 @@ common_endpoint(Map) ->
     true = lists:all(fun valid_broker_address/1, Addrs),
     _ = private_seed(maps:get(<<"private_key">>,Map)),
     32 = byte_size(unhex(maps:get(<<"broker_pubkey">>,Map))).
+valid_transport(<<"secure-stream">>) -> ok;
+valid_transport(<<"micro-mux">>) -> ok.
 valid_broker_address(<<"ws://127.0.0.1:",Rest/binary>>)->valid_ws_tail(Rest);
 valid_broker_address(<<"ws://localhost:",Rest/binary>>)->valid_ws_tail(Rest);
 valid_broker_address(<<"ws://[::1]:",Rest/binary>>)->valid_ws_tail(Rest);

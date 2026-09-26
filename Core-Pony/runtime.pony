@@ -22,7 +22,7 @@ actor SocketActor is (UDPSocketActor & UDPLifecycleEventReceiver)
   fun ref _on_bound() => _receiver.bound(_application)
   fun ref _on_received(data: Array[U8] iso, from: NetAddress val): ReadAction =>
     // Cross-actor credit bounds the mailbox when consumers are slower than UDP.
-    if (data.size() <= ProtocolLimits.max_frame()) and (_inflight < 32) then
+    if (data.size() <= ProtocolLimits.max_frame()) and (_inflight < 256) then
       _inflight = _inflight + 1
       _receiver.received(consume data, from, _application, this)
     end

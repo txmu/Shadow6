@@ -78,6 +78,26 @@ def load_config(path: Path):
     return value, listen, gate, Ed25519PrivateKey.from_private_bytes(seed)
 
 
+def write_config(role, core, output, private_key_output, listen, gate, tenant, identity,
+                 transport="tcp", max_connections=32, idle_seconds=120):
+    """Create an owner-only peer config and seed without requiring JSON editing."""
+    if role not in ("client", "agent") or core not in CORES:
+        raise ValueError("invalid Virtual Peer role or Core family")
+    output = Path(output).absolute(); private_key_output = Path(private_key_output).absolute()
+    if output.exists() or output.is_symlink() or private_key_output.exists() or private_key_output.is_symlink():
+        raise ValueError("output already exists; refusing to overwrite credentials or config")
+    seed = os.urandom(32)
+    private_key_output.write_bytes(seed); os.chmod(private_key_output, 0o600)
+    document = {"schema": SCHEMA, "role": role, "core": core, "tenant": tenant,
+                "identity": identity, "private_key_file": str(private_key_output),
+                "transport": transport, "listen": {"host": listen[0], "port": listen[1]},
+                "gate": {"host": gate[0], "port": gate[1]},
+                "max_connections": max_connections, "idle_seconds": idle_seconds}
+    output.write_text(json.dumps(document, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+    os.chmod(output, 0o600)
+    return document
+
+
 class VirtualPeer:
     def __init__(self, config, listen, gate, key):
         self.config, self.listen, self.gate, self.key = config, listen, gate, key
@@ -190,11 +210,38 @@ class VirtualPeer:
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config", type=Path, required=True)
+    parser.add_argument("--config", type=Path)
     parser.add_argument("--role", choices=("client", "agent"))
     parser.add_argument("--check", action="store_true")
+    parser.add_argument("--init", action="store_true", help="create a peer config and Ed25519 seed")
+    parser.add_argument("--core", choices=sorted(CORES))
+    parser.add_argument("--output", type=Path)
+    parser.add_argument("--private-key-output", type=Path)
+    parser.add_argument("--tenant", default="default")
+    parser.add_argument("--identity", default="peer-01")
+    parser.add_argument("--listen", default="127.0.0.1:1087")
+    parser.add_argument("--gate", default="127.0.0.1:1086")
+    parser.add_argument("--transport", choices=("tcp", "udp"), default="tcp")
+    parser.add_argument("--max-connections", type=int, default=32)
+    parser.add_argument("--idle-seconds", type=int, default=120)
     args = parser.parse_args()
     try:
+        if args.init:
+            if not all((args.role, args.core, args.output, args.private_key_output)):
+                raise ValueError("--init requires --role, --core, --output and --private-key-output")
+            def endpoint(text):
+                host, port = text.rsplit(":", 1)
+                return _endpoint({"host": host, "port": int(port)})
+            document = write_config(args.role, args.core, args.output, args.private_key_output,
+                                    endpoint(args.listen), endpoint(args.gate), args.tenant,
+                                    args.identity, args.transport, args.max_connections,
+                                    args.idle_seconds)
+            print(json.dumps({"config": str(Path(args.output).absolute()),
+                              "private_key_file": str(Path(args.private_key_output).absolute()),
+                              "role": document["role"], "core": document["core"]}))
+            return 0
+        if args.config is None:
+            raise ValueError("--config is required unless --init is used")
         config, listen, gate, key = load_config(args.config)
         if args.role is not None and config["role"] != args.role:
             raise ValueError("Virtual Peer role does not match command")

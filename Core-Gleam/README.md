@@ -4,7 +4,9 @@
 standalone deployment data plane is an authenticated, direction-keyed TCP
 secure stream. The retained UDP `micro-mux` packet engine is available for
 bounded datagram applications: its active-once listener authenticates before
-creating a stream Actor, and invalid packets allocate no actors. A 128-packet
+creating a stream Actor, and invalid packets allocate no actors. Configurations
+may select `"transport":"micro-mux"`; the default template remains
+`"secure-stream"`. A 128-packet
 replay bitmap per stream survives Actor termination; the session retains at
 most 4096 replay records and fails closed at capacity.
 

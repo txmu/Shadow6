@@ -20,6 +20,7 @@ COMPONENTS["virtual-broker"]=ROOT/"Public6/virtual_broker.py"
 COMPONENTS["virtual-client"]=ROOT/"Public6/virtual_peer.py"
 COMPONENTS["virtual-agent"]=ROOT/"Public6/virtual_peer.py"
 COMPONENTS["join-code"]=ROOT/"Public6/join_code.py"
+CORE_NAMES=("go","rust","gleam","ada","nim","pony","zig","d","cpp","idris","hare","carp")
 if not (ROOT/"Makefile").is_file():
  bin_dir=Path(sys.argv[0]).resolve().parent
  COMPONENTS={name:bin_dir/("shadow6-"+name) for name in COMPONENTS}
@@ -126,7 +127,13 @@ def main():
  q.add_argument("--check",action="store_true")
  for name in ("virtual-client","virtual-agent"):
   q=sub.add_parser(name,help="run or validate a configured Virtual Peer")
-  q.add_argument("--config",type=Path,required=True)
+  q.add_argument("--config",type=Path)
+  q.add_argument("--init",action="store_true"); q.add_argument("--core",choices=CORE_NAMES)
+  q.add_argument("--output",type=Path); q.add_argument("--private-key-output",type=Path)
+  q.add_argument("--tenant",default="default"); q.add_argument("--identity",default="peer-01")
+  q.add_argument("--listen",default="127.0.0.1:1087"); q.add_argument("--gate",default="127.0.0.1:1086")
+  q.add_argument("--transport",choices=("tcp","udp"),default="tcp")
+  q.add_argument("--max-connections",type=int,default=32); q.add_argument("--idle-seconds",type=int,default=120)
   q.add_argument("--check",action="store_true")
  add_hands_parser(sub)
  q=sub.add_parser("features");q.add_argument("--component",choices=("go","rust","gate"),action="append",default=[])
@@ -151,7 +158,13 @@ def main():
  if a.command=="standalone":return run(a.name,tail(a.args),a.json_events)
  if a.command=="virtual-broker":return run("virtual-broker",["--config",str(a.config)]+(["--check"] if a.check else []),a.json_events)
  if a.command in ("virtual-client","virtual-agent"):
-  return run(a.command,["--config",str(a.config),"--role",a.command.removeprefix("virtual-")]+(["--check"] if a.check else []),a.json_events)
+  args=["--role",a.command.removeprefix("virtual-")]
+  if a.init:
+   args += ["--init","--core",a.core,"--output",str(a.output),"--private-key-output",str(a.private_key_output),
+            "--tenant",a.tenant,"--identity",a.identity,"--listen",a.listen,"--gate",a.gate,
+            "--transport",a.transport,"--max-connections",str(a.max_connections),"--idle-seconds",str(a.idle_seconds)]
+  else: args += ["--config",str(a.config)] + (["--check"] if a.check else [])
+  return run(a.command,args,a.json_events)
  if a.command in COMPONENTS:return run(a.command,tail(a.args),a.json_events)
  if a.command in TRANSPORTS:return run("control",[a.command]+tail(a.args),a.json_events)
  if a.command=="features":return max(run(n,["--feature-report"],a.json_events) for n in (a.component or ["go","rust","gate"]))

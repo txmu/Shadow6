@@ -73,7 +73,18 @@ Gate itself retains UDP semantics; this relay does not convert Gate UDP to TCP
 or add stream reliability. S6NA provides reliable messages through its own
 adapter. Both modes leave the native Core wire format opaque.
 
-Use `shadow6 virtual-broker --config FILE --check` for a read-only check.
+Use `shadow6 virtual-broker --config FILE --check` for a read-only check. To
+create a Client or Agent config and its owner-only admission seed without
+editing JSON, run for example:
+
+```
+shadow6 virtual-client --init --core go --output client.json \
+  --private-key-output client.seed --tenant example --identity client-01
+```
+
+Replace `go` with any of the twelve Core family names. The command refuses to
+overwrite existing files; endpoint, transport, quota, and identity options
+are available on the command line.
 The Control Center exposes the same validation to AI tools as
 `virtual_broker.validate` with `{"config":"/absolute/path/config.json"}`;
 it never opens a listener or changes configuration.

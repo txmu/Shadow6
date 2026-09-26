@@ -24,7 +24,7 @@ primitive ReplayWindow
 
 primitive SessionLimits
   fun max_clients(): USize => 256
-  fun max_pending(): USize => 256
+  fun max_pending(): USize => 4096
   fun reconnect_delay(attempt: U8): U64 =>
     let bounded = if attempt > 6 then 6 else attempt end
     U64(250_000_000) << bounded.u64()
