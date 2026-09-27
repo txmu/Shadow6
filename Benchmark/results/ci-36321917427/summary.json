@@ -1,0 +1,6220 @@
+{
+  "schema": "shadow6.ci-performance-evidence.v1",
+  "run_id": 36321917427,
+  "commit": "81d01085501b6663afdf84b07a39639b5794f0b9",
+  "note": "Before changes. iperf platform artifacts exclude Shadow6; native chain measurements are separate.",
+  "platforms": [
+    {
+      "artifact": "shadow6-iperf3-alpine-aarch64",
+      "sha256": "82fd01ab2eef7c4419f8da8b06a33091d0954d9397bcf84f9e160974801050fd",
+      "environment": {
+        "commit": null,
+        "iperf3_version": "iperf 3.19.1 (cJSON 1.7.15)",
+        "logical_cpus": 4,
+        "machine": "aarch64",
+        "platform": "Linux-6.17.0-1022-azure-aarch64-with",
+        "run_id": null,
+        "runner": null
+      },
+      "ok": 32,
+      "not_applicable": 0,
+      "cases": 32,
+      "peak_loopback_tcp_bps": 188132011817.09995,
+      "results": [
+        {
+          "direction": "forward",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 64487464100.2325
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 1,
+          "status": "ok",
+          "streams": 2,
+          "throughput_bps": 127771480533.55768
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 175491963250.60074
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 3,
+          "status": "ok",
+          "streams": 8,
+          "throughput_bps": 182684836617.4038
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 12,
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 182061912100.674
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "lost_percent": 0,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 1999958490.4497073
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "lost_percent": 0,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 2000076716.854609
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "lost_percent": 0,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 2000136865.5768564
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 64822531073.78907
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 2,
+          "throughput_bps": 123758914455.63023
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 1,
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 166876062540.6028
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 8,
+          "throughput_bps": 183663497981.95862
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 31,
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 183421483494.1983
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "lost_percent": 0,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 2000016503.690501
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "lost_percent": 0,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 2000129802.78175
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "lost_percent": 0,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 2000472291.5852861
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 62697542410.77751
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 2,
+          "throughput_bps": 123914568513.19388
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 1,
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 174293737264.87946
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 8,
+          "throughput_bps": 184577957868.92517
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 29,
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 182718894270.8926
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "lost_percent": 0,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 1999988672.4682047
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "lost_percent": 0,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 2000074050.1985416
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "lost_percent": 0,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 2000256916.4954734
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 64211382397.761986
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 2,
+          "throughput_bps": 125603853956.49893
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 1,
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 168513541932.76172
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 47,
+          "status": "ok",
+          "streams": 8,
+          "throughput_bps": 188132011817.09995
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 6,
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 184177957994.18884
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "lost_percent": 0,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 1999985842.770098
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "lost_percent": 0,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 2000129469.4607816
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "lost_percent": 0,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 2000427605.4117606
+        }
+      ]
+    },
+    {
+      "artifact": "shadow6-iperf3-alpine-x86_64",
+      "sha256": "ab9e5959825d0742464e09690aa80b10f6b20f88ee9a80b2f1b6f09391b258e3",
+      "environment": {
+        "commit": null,
+        "iperf3_version": "iperf 3.19.1 (cJSON 1.7.15)",
+        "logical_cpus": 4,
+        "machine": "x86_64",
+        "platform": "Linux-6.17.0-1022-azure-x86_64-with",
+        "run_id": null,
+        "runner": null
+      },
+      "ok": 32,
+      "not_applicable": 0,
+      "cases": 32,
+      "peak_loopback_tcp_bps": 142296909825.49023,
+      "results": [
+        {
+          "direction": "forward",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 32012428503.17837
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 2,
+          "throughput_bps": 78785676592.4885
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 137556200217.6235
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 8,
+          "status": "ok",
+          "streams": 8,
+          "throughput_bps": 118610885130.17482
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 930,
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 111687193432.12428
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "lost_percent": 0,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 1999952824.978979
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "lost_percent": 0,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 2000073473.1151617
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "lost_percent": 0,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 2000327949.7889125
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 32191333330.77822
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 1,
+          "status": "ok",
+          "streams": 2,
+          "throughput_bps": 77738372368.1864
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 5,
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 140466857564.6524
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 8,
+          "status": "ok",
+          "streams": 8,
+          "throughput_bps": 119357991875.48883
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 731,
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 111884738911.8052
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "lost_percent": 0,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 2000015170.587457
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "lost_percent": 0,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 2000119136.5658646
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "lost_percent": 0,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 2000382252.559727
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 32089237265.6863
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 2,
+          "throughput_bps": 76282969174.2506
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 141396261175.98047
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 51,
+          "status": "ok",
+          "streams": 8,
+          "throughput_bps": 118899395729.16841
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 899,
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 111471013811.65446
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "lost_percent": 0,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 1999986672.5641947
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "lost_percent": 0,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 2000078472.6614022
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "lost_percent": 0,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 2000313283.4281132
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 31673515679.344963
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 2,
+          "throughput_bps": 75255098422.75867
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 1,
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 142296909825.49023
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 29,
+          "status": "ok",
+          "streams": 8,
+          "throughput_bps": 117713644440.61612
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 952,
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 109948890805.45686
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "lost_percent": 0,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 2000017170.2426896
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "lost_percent": 0,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 2000127802.8576062
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "lost_percent": 0,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 2000467624.3191152
+        }
+      ]
+    },
+    {
+      "artifact": "shadow6-iperf3-freebsd-arm64",
+      "sha256": "6f441c0c1940adcf40e2319fd3c9e5ac0f763f6536db79dad23ffa98e9e6a760",
+      "environment": {
+        "commit": "81d01085501b6663afdf84b07a39639b5794f0b9",
+        "iperf3_version": "iperf 3.21 (cJSON 1.7.15)",
+        "logical_cpus": 2,
+        "machine": "arm64",
+        "platform": "FreeBSD-14.4-RELEASE-arm64-aarch64-64bit-ELF",
+        "run_id": "36321917427",
+        "runner": null
+      },
+      "ok": 32,
+      "not_applicable": 0,
+      "cases": 32,
+      "peak_loopback_tcp_bps": 6035687676.697884,
+      "results": [
+        {
+          "direction": "forward",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 5019859400.63013
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 2,
+          "throughput_bps": 6035687676.697884
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 1,
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 5488025580.763223
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 8,
+          "throughput_bps": 5331014379.142244
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 5363257676.886596
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "lost_percent": 1.229457555912517,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 1056283076.7265061
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "lost_percent": 44.156301337714154,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 1482633413.8739552
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "lost_percent": 26.73305568616914,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 1294452438.7214847
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 4250004552.6830688
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 2,
+          "throughput_bps": 5845958997.615978
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 4833548104.196046
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 8,
+          "throughput_bps": 5049907863.815366
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 4740978267.527794
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "lost_percent": 0.9845572863982737,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 967780797.8317637
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "lost_percent": 51.57910470069501,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 1453858743.4239118
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "lost_percent": 63.91024768644529,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 1278827525.65558
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 3953198130.5431657
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 2,
+          "throughput_bps": 5381659523.161913
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 5378999118.274346
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 8,
+          "throughput_bps": 5366425852.850024
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 5184551621.7148
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "lost_percent": 1.23837089104817,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 1051387323.5685753
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "lost_percent": 38.53022909041616,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 1281863554.9403777
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "lost_percent": 28.451378325232813,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 1172112095.4433982
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 3607101747.0170746
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 2,
+          "throughput_bps": 5716251160.993738
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 4707267902.241405
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 8,
+          "throughput_bps": 4555382242.332
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 3870196422.7387953
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "lost_percent": 2.292787491593813,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 1033949067.3461503
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "lost_percent": 59.30770156231202,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 1263078491.141518
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "lost_percent": 51.731440149910874,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 1102928212.4371765
+        }
+      ]
+    },
+    {
+      "artifact": "shadow6-iperf3-freebsd-x86-64",
+      "sha256": "07cea01630b9ec42056f92a1d145c97a2d98079eec28bbda33b2115c833e2acc",
+      "environment": {
+        "commit": "81d01085501b6663afdf84b07a39639b5794f0b9",
+        "iperf3_version": "iperf 3.21 (cJSON 1.7.15)",
+        "logical_cpus": 2,
+        "machine": "amd64",
+        "platform": "FreeBSD-14.4-RELEASE-amd64-64bit-ELF",
+        "run_id": "36321917427",
+        "runner": null
+      },
+      "ok": 32,
+      "not_applicable": 0,
+      "cases": 32,
+      "peak_loopback_tcp_bps": 54722658326.21846,
+      "results": [
+        {
+          "direction": "forward",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 1,
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 53154157466.47523
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 7,
+          "status": "ok",
+          "streams": 2,
+          "throughput_bps": 54722658326.21846
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 2,
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 48543900654.93917
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 2,
+          "status": "ok",
+          "streams": 8,
+          "throughput_bps": 48913983189.24127
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 531,
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 48498449783.5719
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "lost_percent": 7.76669458615701,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 1999966076.24094
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "lost_percent": 0.0413474930362117,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 1999958692.772167
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "lost_percent": 0.11546840958605664,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 2000084582.195448
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 47902139361.325
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 2,
+          "status": "ok",
+          "streams": 2,
+          "throughput_bps": 51849198973.08891
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 8,
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 46407228310.7462
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 3,
+          "status": "ok",
+          "streams": 8,
+          "throughput_bps": 44970841264.15347
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 1,
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 43682115990.02796
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "lost_percent": 6.64622344011657,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 1999995912.25724
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "lost_percent": 0.0674528917707472,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 2000017778.526279
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "lost_percent": 0.16882324750577266,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 2000133061.8194032
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 2,
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 48831802985.315
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 1,
+          "status": "ok",
+          "streams": 2,
+          "throughput_bps": 50405307434.07223
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 4,
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 44624271009.43529
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 4,
+          "status": "ok",
+          "streams": 8,
+          "throughput_bps": 42127903266.394714
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 512,
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 46079409875.47035
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "lost_percent": 7.55724775632309,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 1999984939.307408
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "lost_percent": 0.03151591553734636,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 1999985697.321327
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "lost_percent": 0.0184981665052611,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 1999987567.0014274
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 1,
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 47184172483.3169
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 5,
+          "status": "ok",
+          "streams": 2,
+          "throughput_bps": 45084811616.19648
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 8,
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 43707697662.87812
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 2,
+          "status": "ok",
+          "streams": 8,
+          "throughput_bps": 43174369400.66645
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 17,
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 42186968922.908516
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "lost_percent": 7.02707400808309,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 1999980041.8124962
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "lost_percent": 0.0662841743817099,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 2000023727.1194873
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "lost_percent": 0.003259452411994785,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 2000087140.8360848
+        }
+      ]
+    },
+    {
+      "artifact": "shadow6-iperf3-linux-arm64",
+      "sha256": "3d54fa4949795e8401a485de16864e54f177f4b3d74449423ab061fed53c980e",
+      "environment": {
+        "commit": "81d01085501b6663afdf84b07a39639b5794f0b9",
+        "iperf3_version": "iperf 3.16 (cJSON 1.7.15)",
+        "logical_cpus": 4,
+        "machine": "aarch64",
+        "platform": "Linux-6.17.0-1022-azure-aarch64-with-glibc2.39",
+        "run_id": "36321917427",
+        "runner": "GitHub Actions 1000005554"
+      },
+      "ok": 32,
+      "not_applicable": 0,
+      "cases": 32,
+      "peak_loopback_tcp_bps": 169122196158.6875,
+      "results": [
+        {
+          "direction": "forward",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 58107684212.8944
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 2,
+          "throughput_bps": 111967141284.52843
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 1,
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 151491321693.9054
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 3,
+          "status": "ok",
+          "streams": 8,
+          "throughput_bps": 165370361642.5274
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 89,
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 165187476046.30957
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "lost_percent": 0,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 1999590840.1333046
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "lost_percent": 0,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 1999703210.3965156
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "lost_percent": 0,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 1999448114.034532
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 56593059260.96638
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 4,
+          "status": "ok",
+          "streams": 2,
+          "throughput_bps": 115493531472.13248
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 1,
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 155402595293.951
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 4,
+          "status": "ok",
+          "streams": 8,
+          "throughput_bps": 167758794603.44925
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 85,
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 162306956663.33945
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "lost_percent": 0,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 1999979510.7406144
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "lost_percent": 0,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 1999949725.253711
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "lost_percent": 0,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 1999618285.8597577
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 63217729741.69088
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 10,
+          "status": "ok",
+          "streams": 2,
+          "throughput_bps": 121405680294.08757
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 1,
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 153342585858.2964
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 13,
+          "status": "ok",
+          "streams": 8,
+          "throughput_bps": 166161135809.35687
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 144,
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 161956094640.08505
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "lost_percent": 0,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 1999625831.293431
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "lost_percent": 0,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 1999695878.5668814
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "lost_percent": 0,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 1999678580.0171084
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 60736428076.20364
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 2,
+          "throughput_bps": 122923776647.1473
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 2,
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 153422174212.60892
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 8,
+          "throughput_bps": 169122196158.6875
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 58,
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 161940119012.29236
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "lost_percent": 0,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 1999992005.6504424
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "lost_percent": 0,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 1999867739.24394
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "lost_percent": 0,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 1999495870.2999895
+        }
+      ]
+    },
+    {
+      "artifact": "shadow6-iperf3-linux-x86_64",
+      "sha256": "3ae2c5cb6c70762df675c89bd993103a8ceda268a11bae075086c75325652d42",
+      "environment": {
+        "commit": "81d01085501b6663afdf84b07a39639b5794f0b9",
+        "iperf3_version": "iperf 3.16 (cJSON 1.7.15)",
+        "logical_cpus": 4,
+        "machine": "x86_64",
+        "platform": "Linux-6.17.0-1022-azure-x86_64-with-glibc2.39",
+        "run_id": "36321917427",
+        "runner": "GitHub Actions 1000005600"
+      },
+      "ok": 32,
+      "not_applicable": 0,
+      "cases": 32,
+      "peak_loopback_tcp_bps": 90060934229.1683,
+      "results": [
+        {
+          "direction": "forward",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 34033061025.042625
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 3,
+          "status": "ok",
+          "streams": 2,
+          "throughput_bps": 47694866151.38797
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 1,
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 89758331911.7566
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 101,
+          "status": "ok",
+          "streams": 8,
+          "throughput_bps": 82433579756.17526
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 1951,
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 78309649199.4192
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "lost_percent": 0,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 1999626863.2041512
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "lost_percent": 0,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 1999657220.7178922
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "lost_percent": 0,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 1999469475.768249
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 1,
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 34797098709.119354
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 2,
+          "throughput_bps": 47798637357.47345
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 1,
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 90060934229.1683
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 135,
+          "status": "ok",
+          "streams": 8,
+          "throughput_bps": 79396676642.19698
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 1993,
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 76870011977.05386
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "lost_percent": 0,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 2000027858.5258
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "lost_percent": 0,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 2000065716.9441621
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "lost_percent": 0,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 1999625164.7837021
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 36754939466.73136
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 2,
+          "throughput_bps": 53589097192.0634
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 87370224175.1313
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 111,
+          "status": "ok",
+          "streams": 8,
+          "throughput_bps": 82075421387.03474
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 1793,
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 77726601106.58537
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "lost_percent": 0,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 1999609835.182563
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "lost_percent": 0,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 1999693545.7232726
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "lost_percent": 0,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 1999528559.865656
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 40038486922.446526
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 2,
+          "throughput_bps": 51103651080.19286
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 2,
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 87994104839.9031
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 133,
+          "status": "ok",
+          "streams": 8,
+          "throughput_bps": 82502640475.22276
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 1839,
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 77116580818.38185
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "lost_percent": 0,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 1999998173.6794212
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "lost_percent": 0,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 2000019385.3161564
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "lost_percent": 0,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 1999214584.8874004
+        }
+      ]
+    },
+    {
+      "artifact": "shadow6-iperf3-macos-arm64",
+      "sha256": "2500145b7368ab9b29b715a8372eb84243d14f22089e6da222ce6e665c8f2252",
+      "environment": {
+        "commit": "81d01085501b6663afdf84b07a39639b5794f0b9",
+        "iperf3_version": "iperf 3.21 (cJSON 1.7.15)",
+        "logical_cpus": 3,
+        "machine": "arm64",
+        "platform": "macOS-15.7.9-arm64-arm-64bit",
+        "run_id": "36321917427",
+        "runner": "GitHub Actions 1000005569"
+      },
+      "ok": 32,
+      "not_applicable": 0,
+      "cases": 32,
+      "peak_loopback_tcp_bps": 137724273767.06168,
+      "results": [
+        {
+          "direction": "forward",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 115634811355.6566
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 2,
+          "throughput_bps": 137724273767.06168
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 22,
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 120094978191.8309
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 68,
+          "status": "ok",
+          "streams": 8,
+          "throughput_bps": 124466645480.24826
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 62,
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 96426473547.2288
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "lost_percent": 63.21704162591023,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 1999987782.1265688
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "lost_percent": 67.13854571509216,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 1999937649.08868
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "lost_percent": 70.226309850759,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 1999754627.2310126
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 103459732098.02797
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 1,
+          "status": "ok",
+          "streams": 2,
+          "throughput_bps": 129728975712.752
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 29,
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 129849088414.35974
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 70,
+          "status": "ok",
+          "streams": 8,
+          "throughput_bps": 113869717639.25407
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 38,
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 124000292723.98161
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "lost_percent": 71.9146004026658,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 2000003285.5833824
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "lost_percent": 71.2142313132412,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 1999973179.565507
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "lost_percent": 69.8034672159286,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 1999968421.4899523
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 90066817606.34505
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 2,
+          "throughput_bps": 103791461217.961
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 47,
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 104841347649.38614
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 115,
+          "status": "ok",
+          "streams": 8,
+          "throughput_bps": 99711145800.7379
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 89,
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 104030466927.50822
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "lost_percent": 75.46780033270633,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 1999753175.1750934
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "lost_percent": 71.6549505540331,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 1999835702.42677
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "lost_percent": 72.25778452858847,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 1999432530.1735566
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 96117106717.0607
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 2,
+          "throughput_bps": 96160707413.14183
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 81,
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 103422353781.71349
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 110,
+          "status": "ok",
+          "streams": 8,
+          "throughput_bps": 97657495047.86977
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 109,
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 102617228349.79721
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "lost_percent": 75.7201777324234,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 2000006957.1802046
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "lost_percent": 71.67990305338556,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 2000023433.7377367
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "lost_percent": 70.67714051225205,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 1999542908.8072705
+        }
+      ]
+    },
+    {
+      "artifact": "shadow6-iperf3-macos-x86_64",
+      "sha256": "7ffdfdbcb183ace801afe47321c207b78e786bc7e025c637f91d1bc02a359d4f",
+      "environment": {
+        "commit": "81d01085501b6663afdf84b07a39639b5794f0b9",
+        "iperf3_version": "iperf 3.21 (cJSON 1.7.15)",
+        "logical_cpus": 4,
+        "machine": "x86_64",
+        "platform": "macOS-15.7.9-x86_64-i386-64bit",
+        "run_id": "36321917427",
+        "runner": "GitHub Actions 1000005570"
+      },
+      "ok": 32,
+      "not_applicable": 0,
+      "cases": 32,
+      "peak_loopback_tcp_bps": 85910600266.8961,
+      "results": [
+        {
+          "direction": "forward",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 32188675094.428856
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 1,
+          "status": "ok",
+          "streams": 2,
+          "throughput_bps": 64055969451.082085
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 34,
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 85910600266.8961
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 135,
+          "status": "ok",
+          "streams": 8,
+          "throughput_bps": 69390413903.11815
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 91,
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 62140126354.46896
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "lost_percent": 73.31731285000107,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 1999951455.8515193
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "lost_percent": 50.571688429805754,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 1999868883.4312596
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "lost_percent": 56.786444512115544,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 1999399507.005229
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 56088880612.5636
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 2,
+          "throughput_bps": 76450736550.50723
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 77,
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 76816169137.8651
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 60,
+          "status": "ok",
+          "streams": 8,
+          "throughput_bps": 65327054655.3133
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 222,
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 63721788968.22168
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "lost_percent": 64.05918534864136,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 1999997289.9198334
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "lost_percent": 60.255464154711,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 1999974380.5059013
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "lost_percent": 41.2499731627198,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 1999350644.8662934
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 54245144820.248
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 4,
+          "status": "ok",
+          "streams": 2,
+          "throughput_bps": 59328113141.40227
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 29,
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 57085175544.74483
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 97,
+          "status": "ok",
+          "streams": 8,
+          "throughput_bps": 43861057569.9558
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 179,
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 49575944528.6407
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "lost_percent": 60.87017986472085,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 1999962862.4907856
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "lost_percent": 42.53194505131457,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 1999874757.9334223
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "lost_percent": 52.08278952405812,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 1999112307.4877543
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 33633957082.60743
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 2,
+          "status": "ok",
+          "streams": 2,
+          "throughput_bps": 35253290857.8492
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 74,
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 31017777421.36452
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 103,
+          "status": "ok",
+          "streams": 8,
+          "throughput_bps": 35861412359.571
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 48,
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 32609233916.25893
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "lost_percent": 65.69467536343096,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 1999983778.2186913
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "lost_percent": 28.134697284225393,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 1999989042.4617727
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "lost_percent": 41.59759579906527,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 1999846179.6916194
+        }
+      ]
+    },
+    {
+      "artifact": "shadow6-iperf3-netbsd-arm64",
+      "sha256": "72c0c635422a5e20c7b6730ce287d7c705118225d4efa2a00db0504620bf0a1b",
+      "environment": {
+        "commit": "81d01085501b6663afdf84b07a39639b5794f0b9",
+        "iperf3_version": "iperf 3.20 (cJSON 1.7.15)",
+        "logical_cpus": 2,
+        "machine": "evbarm",
+        "platform": "NetBSD-10.1-evbarm-aarch64-64bit-ELF",
+        "run_id": "36321917427",
+        "runner": null
+      },
+      "ok": 32,
+      "not_applicable": 0,
+      "cases": 32,
+      "peak_loopback_tcp_bps": 1740659150.3639483,
+      "results": [
+        {
+          "direction": "forward",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 1740659150.3639483
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 2,
+          "throughput_bps": 1296443808.5175855
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 1237306536.88466
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 8,
+          "throughput_bps": 1533302747.9287512
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 642934528.622267
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "lost_percent": 0.1077254539858418,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 869957352.146778
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "lost_percent": 32.972972972972975,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 808811414.2956355
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "lost_percent": 35.4591567156293,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 844412846.4698813
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 1655393372.3943782
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 2,
+          "throughput_bps": 1256761057.2488945
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 1140910443.4023373
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 8,
+          "throughput_bps": 788469416.469945
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 411512070.78440475
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "lost_percent": 83.97691726890304,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 827622747.3324176
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "lost_percent": 28.829479768786126,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 680200150.2663586
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "lost_percent": 10.66154157394295,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 662540303.6472055
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 1678019450.1938162
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 2,
+          "throughput_bps": 1344591178.120426
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 1299291546.5076454
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 8,
+          "throughput_bps": 899661411.5355275
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 473790142.046324
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "lost_percent": 48.1651376146789,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 837134477.6356186
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "lost_percent": 14.889647083910864,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 837153889.444951
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "lost_percent": 6.281902552204176,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 768898635.7003697
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 1667838618.3656669
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 2,
+          "throughput_bps": 1469425288.7612906
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 1479516178.888043
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 8,
+          "throughput_bps": 970881273.975501
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 830616870.9270408
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "lost_percent": 0,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 292901408.9563551
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "lost_percent": 6.191131919581383,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 810647926.6251545
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "lost_percent": 9.885578207585526,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 768790647.003818
+        }
+      ]
+    },
+    {
+      "artifact": "shadow6-iperf3-netbsd-x86-64",
+      "sha256": "c62b75571ac37bc6b7ea8c5871e671a1675a4ae1d6f34c728737be1eabb73cea",
+      "environment": {
+        "commit": "81d01085501b6663afdf84b07a39639b5794f0b9",
+        "iperf3_version": "iperf 3.21 (cJSON 1.7.15)",
+        "logical_cpus": 2,
+        "machine": "amd64",
+        "platform": "NetBSD-10.1-amd64-x86_64-64bit-ELF",
+        "run_id": "36321917427",
+        "runner": null
+      },
+      "ok": 32,
+      "not_applicable": 0,
+      "cases": 32,
+      "peak_loopback_tcp_bps": 10887659522.697329,
+      "results": [
+        {
+          "direction": "forward",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 9967807595.08662
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 2,
+          "throughput_bps": 8971321717.43843
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 8789280178.97074
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 8,
+          "throughput_bps": 9791235385.44311
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 8962451645.43146
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "lost_percent": 3.267140748691802,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 1997444106.691955
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "lost_percent": 13.565657243895343,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 1996295491.7367575
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "lost_percent": 29.89789978057409,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 1995224346.8862627
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 10887659522.697329
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 2,
+          "throughput_bps": 9340943657.30483
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 8758458430.16815
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 8,
+          "throughput_bps": 10371453527.395405
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 8427732460.569292
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "lost_percent": 3.6733325885375936,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 1998961546.7544513
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "lost_percent": 22.619340688852585,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 1996494468.4707909
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "lost_percent": 25.09788128957201,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 1995948608.8830178
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 10488352622.572937
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 2,
+          "throughput_bps": 9128961815.495337
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 8753831592.3713
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 8,
+          "throughput_bps": 8819072346.72862
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 8925983881.60317
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "lost_percent": 2.664254767966412,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 1998976246.9005587
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "lost_percent": 2.40433003064123,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 1996529281.5502012
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "lost_percent": 23.296737696487266,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 1995632746.0489633
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 10760119508.059412
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 2,
+          "throughput_bps": 9252632611.96664
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 8720683545.51102
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 8,
+          "throughput_bps": 9075014144.632536
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 8247606485.66595
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "lost_percent": 2.952755905511811,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 1995538376.702084
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "lost_percent": 20.99765126943295,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 1996171393.8111153
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "lost_percent": 25.90555406493158,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 1996324621.645344
+        }
+      ]
+    },
+    {
+      "artifact": "shadow6-iperf3-omnios-x86-64",
+      "sha256": "2dc16ab5912f099fdb3405419ff81ae10206eb8871a90b99dad772dce3725dd5",
+      "environment": {
+        "commit": "81d01085501b6663afdf84b07a39639b5794f0b9",
+        "iperf3_version": "iperf 3.21 (cJSON 1.7.15)",
+        "logical_cpus": 2,
+        "machine": "i86pc",
+        "platform": "SunOS-5.11-i86pc-i386-64bit-ELF",
+        "run_id": "36321917427",
+        "runner": null
+      },
+      "ok": 32,
+      "not_applicable": 0,
+      "cases": 32,
+      "peak_loopback_tcp_bps": 47789096254.25225,
+      "results": [
+        {
+          "direction": "forward",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": null,
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 10594735823.636662
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": null,
+          "status": "ok",
+          "streams": 2,
+          "throughput_bps": 45833000420.81012
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": null,
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 42584916322.98133
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": null,
+          "status": "ok",
+          "streams": 8,
+          "throughput_bps": 37284372906.947845
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": null,
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 32242770498.18025
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "lost_percent": 73.0109731887694,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 1999705121.066588
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "lost_percent": 8.662383559850783,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 1999651799.6224618
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "lost_percent": 0,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 1999656367.6503525
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": null,
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 12236375361.182865
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": null,
+          "status": "ok",
+          "streams": 2,
+          "throughput_bps": 41016429286.347115
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": null,
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 47789096254.25225
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": null,
+          "status": "ok",
+          "streams": 8,
+          "throughput_bps": 44773121842.53021
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": null,
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 42818108551.751656
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "lost_percent": 72.97309089322528,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 1999746929.8275585
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "lost_percent": 10.732750158155364,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 1999828031.9976747
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "lost_percent": 0,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 1999831328.6303515
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": null,
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 10528537096.4014
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": null,
+          "status": "ok",
+          "streams": 2,
+          "throughput_bps": 45079089603.93394
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": null,
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 42447859915.280365
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": null,
+          "status": "ok",
+          "streams": 8,
+          "throughput_bps": 36014274773.442566
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": null,
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 32211132598.947094
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "lost_percent": 73.24101143206214,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 1999587577.3904867
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "lost_percent": 8.11650951370748,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 1999760099.5119064
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "lost_percent": 0,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 1999622378.783036
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": null,
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 12811064178.517673
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": null,
+          "status": "ok",
+          "streams": 2,
+          "throughput_bps": 42384954588.105644
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": null,
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 39152206453.901054
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": null,
+          "status": "ok",
+          "streams": 8,
+          "throughput_bps": 37256102370.7791
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": null,
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 36790187337.23215
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "lost_percent": 75.1496973332606,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 1999900136.0962346
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "lost_percent": 8.30370192622325,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 1999786704.3536084
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "lost_percent": 0,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 1999825570.3785625
+        }
+      ]
+    },
+    {
+      "artifact": "shadow6-iperf3-openbsd-arm64",
+      "sha256": "08452d439869c4390dafdff3a4ce6c6d73ff327cd3353a7bf536d1f7762da3b2",
+      "environment": {
+        "commit": "81d01085501b6663afdf84b07a39639b5794f0b9",
+        "iperf3_version": "iperf 3.20 (cJSON 1.7.15)",
+        "logical_cpus": 2,
+        "machine": "arm64",
+        "platform": "OpenBSD-7.9-arm64-aarch64-64bit-ELF",
+        "run_id": "36321917427",
+        "runner": null
+      },
+      "ok": 32,
+      "not_applicable": 0,
+      "cases": 32,
+      "peak_loopback_tcp_bps": 1317833314.6562445,
+      "results": [
+        {
+          "direction": "forward",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 1213885351.6764274
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 2,
+          "throughput_bps": 1277351075.4638507
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 1290744553.8345666
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 8,
+          "throughput_bps": 1300174846.082989
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 1289783305.1877131
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "lost_percent": 92.17461275397304,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 649028284.775308
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "lost_percent": 11.698846875838026,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 648814364.6972617
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "lost_percent": 39.98392605987543,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 648319968.2530887
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 747631917.733377
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 2,
+          "throughput_bps": 851814936.7817458
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 1204078012.2041
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 8,
+          "throughput_bps": 1092263580.314733
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 1090096454.413124
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "lost_percent": 93.26582278481013,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 601517629.484423
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "lost_percent": 28.10623055213836,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 601186214.810897
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "lost_percent": 40.7959479015919,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 601369262.388977
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 1159294837.3161016
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 2,
+          "throughput_bps": 1290274911.8159564
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 1274164946.948634
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 8,
+          "throughput_bps": 1310905783.9985268
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 1317833314.6562445
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "lost_percent": 92.266578686902,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 658403595.9824733
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "lost_percent": 18.8790365272631,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 657481503.1663045
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "lost_percent": 41.606611570247935,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 657284099.527582
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 747429937.19999
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 2,
+          "throughput_bps": 1147522638.38521
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 1207014956.1312013
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 8,
+          "throughput_bps": 549043264.0813216
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 1137183244.4537456
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "lost_percent": 91.1605792089907,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 603004640.087238
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "lost_percent": 27.46356947049488,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 602494956.1885973
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "lost_percent": 39.92496933843157,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 602903715.1740884
+        }
+      ]
+    },
+    {
+      "artifact": "shadow6-iperf3-openbsd-x86-64",
+      "sha256": "e708584f276dd46eb10ff4797d21062ce8140d0d1c033407ff85bb7645546407",
+      "environment": {
+        "commit": "81d01085501b6663afdf84b07a39639b5794f0b9",
+        "iperf3_version": "iperf 3.20 (cJSON 1.7.15)",
+        "logical_cpus": 2,
+        "machine": "amd64",
+        "platform": "OpenBSD-7.9-amd64-64bit-ELF",
+        "run_id": "36321917427",
+        "runner": null
+      },
+      "ok": 32,
+      "not_applicable": 0,
+      "cases": 32,
+      "peak_loopback_tcp_bps": 28569738039.07381,
+      "results": [
+        {
+          "direction": "forward",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 21616347463.190193
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 2,
+          "throughput_bps": 25472436683.148
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 23570703159.795376
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 8,
+          "throughput_bps": 25812202210.27211
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 25350555699.02227
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "lost_percent": 80.8048860290108,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 1993767281.494596
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "lost_percent": 80.1116416999193,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 1995927003.238052
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "lost_percent": 82.2630569360886,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 1996791659.8967965
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 27378484864.328125
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 2,
+          "throughput_bps": 22755050843.005108
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 25654270592.263973
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 8,
+          "throughput_bps": 26479175182.94189
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 25622539722.44078
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "lost_percent": 80.2464827134911,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 1993797760.5309827
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "lost_percent": 82.22715791307377,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 1998214293.2309964
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "lost_percent": 82.61798365122615,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 1997076598.24882
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 23924269176.325443
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 2,
+          "throughput_bps": 28569738039.07381
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 24316741029.49613
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 8,
+          "throughput_bps": 26582342658.1262
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 26628644372.3196
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "lost_percent": 78.44385808055476,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 1993715334.7748694
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "lost_percent": 79.81148953810573,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 1993390885.4479735
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "lost_percent": 83.63501709904376,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 1996603025.6162815
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 25495619294.139153
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 2,
+          "throughput_bps": 22757934902.992283
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 25295744546.10261
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 8,
+          "throughput_bps": 24447836483.60002
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": 0,
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 24573746336.890633
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "lost_percent": 77.69953563408838,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 1993741956.850729
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "lost_percent": 80.32573006588532,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 2000000457.5514612
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "lost_percent": 84.3814006188173,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 1996964029.5668542
+        }
+      ]
+    },
+    {
+      "artifact": "shadow6-iperf3-windows-amd64",
+      "sha256": "7a0273436205df4aaf8e05c15e1a335eb26f6a1787b7b4cd8567b9006a144f5a",
+      "environment": {
+        "commit": "81d01085501b6663afdf84b07a39639b5794f0b9",
+        "iperf3_version": "iperf 3.21 (cJSON 1.7.15)",
+        "logical_cpus": 4,
+        "machine": "x86_64",
+        "platform": "MSYS_NT-10.0-26100-3.6.9-01d6c708.x86_64-x86_64-64bit-WindowsPE",
+        "run_id": "36321917427",
+        "runner": "GitHub Actions 1000005579"
+      },
+      "ok": 24,
+      "not_applicable": 8,
+      "cases": 32,
+      "peak_loopback_tcp_bps": 90333284927.53865,
+      "results": [
+        {
+          "direction": "forward",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": null,
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 50254641714.47186
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": null,
+          "status": "ok",
+          "streams": 2,
+          "throughput_bps": 67645018318.821625
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": null,
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 81726923405.5721
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": null,
+          "status": "ok",
+          "streams": 8,
+          "throughput_bps": 81727478947.305
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": null,
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 82617266206.3661
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "lost_percent": 2.231538495130792,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 1995412183.1610281
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "protocol": "udp",
+          "reason": "Windows MSYS2 iperf3 multi-stream UDP platform limitation; single-stream UDP and all TCP stream counts are tested",
+          "status": "not_applicable",
+          "streams": 4
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "protocol": "udp",
+          "reason": "Windows MSYS2 iperf3 multi-stream UDP platform limitation; single-stream UDP and all TCP stream counts are tested",
+          "status": "not_applicable",
+          "streams": 12
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": null,
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 49400864181.36037
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": null,
+          "status": "ok",
+          "streams": 2,
+          "throughput_bps": 70686685235.76266
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": null,
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 84139943048.9828
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": null,
+          "status": "ok",
+          "streams": 8,
+          "throughput_bps": 84195091479.60103
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": null,
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 82414559074.4723
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "lost_percent": 1.462307390108691,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 1995839792.7574859
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "protocol": "udp",
+          "reason": "Windows MSYS2 iperf3 multi-stream UDP platform limitation; single-stream UDP and all TCP stream counts are tested",
+          "status": "not_applicable",
+          "streams": 4
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "protocol": "udp",
+          "reason": "Windows MSYS2 iperf3 multi-stream UDP platform limitation; single-stream UDP and all TCP stream counts are tested",
+          "status": "not_applicable",
+          "streams": 12
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": null,
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 57138370060.30928
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": null,
+          "status": "ok",
+          "streams": 2,
+          "throughput_bps": 86156512487.24123
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": null,
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 89717167246.56123
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": null,
+          "status": "ok",
+          "streams": 8,
+          "throughput_bps": 89493906025.4987
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": null,
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 88654059896.23613
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "lost_percent": 3.34193604829185,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 1995034784.7629793
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "protocol": "udp",
+          "reason": "Windows MSYS2 iperf3 multi-stream UDP platform limitation; single-stream UDP and all TCP stream counts are tested",
+          "status": "not_applicable",
+          "streams": 4
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "protocol": "udp",
+          "reason": "Windows MSYS2 iperf3 multi-stream UDP platform limitation; single-stream UDP and all TCP stream counts are tested",
+          "status": "not_applicable",
+          "streams": 12
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": null,
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 56521088447.92935
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": null,
+          "status": "ok",
+          "streams": 2,
+          "throughput_bps": 83414212447.0629
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": null,
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 90333284927.53865
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": null,
+          "status": "ok",
+          "streams": 8,
+          "throughput_bps": 89330548127.5523
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": null,
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 88244164981.59956
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "lost_percent": 2.717106412720601,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 1997952132.4455643
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "protocol": "udp",
+          "reason": "Windows MSYS2 iperf3 multi-stream UDP platform limitation; single-stream UDP and all TCP stream counts are tested",
+          "status": "not_applicable",
+          "streams": 4
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "protocol": "udp",
+          "reason": "Windows MSYS2 iperf3 multi-stream UDP platform limitation; single-stream UDP and all TCP stream counts are tested",
+          "status": "not_applicable",
+          "streams": 12
+        }
+      ]
+    },
+    {
+      "artifact": "shadow6-iperf3-windows-arm64",
+      "sha256": "f2bc60a1183559be5add326b269914161ee5e43beeac333f51143c2268d92cf1",
+      "environment": {
+        "commit": "81d01085501b6663afdf84b07a39639b5794f0b9",
+        "iperf3_version": "iperf 3.21 (cJSON 1.7.15)",
+        "logical_cpus": 4,
+        "machine": "x86_64",
+        "platform": "MSYS_NT-10.0-26200-ARM64-3.6.9-01d6c708.x86_64-x86_64-64bit-WindowsPE",
+        "run_id": "36321917427",
+        "runner": "GitHub Actions 1000005576"
+      },
+      "ok": 24,
+      "not_applicable": 8,
+      "cases": 32,
+      "peak_loopback_tcp_bps": 50409253883.90698,
+      "results": [
+        {
+          "direction": "forward",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": null,
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 26406015993.922436
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": null,
+          "status": "ok",
+          "streams": 2,
+          "throughput_bps": 47009456231.615326
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": null,
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 45537616987.712425
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": null,
+          "status": "ok",
+          "streams": 8,
+          "throughput_bps": 45792644293.313065
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": null,
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 45768758538.42873
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "lost_percent": 2.464110644257703,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 1994845697.97465
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "protocol": "udp",
+          "reason": "Windows MSYS2 iperf3 multi-stream UDP platform limitation; single-stream UDP and all TCP stream counts are tested",
+          "status": "not_applicable",
+          "streams": 4
+        },
+        {
+          "direction": "forward",
+          "family": 4,
+          "protocol": "udp",
+          "reason": "Windows MSYS2 iperf3 multi-stream UDP platform limitation; single-stream UDP and all TCP stream counts are tested",
+          "status": "not_applicable",
+          "streams": 12
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": null,
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 24053980227.474888
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": null,
+          "status": "ok",
+          "streams": 2,
+          "throughput_bps": 46899420625.784386
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": null,
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 47340025359.025345
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": null,
+          "status": "ok",
+          "streams": 8,
+          "throughput_bps": 46847286037.01823
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "protocol": "tcp",
+          "retransmits": null,
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 46129025704.798515
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "lost_percent": 2.1988109809407237,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 1996922335.1550267
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "protocol": "udp",
+          "reason": "Windows MSYS2 iperf3 multi-stream UDP platform limitation; single-stream UDP and all TCP stream counts are tested",
+          "status": "not_applicable",
+          "streams": 4
+        },
+        {
+          "direction": "reverse",
+          "family": 4,
+          "protocol": "udp",
+          "reason": "Windows MSYS2 iperf3 multi-stream UDP platform limitation; single-stream UDP and all TCP stream counts are tested",
+          "status": "not_applicable",
+          "streams": 12
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": null,
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 26818915351.33817
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": null,
+          "status": "ok",
+          "streams": 2,
+          "throughput_bps": 50384136448.3434
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": null,
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 48502577298.79635
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": null,
+          "status": "ok",
+          "streams": 8,
+          "throughput_bps": 48697070353.82067
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": null,
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 49037563275.0615
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "lost_percent": 3.4717673260841084,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 1994918639.8258035
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "protocol": "udp",
+          "reason": "Windows MSYS2 iperf3 multi-stream UDP platform limitation; single-stream UDP and all TCP stream counts are tested",
+          "status": "not_applicable",
+          "streams": 4
+        },
+        {
+          "direction": "forward",
+          "family": 6,
+          "protocol": "udp",
+          "reason": "Windows MSYS2 iperf3 multi-stream UDP platform limitation; single-stream UDP and all TCP stream counts are tested",
+          "status": "not_applicable",
+          "streams": 12
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": null,
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 26927236760.48126
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": null,
+          "status": "ok",
+          "streams": 2,
+          "throughput_bps": 50409253883.90698
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": null,
+          "status": "ok",
+          "streams": 4,
+          "throughput_bps": 49081305519.8081
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": null,
+          "status": "ok",
+          "streams": 8,
+          "throughput_bps": 48575432329.30355
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "protocol": "tcp",
+          "retransmits": null,
+          "status": "ok",
+          "streams": 12,
+          "throughput_bps": 48557893804.52371
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "lost_percent": 2.403636045800192,
+          "protocol": "udp",
+          "status": "ok",
+          "streams": 1,
+          "throughput_bps": 1995046934.9701731
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "protocol": "udp",
+          "reason": "Windows MSYS2 iperf3 multi-stream UDP platform limitation; single-stream UDP and all TCP stream counts are tested",
+          "status": "not_applicable",
+          "streams": 4
+        },
+        {
+          "direction": "reverse",
+          "family": 6,
+          "protocol": "udp",
+          "reason": "Windows MSYS2 iperf3 multi-stream UDP platform limitation; single-stream UDP and all TCP stream counts are tested",
+          "status": "not_applicable",
+          "streams": 12
+        }
+      ]
+    }
+  ],
+  "linux_native_companion": [
+    {
+      "core": "go",
+      "backend": "native",
+      "status": "ok",
+      "network": {
+        "application_chunk_bytes": 4,
+        "application_transport": "tcp",
+        "backend": "native",
+        "bytes_received": 128,
+        "bytes_sent": 128,
+        "concurrency": 1,
+        "duration_scope": "application-workload-only",
+        "duration_seconds": 0.01175727600002574,
+        "impairment": {
+          "model": "application-response-pacing-v2",
+          "packet_loss_injected": false,
+          "recovery_delay_percent": 0,
+          "rtt_ms": 0
+        },
+        "latency_avg_seconds": 0.00036439581250391484,
+        "latency_p95_seconds": 0.00041707499997301056,
+        "payload_bytes": 4,
+        "requests": 32,
+        "roles": [
+          "broker",
+          "agent",
+          "client"
+        ],
+        "schema": "shadow6.network-chain.v1",
+        "success_rate": 1.0,
+        "throughput_bps": 87095.0039786221
+      }
+    },
+    {
+      "core": "go",
+      "backend": "python",
+      "status": "ok",
+      "network": {
+        "application_chunk_bytes": 4,
+        "application_transport": "tcp",
+        "backend": "python",
+        "bytes_received": 128,
+        "bytes_sent": 128,
+        "concurrency": 1,
+        "duration_scope": "application-workload-only",
+        "duration_seconds": 0.04357168300009562,
+        "impairment": {
+          "model": "application-response-pacing-v2",
+          "packet_loss_injected": false,
+          "recovery_delay_percent": 0,
+          "rtt_ms": 0
+        },
+        "latency_avg_seconds": 0.0013588900000165438,
+        "latency_p95_seconds": 0.0014455080000743692,
+        "payload_bytes": 4,
+        "requests": 32,
+        "roles": [
+          "broker",
+          "agent",
+          "client"
+        ],
+        "schema": "shadow6.network-chain.v1",
+        "success_rate": 1.0,
+        "throughput_bps": 23501.502110849215
+      }
+    },
+    {
+      "core": "go",
+      "backend": "node",
+      "status": "ok",
+      "network": {
+        "application_chunk_bytes": 4,
+        "application_transport": "tcp",
+        "backend": "node",
+        "bytes_received": 128,
+        "bytes_sent": 128,
+        "concurrency": 1,
+        "duration_scope": "application-workload-only",
+        "duration_seconds": 0.06764264100002038,
+        "impairment": {
+          "model": "application-response-pacing-v2",
+          "packet_loss_injected": false,
+          "recovery_delay_percent": 0,
+          "rtt_ms": 0
+        },
+        "latency_avg_seconds": 0.0021111289999993232,
+        "latency_p95_seconds": 0.0028383799999573966,
+        "payload_bytes": 4,
+        "requests": 32,
+        "roles": [
+          "broker",
+          "agent",
+          "client"
+        ],
+        "schema": "shadow6.network-chain.v1",
+        "success_rate": 1.0,
+        "throughput_bps": 15138.3799458642
+      }
+    },
+    {
+      "core": "rust",
+      "backend": "native",
+      "status": "ok",
+      "network": {
+        "application_chunk_bytes": 4,
+        "application_transport": "tcp",
+        "backend": "native",
+        "bytes_received": 128,
+        "bytes_sent": 128,
+        "concurrency": 1,
+        "duration_scope": "application-workload-only",
+        "duration_seconds": 0.007933118999972066,
+        "impairment": {
+          "model": "application-response-pacing-v2",
+          "packet_loss_injected": false,
+          "recovery_delay_percent": 0,
+          "rtt_ms": 0
+        },
+        "latency_avg_seconds": 0.000244723343751474,
+        "latency_p95_seconds": 0.00029796000001169887,
+        "payload_bytes": 4,
+        "requests": 32,
+        "roles": [
+          "broker",
+          "agent",
+          "client"
+        ],
+        "schema": "shadow6.network-chain.v1",
+        "success_rate": 1.0,
+        "throughput_bps": 129079.11755812634
+      }
+    },
+    {
+      "core": "rust",
+      "backend": "python",
+      "status": "ok",
+      "network": {
+        "application_chunk_bytes": 4,
+        "application_transport": "tcp",
+        "backend": "python",
+        "bytes_received": 128,
+        "bytes_sent": 128,
+        "concurrency": 1,
+        "duration_scope": "application-workload-only",
+        "duration_seconds": 2.543342005999989,
+        "impairment": {
+          "model": "application-response-pacing-v2",
+          "packet_loss_injected": false,
+          "recovery_delay_percent": 0,
+          "rtt_ms": 0
+        },
+        "latency_avg_seconds": 0.07947428756250119,
+        "latency_p95_seconds": 0.08209524799997325,
+        "payload_bytes": 4,
+        "requests": 32,
+        "roles": [
+          "broker",
+          "agent",
+          "client"
+        ],
+        "schema": "shadow6.network-chain.v1",
+        "success_rate": 1.0,
+        "throughput_bps": 402.6198590611429
+      }
+    },
+    {
+      "core": "rust",
+      "backend": "node",
+      "status": "ok",
+      "network": {
+        "application_chunk_bytes": 4,
+        "application_transport": "tcp",
+        "backend": "node",
+        "bytes_received": 128,
+        "bytes_sent": 128,
+        "concurrency": 1,
+        "duration_scope": "application-workload-only",
+        "duration_seconds": 2.5570458200000985,
+        "impairment": {
+          "model": "application-response-pacing-v2",
+          "packet_loss_injected": false,
+          "recovery_delay_percent": 0,
+          "rtt_ms": 0
+        },
+        "latency_avg_seconds": 0.07990270225000629,
+        "latency_p95_seconds": 0.08308521000003566,
+        "payload_bytes": 4,
+        "requests": 32,
+        "roles": [
+          "broker",
+          "agent",
+          "client"
+        ],
+        "schema": "shadow6.network-chain.v1",
+        "success_rate": 1.0,
+        "throughput_bps": 400.4621239051401
+      }
+    },
+    {
+      "core": "zig",
+      "backend": "native",
+      "status": "ok",
+      "network": {
+        "application_chunk_bytes": 4,
+        "application_transport": "tcp",
+        "backend": "native",
+        "bytes_received": 128,
+        "bytes_sent": 128,
+        "concurrency": 1,
+        "duration_scope": "application-workload-only",
+        "duration_seconds": 0.0150835700000016,
+        "impairment": {
+          "model": "application-response-pacing-v2",
+          "packet_loss_injected": false,
+          "recovery_delay_percent": 0,
+          "rtt_ms": 0
+        },
+        "latency_avg_seconds": 0.0004695018749920621,
+        "latency_p95_seconds": 0.0002171689999386217,
+        "payload_bytes": 4,
+        "requests": 32,
+        "roles": [
+          "broker",
+          "agent",
+          "client"
+        ],
+        "schema": "shadow6.network-chain.v1",
+        "success_rate": 1.0,
+        "throughput_bps": 67888.43755158038
+      }
+    },
+    {
+      "core": "zig",
+      "backend": "python",
+      "status": "ok",
+      "network": {
+        "application_chunk_bytes": 4,
+        "application_transport": "tcp",
+        "backend": "python",
+        "bytes_received": 128,
+        "bytes_sent": 128,
+        "concurrency": 1,
+        "duration_scope": "application-workload-only",
+        "duration_seconds": 2.545844140999975,
+        "impairment": {
+          "model": "application-response-pacing-v2",
+          "packet_loss_injected": false,
+          "recovery_delay_percent": 0,
+          "rtt_ms": 0
+        },
+        "latency_avg_seconds": 0.07955268706250607,
+        "latency_p95_seconds": 0.08293081100009658,
+        "payload_bytes": 4,
+        "requests": 32,
+        "roles": [
+          "broker",
+          "agent",
+          "client"
+        ],
+        "schema": "shadow6.network-chain.v1",
+        "success_rate": 1.0,
+        "throughput_bps": 402.2241517101616
+      }
+    },
+    {
+      "core": "zig",
+      "backend": "node",
+      "status": "ok",
+      "network": {
+        "application_chunk_bytes": 4,
+        "application_transport": "tcp",
+        "backend": "node",
+        "bytes_received": 128,
+        "bytes_sent": 128,
+        "concurrency": 1,
+        "duration_scope": "application-workload-only",
+        "duration_seconds": 2.576057559999981,
+        "impairment": {
+          "model": "application-response-pacing-v2",
+          "packet_loss_injected": false,
+          "recovery_delay_percent": 0,
+          "rtt_ms": 0
+        },
+        "latency_avg_seconds": 0.08049662871876251,
+        "latency_p95_seconds": 0.08387656700006119,
+        "payload_bytes": 4,
+        "requests": 32,
+        "roles": [
+          "broker",
+          "agent",
+          "client"
+        ],
+        "schema": "shadow6.network-chain.v1",
+        "success_rate": 1.0,
+        "throughput_bps": 397.50664577541795
+      }
+    },
+    {
+      "core": "ada",
+      "backend": "native",
+      "status": "ok",
+      "network": {
+        "application_chunk_bytes": 4,
+        "application_transport": "tcp",
+        "backend": "native",
+        "bytes_received": 128,
+        "bytes_sent": 128,
+        "concurrency": 1,
+        "duration_scope": "application-workload-only",
+        "duration_seconds": 0.013903810999977395,
+        "impairment": {
+          "model": "application-response-pacing-v2",
+          "packet_loss_injected": false,
+          "recovery_delay_percent": 0,
+          "rtt_ms": 0
+        },
+        "latency_avg_seconds": 0.00043273603125015825,
+        "latency_p95_seconds": 0.0002093939999667782,
+        "payload_bytes": 4,
+        "requests": 32,
+        "roles": [
+          "broker",
+          "agent",
+          "client"
+        ],
+        "schema": "shadow6.network-chain.v1",
+        "success_rate": 1.0,
+        "throughput_bps": 73648.87224097514
+      }
+    },
+    {
+      "core": "ada",
+      "backend": "python",
+      "status": "ok",
+      "network": {
+        "application_chunk_bytes": 4,
+        "application_transport": "tcp",
+        "backend": "python",
+        "bytes_received": 128,
+        "bytes_sent": 128,
+        "concurrency": 1,
+        "duration_scope": "application-workload-only",
+        "duration_seconds": 0.033461028000033366,
+        "impairment": {
+          "model": "application-response-pacing-v2",
+          "packet_loss_injected": false,
+          "recovery_delay_percent": 0,
+          "rtt_ms": 0
+        },
+        "latency_avg_seconds": 0.001043044281239247,
+        "latency_p95_seconds": 0.0011443809999036603,
+        "payload_bytes": 4,
+        "requests": 32,
+        "roles": [
+          "broker",
+          "agent",
+          "client"
+        ],
+        "schema": "shadow6.network-chain.v1",
+        "success_rate": 1.0,
+        "throughput_bps": 30602.765701011303
+      }
+    },
+    {
+      "core": "ada",
+      "backend": "node",
+      "status": "ok",
+      "network": {
+        "application_chunk_bytes": 4,
+        "application_transport": "tcp",
+        "backend": "node",
+        "bytes_received": 128,
+        "bytes_sent": 128,
+        "concurrency": 1,
+        "duration_scope": "application-workload-only",
+        "duration_seconds": 0.061228679000009834,
+        "impairment": {
+          "model": "application-response-pacing-v2",
+          "packet_loss_injected": false,
+          "recovery_delay_percent": 0,
+          "rtt_ms": 0
+        },
+        "latency_avg_seconds": 0.0019105745312479883,
+        "latency_p95_seconds": 0.0046272160000171425,
+        "payload_bytes": 4,
+        "requests": 32,
+        "roles": [
+          "broker",
+          "agent",
+          "client"
+        ],
+        "schema": "shadow6.network-chain.v1",
+        "success_rate": 1.0,
+        "throughput_bps": 16724.189002997035
+      }
+    },
+    {
+      "core": "d",
+      "backend": "native",
+      "status": "ok",
+      "network": {
+        "application_chunk_bytes": 4,
+        "application_transport": "tcp",
+        "backend": "native",
+        "bytes_received": 128,
+        "bytes_sent": 128,
+        "concurrency": 1,
+        "duration_scope": "application-workload-only",
+        "duration_seconds": 0.01210108800000853,
+        "impairment": {
+          "model": "application-response-pacing-v2",
+          "packet_loss_injected": false,
+          "recovery_delay_percent": 0,
+          "rtt_ms": 0
+        },
+        "latency_avg_seconds": 0.0003763126874822831,
+        "latency_p95_seconds": 0.0001845669999056554,
+        "payload_bytes": 4,
+        "requests": 32,
+        "roles": [
+          "broker",
+          "agent",
+          "client"
+        ],
+        "schema": "shadow6.network-chain.v1",
+        "success_rate": 1.0,
+        "throughput_bps": 84620.49032279396
+      }
+    },
+    {
+      "core": "d",
+      "backend": "python",
+      "status": "ok",
+      "network": {
+        "application_chunk_bytes": 4,
+        "application_transport": "tcp",
+        "backend": "python",
+        "bytes_received": 128,
+        "bytes_sent": 128,
+        "concurrency": 1,
+        "duration_scope": "application-workload-only",
+        "duration_seconds": 0.03257315899998048,
+        "impairment": {
+          "model": "application-response-pacing-v2",
+          "packet_loss_injected": false,
+          "recovery_delay_percent": 0,
+          "rtt_ms": 0
+        },
+        "latency_avg_seconds": 0.0010151673124916272,
+        "latency_p95_seconds": 0.0011161399999082278,
+        "payload_bytes": 4,
+        "requests": 32,
+        "roles": [
+          "broker",
+          "agent",
+          "client"
+        ],
+        "schema": "shadow6.network-chain.v1",
+        "success_rate": 1.0,
+        "throughput_bps": 31436.926335594704
+      }
+    },
+    {
+      "core": "d",
+      "backend": "node",
+      "status": "ok",
+      "network": {
+        "application_chunk_bytes": 4,
+        "application_transport": "tcp",
+        "backend": "node",
+        "bytes_received": 128,
+        "bytes_sent": 128,
+        "concurrency": 1,
+        "duration_scope": "application-workload-only",
+        "duration_seconds": 0.05727006199992957,
+        "impairment": {
+          "model": "application-response-pacing-v2",
+          "packet_loss_injected": false,
+          "recovery_delay_percent": 0,
+          "rtt_ms": 0
+        },
+        "latency_avg_seconds": 0.0017869759375095384,
+        "latency_p95_seconds": 0.002517577000048732,
+        "payload_bytes": 4,
+        "requests": 32,
+        "roles": [
+          "broker",
+          "agent",
+          "client"
+        ],
+        "schema": "shadow6.network-chain.v1",
+        "success_rate": 1.0,
+        "throughput_bps": 17880.197161324173
+      }
+    },
+    {
+      "core": "nim",
+      "backend": "native",
+      "status": "ok",
+      "network": {
+        "application_chunk_bytes": 4,
+        "application_transport": "tcp",
+        "backend": "native",
+        "bytes_received": 128,
+        "bytes_sent": 128,
+        "concurrency": 1,
+        "duration_scope": "application-workload-only",
+        "duration_seconds": 0.20819633299993257,
+        "impairment": {
+          "model": "application-response-pacing-v2",
+          "packet_loss_injected": false,
+          "recovery_delay_percent": 0,
+          "rtt_ms": 0
+        },
+        "latency_avg_seconds": 0.006503753749996122,
+        "latency_p95_seconds": 0.006314159999988078,
+        "payload_bytes": 4,
+        "requests": 32,
+        "roles": [
+          "broker",
+          "agent",
+          "client"
+        ],
+        "schema": "shadow6.network-chain.v1",
+        "success_rate": 1.0,
+        "throughput_bps": 4918.434370313005
+      }
+    },
+    {
+      "core": "nim",
+      "backend": "python",
+      "status": "ok",
+      "network": {
+        "application_chunk_bytes": 4,
+        "application_transport": "tcp",
+        "backend": "python",
+        "bytes_received": 128,
+        "bytes_sent": 128,
+        "concurrency": 1,
+        "duration_scope": "application-workload-only",
+        "duration_seconds": 0.19982883800003037,
+        "impairment": {
+          "model": "application-response-pacing-v2",
+          "packet_loss_injected": false,
+          "recovery_delay_percent": 0,
+          "rtt_ms": 0
+        },
+        "latency_avg_seconds": 0.00624212837499627,
+        "latency_p95_seconds": 0.0063154819999908796,
+        "payload_bytes": 4,
+        "requests": 32,
+        "roles": [
+          "broker",
+          "agent",
+          "client"
+        ],
+        "schema": "shadow6.network-chain.v1",
+        "success_rate": 1.0,
+        "throughput_bps": 5124.38550035428
+      }
+    },
+    {
+      "core": "nim",
+      "backend": "node",
+      "status": "ok",
+      "network": {
+        "application_chunk_bytes": 4,
+        "application_transport": "tcp",
+        "backend": "node",
+        "bytes_received": 128,
+        "bytes_sent": 128,
+        "concurrency": 1,
+        "duration_scope": "application-workload-only",
+        "duration_seconds": 0.2485598130000426,
+        "impairment": {
+          "model": "application-response-pacing-v2",
+          "packet_loss_injected": false,
+          "recovery_delay_percent": 0,
+          "rtt_ms": 0
+        },
+        "latency_avg_seconds": 0.007764575812494456,
+        "latency_p95_seconds": 0.010043132999953741,
+        "payload_bytes": 4,
+        "requests": 32,
+        "roles": [
+          "broker",
+          "agent",
+          "client"
+        ],
+        "schema": "shadow6.network-chain.v1",
+        "success_rate": 1.0,
+        "throughput_bps": 4119.732742154198
+      }
+    },
+    {
+      "core": "cpp",
+      "backend": "native",
+      "status": "ok",
+      "network": {
+        "application_chunk_bytes": 4,
+        "application_transport": "tcp",
+        "backend": "native",
+        "bytes_received": 128,
+        "bytes_sent": 128,
+        "concurrency": 1,
+        "duration_scope": "application-workload-only",
+        "duration_seconds": 0.01036527600001591,
+        "impairment": {
+          "model": "application-response-pacing-v2",
+          "packet_loss_injected": false,
+          "recovery_delay_percent": 0,
+          "rtt_ms": 0
+        },
+        "latency_avg_seconds": 0.00032181874998826743,
+        "latency_p95_seconds": 0.00021159800007808371,
+        "payload_bytes": 4,
+        "requests": 32,
+        "roles": [
+          "broker",
+          "agent",
+          "client"
+        ],
+        "schema": "shadow6.network-chain.v1",
+        "success_rate": 1.0,
+        "throughput_bps": 98791.3877062635
+      }
+    },
+    {
+      "core": "cpp",
+      "backend": "python",
+      "status": "ok",
+      "network": {
+        "application_chunk_bytes": 4,
+        "application_transport": "tcp",
+        "backend": "python",
+        "bytes_received": 128,
+        "bytes_sent": 128,
+        "concurrency": 1,
+        "duration_scope": "application-workload-only",
+        "duration_seconds": 0.03494655800000146,
+        "impairment": {
+          "model": "application-response-pacing-v2",
+          "packet_loss_injected": false,
+          "recovery_delay_percent": 0,
+          "rtt_ms": 0
+        },
+        "latency_avg_seconds": 0.001088760562492297,
+        "latency_p95_seconds": 0.0011671239999486716,
+        "payload_bytes": 4,
+        "requests": 32,
+        "roles": [
+          "broker",
+          "agent",
+          "client"
+        ],
+        "schema": "shadow6.network-chain.v1",
+        "success_rate": 1.0,
+        "throughput_bps": 29301.88432291264
+      }
+    },
+    {
+      "core": "cpp",
+      "backend": "node",
+      "status": "ok",
+      "network": {
+        "application_chunk_bytes": 4,
+        "application_transport": "tcp",
+        "backend": "node",
+        "bytes_received": 128,
+        "bytes_sent": 128,
+        "concurrency": 1,
+        "duration_scope": "application-workload-only",
+        "duration_seconds": 0.058305346999986796,
+        "impairment": {
+          "model": "application-response-pacing-v2",
+          "packet_loss_injected": false,
+          "recovery_delay_percent": 0,
+          "rtt_ms": 0
+        },
+        "latency_avg_seconds": 0.0018190030000120316,
+        "latency_p95_seconds": 0.0027318329999843627,
+        "payload_bytes": 4,
+        "requests": 32,
+        "roles": [
+          "broker",
+          "agent",
+          "client"
+        ],
+        "schema": "shadow6.network-chain.v1",
+        "success_rate": 1.0,
+        "throughput_bps": 17562.711701213815
+      }
+    },
+    {
+      "core": "pony",
+      "backend": "native",
+      "status": "ok",
+      "network": {
+        "application_chunk_bytes": 4,
+        "application_transport": "udp",
+        "backend": "native",
+        "bytes_received": 128,
+        "bytes_sent": 128,
+        "concurrency": 1,
+        "duration_scope": "application-workload-only",
+        "duration_seconds": 0.5784681159999536,
+        "impairment": {
+          "model": "application-response-pacing-v2",
+          "packet_loss_injected": false,
+          "recovery_delay_percent": 0,
+          "rtt_ms": 0
+        },
+        "latency_avg_seconds": 0.01807230656249459,
+        "latency_p95_seconds": 0.022367554999959793,
+        "payload_bytes": 4,
+        "requests": 32,
+        "roles": [
+          "broker",
+          "agent",
+          "client"
+        ],
+        "schema": "shadow6.network-chain.v1",
+        "success_rate": 1.0,
+        "throughput_bps": 1770.1926375490712
+      }
+    },
+    {
+      "core": "pony",
+      "backend": "python",
+      "status": "ok",
+      "network": {
+        "application_chunk_bytes": 4,
+        "application_transport": "udp",
+        "backend": "python",
+        "bytes_received": 128,
+        "bytes_sent": 128,
+        "concurrency": 1,
+        "duration_scope": "application-workload-only",
+        "duration_seconds": 0.6354894190000095,
+        "impairment": {
+          "model": "application-response-pacing-v2",
+          "packet_loss_injected": false,
+          "recovery_delay_percent": 0,
+          "rtt_ms": 0
+        },
+        "latency_avg_seconds": 0.019855017906248662,
+        "latency_p95_seconds": 0.02319396100006088,
+        "payload_bytes": 4,
+        "requests": 32,
+        "roles": [
+          "broker",
+          "agent",
+          "client"
+        ],
+        "schema": "shadow6.network-chain.v1",
+        "success_rate": 1.0,
+        "throughput_bps": 1611.3564905790895
+      }
+    },
+    {
+      "core": "pony",
+      "backend": "node",
+      "status": "ok",
+      "network": {
+        "application_chunk_bytes": 4,
+        "application_transport": "udp",
+        "backend": "node",
+        "bytes_received": 128,
+        "bytes_sent": 128,
+        "concurrency": 1,
+        "duration_scope": "application-workload-only",
+        "duration_seconds": 0.949578769000027,
+        "impairment": {
+          "model": "application-response-pacing-v2",
+          "packet_loss_injected": false,
+          "recovery_delay_percent": 0,
+          "rtt_ms": 0
+        },
+        "latency_avg_seconds": 0.029670190312497624,
+        "latency_p95_seconds": 0.04197886800000106,
+        "payload_bytes": 4,
+        "requests": 32,
+        "roles": [
+          "broker",
+          "agent",
+          "client"
+        ],
+        "schema": "shadow6.network-chain.v1",
+        "success_rate": 1.0,
+        "throughput_bps": 1078.372888515972
+      }
+    },
+    {
+      "core": "hare",
+      "backend": "native",
+      "status": "ok",
+      "network": {
+        "application_chunk_bytes": 4,
+        "application_transport": "udp",
+        "backend": "native",
+        "bytes_received": 128,
+        "bytes_sent": 128,
+        "concurrency": 1,
+        "duration_scope": "application-workload-only",
+        "duration_seconds": 0.007749972000056005,
+        "impairment": {
+          "model": "application-response-pacing-v2",
+          "packet_loss_injected": false,
+          "recovery_delay_percent": 0,
+          "rtt_ms": 0
+        },
+        "latency_avg_seconds": 0.00023932743750876284,
+        "latency_p95_seconds": 0.0002503110000589004,
+        "payload_bytes": 4,
+        "requests": 32,
+        "roles": [
+          "broker",
+          "agent",
+          "client"
+        ],
+        "schema": "shadow6.network-chain.v1",
+        "success_rate": 1.0,
+        "throughput_bps": 132129.50962824124
+      }
+    },
+    {
+      "core": "hare",
+      "backend": "python",
+      "status": "ok",
+      "network": {
+        "application_chunk_bytes": 4,
+        "application_transport": "udp",
+        "backend": "python",
+        "bytes_received": 128,
+        "bytes_sent": 128,
+        "concurrency": 1,
+        "duration_scope": "application-workload-only",
+        "duration_seconds": 0.03370742899994639,
+        "impairment": {
+          "model": "application-response-pacing-v2",
+          "packet_loss_injected": false,
+          "recovery_delay_percent": 0,
+          "rtt_ms": 0
+        },
+        "latency_avg_seconds": 0.0010506825000007325,
+        "latency_p95_seconds": 0.0011519980000684882,
+        "payload_bytes": 4,
+        "requests": 32,
+        "roles": [
+          "broker",
+          "agent",
+          "client"
+        ],
+        "schema": "shadow6.network-chain.v1",
+        "success_rate": 1.0,
+        "throughput_bps": 30379.059761621946
+      }
+    },
+    {
+      "core": "hare",
+      "backend": "node",
+      "status": "ok",
+      "network": {
+        "application_chunk_bytes": 4,
+        "application_transport": "udp",
+        "backend": "node",
+        "bytes_received": 128,
+        "bytes_sent": 128,
+        "concurrency": 1,
+        "duration_scope": "application-workload-only",
+        "duration_seconds": 0.05869726200000969,
+        "impairment": {
+          "model": "application-response-pacing-v2",
+          "packet_loss_injected": false,
+          "recovery_delay_percent": 0,
+          "rtt_ms": 0
+        },
+        "latency_avg_seconds": 0.0018315989687387457,
+        "latency_p95_seconds": 0.0026917239999875164,
+        "payload_bytes": 4,
+        "requests": 32,
+        "roles": [
+          "broker",
+          "agent",
+          "client"
+        ],
+        "schema": "shadow6.network-chain.v1",
+        "success_rate": 1.0,
+        "throughput_bps": 17445.447455450834
+      }
+    },
+    {
+      "core": "carp",
+      "backend": "native",
+      "status": "ok",
+      "network": {
+        "application_chunk_bytes": 4,
+        "application_transport": "udp",
+        "backend": "native",
+        "bytes_received": 128,
+        "bytes_sent": 128,
+        "concurrency": 1,
+        "duration_scope": "application-workload-only",
+        "duration_seconds": 0.008800935999943249,
+        "impairment": {
+          "model": "application-response-pacing-v2",
+          "packet_loss_injected": false,
+          "recovery_delay_percent": 0,
+          "rtt_ms": 0
+        },
+        "latency_avg_seconds": 0.00027214068751035825,
+        "latency_p95_seconds": 0.00030505400002311944,
+        "payload_bytes": 4,
+        "requests": 32,
+        "roles": [
+          "broker",
+          "agent",
+          "client"
+        ],
+        "schema": "shadow6.network-chain.v1",
+        "success_rate": 1.0,
+        "throughput_bps": 116351.26082119027
+      }
+    },
+    {
+      "core": "carp",
+      "backend": "python",
+      "status": "ok",
+      "network": {
+        "application_chunk_bytes": 4,
+        "application_transport": "udp",
+        "backend": "python",
+        "bytes_received": 128,
+        "bytes_sent": 128,
+        "concurrency": 1,
+        "duration_scope": "application-workload-only",
+        "duration_seconds": 0.03826527600006102,
+        "impairment": {
+          "model": "application-response-pacing-v2",
+          "packet_loss_injected": false,
+          "recovery_delay_percent": 0,
+          "rtt_ms": 0
+        },
+        "latency_avg_seconds": 0.00119320037500259,
+        "latency_p95_seconds": 0.00137621900000795,
+        "payload_bytes": 4,
+        "requests": 32,
+        "roles": [
+          "broker",
+          "agent",
+          "client"
+        ],
+        "schema": "shadow6.network-chain.v1",
+        "success_rate": 1.0,
+        "throughput_bps": 26760.55439919908
+      }
+    },
+    {
+      "core": "carp",
+      "backend": "node",
+      "status": "ok",
+      "network": {
+        "application_chunk_bytes": 4,
+        "application_transport": "udp",
+        "backend": "node",
+        "bytes_received": 128,
+        "bytes_sent": 128,
+        "concurrency": 1,
+        "duration_scope": "application-workload-only",
+        "duration_seconds": 0.06097166400002152,
+        "impairment": {
+          "model": "application-response-pacing-v2",
+          "packet_loss_injected": false,
+          "recovery_delay_percent": 0,
+          "rtt_ms": 0
+        },
+        "latency_avg_seconds": 0.0019027255312593638,
+        "latency_p95_seconds": 0.002929900000026464,
+        "payload_bytes": 4,
+        "requests": 32,
+        "roles": [
+          "broker",
+          "agent",
+          "client"
+        ],
+        "schema": "shadow6.network-chain.v1",
+        "success_rate": 1.0,
+        "throughput_bps": 16794.686790894186
+      }
+    },
+    {
+      "core": "gleam",
+      "backend": "native",
+      "status": "ok",
+      "network": {
+        "application_chunk_bytes": 4,
+        "application_transport": "tcp",
+        "backend": "native",
+        "bytes_received": 128,
+        "bytes_sent": 128,
+        "concurrency": 1,
+        "duration_scope": "application-workload-only",
+        "duration_seconds": 0.007057057999986682,
+        "impairment": {
+          "model": "application-response-pacing-v2",
+          "packet_loss_injected": false,
+          "recovery_delay_percent": 0,
+          "rtt_ms": 0
+        },
+        "latency_avg_seconds": 0.0002182610937637719,
+        "latency_p95_seconds": 0.0003563710000662468,
+        "payload_bytes": 4,
+        "requests": 32,
+        "roles": [
+          "broker",
+          "agent",
+          "client"
+        ],
+        "schema": "shadow6.network-chain.v1",
+        "success_rate": 1.0,
+        "throughput_bps": 145102.95933545288
+      }
+    },
+    {
+      "core": "gleam",
+      "backend": "python",
+      "status": "ok",
+      "network": {
+        "application_chunk_bytes": 4,
+        "application_transport": "tcp",
+        "backend": "python",
+        "bytes_received": 128,
+        "bytes_sent": 128,
+        "concurrency": 1,
+        "duration_scope": "application-workload-only",
+        "duration_seconds": 2.556800337000027,
+        "impairment": {
+          "model": "application-response-pacing-v2",
+          "packet_loss_injected": false,
+          "recovery_delay_percent": 0,
+          "rtt_ms": 0
+        },
+        "latency_avg_seconds": 0.07989504309374951,
+        "latency_p95_seconds": 0.08308136499999819,
+        "payload_bytes": 4,
+        "requests": 32,
+        "roles": [
+          "broker",
+          "agent",
+          "client"
+        ],
+        "schema": "shadow6.network-chain.v1",
+        "success_rate": 1.0,
+        "throughput_bps": 400.50057299409264
+      }
+    },
+    {
+      "core": "gleam",
+      "backend": "node",
+      "status": "ok",
+      "network": {
+        "application_chunk_bytes": 4,
+        "application_transport": "tcp",
+        "backend": "node",
+        "bytes_received": 128,
+        "bytes_sent": 128,
+        "concurrency": 1,
+        "duration_scope": "application-workload-only",
+        "duration_seconds": 2.582741478999992,
+        "impairment": {
+          "model": "application-response-pacing-v2",
+          "packet_loss_injected": false,
+          "recovery_delay_percent": 0,
+          "rtt_ms": 0
+        },
+        "latency_avg_seconds": 0.08070613399999971,
+        "latency_p95_seconds": 0.08398355600002105,
+        "payload_bytes": 4,
+        "requests": 32,
+        "roles": [
+          "broker",
+          "agent",
+          "client"
+        ],
+        "schema": "shadow6.network-chain.v1",
+        "success_rate": 1.0,
+        "throughput_bps": 396.4779318123938
+      }
+    },
+    {
+      "core": "gleam-mux",
+      "backend": "native",
+      "status": "ok",
+      "network": {
+        "application_chunk_bytes": 4,
+        "application_transport": "udp",
+        "backend": "native",
+        "bytes_received": 128,
+        "bytes_sent": 128,
+        "concurrency": 1,
+        "duration_scope": "application-workload-only",
+        "duration_seconds": 0.007834170000023732,
+        "impairment": {
+          "model": "application-response-pacing-v2",
+          "packet_loss_injected": false,
+          "recovery_delay_percent": 0,
+          "rtt_ms": 0
+        },
+        "latency_avg_seconds": 0.00024220268748464946,
+        "latency_p95_seconds": 0.00033593199998449563,
+        "payload_bytes": 4,
+        "requests": 32,
+        "roles": [
+          "broker",
+          "agent",
+          "client"
+        ],
+        "schema": "shadow6.network-chain.v1",
+        "success_rate": 1.0,
+        "throughput_bps": 130709.44337395001
+      }
+    },
+    {
+      "core": "gleam-mux",
+      "backend": "python",
+      "status": "ok",
+      "network": {
+        "application_chunk_bytes": 4,
+        "application_transport": "udp",
+        "backend": "python",
+        "bytes_received": 128,
+        "bytes_sent": 128,
+        "concurrency": 1,
+        "duration_scope": "application-workload-only",
+        "duration_seconds": 0.03431362200001331,
+        "impairment": {
+          "model": "application-response-pacing-v2",
+          "packet_loss_injected": false,
+          "recovery_delay_percent": 0,
+          "rtt_ms": 0
+        },
+        "latency_avg_seconds": 0.0010695239062386008,
+        "latency_p95_seconds": 0.0015631210000037754,
+        "payload_bytes": 4,
+        "requests": 32,
+        "roles": [
+          "broker",
+          "agent",
+          "client"
+        ],
+        "schema": "shadow6.network-chain.v1",
+        "success_rate": 1.0,
+        "throughput_bps": 29842.375718879306
+      }
+    },
+    {
+      "core": "gleam-mux",
+      "backend": "node",
+      "status": "ok",
+      "network": {
+        "application_chunk_bytes": 4,
+        "application_transport": "udp",
+        "backend": "node",
+        "bytes_received": 128,
+        "bytes_sent": 128,
+        "concurrency": 1,
+        "duration_scope": "application-workload-only",
+        "duration_seconds": 0.0740199389999816,
+        "impairment": {
+          "model": "application-response-pacing-v2",
+          "packet_loss_injected": false,
+          "recovery_delay_percent": 0,
+          "rtt_ms": 0
+        },
+        "latency_avg_seconds": 0.0023098988437517676,
+        "latency_p95_seconds": 0.00514144299995678,
+        "payload_bytes": 4,
+        "requests": 32,
+        "roles": [
+          "broker",
+          "agent",
+          "client"
+        ],
+        "schema": "shadow6.network-chain.v1",
+        "success_rate": 1.0,
+        "throughput_bps": 13834.110292907084
+      }
+    },
+    {
+      "core": "idris",
+      "backend": "native",
+      "status": "ok",
+      "network": {
+        "application_chunk_bytes": 4,
+        "application_transport": "udp",
+        "backend": "native",
+        "bytes_received": 128,
+        "bytes_sent": 128,
+        "concurrency": 1,
+        "duration_scope": "application-workload-only",
+        "duration_seconds": 0.007532170999979826,
+        "impairment": {
+          "model": "application-response-pacing-v2",
+          "packet_loss_injected": false,
+          "recovery_delay_percent": 0,
+          "rtt_ms": 0
+        },
+        "latency_avg_seconds": 0.00023270884375392598,
+        "latency_p95_seconds": 0.00027204200000596757,
+        "payload_bytes": 4,
+        "requests": 32,
+        "roles": [
+          "broker",
+          "agent",
+          "client"
+        ],
+        "schema": "shadow6.network-chain.v1",
+        "success_rate": 1.0,
+        "throughput_bps": 135950.1795701057
+      }
+    },
+    {
+      "core": "idris",
+      "backend": "python",
+      "status": "ok",
+      "network": {
+        "application_chunk_bytes": 4,
+        "application_transport": "udp",
+        "backend": "python",
+        "bytes_received": 128,
+        "bytes_sent": 128,
+        "concurrency": 1,
+        "duration_scope": "application-workload-only",
+        "duration_seconds": 0.03572705900000983,
+        "impairment": {
+          "model": "application-response-pacing-v2",
+          "packet_loss_injected": false,
+          "recovery_delay_percent": 0,
+          "rtt_ms": 0
+        },
+        "latency_avg_seconds": 0.0011136763124994786,
+        "latency_p95_seconds": 0.0011797680000427135,
+        "payload_bytes": 4,
+        "requests": 32,
+        "roles": [
+          "broker",
+          "agent",
+          "client"
+        ],
+        "schema": "shadow6.network-chain.v1",
+        "success_rate": 1.0,
+        "throughput_bps": 28661.7490681144
+      }
+    },
+    {
+      "core": "idris",
+      "backend": "node",
+      "status": "ok",
+      "network": {
+        "application_chunk_bytes": 4,
+        "application_transport": "udp",
+        "backend": "node",
+        "bytes_received": 128,
+        "bytes_sent": 128,
+        "concurrency": 1,
+        "duration_scope": "application-workload-only",
+        "duration_seconds": 0.05934861200000796,
+        "impairment": {
+          "model": "application-response-pacing-v2",
+          "packet_loss_injected": false,
+          "recovery_delay_percent": 0,
+          "rtt_ms": 0
+        },
+        "latency_avg_seconds": 0.001851912156254798,
+        "latency_p95_seconds": 0.002729104000081861,
+        "payload_bytes": 4,
+        "requests": 32,
+        "roles": [
+          "broker",
+          "agent",
+          "client"
+        ],
+        "schema": "shadow6.network-chain.v1",
+        "success_rate": 1.0,
+        "throughput_bps": 17253.98396848544
+      }
+    }
+  ],
+  "pony_iperf": {
+    "schema": "shadow6.iperf-chain.v1",
+    "commit": "81d01085501b6663afdf84b07a39639b5794f0b9",
+    "platform": "Linux-6.17.0-1022-azure-x86_64-with-glibc2.39",
+    "logical_cpus": 4,
+    "parallel": 1,
+    "concurrency_scope": "independent-native-trios",
+    "control_path": "direct loopback TCP; excluded from measured data",
+    "tcp_fixture": "bounded Python copy; inspect fixture baseline for its ceiling",
+    "gbps_target": 1000000000,
+    "ten_gbps_target": 10000000000,
+    "udp_rate_limit_bps": 1200000000,
+    "target_note": "10 Gbps requires receiver throughput and <=0.1% loss; the bounded UDP workload cannot certify 10 Gbps",
+    "results": [
+      {
+        "core": "pony",
+        "direction": "forward",
+        "protocol": "udp",
+        "raw_directory": "benchmark-pony-iperf-chain/pony-forward-baseline",
+        "offered_bps": 1100000000,
+        "baseline": true,
+        "status": "ok",
+        "receiver_bps": 1066216493.2132351,
+        "receiver": {
+          "start": 0,
+          "end": 3.000325,
+          "seconds": 3.000325,
+          "bytes": 399874500,
+          "bits_per_second": 1066216493.2132351,
+          "jitter_ms": 0.006162345740670032,
+          "lost_packets": 195,
+          "packets": 444500,
+          "lost_percent": 0.043869516310461196,
+          "sender": false,
+          "reported_lost_percent": 0.0438695163104612
+        },
+        "receiver_report": "server_output_json",
+        "elapsed_seconds": 3.0032935140000063,
+        "roles_before": [],
+        "roles_after": [],
+        "fixture_errors": [],
+        "command": [
+          "iperf3",
+          "-c",
+          "127.0.0.1",
+          "-p",
+          "44813",
+          "-t",
+          "3",
+          "-P",
+          "1",
+          "--json",
+          "--get-server-output",
+          "-u",
+          "-b",
+          "1100000000",
+          "-l",
+          "900",
+          "--pacing-timer",
+          "100"
+        ],
+        "retransmits": null,
+        "target_met": true,
+        "ten_gbps_target_met": false
+      },
+      {
+        "core": "pony",
+        "direction": "forward",
+        "protocol": "udp",
+        "raw_directory": "benchmark-pony-iperf-chain/pony-forward-0",
+        "offered_bps": 1100000000,
+        "baseline": false,
+        "status": "ok",
+        "receiver_bps": 15209242.707453584,
+        "receiver": {
+          "start": 0,
+          "end": 3.009854,
+          "seconds": 3.009854,
+          "bytes": 5722200,
+          "bits_per_second": 15209242.707453584,
+          "jitter_ms": 0.25108045758904546,
+          "lost_packets": 193858,
+          "packets": 200216,
+          "lost_percent": 96.8244296160147,
+          "sender": false,
+          "reported_lost_percent": 96.8244296160147
+        },
+        "receiver_report": "server_output_json",
+        "elapsed_seconds": 3.019797509,
+        "roles_before": [
+          {
+            "role": "broker",
+            "pid": 3064,
+            "cpu_seconds": 0.23,
+            "threads": 4,
+            "rss_bytes": 25059328,
+            "voluntary_ctxt_switches": 8,
+            "nonvoluntary_ctxt_switches": 0
+          },
+          {
+            "role": "agent",
+            "pid": 3068,
+            "cpu_seconds": 0.16,
+            "threads": 4,
+            "rss_bytes": 25190400,
+            "voluntary_ctxt_switches": 7,
+            "nonvoluntary_ctxt_switches": 0
+          },
+          {
+            "role": "client",
+            "pid": 3072,
+            "cpu_seconds": 0.01,
+            "threads": 4,
+            "rss_bytes": 25337856,
+            "voluntary_ctxt_switches": 3,
+            "nonvoluntary_ctxt_switches": 1
+          }
+        ],
+        "roles_after": [
+          {
+            "role": "broker",
+            "pid": 3064,
+            "cpu_seconds": 1.26,
+            "threads": 4,
+            "rss_bytes": 20611072,
+            "voluntary_ctxt_switches": 51,
+            "nonvoluntary_ctxt_switches": 0
+          },
+          {
+            "role": "agent",
+            "pid": 3068,
+            "cpu_seconds": 1.35,
+            "threads": 4,
+            "rss_bytes": 62730240,
+            "voluntary_ctxt_switches": 62,
+            "nonvoluntary_ctxt_switches": 0
+          },
+          {
+            "role": "client",
+            "pid": 3072,
+            "cpu_seconds": 4.47,
+            "threads": 4,
+            "rss_bytes": 29491200,
+            "voluntary_ctxt_switches": 244,
+            "nonvoluntary_ctxt_switches": 1
+          }
+        ],
+        "fixture_errors": [],
+        "command": [
+          "iperf3",
+          "-c",
+          "127.0.0.1",
+          "-p",
+          "51256",
+          "-t",
+          "3",
+          "-P",
+          "1",
+          "--json",
+          "--get-server-output",
+          "-u",
+          "-b",
+          "1100000000",
+          "-l",
+          "900",
+          "--pacing-timer",
+          "100"
+        ],
+        "retransmits": null,
+        "target_met": false,
+        "ten_gbps_target_met": false
+      },
+      {
+        "core": "pony",
+        "direction": "reverse",
+        "protocol": "udp",
+        "raw_directory": "benchmark-pony-iperf-chain/pony-reverse-baseline",
+        "offered_bps": 1100000000,
+        "baseline": true,
+        "status": "ok",
+        "receiver_bps": 1093490953.8528,
+        "receiver": {
+          "start": 0,
+          "end": 3.000117,
+          "seconds": 3.000117,
+          "bytes": 410075100,
+          "bits_per_second": 1093490953.8528,
+          "jitter_ms": 0.004396481127876724,
+          "lost_packets": 0,
+          "packets": 455639,
+          "lost_percent": 0.0,
+          "sender": false,
+          "reported_lost_percent": 0
+        },
+        "receiver_report": "client",
+        "elapsed_seconds": 3.0044024499999864,
+        "roles_before": [],
+        "roles_after": [],
+        "fixture_errors": [],
+        "command": [
+          "iperf3",
+          "-c",
+          "127.0.0.1",
+          "-p",
+          "60311",
+          "-t",
+          "3",
+          "-P",
+          "1",
+          "--json",
+          "--get-server-output",
+          "-R",
+          "-u",
+          "-b",
+          "1100000000",
+          "-l",
+          "900",
+          "--pacing-timer",
+          "100"
+        ],
+        "retransmits": null,
+        "target_met": true,
+        "ten_gbps_target_met": false
+      },
+      {
+        "core": "pony",
+        "direction": "reverse",
+        "protocol": "udp",
+        "raw_directory": "benchmark-pony-iperf-chain/pony-reverse-0",
+        "offered_bps": 1100000000,
+        "baseline": false,
+        "status": "ok",
+        "receiver_bps": 9061921.32965761,
+        "receiver": {
+          "start": 0,
+          "end": 3.000953,
+          "seconds": 3.000953,
+          "bytes": 3399300,
+          "bits_per_second": 9061921.32965761,
+          "jitter_ms": 0.013161304304530221,
+          "lost_packets": 6731,
+          "packets": 10508,
+          "lost_percent": 64.05595736581652,
+          "sender": false,
+          "reported_lost_percent": 1.7289385945534967
+        },
+        "receiver_report": "client",
+        "elapsed_seconds": 3.021282541000005,
+        "roles_before": [
+          {
+            "role": "broker",
+            "pid": 3089,
+            "cpu_seconds": 0.24,
+            "threads": 4,
+            "rss_bytes": 25288704,
+            "voluntary_ctxt_switches": 8,
+            "nonvoluntary_ctxt_switches": 0
+          },
+          {
+            "role": "agent",
+            "pid": 3093,
+            "cpu_seconds": 0.16,
+            "threads": 4,
+            "rss_bytes": 25366528,
+            "voluntary_ctxt_switches": 7,
+            "nonvoluntary_ctxt_switches": 0
+          },
+          {
+            "role": "client",
+            "pid": 3097,
+            "cpu_seconds": 0.01,
+            "threads": 4,
+            "rss_bytes": 25206784,
+            "voluntary_ctxt_switches": 3,
+            "nonvoluntary_ctxt_switches": 0
+          }
+        ],
+        "roles_after": [
+          {
+            "role": "broker",
+            "pid": 3089,
+            "cpu_seconds": 1.0,
+            "threads": 4,
+            "rss_bytes": 22097920,
+            "voluntary_ctxt_switches": 54,
+            "nonvoluntary_ctxt_switches": 4
+          },
+          {
+            "role": "agent",
+            "pid": 3093,
+            "cpu_seconds": 4.8,
+            "threads": 4,
+            "rss_bytes": 29405184,
+            "voluntary_ctxt_switches": 237,
+            "nonvoluntary_ctxt_switches": 1
+          },
+          {
+            "role": "client",
+            "pid": 3097,
+            "cpu_seconds": 0.94,
+            "threads": 4,
+            "rss_bytes": 58822656,
+            "voluntary_ctxt_switches": 46,
+            "nonvoluntary_ctxt_switches": 0
+          }
+        ],
+        "fixture_errors": [],
+        "command": [
+          "iperf3",
+          "-c",
+          "127.0.0.1",
+          "-p",
+          "40896",
+          "-t",
+          "3",
+          "-P",
+          "1",
+          "--json",
+          "--get-server-output",
+          "-R",
+          "-u",
+          "-b",
+          "1100000000",
+          "-l",
+          "900",
+          "--pacing-timer",
+          "100"
+        ],
+        "retransmits": null,
+        "target_met": false,
+        "ten_gbps_target_met": false
+      }
+    ]
+  }
+}

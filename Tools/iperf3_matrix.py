@@ -45,11 +45,25 @@ def family_available(family: int) -> bool:
         return False
 
 
-def free_port(family: int) -> int:
+def free_port(family: int, udp: bool = False) -> int:
     af, host = loopback(family)
-    with socket.socket(af, socket.SOCK_STREAM) as sock:
-        sock.bind((host, 0))
-        return sock.getsockname()[1]
+    # iperf uses the same numeric port for TCP control and UDP data. A free
+    # TCP port may be reserved/unbindable for UDP on Windows/MSYS2. Hold the
+    # TCP reservation while checking UDP; never change host exclusion ranges.
+    last_error = None
+    for _ in range(32):
+        with socket.socket(af, socket.SOCK_STREAM) as sock:
+            sock.bind((host, 0))
+            port = sock.getsockname()[1]
+            if not udp:
+                return port
+            try:
+                with socket.socket(af, socket.SOCK_DGRAM) as datagram:
+                    datagram.bind((host, port))
+                    return port
+            except OSError as error:
+                last_error = error
+    raise OSError("no jointly bindable TCP/UDP loopback port after 32 attempts") from last_error
 
 
 def iperf_family_available(binary: str, family: int) -> tuple[bool, str]:
@@ -104,7 +118,7 @@ def run_case(binary: str, spec: dict, duration: int, udp_aggregate_bps: int | No
              raw_dir: Path) -> dict:
     row = dict(spec)
     _, host = loopback(spec["family"])
-    port = free_port(spec["family"])
+    port = free_port(spec["family"], udp=spec["protocol"] == "udp")
     server: subprocess.Popen[str] | None = None
     family_flag = "-4" if spec["family"] == 4 else "-6"
     command = [binary, family_flag, "-c", host, "-p", str(port), "-P", str(spec["streams"]),

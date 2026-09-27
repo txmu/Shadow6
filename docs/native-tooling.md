@@ -1,0 +1,89 @@
+# Unified tools, Connect and native datagram adapters
+
+`shadow6 tools` lists the fixed component routes and their availability.
+`shadow6 TOOL --help` forwards help/options directly to that tool. The router
+includes Connect, Crosed, extensions, EasyBuild, Detector Neo, Virtual Adapter,
+interface setup, Guard control, iperf tools, performance collection, audit,
+Python runtime inspection, the four-core native configuration adapter and
+native key generation. Existing control, plugin, package, security,
+infrastructure, Slot, Public6, init and all twelve Core routes remain available.
+Availability depends on the installed components; listing never starts them.
+
+```sh
+shadow6 connect CODE --core carp --role client --output ./new-peer
+shadow6 connect CODE --core idris --role client --profile ./profile.json --pin PUBLIC_HEX --check
+shadow6 native-key CODE --core carp --role broker --output ./new-broker.key
+shadow6 native-config --config ./client.json --check-config
+shadow6 native-config --config ./client.json --emit ./new-native-files
+shadow6 native-config --config ./client.json
+shadow6 ppb catalog
+```
+
+Connect accepts directory and manually pinned profiles. `--check` resolves and
+validates without writing; ordinary Connect installs Gate/Virtual Peer files
+for Carp/Idris too, and generates their separate native key files. Gate is only
+enabled by the explicitly requested Connect operation. Connect does not start
+services or invent a native Core config: native routing/ports require an
+operator's configuration. `--carrier s6na` fails explicitly because Virtual
+Peer's current strict schema has no such carrier option; the old implementation
+wrote an invalid `gate.carrier` field. Configure S6NA separately with its native
+API. No unsupported field is inserted into Virtual Peer configuration.
+
+`native-key` is the extracted Carp/Idris key utility. Both endpoint files use
+the same domain-separated binding derived from the invitation; their peer
+pins are reciprocal. The broker has zero reserved bytes and the two public
+keys, never an endpoint's private seed. Files are created exclusively at 0600;
+existing files and symlinks are rejected. An invitation is a secret and grants
+the same access as before; deriving keys does not add entropy to it.
+
+## Orchestrator
+
+Use `shadow6 auto apply -f topology.yaml`. For Hare/Pony/Carp/Idris the initial
+adapter supports one loopback broker/agent/client trio. Unsupported fields are
+rejected instead of being silently lost. No extension to each Core's native
+configuration language or wire protocol is needed.
+
+```yaml
+version: '1.0'
+global:
+  output_dir: generated-native
+nodes:
+  - {name: broker, type: broker, engines: [shadow6-carp], listen_port: 41000}
+  - {name: agent, type: agent, engines: [shadow6-carp], listen_port: 41004, target_port: 9000}
+  - {name: client, type: client, engines: [shadow6-carp], listen_port: 41002}
+```
+
+Choose the same family for all roles. Client applications use client
+`listen_port + 1`; Pony's broker also reserves broker `listen_port + 1`.
+Ports must not collide. Hare uses IPv6 loopback; the other adapters use IPv4
+loopback. Pony's native external/multiple-peer features remain available to
+operators using native configuration; this initial topology adapter deliberately
+supports a smaller explicit contract. Domain policy, host hooks, discovery and
+custom lifetimes are not translated for these four cores.
+
+Generated JSON is the adapter contract, with a `core` field. Hare/Pony are
+rendered into the exact flat native JSON fields. Carp/Idris JSON includes a
+192-hex-character `key_material` value and port fields; Idris also has explicit
+loopback hosts and a bounded iteration count. `--emit` creates a native file
+and `argv.json` in a new directory. Without `--emit`, the fixed family binary
+is launched with an argv list; no shell is involved. Runtime native key files
+live in a private temporary directory and are cleaned after process exit.
+The deployment path installs the same standalone wrapper, so service init
+escaping and `--config` invocation stay consistent.
+
+## Gleam
+
+Set `global.gleam_transport: micro-mux` to select UDP. `secure-stream` remains
+the default. The generated strict Gleam document includes all three role slots;
+unused roles are null. Current native Gleam control requires loopback `ws`.
+
+**Micro-Mux transport itself provides no availability guarantee whatsoever.**
+Authentication does not guarantee delivery, ordering, congestion recovery or
+uptime. The orchestrator prints this warning when selecting it.
+Python and Node S6NA APIs accept `gleam-mux`, or `gleam` with explicit
+`transport="micro-mux"` (Node's final constructor argument). This profile adds
+bounded ACK/retry, duplicate suppression, reassembly and per-stream queues.
+Its 1100-byte payload accounts for both envelopes within IPv6's minimum MTU;
+64 frames are in flight by default. Larger configured payloads are rejected.
+The native benchmark path remains the original native transport; optional
+Companions do not turn its availability disclaimer into a guarantee.
