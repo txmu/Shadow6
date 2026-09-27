@@ -209,10 +209,16 @@ pub const Tunnel = struct {
                 if (fd.revents == 0) continue;
                 const ch = &self.channels[indices[i]].?;
                 if (ch.retired) continue;
-                const n = self.backend.tcpRead(ch.tcp, &data) catch continue;
-                if (n == 0) ch.local_fin = true;
-                const out = ch.secure.queue(if (n == 0) .fin else .data, data[0..n], p.now()) catch continue;
-                try self.send(ch, out);
+                // Amortize poll registration/cancellation and retransmit-window
+                // scans across available input. Bound work per channel so UDP
+                // ACKs, other channels and session deadlines remain serviced.
+                var budget: usize = 0;
+                while (budget < 64 and !ch.local_fin and ch.secure.canQueue()) : (budget += 1) {
+                    const n = self.backend.tcpRead(ch.tcp, &data) catch break;
+                    if (n == 0) ch.local_fin = true;
+                    const out = ch.secure.queue(if (n == 0) .fin else .data, data[0..n], p.now()) catch break;
+                    try self.send(ch, out);
+                }
             }
         }
     }

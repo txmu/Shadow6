@@ -83,7 +83,17 @@ func (connection *aeadConn) Write(plaintext []byte) (int, error) {
 	if len(plaintext) > maxAEADPlaintext {
 		return 0, errors.New("AEAD plaintext frame is too large")
 	}
-	return connection.writeFrameLocked(plaintext)
+	written := 0
+	for len(plaintext) != 0 {
+		n := min(len(plaintext), aeadRecordPlaintext)
+		count, err := connection.writeFrameLocked(plaintext[:n])
+		written += count
+		if err != nil {
+			return written, err
+		}
+		plaintext = plaintext[n:]
+	}
+	return written, nil
 }
 
 // writeEOF sends an authenticated end-of-stream marker without closing the

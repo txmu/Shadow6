@@ -47,6 +47,12 @@ the bounded session. The signed `S6W2` marker appears in both challenge and
 response, so old peers fail closed instead of silently negotiating the changed
 data contract. Native end-to-end tests run with `make test-hare`.
 
+The native data path copies payloads, nonces and retransmission frames with
+bounds-checked slice copies. Each UDP socket requests at most 1 MiB receive
+and send queues, with bounded smaller requests when the platform rejects that
+size. Kernel limits still apply; no global socket settings are changed. The
+256-frame protocol windows and authentication rules remain unchanged.
+
 For a three-role path, start a broker, agent and client of this family. The
 client's `target_port` is the broker's `listen_port`; the agent's `target_port`
 remains the application service. The broker configuration contains exactly:

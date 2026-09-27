@@ -185,9 +185,10 @@ proc forward(dc: cint; cfg: JsonNode; client: bool) =
       if n >= 0:
         progressed = true
         require(outgoing < high(uint32))
-        var payload = newString(n)
-        if n > 0: copyMem(addr payload[0],addr buffer[0],n)
-        let wire = frames.encode(payload,outgoing,if n == 0: 2'u8 else: 1'u8)
+        # Encode directly from the bounded socket buffer; the frame owns its
+        # bytes before sendMessage, without an intermediate payload allocation.
+        let wire = if n == 0: frames.encode("",outgoing,2'u8)
+                   else: frames.encode(buffer.toOpenArray(0,n.int-1),outgoing)
         require(sendMessage(dc,wire.cstring,wire.len.cint) == 0)
         inc outgoing
         if n == 0: localEof = true

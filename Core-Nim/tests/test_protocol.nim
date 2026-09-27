@@ -21,3 +21,12 @@ suite "bounded protocol and crypto":
     check frames.decode(wire,0x01020304'u32).payload == "payload"
     expect ValueError: discard frames.decode(wire,1)
     expect ValueError: discard frames.decode(wire[0..^2],0x01020304'u32)
+  test "socket buffer slices preserve frame ownership and payload bounds":
+    var buffer: array[MaxPayload, char]
+    for i in 0..<buffer.len: buffer[i] = char(i mod 256)
+    let wire = frames.encode(buffer.toOpenArray(0,buffer.high),7)
+    buffer[0] = 'x'
+    let decoded = frames.decode(wire,7).payload
+    check decoded.len == MaxPayload
+    for i in 0..<decoded.len: check decoded[i] == char(i mod 256)
+    check frames.decode(frames.encode("",8,2),8).payload.len == 0

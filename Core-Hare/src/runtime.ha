@@ -9,6 +9,20 @@ use unix::poll;
 
 const WINDOW: size = 256z;
 
+// The window plus ACKs needs more than the default UDP queue on some hosts.
+// Keep requests per-socket and bounded; FreeBSD may reject the largest size,
+// so try smaller sizes without changing the operator's global socket limits.
+fn socket_buffers(sock: net::socket) void = {
+	for (let bytes = 1048576; bytes >= 65536; bytes /= 2) {
+		if (rt::setsockopt(sock, rt::SOL_SOCKET, rt::SO_RCVBUF,
+			&bytes: *opaque, size(int): u32) is int) break;
+	};
+	for (let bytes = 1048576; bytes >= 65536; bytes /= 2) {
+		if (rt::setsockopt(sock, rt::SOL_SOCKET, rt::SO_SNDBUF,
+			&bytes: *opaque, size(int): u32) is int) break;
+	};
+};
+
 fn ready(fd: net::socket, milliseconds: int) bool = {
 	let fds = [poll::pollfd { fd = fd, events = poll::event::POLLIN, ... }];
 	match (poll::poll(fds, milliseconds: time::duration * time::MILLISECOND)) {
@@ -38,7 +52,7 @@ fn send_frame(sock: net::socket, addr: ip::addr, port: u16, key: []u8,
 		if (carry) { counter[i-1] += 1; carry = counter[i-1] == 0; };
 	};
 	if (carry || nonce_number(counter, counter[0]) == 0) return false;
-	for (let i = 0z; i < 12; i += 1) packet[32+i] = counter[i];
+	packet[32..44] = counter[..];
 	if (chacha(&packet[44], &plain[0], 980, &counter[0], &key[0]) != 0 ||
 		generichash(&packet[0], 32, &packet[32], 992, &key[0], 32) != 0) return false;
 	return udp::sendto(sock, packet[..1024], addr, port) is size;
@@ -48,7 +62,7 @@ fn send_ack(sock: net::socket, addr: ip::addr, port: u16, key: []u8,
 	counter: []u8, packet: []u8, received_nonce: []u8) bool = {
 	let plain: [980]u8 = [0...];
 	plain[0] = 255; plain[1] = 255;
-	for (let i = 0z; i < 12; i += 1) plain[2+i] = received_nonce[i];
+	plain[2..14] = received_nonce[..12];
 	return send_frame(sock, addr, port, key, counter, packet, plain[..]);
 };
 
@@ -105,6 +119,7 @@ fn exchange(sock: net::socket, c: *configuration, tx: []u8, rx: []u8, addr: *ip:
 fn runtime(c: *configuration) void = {
 	if (c.role == "broker") { broker_runtime(c); return; };
 	const sock = udp::listen(ip::LOCAL_V6, c.listen)!; defer io::close(sock)!;
+	socket_buffers(sock);
 	let addr: ip::addr = ip::LOCAL_V6; let port = c.target;
 	let tx: [32]u8 = [0...]; let rx: [32]u8 = [0...];
 	defer wipe(&tx[0], 32); defer wipe(&rx[0], 32);
@@ -128,6 +143,7 @@ fn runtime(c: *configuration) void = {
 	if (!exchange(sock, c, tx[..], rx[..], &addr, &port)) { fmt::errorln("session exchange failed", c.role)!; rt::exit(2); };
 	const app = if (c.role == "agent") udp::connect(ip::LOCAL_V6, c.target)! else udp::listen(ip::LOCAL_V6, c.listen + 1)!;
 	defer io::close(app)!;
+	socket_buffers(app);
 	const deadline = time::now(time::clock::MONOTONIC).sec + 300;
 	fmt::println("session ready")!;
 	for (let count = 0z; count < 1000000 && time::now(time::clock::MONOTONIC).sec < deadline; count += 1) {
@@ -177,8 +193,8 @@ fn runtime(c: *configuration) void = {
 			if (queued_sequences[slot] != 0 && queued_sequences[slot] != seq) { wipe(&plain[0], 980); continue; };
 			if (queued_sequences[slot] == 0) {
 				queued_sequences[slot] = seq; queued_sizes[slot] = payload_len: u16;
-				for (let i = 0z; i < payload_len; i += 1) queued_plain[slot*980+i] = plain[2+i];
-				for (let i = 0z; i < 12; i += 1) queued_nonces[slot*12+i] = packet[32+i];
+				queued_plain[slot*980 .. slot*980+payload_len] = plain[2 .. 2+payload_len];
+				queued_nonces[slot*12 .. slot*12+12] = packet[32..44];
 			};
 			for (let drained = 0z; drained < WINDOW; drained += 1) {
 				const slot = (expected % WINDOW: u64): size;
@@ -204,12 +220,12 @@ fn runtime(c: *configuration) void = {
 				local = source; local_port = source_port;
 			};
 			wipe(&plain[0], 980); plain[0] = (n / 256): u8; plain[1] = (n % 256): u8;
-			for (let i = 0z; i < n; i += 1) plain[2+i] = packet[i];
+			plain[2 .. 2+n] = packet[..n];
 			data_counter[0] = 0;
 			if (!send_frame(sock, addr, port, tx[..], data_counter[..], packet[..], plain[..])) break;
 			sent += 1; const seq = nonce_number(data_counter[..], 0); const slot = next_send_slot;
 			if (pending_sequences[slot] != 0) { fmt::errorln("bounded send window slot collision")!; rt::exit(2); };
-			for (let i = 0z; i < 1024; i += 1) pending_packets[slot*1024+i] = packet[i];
+			pending_packets[slot*1024 .. (slot+1)*1024] = packet[..1024];
 			pending_sequences[slot] = seq; pending_retries[slot] = 0;
 			pending_at[slot] = monotonic_millis() + 200; pending_count += 1;
 			wipe(&plain[0], 980);
@@ -222,6 +238,7 @@ fn runtime(c: *configuration) void = {
 fn broker_runtime(c: *configuration) void = {
 	const sock = udp::listen(ip::LOCAL_V6, c.listen)!;
 	defer io::close(sock)!;
+	socket_buffers(sock);
 	let packet: [1025]u8 = [0...];
 	let challenge: [64]u8 = [0...];
 	let phase = 0u;

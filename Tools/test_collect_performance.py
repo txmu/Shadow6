@@ -19,7 +19,8 @@ class PerformanceBundleTests(unittest.TestCase):
                     {'core': 'go', 'baseline': False, 'direction': 'reverse',
                      'status': 'ok', 'receiver_bps': 500000000, 'target_met': False},
                     {'core': 'go', 'baseline': True, 'direction': 'reverse',
-                     'status': 'ok', 'receiver_bps': 12000000000, 'target_met': True},
+                     'status': 'ok', 'receiver_bps': 12000000000, 'target_met': True,
+                     'ten_gbps_target_met': True},
                     {'core': 'hare', 'status': 'failed', 'reason': 'timeout'}]}))
             collect(root / 'input', root / 'all.zip', {}, None)
             with zipfile.ZipFile(root / 'all.zip') as archive:
@@ -28,9 +29,10 @@ class PerformanceBundleTests(unittest.TestCase):
                 self.assertEqual(rows[0]['throughput_bps'], 500000000)
                 self.assertIs(rows[0]['target_met'], False)
                 self.assertIs(rows[1]['workload']['baseline'], True)
+                self.assertIs(rows[1]['ten_gbps_target_met'], True)
                 self.assertEqual(rows[2]['reason'], 'timeout')
                 self.assertIsNone(rows[2]['throughput_bps'])
-                self.assertIn(b'| 2 | 1 | 0 | 2 | 1 |', archive.read('SUMMARY.md'))
+                self.assertIn(b'| 2 | 1 | 0 | 2 | 1 | 0 |', archive.read('SUMMARY.md'))
 
     def test_same_names_keep_platform_sources_and_hashes(self):
         with tempfile.TemporaryDirectory() as temp:

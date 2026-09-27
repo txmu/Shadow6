@@ -4,8 +4,19 @@ use "collections"
 
 interface tag DatagramReceiver
   be received(data: Array[U8] iso, from: NetAddress val, application: Bool, source: SocketActor)
+  be received_batch(batch: Array[InboundDatagram iso] iso, application: Bool, source: SocketActor)
   be bound(application: Bool)
   be failed()
+
+// Exclusive ownership of every packet is retained across a batched actor
+// handoff. Decryption still mutates only the individual iso payload buffer.
+class iso InboundDatagram
+  var _data: Array[U8] iso
+  let from: NetAddress val
+  new iso create(data: Array[U8] iso, address: NetAddress val) =>
+    _data = consume data
+    from = address
+  fun ref take(): Array[U8] iso^ => _data = recover iso Array[U8] end
 
 actor SocketActor is (UDPSocketActor & UDPLifecycleEventReceiver)
   var _udp: UDPSocket = UDPSocket.none()
@@ -13,6 +24,9 @@ actor SocketActor is (UDPSocketActor & UDPLifecycleEventReceiver)
   let _application: Bool
   var _inflight: USize = 0
   var _admitting: USize = 0
+  var _batch: Array[InboundDatagram iso] iso = recover iso Array[InboundDatagram iso](16) end
+  var _batch_receiver: (DatagramReceiver | None) = None
+  var _flush_pending: Bool = false
   let _routes: Map[U64, DatagramReceiver] = Map[U64, DatagramReceiver]
   new create(auth: NetAuth, host: String, port: String, receiver: DatagramReceiver, application: Bool) =>
     _receiver = receiver
@@ -41,7 +55,7 @@ actor SocketActor is (UDPSocketActor & UDPLifecycleEventReceiver)
         // getnameinfo, String allocations and a Runtime mailbox hop per frame.
         let receiver = _routes(PeerRoute(from)?)?
         _inflight = _inflight + 1
-        receiver.received(consume data, from, false, this)
+        _enqueue(consume data, from, receiver)
         return KeepReading
       end
       // Unknown peers can only request admission with a shaped hello. Keep
@@ -51,10 +65,28 @@ actor SocketActor is (UDPSocketActor & UDPLifecycleEventReceiver)
       _admitting = _admitting + 1
     end
     _inflight = _inflight + 1
-    _receiver.received(consume data, from, _application, this)
+    if _application then _enqueue(consume data, from, _receiver)
+    else _receiver.received(consume data, from, false, this) end
     // Keep the 16-datagram scheduler turn and 256 outstanding-packet bound.
     KeepReading
-  be consumed() => if _inflight > 0 then _inflight = _inflight - 1 end
+  fun ref _enqueue(data: Array[U8] iso, from: NetAddress val, receiver: DatagramReceiver) =>
+    if _batch_receiver isnt receiver then _flush() end
+    _batch_receiver = receiver
+    _batch.push(InboundDatagram(consume data, from))
+    // Always queue a flush for short bursts, including a single handshake
+    // response. A batch never waits for another packet or a timer to arrive.
+    if not _flush_pending then _flush_pending = true; flush() end
+    if _batch.size() >= 16 then _flush() end
+  fun ref _flush() =>
+    if _batch.size() == 0 then return end
+    match _batch_receiver
+    | let receiver: DatagramReceiver =>
+      receiver.received_batch(_batch = recover iso Array[InboundDatagram iso](16) end,
+        _application, this)
+    end
+    _batch_receiver = None
+  be flush() => _flush_pending = false; _flush()
+  be consumed(count: USize = 1) => _inflight = _inflight - count.min(_inflight)
   be admitted() =>
     if _admitting > 0 then _admitting = _admitting - 1 end
   be route(peer: NetAddress val, receiver: DatagramReceiver) =>
@@ -71,6 +103,11 @@ actor SocketActor is (UDPSocketActor & UDPLifecycleEventReceiver)
     end
   be send(data: Array[U8] val, target: NetAddress val) =>
     if _udp.is_open() then _udp.send_to(data, target) end
+  be send_batch(batch: Array[Array[U8] val] iso, target: NetAddress val) =>
+    // Internal callers cap batches at 16, preserving scheduler fairness.
+    if _udp.is_open() then
+      for data in batch.values() do _udp.send_to(data, target) end
+    end
 
 class _Tick is TimerNotify
   let _runtime: Runtime
@@ -209,6 +246,15 @@ actor Runtime is DatagramReceiver
       end
     end
     source.consumed()
+  be received_batch(batch: Array[InboundDatagram iso] iso, application: Bool, source: SocketActor) =>
+    // Admissions use single-packet delivery; this fallback preserves the
+    // interface if a future application socket is owned by Runtime.
+    while batch.size() > 0 do
+      try
+        let packet = batch.shift()?
+        received(packet.take(), packet.from, application, source)
+      end
+    end
 
 // Each broker route has an ephemeral upstream socket so responses cannot be
 // delivered to a different client's application. No plaintext or key at broker.
@@ -241,12 +287,35 @@ actor RelaySession is DatagramReceiver
     if (now >= _last) and ((now - _last) >
       (if _confirmed then U64(60_000_000_000) else U64(5_000_000_000) end)) then _close() end
   be received(data: Array[U8] iso, from: NetAddress val, application: Bool, source: SocketActor) =>
+    _receive(consume data, from, application)
+    source.consumed()
+  be received_batch(batch: Array[InboundDatagram iso] iso, application: Bool, source: SocketActor) =>
+    let count = batch.size()
+    let output = recover iso Array[Array[U8] val](16) end
+    while batch.size() > 0 do
+      try
+        let packet = batch.shift()?
+        if not _closed then
+          if application and (packet.from == _peer) then
+            _confirmed = true; _last = Time.nanos()
+            output.push(packet.take())
+          elseif (not application) and (packet.from == _client) then
+            output.push(packet.take())
+          end
+        end
+      end
+    end
+    if output.size() > 0 then
+      if application then _network.send_batch(consume output, _client)
+      else _upstream.send_batch(consume output, _peer) end
+    end
+    source.consumed(count)
+  fun ref _receive(data: Array[U8] iso, from: NetAddress val, application: Bool) =>
     if not _closed then
       if application and (from == _peer) then
         _confirmed = true; _last = Time.nanos(); _network.send(consume data, _client)
       elseif (not application) and (from == _client) then _upstream.send(consume data, _peer) end
     end
-    source.consumed()
 
 actor ClientSession is DatagramReceiver
   let _owner: Runtime
@@ -267,6 +336,8 @@ actor ClientSession is DatagramReceiver
   var _last_activity: U64 = Time.nanos()
   var _handshake_sent: U64 = 0
   var _closed: Bool = false
+  var _network_output: Array[Array[U8] val] iso = recover iso Array[Array[U8] val](16) end
+  var _app_output: Array[Array[U8] val] iso = recover iso Array[Array[U8] val](16) end
   new client(auth: NetAuth, cfg: Configuration, owner: Runtime, network: SocketActor,
     peer: NetAddress val, id: String, out: OutStream)
   =>
@@ -307,13 +378,26 @@ actor ClientSession is DatagramReceiver
       for wire in _session.retransmit(now)?.values() do _network.send(wire, _peer) end
     else _close() end
   be received(data: Array[U8] iso, from: NetAddress val, application: Bool, source: SocketActor) =>
+    _receive(consume data, from, application)
+    _flush_output()
+    source.consumed()
+  be received_batch(batch: Array[InboundDatagram iso] iso, application: Bool, source: SocketActor) =>
+    let count = batch.size()
+    while batch.size() > 0 do
+      try
+        let packet = batch.shift()?
+        _receive(packet.take(), packet.from, application)
+      end
+    end
+    _flush_output()
+    source.consumed(count)
+  fun ref _receive(data: Array[U8] iso, from: NetAddress val, application: Bool) =>
     if not _closed then
       try
         if application then _plaintext(consume data, from)?
         elseif from == _peer then _encrypted(consume data)? end
       end
     end
-    source.consumed()
   fun ref _plaintext(data: Array[U8] iso, from: NetAddress val) ? =>
     if (_stage != 3) or (data.size() > 1172) or (not _session.can_send()) then return end
     match _local
@@ -326,18 +410,18 @@ actor ClientSession is DatagramReceiver
     let packet = Frame.payload(bytes)
     let wire: Array[U8] val = token.seal(consume packet, sequence, 2)?
     _session.sent(sequence, wire, Time.nanos())
-    _network.send(wire, _peer)
+    _send(wire)
     _last_activity = Time.nanos()
   fun ref _encrypted(data: Array[U8] iso) ? =>
     if _client and (_stage == 1) then
       if data.size() != 172 then return end
       let token = _handshake.finish(consume data, Time.now()._1.u64())?
       _token = token; _retry = token.seal(Frame.empty(), 1, 0)?; _stage = 2
-      _network.send(_retry, _peer)
+      _send(_retry)
       return
     end
     if (not _client) and (data.size() == 140) then
-      if _same(consume data, _hello) then _network.send(_retry, _peer) end
+      if _same(consume data, _hello) then _send(_retry) end
       return
     end
     let token = _token as OCapToken
@@ -348,7 +432,7 @@ actor ClientSession is DatagramReceiver
     let kind = packet(3)?
     if (not _client) and (sequence == 1) and (kind == 0) and (packet.size() == 12) then
       _retry = token.seal(Frame.empty(), 1, 1)?
-      _network.send(_retry, _peer)
+      _send(_retry)
       if _stage == 2 then _stage = 3; _session.connected() end
       _last_activity = Time.nanos()
       return
@@ -373,13 +457,30 @@ actor ClientSession is DatagramReceiver
     elseif not _session.accept_receive(sequence, consume packet) then return end
     _last_activity = Time.nanos()
     let ack = Frame.empty()
-    _network.send(token.seal(consume ack, sequence, 3)?, _peer)
+    _send(token.seal(consume ack, sequence, 3)?)
     if _session.has_buffered() then
       for payload in _session.deliver().values() do _deliver(payload) end
     end
-  fun _deliver(payload: Array[U8] val) =>
+  fun ref _send(wire: Array[U8] val) =>
+    _network_output.push(wire)
+    if _network_output.size() >= 16 then _flush_network() end
+  fun ref _flush_network() =>
+    if _network_output.size() > 0 then
+      _network.send_batch(_network_output = recover iso Array[Array[U8] val](16) end, _peer)
+    end
+  fun ref _flush_output() =>
+    _flush_network()
+    if _app_output.size() > 0 then
+      match _local
+      | let local: NetAddress val =>
+        _app.send_batch(_app_output = recover iso Array[Array[U8] val](16) end, local)
+      end
+    end
+  fun ref _deliver(payload: Array[U8] val) =>
     match _local
-    | let local: NetAddress val => _app.send(payload, local)
+    | let local: NetAddress val =>
+      _app_output.push(payload)
+      if _app_output.size() >= 16 then _flush_output() end
     end
   fun _same(a: Array[U8] iso, b: Array[U8] box): Bool =>
     if a.size() != b.size() then return false end

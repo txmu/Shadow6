@@ -738,4 +738,14 @@ func TestAEADRepeatedFramesWithPartialReads(t *testing.T) {
 	if !bytes.Equal(got, want) {
 		t.Fatal("frame reuse corrupted partial reads or frame boundaries")
 	}
+	wantFrames := uint64(1) // authenticated EOF
+	for _, payload := range payloads {
+		wantFrames += uint64((len(payload) + aeadRecordPlaintext - 1) / aeadRecordPlaintext)
+	}
+	if sender.sendCounter != wantFrames {
+		t.Fatalf("large writes must use bounded records: got %d frames, want %d", sender.sendCounter, wantFrames)
+	}
+	if cap(receiver.readFrame) > aeadRecordPlaintext+receiver.aead.NonceSize()+receiver.aead.Overhead() {
+		t.Fatal("large copy batch became a large head-of-line authentication record")
+	}
 }

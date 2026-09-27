@@ -76,37 +76,32 @@ static int secure_keys(const char *path, unsigned char *keys) {
     return ok ? 0 : -1;
 }
 static int wrap(struct packet *p, size_t size) {
-    unsigned char scratch[WIRE];
+    /* Detached AEAD supports identical input/output addresses. Tags and
+     * nonces remain outside that layer's payload; no scratch copy is needed. */
     for (int layer = 2; layer >= 0; --layer) {
         size_t start = (size_t)layer * HEADER, n = WIRE - start - HEADER;
         unsigned char ad[8] = {'S','6','C',1,(unsigned char)layer,link_mode,0,0};
         randombytes_buf(p->bytes + start, 24);
-        if (crypto_aead_xchacha20poly1305_ietf_encrypt_detached(scratch,
+        if (crypto_aead_xchacha20poly1305_ietf_encrypt_detached(p->bytes + start + HEADER,
             p->bytes + start + 24, NULL, p->bytes + start + HEADER, n,
             ad, sizeof ad, NULL, p->bytes + start, p->keys + layer * 32)) {
-            sodium_memzero(scratch, sizeof scratch); return -1;
+            sodium_memzero(p, sizeof *p); return -1;
         }
-        memcpy(p->bytes + start + HEADER, scratch, n);
     }
-    sodium_memzero(scratch, sizeof scratch);
     (void)size;
     return 0;
 }
 static int packet_peel(struct packet *p) {
-    unsigned char scratch[WIRE];
     if (!p->valid) return -1;
     for (int layer = 0; layer < 3; ++layer) {
         size_t start = (size_t)layer * HEADER, n = WIRE - start - HEADER;
         unsigned char ad[8] = {'S','6','C',1,(unsigned char)layer,link_mode,0,0};
-        if (crypto_aead_xchacha20poly1305_ietf_decrypt_detached(scratch, NULL,
+        if (crypto_aead_xchacha20poly1305_ietf_decrypt_detached(p->bytes + start + HEADER, NULL,
             p->bytes + start + HEADER, n, p->bytes + start + 24,
             ad, sizeof ad, p->bytes + start, p->keys + layer * 32)) {
-            sodium_memzero(scratch, sizeof scratch);
             sodium_memzero(p, sizeof *p); return -1;
         }
-        memcpy(p->bytes + start + HEADER, scratch, n);
     }
-    sodium_memzero(scratch, sizeof scratch);
     sodium_memzero(p->keys, sizeof p->keys);
     return 0;
 }

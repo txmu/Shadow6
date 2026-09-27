@@ -48,7 +48,9 @@ def measurements(path, relative):
         normalized.append({"source": relative, "row": index, "schema": report["schema"],
                            "environment": report.get("environment", {}), "workload": dimensions,
                            "status": row.get("status", "unknown"), "throughput_bps": rate,
-                           "target_met": row.get("target_met"), "reason": row.get("reason")})
+                           "target_met": row.get("target_met"),
+                           "ten_gbps_target_met": row.get("ten_gbps_target_met"),
+                           "reason": row.get("reason")})
     return normalized
 
 
@@ -56,20 +58,22 @@ def measurement_summary(rows):
     # One row per report; no cross-platform or cross-workload throughput sum.
     reports = {}
     for row in rows:
-        counts = reports.setdefault(row["source"], {"ok": 0, "failed": 0, "other": 0, "rates": 0, "below": 0})
+        counts = reports.setdefault(row["source"], {"ok": 0, "failed": 0, "other": 0, "rates": 0, "below": 0, "ten": 0})
         status = row["status"]
         counts[status if status in ("ok", "failed") else "other"] += 1
         counts["rates"] += row["throughput_bps"] is not None
         counts["below"] += row["target_met"] is False
+        counts["ten"] += row.get("ten_gbps_target_met") is True and row["status"] == "ok" and row["workload"].get("baseline") is False
     lines = ["", "## Final benchmark summary", "",
              "Every measured rate and its workload/platform dimensions are in `measurements.json`.",
              "Rates retain their original scope and are never summed across workloads or architectures.",
              "Other statuses include unsupported and incomplete cases; they are not passes.", "",
-             "| Report | OK | Failed | Other | Rate samples | Below target |",
-             "|---|---:|---:|---:|---:|---:|"]
+             "10 Gbps passes count only successful native receiver measurements (not fixture baselines), including loss qualification.", "",
+             "| Report | OK | Failed | Other | Rate samples | Below target | Native 10 Gbps passes |",
+             "|---|---:|---:|---:|---:|---:|---:|"]
     for name, counts in sorted(reports.items()):
         safe = name.replace("|", "\\|").replace("\n", " ").replace("\r", " ")
-        lines.append(f"| {safe} | {counts['ok']} | {counts['failed']} | {counts['other']} | {counts['rates']} | {counts['below']} |")
+        lines.append(f"| {safe} | {counts['ok']} | {counts['failed']} | {counts['other']} | {counts['rates']} | {counts['below']} | {counts['ten']} |")
     if not reports:
         lines.append("No recognized benchmark reports were available.")
     return lines

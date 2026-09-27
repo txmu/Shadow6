@@ -1,9 +1,27 @@
 """Receiver accounting must never promote sender rate or high-loss UDP."""
 import unittest
-from iperf_chain import receiver_result
+import json
+import tempfile
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
+from iperf_chain import receiver_result, measure
 
 
 class ReceiverTests(unittest.TestCase):
+    def test_ten_gbps_requires_receiver_rate_and_low_loss(self):
+        for rate, loss, expected in ((10_000_000_000, 0, True),
+                                     (9_999_999_999, 0, False),
+                                     (12_000_000_000, 2, False)):
+            with self.subTest(rate=rate, loss=loss), tempfile.TemporaryDirectory() as directory:
+                target = SimpleNamespace(datagram=True, server_port=12345, host='127.0.0.1',
+                                         directory=Path(directory))
+                result = SimpleNamespace(returncode=0, stderr=b'',
+                                         stdout=json.dumps(self.report(rate, loss)).encode())
+                with patch('iperf_chain.subprocess.run', return_value=result):
+                    row = measure(('127.0.0.1', 12345), target, (), 1, True, 1_100_000_000, True)
+                self.assertIs(row['ten_gbps_target_met'], expected)
+
     def report(self, bps=1_100_000_000, loss=0):
         return {'end': {'sum_sent': {'bits_per_second': 10_000_000_000, 'sender': True},
                         'sum_received': {'bits_per_second': bps, 'lost_percent': loss, 'sender': False,

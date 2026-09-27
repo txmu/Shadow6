@@ -18,6 +18,9 @@ the complete packet and keys before returning. Carp passes packet references
 to the C cryptographic boundary; runtime authentication is explicit, not a
 property automatically enforced by the borrow checker. Packet processing uses
 fixed stack buffers, no allocator, no runtime evaluator and no plugin hooks.
+Layer encryption/decryption operates in place, avoiding three full-payload
+copies in each direction. Every layer still verifies its tag before processing
+the inner envelope, and any failure wipes the entire packet and keys.
 
 Offline codec:
 

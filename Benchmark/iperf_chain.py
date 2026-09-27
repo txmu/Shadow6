@@ -26,6 +26,7 @@ import threading
 import time
 
 ROOT = Path(__file__).resolve().parents[1]
+TEN_GBPS = 10_000_000_000
 sys.path.insert(0, str(ROOT / 'integration'))
 from stack_test import CORE_BINARIES, DATAGRAM_CORES, run_engine
 
@@ -224,7 +225,8 @@ def measure(endpoint, target, processes, seconds, reverse, rate, baseline=False)
             'elapsed_seconds': elapsed, 'roles_before': before, 'roles_after': after,
             'fixture_errors': front.errors, 'command': command,
             'retransmits': end.get('sum_sent', {}).get('retransmits'),
-            'target_met': target_met}
+            'target_met': target_met,
+            'ten_gbps_target_met': target_met and receiver['bits_per_second'] >= TEN_GBPS}
 
 
 def case(core, directory, seconds, reverse, rate, baseline=False):
@@ -247,7 +249,7 @@ def case(core, directory, seconds, reverse, rate, baseline=False):
                        measure(endpoint, target, processes, seconds, reverse, rate),
                        target_factory=lambda family, datagram: IperfTarget(family, datagram, directory)))
     except (OSError, RuntimeError, ValueError, KeyError, subprocess.TimeoutExpired, TimeoutError) as error:
-        row.update(status='failed', reason=str(error), target_met=False)
+        row.update(status='failed', reason=str(error), target_met=False, ten_gbps_target_met=False)
     return row
 
 
@@ -280,7 +282,11 @@ def main():
                       'parallel': args.parallel, 'concurrency_scope': 'independent-native-trios',
                       'control_path': 'direct loopback TCP; excluded from measured data',
                       'tcp_fixture': 'bounded Python copy; inspect fixture baseline for its ceiling',
-                      'gbps_target': 1_000_000_000, 'results': rows}
+                      'gbps_target': 1_000_000_000, 'ten_gbps_target': TEN_GBPS,
+                      'udp_rate_limit_bps': 1_200_000_000,
+                      'target_note': '10 Gbps requires receiver throughput and <=0.1% loss; '
+                                     'the bounded UDP workload cannot certify 10 Gbps',
+                      'results': rows}
             (args.output / 'report.json').write_text(json.dumps(report, indent=2)+'\n')
     return int(any(row['status'] != 'ok' or (args.require_gbps and not row['baseline'] and not row['target_met']) for row in rows))
 

@@ -234,6 +234,12 @@ jobs:
               python=python3.13
               ;;
             netbsd)
+              if test '${{ matrix.arch }}' = arm64; then
+                # Match the native NetBSD job's coherent published snapshot.
+                # The rolling 10.1 index advertised a missing expat package,
+                # so Python installation failed before any measurements ran.
+                printf '%s\n' 'https://cdn.netbsd.org/pub/pkgsrc/packages/NetBSD/aarch64/10.0_2026Q1/All' | sudo tee /usr/pkg/etc/pkgin/repositories.conf
+              fi
               sudo pkgin -y update
               sudo pkgin -y install python311 iperf3
               python=/usr/pkg/bin/python3.11

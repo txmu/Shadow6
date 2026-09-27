@@ -45,6 +45,14 @@ private struct FrameReader {
 
     bool pending() const { return start < end; }
 
+    // Only coalesce already-complete records: a partial following record must
+    // never delay delivery of an authenticated preceding record.
+    bool completeFrame() const {
+        if (end - start < HEADER) return false;
+        uint length = (cast(uint)bytes[start + 12] << 8) | bytes[start + 13];
+        return end - start >= HEADER + length;
+    }
+
     bool readExact(int socket, ubyte[] destination) {
         while (destination.length) {
             if (!pending()) {
@@ -114,9 +122,17 @@ private extern(C) int transfer(void* argument) {
             if (d_write(state.remote, wire.ptr, cast(int)used)) return 0;
             if (n == 0) return 1;
         } else {
-            int n = receiveFrame(input, reader, sequence, buffer, *state.key);
-            if (n < 0 || (n > 0 && d_write(state.local, buffer.ptr, n))) return 0;
-            if (n == 0) { d_half_close(state.local); return 1; }
+            size_t used;
+            bool closed;
+            foreach (_; 0 .. BATCH) {
+                int n = receiveFrame(input, reader, sequence, buffer[used .. $], *state.key);
+                if (n < 0) return 0;
+                if (n == 0) { closed = true; break; }
+                used += cast(size_t)n;
+                if (!reader.completeFrame()) break;
+            }
+            if (used && d_write(state.local, buffer.ptr, cast(int)used)) return 0;
+            if (closed) { d_half_close(state.local); return 1; }
         }
     }
     return 0;
