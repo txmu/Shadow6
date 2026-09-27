@@ -184,13 +184,26 @@ func (connection *aeadConn) Read(destination []byte) (int, error) {
 		return 0, err
 	}
 	nonceSize := connection.aead.NonceSize()
-	plaintext, err := connection.aead.Open(ciphertext[nonceSize:nonceSize], ciphertext[:nonceSize], ciphertext[nonceSize:], nil)
+	// Bulk copies supply a full record buffer in either direction. Authenticate
+	// directly into it to avoid copying and clearing a second plaintext buffer.
+	direct := length-minimum <= len(destination)
+	output := ciphertext[nonceSize:nonceSize]
+	if direct {
+		output = destination[:0]
+	}
+	plaintext, err := connection.aead.Open(output, ciphertext[:nonceSize], ciphertext[nonceSize:], nil)
 	if err != nil {
+		if direct {
+			clear(destination[:length-minimum])
+		}
 		return 0, fmt.Errorf("AEAD authentication failed: %w", err)
 	}
 	if len(plaintext) == 0 {
 		connection.readEOF = true
 		return 0, io.EOF
+	}
+	if direct {
+		return len(plaintext), nil
 	}
 	count := copy(destination, plaintext)
 	clear(plaintext[:count])

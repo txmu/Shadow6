@@ -121,4 +121,8 @@
     <string name="vpn_active">VPN interface active (peer reachability is not verified)</string>
     <string name="vpn_consent_denied">VPN authorization was not granted.</string>
     <string name="vpn_invalid_config">Enter a peer IP, a port from 1 to 65535, and a fresh 32-byte Base64 key.</string>
+    <string name="d_core">D Core</string>
+    <string name="nim_core">Nim Core</string>
+    <string name="local_notepad">Temporary Notepad</string>
+    <string name="public6_join">Public6 node enrollment</string>
 </resources>

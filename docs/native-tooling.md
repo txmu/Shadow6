@@ -87,3 +87,15 @@ Its 1100-byte payload accounts for both envelopes within IPv6's minimum MTU;
 64 frames are in flight by default. Larger configured payloads are rejected.
 The native benchmark path remains the original native transport; optional
 Companions do not turn its availability disclaimer into a guarantee.
+
+### Connect operational additions
+
+`shadow6 connect --code-file invitation.txt --list-routes` resolves an invitation
+and prints only offered core/transport pairs without provisioning. The invitation
+file uses the same bounded owner-only, non-symlink 0600 reader as native config.
+`--core … --role … --check --native-config native.json` validates matching core,
+role, ports and supported native fields without writing files. Without `--check`,
+Connect also exports native input and a fixed `native/argv.json` alongside its
+Virtual Peer configuration; no service is started. Native endpoint/key material
+must describe the separately provisioned matching native path. The Virtual Peer
+and native path are distinct deployments, not automatically wire-compatible.

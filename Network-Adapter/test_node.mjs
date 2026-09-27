@@ -72,3 +72,13 @@ test('Gleam UDP profile recovers loss, reorder and duplicates with bounded MTU',
  assert.throws(()=>new ReliableAdapter('gleam-mux',key,0,[],{payload_bytes:4096}));
  assert.throws(()=>new ReliableAdapter('go',key,0,[],{},()=>now,'micro-mux'));
 });
+
+
+test('completed replay history stays bounded and evicts in insertion order',()=>{
+ const adapter=new ReliableAdapter('pony',Buffer.alloc(32));
+ for(let i=0;i<8200;i++)adapter.remember(`0:${i}`);
+ assert.equal(adapter.completed.size,4096);assert.equal(adapter.order.length,4096);
+ assert.equal(adapter.completed.has('0:4103'),false);assert.equal(adapter.completed.has('0:4104'),true);
+ adapter.remember('0:4104');assert.equal(adapter.completed.size,4096);
+ adapter.remember('1:0');assert.equal(adapter.completed.has('0:4104'),false);
+});

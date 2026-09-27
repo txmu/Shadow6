@@ -52,3 +52,28 @@ gh run download 36321917427 --pattern "*network-benchmark*" --pattern "*iperf-ch
 ```
 
 [Machine-readable summary](../Benchmark/results/ci-36321917427/summary.json) retains each platform report hash, measurements and the native/Companion observations. Original raw iperf files remain in the downloadable GitHub artifacts.
+
+
+## Second lightweight pass (existing reports, no CI wait)
+
+The earlier native measurements (run 36275955133) put Go at roughly 20/24 Mbps
+forward/reverse, Nim at 333/357 Mbps, and the datagram cores under severe offered
+load loss. Run 36321917427 still shows Pony around 15.2/9.1 Mbps. These are
+baselines, not results for this change; host loopback iperf is not core throughput.
+
+- Go now decrypts a complete authenticated record directly into a sufficiently
+  large caller buffer, saving a plaintext copy and clearing pass in both
+  forwarding directions. Small reads keep the existing bounded remainder path;
+  authentication failure clears the candidate output and returns no bytes.
+- Nim validates the complete header and sequence, then retains the received
+  string with an eight-byte offset instead of allocating a second payload string.
+  The public decode API retains its original behavior.
+- Node S6NA replaces shifting a 4096-entry completion history on each delivered
+  message with an O(1) bounded ring. Capacity, insertion order and duplicate
+  semantics remain unchanged; this applies to the UDP core companion paths too.
+
+No local native build, throughput run or test run was performed for this pass.
+The new portable-vector/export and ring-history regressions are committed for CI.
+Actual speedups, maximum sustainable UDP rate and loss remain unmeasured until
+CI supplies comparable native-path results. No congestion, crypto, replay or
+resource limits were weakened to improve the benchmark score.

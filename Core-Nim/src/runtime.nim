@@ -200,12 +200,14 @@ proc forward(dc: cint; cfg: JsonNode; client: bool) =
       if wire.len > 0:
         progressed = true
         require(incoming < high(uint32))
-        let frame = frames.decode(wire,incoming)
+        let frame = frames.decodeHeader(wire,incoming)
         inc incoming
-        if frame.header.kind == 2:
+        if frame.kind == 2:
           peerEof = true
           tcpHalfclose(socket)
-        else: pending = frame.payload
+        elif wire.len > 8:
+          pending = wire
+          offset = 8
     if pending.len > 0:
       let n = tcpWrite(socket,unsafeAddr pending[offset],(pending.len-offset).cint)
       if n > 0:

@@ -47,7 +47,7 @@ class AndroidProjectTests(unittest.TestCase):
         runtime = (ROOT / 'app/src/main/java/org/shadow6/android/core/CoreRuntime.kt').read_text()
         self.assertIn('D("libshadow6_d.so", "secure-stream")', runtime)
         activity = (ROOT / 'app/src/main/java/org/shadow6/android/MainActivity.kt').read_text()
-        self.assertIn('CoreEngine.D -> "D Core"', activity)
+        self.assertIn('CoreEngine.D -> stringResource(R.string.d_core)', activity)
 
     def test_dual_core_and_locales(self):
         gradle = (ROOT / "app/build.gradle.kts").read_text()

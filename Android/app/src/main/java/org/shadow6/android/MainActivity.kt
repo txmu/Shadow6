@@ -425,8 +425,8 @@ private fun OverviewScreen(runtime: CoreRuntime, status: CoreStatus, onStatusCha
                 ) { Text(when (value) {
                     CoreEngine.GO -> stringResource(R.string.go_core)
                     CoreEngine.RUST -> stringResource(R.string.rust_core)
-                    CoreEngine.D -> "D Core"
-                    CoreEngine.NIM -> "Nim Core"
+                    CoreEngine.D -> stringResource(R.string.d_core)
+                    CoreEngine.NIM -> stringResource(R.string.nim_core)
                 }) }
             }
         }
@@ -899,7 +899,8 @@ private fun executeMobileTool(context: Context, name: String, arguments: org.jso
         }
         "shadow6_modules" -> org.json.JSONObject().put("go_core", BuildConfig.INCLUDE_GO_CORE)
             .put("rust_core", BuildConfig.INCLUDE_RUST_CORE).put("d_core", BuildConfig.INCLUDE_D_CORE)
-            .put("nim_core", BuildConfig.INCLUDE_NIM_CORE)
+            .put("nim_core", BuildConfig.INCLUDE_NIM_CORE).put("gate", BuildConfig.INCLUDE_GATE)
+            .put("s6na_vpn", true).put("public6_join", true).put("signed_repository", true)
             .put("shadow_chat", BuildConfig.INCLUDE_CHAT).put("packages", BuildConfig.INCLUDE_PACKAGES).put("games", BuildConfig.INCLUDE_GAMES)
             .put("ai", BuildConfig.INCLUDE_AI).put("mcp", true)
         else -> throw IllegalArgumentException("Unknown or mutating tool")
@@ -981,9 +982,15 @@ private fun SettingsScreen() {
         SectionLabel(stringResource(R.string.build_modules))
         FeatureRows(
             listOf(
-                "Go Core" to state(BuildConfig.INCLUDE_GO_CORE),
-                "Rust Core" to state(BuildConfig.INCLUDE_RUST_CORE),
-                "Temporary Notepad" to state(BuildConfig.INCLUDE_CHAT),
+                stringResource(R.string.go_core) to state(BuildConfig.INCLUDE_GO_CORE),
+                stringResource(R.string.rust_core) to state(BuildConfig.INCLUDE_RUST_CORE),
+                stringResource(R.string.d_core) to state(BuildConfig.INCLUDE_D_CORE),
+                stringResource(R.string.nim_core) to state(BuildConfig.INCLUDE_NIM_CORE),
+                stringResource(R.string.gate_title) to state(BuildConfig.INCLUDE_GATE),
+                stringResource(R.string.vpn_title) to state(true),
+                stringResource(R.string.remote_repository) to state(true),
+                stringResource(R.string.public6_join) to state(true),
+                stringResource(R.string.local_notepad) to state(BuildConfig.INCLUDE_CHAT),
                 stringResource(R.string.packages) to state(BuildConfig.INCLUDE_PACKAGES),
                 stringResource(R.string.games) to state(BuildConfig.INCLUDE_GAMES),
                 stringResource(R.string.ai) to state(BuildConfig.INCLUDE_AI),

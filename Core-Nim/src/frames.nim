@@ -24,13 +24,16 @@ proc encode*(payload: openArray[char]; sequence: uint32; kind: uint8 = 1): strin
   result[7] = char(payload.len and 255)
   if payload.len > 0:
     copyMem(addr result[8], unsafeAddr payload[0], payload.len)
-proc decode*(wire: string; expected: uint32): Frame =
+proc decodeHeader*(wire: string; expected: uint32): FrameHeader =
   require(wire.len in 8..MaxPayload+8)
-  result.header.version = uint8(wire[0])
-  result.header.kind = uint8(wire[1])
-  for i in 0..<4: result.header.sequence = (result.header.sequence shl 8) or uint32(wire[2+i])
-  result.header.length = (uint16(wire[6]) shl 8) or uint16(wire[7])
-  require(result.header.version == 1 and result.header.kind in [1'u8, 2'u8])
-  require(result.header.sequence == expected and result.header.length.int == wire.len-8)
-  require(result.header.kind != 2 or result.header.length == 0)
+  result.version = uint8(wire[0])
+  result.kind = uint8(wire[1])
+  for i in 0..<4: result.sequence = (result.sequence shl 8) or uint32(wire[2+i])
+  result.length = (uint16(wire[6]) shl 8) or uint16(wire[7])
+  require(result.version == 1 and result.kind in [1'u8, 2'u8])
+  require(result.sequence == expected and result.length.int == wire.len-8)
+  require(result.kind != 2 or result.length == 0)
+
+proc decode*(wire: string; expected: uint32): Frame =
+  result.header = decodeHeader(wire, expected)
   result.payload = wire[8..^1]

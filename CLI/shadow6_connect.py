@@ -16,10 +16,13 @@ from join_code import resolve, install_peer
 CORE_NAMES = ("go", "rust", "gleam", "ada", "nim", "pony", "zig", "d", "cpp", "idris", "hare", "carp")
 
 from native_key import generate_native_key
+from native_config import secure_read, load as load_native, prepare, native_binary, write_new
 
 def connect(code: str, core: str, role: str, output_dir: Path, carrier: str,
             gate_port: int, peer_port: int, interactive: bool, directory: str = None, profile: Path = None, pin: str = None, check: bool = False):
     """One-click connect: resolve join-code, install peer configs."""
+    if not 1024 <= gate_port <= 65535 or not 1024 <= peer_port <= 65535 or gate_port == peer_port:
+        raise ValueError("Gate and peer ports must be distinct and in 1024..65535")
     if core not in CORE_NAMES:
         raise ValueError(f"unknown core: {core}")
     if role not in ("client", "agent"):
@@ -58,9 +61,9 @@ def connect(code: str, core: str, role: str, output_dir: Path, carrier: str,
 
 def main():
     p = argparse.ArgumentParser(description="One-click Public6 connection")
-    p.add_argument("code", help="40-char Public6 join code")
-    p.add_argument("--core", required=True, choices=CORE_NAMES)
-    p.add_argument("--role", required=True, choices=["client", "agent"])
+    p.add_argument("code", nargs="?", help="40-char Public6 join code")
+    p.add_argument("--core", choices=CORE_NAMES)
+    p.add_argument("--role", choices=["client", "agent"])
     p.add_argument("--output", type=Path, default=Path.cwd() / "shadow6-public")
     p.add_argument("--carrier", choices=["gate", "s6na"], default="gate")
     p.add_argument("--gate-port", type=int, default=1086)
@@ -71,19 +74,47 @@ def main():
     p.add_argument("--profile", type=Path, help="owner-only manual profile")
     p.add_argument("--pin", help="manual Gate public-key pin")
     p.add_argument("--check", action="store_true", help="validate the invitation/profile without writing files")
+    p.add_argument("--code-file", type=Path, help="read invitation from an owner-only 0600 file")
+    p.add_argument("--list-routes", action="store_true", help="resolve invitation and show offered core transports without provisioning")
+    p.add_argument("--native-config", type=Path, help="validate and emit a bounded native configuration alongside Virtual Peer files")
     args = p.parse_args()
+    try:
+        if bool(args.code) == bool(args.code_file):
+            raise ValueError("provide exactly one of code or --code-file")
+        if args.code_file: args.code = secure_read(args.code_file, 256).decode('ascii').strip()
+        if args.list_routes:
+            resolved = resolve(args.code, directory=args.directory, manual_profile=args.profile, manual_pin=args.pin)
+            print(json.dumps({'routes': [{'core': route['core'], 'transport': route['transport']} for route in resolved['routes']]}))
+            return
+        if not args.core or not args.role: raise ValueError("--core and --role are required")
+        native = load_native(args.native_config) if args.native_config else None
+        if native and (native['core'], native['role']) != (args.core, args.role):
+            raise ValueError("native configuration core/role differs from Connect selection")
+        if args.generate_key_only and (args.check or native):
+            raise ValueError("key-only cannot be combined with --check or --native-config")
+    except (ValueError, OSError) as error:
+        p.exit(2, f"error: {error}\n")
     
     if args.generate_key_only:
         if args.core not in ("carp", "idris"):
             p.error("--generate-key-only requires --core carp or idris")
         key_out = args.output / f"{args.role}.key"
-        generate_native_key(args.core, args.role, args.code, key_out)
+        try:
+            generate_native_key(args.core, args.role, args.code, key_out)
+        except (ValueError, OSError) as error:
+            p.exit(2, f"error: {error}\n")
         print(f"Generated: {key_out}")
         return
     
     try:
-        connect(args.code, args.core, args.role, args.output, args.carrier,
+        connected = connect(args.code, args.core, args.role, args.output, args.carrier,
                 args.gate_port, args.peer_port, args.interactive, args.directory, args.profile, args.pin, args.check)
+        if native and not args.check and connected is not None:
+            destination = args.output.resolve() / 'native'
+            destination.mkdir(mode=0o700)
+            argv = prepare(native, native_binary(args.core), destination)
+            write_new(destination / 'argv.json', json.dumps(argv).encode())
+            print(f"Native files and fixed argv: {destination}")
     except (ValueError, OSError) as error:
         p.exit(2, f"error: {error}\n")
 
