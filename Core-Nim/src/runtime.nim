@@ -19,8 +19,10 @@ proc sendJson(id: cint; node: JsonNode) =
   require(encoded.len <= 65536 and buffered(id) < 262144)
   require(sendMessage(id, encoded.cstring, -1) == 0, "control send failed")
 proc receive(id: cint; binary: bool): string =
-  var buf: array[65537,char]
-  var size = 65536.cint
+  # RTC fills exactly the returned, validated length; do not zero 64 KiB
+  # on every empty poll. Unwritten bytes are never copied or exposed.
+  var buf {.noinit.}: array[65536,char]
+  var size = (if binary: 16392 else: 65536).cint
   let status = receiveMessage(id, addr buf[0], addr size)
   if status == -3: return ""
   require(status == 0)
@@ -213,7 +215,7 @@ proc forward(dc: cint; cfg: JsonNode; client: bool) =
       else: require(n == -2)
     # Drain available TCP/RTC work before yielding. Sleeping after every
     # frame imposes a throughput ceiling independent of CPU or encryption.
-    if not progressed: sleep(2)
+    if not progressed: sleep(1)
 
 proc endpointRun(cfg: JsonNode; client: bool) =
   let ws = wsClient(cfg["broker_addrs"][0].getStr.cstring)

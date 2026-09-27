@@ -55,3 +55,20 @@ test('large inode identities remain exact',{skip:process.platform==='win32'},()=
 test('fixed vector and tamper rejection',()=>{let key=Buffer.from([...Array(32).keys()]),codec=new Codec(key,1200,0),peer=new Codec(key,1200,1),wire=codec.encode(1,7,42n,0,1,Buffer.from('cross-backend'));assert.equal(wire.toString('hex'),'53364e41010100000000000000000007000000000000002a000000010000000d42e3db28ec08001b41581ea8010d468a5f828ae126237ba96b6b3f53f6');assert.equal(peer.decode(wire).payload.toString(),'cross-backend');wire[wire.length-1]^=1;assert.throws(()=>peer.decode(wire),/authentication/)});
 test('large messages and concurrent streams',()=>{let key=crypto.randomBytes(32),left=new ReliableAdapter('pony',key,0),right=new ReliableAdapter('pony',key,1);for(let stream=0;stream<8;stream++){let data=Buffer.alloc(32000,stream),queue=left.send(stream,data),messages=[];while(queue.length){let result=right.receive(queue.pop());messages.push(...result.messages);for(let ack of result.acks)left.receive(ack);queue.push(...left.outbound())}assert.equal(messages.length,1);assert.ok(messages[0][1].equals(data))}});
 test('node companion carrier transfers an Idris message',async()=>{let key=crypto.randomBytes(32),reserve=dgram.createSocket('udp4');await new Promise(r=>reserve.bind(0,'127.0.0.1',r));let firstPort=reserve.address().port;reserve.close();let reserve2=dgram.createSocket('udp4');await new Promise(r=>reserve2.bind(0,'127.0.0.1',r));let secondPort=reserve2.address().port;reserve2.close();let first=new DatagramEndpoint('idris',key,{host:'127.0.0.1',port:firstPort},{host:'127.0.0.1',port:secondPort},0),second=new DatagramEndpoint('idris',key,{host:'127.0.0.1',port:secondPort},{host:'127.0.0.1',port:firstPort},1);await Promise.all([first.ready,second.ready]);let data=crypto.randomBytes(5000),received=new Promise((resolve,reject)=>{second.once('data',(stream,value)=>resolve([stream,value]));second.once('adapterError',reject)});first.send(4,data);let [stream,value]=await received;assert.equal(stream,4);assert.ok(value.equals(data));first.close();second.close()});
+
+test('Gleam UDP profile recovers loss, reorder and duplicates with bounded MTU',()=>{
+ let now=0;const key=crypto.randomBytes(32),left=new ReliableAdapter('gleam',key,0,[],{},()=>now,'micro-mux'),right=new ReliableAdapter('gleam-mux',key,1,[],{},()=>now);
+ assert.equal(left.codec.payload,1100);assert.equal(new ReliableAdapter('gleam',key).codec.payload,4096);
+ const payload=crypto.randomBytes(100000),frames=left.send(7,payload),lost=frames[0],done=[];
+ const deliver=frame=>{const r=right.receive(frame);done.push(...r.messages);for(const ack of r.acks)left.receive(ack)};
+ for(const frame of frames.slice(1).reverse()){deliver(frame);deliver(frame)}
+ for(const frame of left.outbound())deliver(frame);
+ assert.equal(done.length,0);now=1;
+ const retried=left.retransmit();assert.ok(retried.some(f=>f.equals(lost)));
+ for(const frame of retried)deliver(frame);
+ assert.equal(done.length,1);assert.equal(done[0][0],7);assert.ok(done[0][1].equals(payload));assert.equal(left.buffered,0);
+ assert.equal(right.receive(lost).messages.length,0);
+ const corrupt=Buffer.from(lost);corrupt[corrupt.length-1]^=1;assert.throws(()=>right.receive(corrupt));
+ assert.throws(()=>new ReliableAdapter('gleam-mux',key,0,[],{payload_bytes:4096}));
+ assert.throws(()=>new ReliableAdapter('go',key,0,[],{},()=>now,'micro-mux'));
+});

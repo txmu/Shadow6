@@ -20,11 +20,23 @@ COMPONENTS["virtual-broker"]=ROOT/"Public6/virtual_broker.py"
 COMPONENTS["virtual-client"]=ROOT/"Public6/virtual_peer.py"
 COMPONENTS["virtual-agent"]=ROOT/"Public6/virtual_peer.py"
 COMPONENTS["join-code"]=ROOT/"Public6/join_code.py"
+COMPONENTS.update({
+ "crosed": ROOT/"Crosed/crosedctl.py", "ppb": ROOT/"Paranoid-Proxy-Benchmark/paranoid_proxy_benchmark.py",
+ "connect": ROOT/"CLI/shadow6_connect.py", "native-config": ROOT/"CLI/native_config.py",
+ "native-key": ROOT/"CLI/native_key.py", "paranoid-proxy-benchmark": ROOT/"Paranoid-Proxy-Benchmark/paranoid_proxy_benchmark.py",
+ "easybuild": ROOT/"EasyBuild/shadow6_easybuild.py", "extensions": ROOT/"Extension-System/shadow6_extensions.py",
+ "detector-neo": ROOT/"Detector/shadow6_detector_neo.py", "virtual-adapter": ROOT/"Virtual-Adapter/shadow6_virtual_adapter.py",
+ "interface": ROOT/"Virtual-Adapter/setup_interface.py", "guard-ctl": ROOT/"Guard/shadow6-guard-ctl.sh",
+ "iperf": ROOT/"Tools/iperf3_matrix.py", "iperf-chain": ROOT/"Benchmark/iperf_chain.py",
+ "audit": ROOT/"shadow6_audit.py", "python-runtime": ROOT/"Tools/python_runtime.py",
+ "performance": ROOT/"Benchmark/component_benchmark.py", "collect-performance": ROOT/"Tools/collect_performance.py",
+
+})
 CORE_NAMES=("go","rust","gleam","ada","nim","pony","zig","d","cpp","idris","hare","carp")
 if not (ROOT/"Makefile").is_file():
  bin_dir=Path(sys.argv[0]).resolve().parent
  COMPONENTS={name:bin_dir/("shadow6-"+name) for name in COMPONENTS}
- COMPONENTS.update({"counterstrike":bin_dir/"shadow6-counterstrike","watch":bin_dir/"shadow6-watch","go":bin_dir/"shadow6-go","rust":bin_dir/"shadow6-rust","control":bin_dir/"shadow6-control","sign-plugin":bin_dir/"shadow6-sign-plugin","packages":bin_dir/"shadow6-pkg","repo":bin_dir/"shadow6-repo","portmap":bin_dir/"shadow6-portmap"})
+ COMPONENTS.update({"crosed":bin_dir/"crosedctl","ppb":bin_dir/"paranoid-proxy-benchmark","counterstrike":bin_dir/"shadow6-counterstrike","watch":bin_dir/"shadow6-watch","go":bin_dir/"shadow6-go","rust":bin_dir/"shadow6-rust","control":bin_dir/"shadow6-control","sign-plugin":bin_dir/"shadow6-sign-plugin","packages":bin_dir/"shadow6-pkg","repo":bin_dir/"shadow6-repo","portmap":bin_dir/"shadow6-portmap"})
 TRANSPORTS={"schema","rpc","mcp","lsp","openai-tools","openai-rpc","serve","call","privacy"}
 STANDALONE=("guard","gate","detector","counterstrike","watch","security")
 def command_for(name,args):
@@ -114,7 +126,13 @@ def run_hands(args):
   return 2
 
 def main():
+ raw=sys.argv[1:]
+ events=bool(raw and raw[0]=="--json-events")
+ if events:raw=raw[1:]
+ if raw and raw[0] in COMPONENTS and raw[0] not in {"virtual-broker","virtual-client","virtual-agent"}:
+  args=raw[1:];return run(raw[0],args[1:] if args[:1]==["--"] else args,events)
  p=argparse.ArgumentParser(prog="shadow6");p.add_argument("--json-events",action="store_true");sub=p.add_subparsers(dest="command",required=True)
+ q=sub.add_parser("tools",help="list all fixed tool routes and availability")
  q=sub.add_parser("guide",help="read a friendly getting-started guide / 查看中英文入门指引");q.add_argument("--lang",choices=("en","zh"),default="en")
  c=sub.add_parser("component");c.add_argument("name",choices=sorted(COMPONENTS));c.add_argument("args",nargs=argparse.REMAINDER)
  c=sub.add_parser("standalone",help="run a fixed security component without any Core");c.add_argument("name",choices=STANDALONE);c.add_argument("args",nargs=argparse.REMAINDER)
@@ -136,10 +154,10 @@ def main():
   q.add_argument("--max-connections",type=int,default=32); q.add_argument("--idle-seconds",type=int,default=120)
   q.add_argument("--check",action="store_true")
  add_hands_parser(sub)
- q=sub.add_parser("features");q.add_argument("--component",choices=("go","rust","gate"),action="append",default=[])
+ q=sub.add_parser("features");q.add_argument("--component",choices=(*CORE_NAMES,"gate"),action="append",default=[])
  q=sub.add_parser("vcore",help="discover installed cores and capability intersection");q.add_argument("args",nargs=argparse.REMAINDER)
  q=sub.add_parser("benchmark",help="run real native benchmarks for selected cores")
- q.add_argument("--core",dest="cores",action="append",choices=sorted(k for k in COMPONENTS if k in {"go","rust","zig","ada","d","nim","cpp","pony","hare","carp","gleam","idris"}))
+ q.add_argument("--core",dest="cores",action="append",choices=sorted((*CORE_NAMES,"gleam-mux")))
  q.add_argument("--all",action="store_true",help="benchmark all twelve cores and all three backend paths (default)")
  q.add_argument("--backend",dest="backends",action="append",choices=("native","python","node"))
  q.add_argument("--payload-bytes",type=int,default=4096)
@@ -152,6 +170,8 @@ def main():
  q=sub.add_parser("sign");ss=q.add_subparsers(dest="kind",required=True);sp=ss.add_parser("plugin");sp.add_argument("manifest");sp.add_argument("--private-key",required=True);sp.add_argument("--signer",required=True)
  q=sub.add_parser("workflow");q.add_argument("stage",choices=("build","test","check","audit","crosed-variants","android-apk","package","release"));q.add_argument("args",nargs=argparse.REMAINDER)
  a=p.parse_args();tail=lambda v:v[1:] if v[:1]==["--"] else v
+ if a.command=="tools":
+  print(json.dumps({"schema":"shadow6.tools.v1","tools":[{"name":n,"path":str(path),"available":path.is_file()} for n,path in sorted(COMPONENTS.items())]},indent=2));return 0
  if a.command=="guide":return run("control",["guide","--lang",a.lang],a.json_events)
  if a.command=="hands":return run_hands(a)
  if a.command=="component":return run(a.name,tail(a.args),a.json_events)
@@ -175,7 +195,8 @@ def main():
   sys.path.insert(0, str(ROOT / "Benchmark"))
   from benchmark import run as benchmark_run, write as benchmark_write
   core_names = {"go","rust","zig","ada","d","nim","cpp","pony","hare","carp","gleam","idris"}
-  cores = [c for c in COMPONENTS if c in core_names] if a.all or not a.cores else a.cores
+  core_names.add("gleam-mux")
+  cores = [*CORE_NAMES,"gleam-mux"] if a.all or not a.cores else a.cores
   cores = [c for c in cores if c in core_names]
   if not cores: raise SystemExit("benchmark requires --core or --all")
   if not 1 <= a.repeats <= 100: raise SystemExit("--repeats must be 1..100")

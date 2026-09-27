@@ -749,3 +749,58 @@ func TestAEADRepeatedFramesWithPartialReads(t *testing.T) {
 		t.Fatal("large copy batch became a large head-of-line authentication record")
 	}
 }
+
+type batchCountingConn struct {
+	net.Conn
+	writes int
+}
+
+func (c *batchCountingConn) Write(data []byte) (int, error) {
+	c.writes++
+	return c.Conn.Write(data)
+}
+
+func TestAEADBulkBatchPreservesRecordsAndReverseHalfClose(t *testing.T) {
+	left, right := net.Pipe()
+	defer left.Close()
+	defer right.Close()
+	_ = left.SetDeadline(time.Now().Add(5 * time.Second))
+	_ = right.SetDeadline(time.Now().Add(5 * time.Second))
+	counted := &batchCountingConn{Conn: left}
+	key := bytes.Repeat([]byte{19}, 32)
+	upload, _ := newAEADConn(counted, key)
+	download, _ := newAEADConn(right, key)
+	payload := bytes.Repeat([]byte{42}, proxyCopyBufferBytes)
+	done := make(chan error, 1)
+	go func() {
+		if _, err := upload.Write(payload); err != nil {
+			done <- err
+			return
+		}
+		done <- upload.writeEOF()
+	}()
+	got, err := io.ReadAll(download)
+	if err != nil || !bytes.Equal(got, payload) {
+		t.Fatalf("bulk batch corrupt: %v", err)
+	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if counted.writes != 2 {
+		t.Fatalf("batch plus authenticated EOF used %d writes", counted.writes)
+	}
+	go func() {
+		if _, err := download.Write(payload); err != nil {
+			done <- err
+			return
+		}
+		done <- download.writeEOF()
+	}()
+	got, err = io.ReadAll(upload)
+	if err != nil || !bytes.Equal(got, payload) {
+		t.Fatalf("reverse bulk after half-close: %v", err)
+	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+}

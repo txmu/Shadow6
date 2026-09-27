@@ -387,6 +387,7 @@ endif
 	@PYTHONPATH=Migration $(PYTHON) -m unittest -v Migration/test_migrate.py
 	@PYTHONPATH=I18n $(PYTHON) -m unittest -v I18n/test_i18n.py
 	@PYTHONPATH=CLI $(PYTHON) -m unittest discover -v -s CLI
+	@PYTHONPATH=Paranoid-Proxy-Benchmark $(PYTHON) -m unittest discover -v -s Paranoid-Proxy-Benchmark
 	@PYTHONPATH=Online-Repository $(PYTHON) -m unittest -v Online-Repository/test_repo.py
 	@PYTHONPATH=Service-Init $(PYTHON) -m unittest discover -s Service-Init -v
 ifeq ($(BUILD_AUTO),1)
@@ -497,6 +498,12 @@ ifeq ($(BUILD_GATE),1)
 endif
 	@install -m 0755 Migration/shadow6_migrate.py "$(DESTDIR)$(PREFIX)/bin/shadow6-migrate"
 	@install -m 0755 CLI/shadow6.py "$(DESTDIR)$(PREFIX)/bin/shadow6"
+	@install -m 0755 CLI/shadow6_connect.py "$(DESTDIR)$(PREFIX)/bin/shadow6-connect"
+	@install -m 0755 CLI/native_config.py "$(DESTDIR)$(PREFIX)/bin/shadow6-native-config"
+	@install -m 0755 CLI/native_key.py "$(DESTDIR)$(PREFIX)/bin/shadow6-native-key"
+	@install -m 0644 CLI/native_config.py CLI/native_key.py "$(DESTDIR)$(PREFIX)/bin/"
+	@install -m 0755 Paranoid-Proxy-Benchmark/paranoid_proxy_benchmark.py "$(DESTDIR)$(PREFIX)/bin/shadow6-paranoid-proxy-benchmark"
+	@install -m 0755 Paranoid-Proxy-Benchmark/paranoid_proxy_benchmark.py "$(DESTDIR)$(PREFIX)/bin/paranoid-proxy-benchmark"
 	@install -m 0755 Network-Adapter/shadow6_network.py "$(DESTDIR)$(PREFIX)/bin/shadow6-network"
 	@install -m 0755 Network-Adapter/shadow6_network.mjs "$(DESTDIR)$(PREFIX)/bin/shadow6-network-node"
 	@install -m 0644 Network-Adapter/secure_key_windows.ps1 "$(DESTDIR)$(PREFIX)/bin/"

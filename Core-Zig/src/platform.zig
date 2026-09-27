@@ -33,6 +33,7 @@ pub const c = @cImport({
     @cDefine("_Nullable", "");
     @cDefine("_Null_unspecified", "");
     @cInclude("sys/socket.h");
+    @cInclude("netinet/tcp.h");
     @cInclude("sys/stat.h");
     @cInclude("sys/time.h");
     @cInclude("netinet/in.h");
@@ -156,6 +157,13 @@ pub fn socket(a: *const Address, udp: bool) !c_int {
     const timeout = c.timeval{ .tv_sec = 10, .tv_usec = 0 };
     _ = c.setsockopt(fd, c.SOL_SOCKET, c.SO_RCVTIMEO, &timeout, @sizeOf(c.timeval));
     _ = c.setsockopt(fd, c.SOL_SOCKET, c.SO_SNDTIMEO, &timeout, @sizeOf(c.timeval));
+    if (!udp) {
+        const enabled: c_int = 1;
+        if (c.setsockopt(fd, c.IPPROTO_TCP, c.TCP_NODELAY, &enabled, @sizeOf(c_int)) != 0) {
+            close(fd);
+            return error.SocketOptions;
+        }
+    }
     return fd;
 }
 pub fn bind(a: *const Address, udp: bool) !c_int {

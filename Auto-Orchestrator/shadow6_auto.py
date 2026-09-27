@@ -67,6 +67,8 @@ else:
     PROJECT_ROOT = install_prefix / "share" / "shadow6" / "tree"
     BINARY_DIR = install_prefix / "bin"
     SERVICE_INIT_DIR = MODULE_DIR
+sys.path.insert(0, str(PROJECT_ROOT / "CLI"))
+from native_config import topology_configs, CORES as DATAGRAM_CORE_NAMES
 SAFE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 VALID_ROLES = {"broker", "agent", "client"}
 CORE_ENGINES = {"shadow6-go", "shadow6-rust", "shadow6-zig", "shadow6-ada", "shadow6-d", "shadow6-nim", "shadow6-cpp", "shadow6-pony", "shadow6-hare", "shadow6-carp", "shadow6-gleam", "shadow6-idris"}
@@ -330,6 +332,13 @@ async def _deploy_to_node(node: Dict, config_json: str):
 
             core_engine = selected_core_engine(node)
             core_binary = remote_binaries[core_engine]
+            if core_engine.removeprefix("shadow6-") in DATAGRAM_CORE_NAMES:
+                # The wrapper translates a strictly validated JSON contract into fixed argv.
+                adapter_path = remote_path("/usr/local/bin/shadow6-native-config")
+                upload_path = remote_path(f"/etc/shadow6/.native-{secrets.token_hex(8)}.upload")
+                await sftp.put(str(PROJECT_ROOT / "CLI/native_config.py"), upload_path)
+                await conn.run(f"install {owner_flags}-m 0755 {shlex.quote(upload_path)} {shlex.quote(adapter_path)} && rm -f {shlex.quote(upload_path)}", check=True)
+                core_binary = adapter_path
             await conn.run(
                 f"{shlex.quote(core_binary)} --config {shlex.quote(conf_path)} --check-config",
                 check=True,
@@ -491,7 +500,7 @@ def validate_topology(topo: Any) -> dict:
     global_cfg = topo.get("global", {})
     if not isinstance(global_cfg, dict):
         raise ValueError("global topology settings must be a mapping")
-    if set(global_cfg) - {"stealth_mode", "broker_scheme", "broker_path", "output_dir", "mtd_rotation_interval"}:
+    if set(global_cfg) - {"stealth_mode", "broker_scheme", "broker_path", "output_dir", "mtd_rotation_interval", "gleam_transport"}:
         raise ValueError("unknown global topology fields")
     if "stealth_mode" in global_cfg and type(global_cfg["stealth_mode"]) is not bool:
         raise ValueError("stealth_mode must be boolean")
@@ -501,6 +510,8 @@ def validate_topology(topo: Any) -> dict:
     broker_path = global_cfg.get("broker_path", "/ws")
     if not broker_path.startswith("/") or broker_path == "/" or any(c in broker_path for c in "?#\\ "):
         raise ValueError("global.broker_path must be a non-root absolute URL path")
+    if global_cfg.get("gleam_transport", "secure-stream") not in {"secure-stream", "micro-mux"}:
+        raise ValueError("global.gleam_transport must be secure-stream or micro-mux")
     nodes = topo.get("nodes")
     if not isinstance(nodes, list) or not 1 <= len(nodes) <= MAX_NODES:
         raise ValueError(f"topology must contain 1..{MAX_NODES} nodes")
@@ -578,9 +589,16 @@ def validate_topology(topo: Any) -> dict:
     core_engines = {selected_core_engine(node) for node in nodes}
     if len(core_engines) != 1:
         raise ValueError("all broker, agent, and client nodes must use the same core engine")
+    if next(iter(core_engines)).removeprefix("shadow6-") in DATAGRAM_CORE_NAMES:
+        if len(nodes) != 3 or {n['type'] for n in nodes} != {"broker", "agent", "client"}:
+            raise ValueError("native datagram adapter requires one broker, agent and client")
+    if "gleam_transport" in global_cfg and core_engines != {"shadow6-gleam"}:
+        raise ValueError("gleam_transport applies only to the Gleam Core")
     broker = brokers[0]
     broker_host = str(broker.get("advertise_host", broker.get("ssh_host", "127.0.0.1")))
-    scheme = global_cfg.get("broker_scheme", "wss")
+    scheme = global_cfg.get("broker_scheme", "ws" if core_engines == {"shadow6-gleam"} else "wss")
+    if core_engines == {"shadow6-gleam"} and (scheme != "ws" or not is_loopback_host(broker_host)):
+        raise ValueError("Gleam native control currently requires a loopback ws broker")
     if scheme not in {"ws", "wss"}:
         raise ValueError("global.broker_scheme must be 'ws' or 'wss'")
     if scheme == "ws" and not is_loopback_host(broker_host):
@@ -662,7 +680,7 @@ async def execute_mtd_rotation(topo: dict):
     core_engine = selected_core_engine(broker_node)
     broker_host = broker_node.get("advertise_host", broker_node.get("ssh_host", "127.0.0.1"))
     broker_port = int(broker_node.get("listen_port", 4433))
-    broker_scheme = global_cfg.get("broker_scheme", "wss")
+    broker_scheme = global_cfg.get("broker_scheme", "ws" if core_engine == "shadow6-gleam" else "wss")
     broker_path = global_cfg.get("broker_path", "/ws")
     if not isinstance(broker_path, str) or not broker_path.startswith("/") or broker_path == "/" or any(char in broker_path for char in "?#\r\n"):
         raise ValueError("global.broker_path must be a non-root absolute URL path")
@@ -671,6 +689,18 @@ async def execute_mtd_rotation(topo: dict):
     if not output_dir.is_absolute():
         output_dir = Path.cwd() / output_dir
     agent_names = [node["name"] for node in topo["nodes"] if node["type"] == "agent"]
+
+    native_configs = {}
+    if core_engine.removeprefix("shadow6-") in DATAGRAM_CORE_NAMES:
+        if global_cfg.get("stealth_mode"):
+            raise ValueError("native datagram adapter does not support stealth_mode")
+        native_configs = topology_configs(topo, {
+            "broker": (broker_pub, broker_priv),
+            "agent": next(iter(agent_keys.values())),
+            "client": next(iter(client_keys.values())),
+        }, secrets.token_hex(32))
+    if core_engine == "shadow6-gleam" and global_cfg.get("gleam_transport") == "micro-mux":
+        console.print("[yellow]Micro-Mux transport itself provides NO availability guarantee: loss, ordering and recovery are not assured.[/yellow]")
 
     tasks = []
     deployment_slots = asyncio.Semaphore(8)
@@ -684,7 +714,7 @@ async def execute_mtd_rotation(topo: dict):
         
         if node['type'] == 'broker':
             config_data['broker'] = {
-                "listen_addr": format_host_port(node.get('listen_host', '0.0.0.0'), broker_port),
+                "listen_addr": format_host_port(node.get('listen_host', '127.0.0.1' if core_engine == 'shadow6-gleam' else '0.0.0.0'), broker_port),
                 "private_key": broker_priv,
                 "agents": agents_data,
                 "clients": clients_data,
@@ -744,6 +774,15 @@ async def execute_mtd_rotation(topo: dict):
                 config_data["agent"]["client_domains"] = {name: domains[name] for name in allowed}
             else:
                 config_data["client"]["target_domain"] = domains[target_agent]
+
+        if native_configs:
+            config_data = native_configs[node['name']]
+        elif core_engine == "shadow6-gleam" and node['type'] in {"agent", "client"}:
+            config_data[node['type']]["transport"] = global_cfg.get("gleam_transport", "secure-stream")
+
+        if core_engine == "shadow6-gleam":
+            for other_role in ("broker", "agent", "client"):
+                config_data.setdefault(other_role, None)
 
         filename = output_dir / f"{node['name']}.json"
         _write_secure_json(filename, config_data)

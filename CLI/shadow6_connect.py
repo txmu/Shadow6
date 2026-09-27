@@ -1,41 +1,24 @@
 #!/usr/bin/env python3
 """One-click Public6 connection tool for all twelve Shadow6 Cores."""
-import argparse, json, os, secrets, sys
+import argparse, json, sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+if not (ROOT / "Public6").is_dir():
+    ROOT = ROOT / "share/shadow6/tree"
 sys.path.insert(0, str(ROOT / "Tools"))
 from python_runtime import bootstrap
-bootstrap(ROOT, Path(__file__).resolve())
+if __name__ == "__main__":
+    bootstrap(ROOT, Path(__file__).resolve())
 sys.path.insert(0, str(ROOT / "Public6"))
-from join_code import peer_seed, peer_public, resolve, install_peer
+from join_code import resolve, install_peer
 
 CORE_NAMES = ("go", "rust", "gleam", "ada", "nim", "pony", "zig", "d", "cpp", "idris", "hare", "carp")
 
-def generate_native_key(core: str, role: str, code: str, output: Path):
-    """Generate 96-byte binary key for Carp/Idris cores."""
-    if core not in ("carp", "idris"):
-        raise ValueError(f"generate_native_key only for carp/idris, got {core}")
-    seed_client = peer_seed(code, f"core:{core}:client")
-    seed_agent = peer_seed(code, f"core:{core}:agent")
-    pub_client = peer_public(code, f"core:{core}:client")
-    pub_agent = peer_public(code, f"core:{core}:agent")
-    binding = secrets.token_bytes(32)
-    if role == "broker":
-        material = bytes(32) + pub_client + pub_agent
-    elif role == "agent":
-        material = seed_agent + pub_client + binding
-    elif role == "client":
-        material = seed_client + pub_agent + binding
-    else:
-        raise ValueError(f"unknown role: {role}")
-    output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_bytes(material)
-    os.chmod(output, 0o600)
-    return output
+from native_key import generate_native_key
 
 def connect(code: str, core: str, role: str, output_dir: Path, carrier: str,
-            gate_port: int, peer_port: int, interactive: bool, directory: str = None):
+            gate_port: int, peer_port: int, interactive: bool, directory: str = None, profile: Path = None, pin: str = None, check: bool = False):
     """One-click connect: resolve join-code, install peer configs."""
     if core not in CORE_NAMES:
         raise ValueError(f"unknown core: {core}")
@@ -52,31 +35,26 @@ def connect(code: str, core: str, role: str, output_dir: Path, carrier: str,
             print("Aborted")
             return
     
-    profile = resolve(code, directory=directory)
-    output_dir.mkdir(parents=True, exist_ok=True)
-    
+    if carrier == "s6na":
+        raise ValueError("Connect Virtual Peer currently supports Gate only; use shadow6 network for S6NA configuration")
+    resolved = resolve(code, directory=directory, manual_profile=profile, manual_pin=pin)
+    if not any(route['core'] == core for route in resolved['routes']):
+        raise ValueError("Core family is not offered by this node")
+    if check:
+        result = {"valid": True, "core": core, "role": role, "carrier": carrier}
+        print(json.dumps(result))
+        return result
+    result = install_peer(code, resolved, core, role, output_dir, gate_port, peer_port)
+
     if core in ("carp", "idris"):
         key_file = output_dir / f"{role}.key"
         generate_native_key(core, role, code, key_file)
         print(f"Generated 96-byte native key: {key_file}")
-        print(f"Usage: shadow6-{core} --chain {role} <broker-host> <broker-port> ...")
-        return
-    
-    install_peer(code, profile, core, role, output_dir, gate_port, peer_port)
-    
-    if carrier == "s6na":
-        vp_cfg = output_dir / "virtual-peer.json"
-        if vp_cfg.exists():
-            data = json.loads(vp_cfg.read_text())
-            data.setdefault("gate", {})["carrier"] = "s6na"
-            vp_cfg.write_text(json.dumps(data, indent=2, sort_keys=True))
-            os.chmod(vp_cfg, 0o600)
-            print(f"S6NA enabled in {vp_cfg}")
-    
     print(f"\nArtifacts: {output_dir}")
     print(f"1. shadow6-gate --config {output_dir}/gate.json")
     print(f"2. shadow6 virtual-{role} --config {output_dir}/virtual-peer.json")
-    print(f"3. shadow6-{core} --config {output_dir}/core-{role}.json --check-config")
+    print("Native Core configuration must be prepared separately for its supported transport.")
+    return result
 
 def main():
     p = argparse.ArgumentParser(description="One-click Public6 connection")
@@ -90,6 +68,9 @@ def main():
     p.add_argument("--interactive", action="store_true")
     p.add_argument("--directory", help="Public6 directory URL for join-code resolution")
     p.add_argument("--generate-key-only", action="store_true")
+    p.add_argument("--profile", type=Path, help="owner-only manual profile")
+    p.add_argument("--pin", help="manual Gate public-key pin")
+    p.add_argument("--check", action="store_true", help="validate the invitation/profile without writing files")
     args = p.parse_args()
     
     if args.generate_key_only:
@@ -100,8 +81,11 @@ def main():
         print(f"Generated: {key_out}")
         return
     
-    connect(args.code, args.core, args.role, args.output, args.carrier,
-            args.gate_port, args.peer_port, args.interactive, args.directory)
+    try:
+        connect(args.code, args.core, args.role, args.output, args.carrier,
+                args.gate_port, args.peer_port, args.interactive, args.directory, args.profile, args.pin, args.check)
+    except (ValueError, OSError) as error:
+        p.exit(2, f"error: {error}\n")
 
 if __name__ == "__main__":
     main()

@@ -231,3 +231,29 @@ class TestShadow6Auto(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+class NativeOrchestrationTests(unittest.TestCase):
+    def test_native_datagram_trios_emit_operator_adapter_contracts(self):
+        from native_config import load
+        for core in ('hare','pony','carp','idris'):
+            with self.subTest(core=core), tempfile.TemporaryDirectory() as directory:
+                topo={'version':'1.0','global':{'output_dir':directory},'nodes':[
+                    {'name':r,'type':r,'engines':['shadow6-'+core]} for r in ('broker','agent','client')]}
+                asyncio.run(execute_mtd_rotation(topo))
+                for role in ('broker','agent','client'):
+                    cfg=load(Path(directory)/(role+'.json'))
+                    self.assertEqual(cfg['core'],core);self.assertEqual(cfg['role'],role)
+                if core in ('carp','idris'):
+                    agent=load(Path(directory)/'agent.json');client=load(Path(directory)/'client.json')
+                    self.assertEqual(agent['key_material'][128:],client['key_material'][128:])
+
+    def test_gleam_micro_mux_selection(self):
+        with tempfile.TemporaryDirectory() as directory:
+            topo={'version':'1.0','global':{'output_dir':directory,'gleam_transport':'micro-mux'},'nodes':[
+                {'name':r,'type':r,'engines':['shadow6-gleam']} for r in ('broker','agent','client')]}
+            asyncio.run(execute_mtd_rotation(topo))
+            for role in ('agent','client'):
+                cfg=json.loads((Path(directory)/(role+'.json')).read_text())
+                self.assertEqual(cfg[role]['transport'],'micro-mux')
+                self.assertEqual(set(cfg),{'role','broker','agent','client'})
+                self.assertTrue(cfg[role]['broker_addrs'][0].startswith('ws://127.0.0.1:'))

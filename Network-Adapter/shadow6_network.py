@@ -96,6 +96,18 @@ POLICIES={
  "idris":Policy("native",1024,32,"native authenticated UDP agent/client relay"),
 }
 
+# 1100 + S6NA(48) + Micro-Mux(42) + IPv6/UDP(48) < IPv6 minimum MTU.
+PROFILES = {**POLICIES, "gleam-mux": Policy("companion", 1100, 64,
+    "Micro-Mux UDP: bounded ACK/retry, deduplication and reassembly; no availability guarantee")}
+
+def profile_name(core, transport=None):
+    if transport is None: return core
+    if core not in {"gleam", "gleam-mux"} or transport not in {"secure-stream", "micro-mux"}:
+        raise ValueError("unsupported core transport selection")
+    if core == "gleam-mux" and transport != "micro-mux":
+        raise ValueError("conflicting Gleam mode")
+    return "gleam-mux" if transport == "micro-mux" else "gleam"
+
 def _windows_key(operation, path, data=None):
     shell=Path(os.environ['SystemRoot'])/'System32/WindowsPowerShell/v1.0/powershell.exe'
     result=subprocess.run([str(shell),'-NoLogo','-NoProfile','-NonInteractive','-File',
@@ -192,11 +204,15 @@ def _synchronized(method):
 
 class ReliableAdapter:
     """Transport-neutral reliable messages; callers never split their data."""
-    def __init__(self,core,key,side=0,extensions=(),clock=time.monotonic,limits:Limits|None=None):
-        if core not in POLICIES:
+    def __init__(self,core,key,side=0,extensions=(),clock=time.monotonic,limits:Limits|None=None,transport=None):
+        core = profile_name(core, transport)
+        if core not in PROFILES:
             raise ValueError("core has no safely established adapter profile")
         self._lock = RLock()
-        self.limits=limits or Limits(); policy=POLICIES[core]; self.codec=Codec(key,self.limits.payload_bytes or policy.payload,side,self.limits.max_streams); self.policy=policy; self.clock=clock
+        self.limits=limits or Limits(); policy=PROFILES[core];
+        if core == "gleam-mux" and self.limits.payload_bytes > policy.payload:
+            raise ValueError("Micro-Mux payload exceeds conservative MTU profile")
+        self.codec=Codec(key,self.limits.payload_bytes or policy.payload,side,self.limits.max_streams); self.policy=policy; self.clock=clock
         self.extensions=frozenset(extensions)
         if len(self.extensions)>self.limits.max_extensions or any(not isinstance(x,str) or not x or len(x)>64 for x in self.extensions): raise ValueError("invalid extension allowlist")
         self.next_message=[0]*self.limits.max_streams; self.pending={}; self.queues=[collections.deque() for _ in range(self.limits.max_streams)]; self.active_streams=collections.deque(); self.incoming={}; self.incoming_bytes=0; self.buffered=0
@@ -307,7 +323,7 @@ class ReliableAdapter:
 
 class DatagramEndpoint:
     """Pinned-peer UDP carrier for companion profiles and datagram cores."""
-    def __init__(self,core,key,bind,peer,side=0,extensions=(),limits:Limits|None=None):
+    def __init__(self,core,key,bind,peer,side=0,extensions=(),limits:Limits|None=None,transport=None):
         def endpoint(value):
             if not isinstance(value,tuple) or len(value)!=2 or type(value[1]) is not int or not 0<=value[1]<=65535:
                 raise ValueError("invalid endpoint")
@@ -317,9 +333,9 @@ class DatagramEndpoint:
         if local.version!=remote.version or remote.is_unspecified or remote.is_multicast:
             raise ValueError("invalid pinned peer")
         family=socket.AF_INET6 if local.version==6 else socket.AF_INET
+        self.adapter=ReliableAdapter(core,key,side,extensions,limits=limits,transport=transport)
         self.socket=socket.socket(family,socket.SOCK_DGRAM)
         self.socket.bind((str(local),lport)); self.peer=(str(remote),rport)
-        self.adapter=ReliableAdapter(core,key,side,extensions,limits=limits)
     @property
     def address(self): return self.socket.getsockname()[:2]
     def close(self): self.socket.close()
@@ -357,6 +373,6 @@ def audit(bin_dir:Path):
 def main():
     parser=argparse.ArgumentParser(); parser.add_argument("action",choices=("catalog","audit"),default="catalog",nargs="?")
     parser.add_argument("--bin-dir",type=Path,default=Path.home()/".local/bin"); args=parser.parse_args()
-    result=audit(args.bin_dir) if args.action=="audit" else {"schema":"shadow6.network-adapter-catalog.v1","cores":{k:v.__dict__ for k,v in POLICIES.items()}}
+    result=audit(args.bin_dir) if args.action=="audit" else {"schema":"shadow6.network-adapter-catalog.v1","cores":{k:v.__dict__ for k,v in POLICIES.items()},"profiles":{k:v.__dict__ for k,v in PROFILES.items()}}
     print(json.dumps(result,sort_keys=True,indent=2)); return 0
 if __name__=="__main__": raise SystemExit(main())

@@ -2,10 +2,14 @@
 import json
 import os
 import socket
+import sys
 from pathlib import Path
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "CLI"))
+from native_config import validate, write_new
 
 DATAGRAM_CORES = {"shadow6-hare", "shadow6-carp", "shadow6-idris", "shadow6-pony"}
 
@@ -57,7 +61,8 @@ def generate_commands(engine: str, binary: Path, root: Path, target_port: int,
                                   peer_public_key=pubs["client" if role == "agent" else "agent"].hex(),
                                   listen_port=agent if role == "agent" else client,
                                   target_port=target_port if role == "agent" else broker)
-                path.write_text(json.dumps(config), encoding="utf-8")
+                validate({"core": engine.removeprefix("shadow6-"), **config})
+                write_new(path, json.dumps(config).encode())
                 command = [str(binary), "--config", str(path)]
             elif engine == "shadow6-pony":
                 listen, peer, application = {
@@ -68,12 +73,13 @@ def generate_commands(engine: str, binary: Path, root: Path, target_port: int,
                 config = dict(role=role, listen_port=listen, peer_port=peer,
                               application_port=application, private_key=seeds[role].hex(),
                               peer_public_key=pubs["client" if role == "agent" else "agent"].hex())
-                path.write_text(json.dumps(config), encoding="utf-8")
+                validate({"core": engine.removeprefix("shadow6-"), **config})
+                write_new(path, json.dumps(config).encode())
                 command = [str(binary), "--config", str(path)]
             else:
                 material = (bytes(32) + pubs["client"] + pubs["agent"] if role == "broker" else
                             seeds[role] + pubs["client" if role == "agent" else "agent"] + binding)
-                path.write_bytes(material)
+                write_new(path, material)
                 local, peer, application = {
                     "broker": (broker, client, agent),
                     "agent": (agent, broker, target_port),

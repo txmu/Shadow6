@@ -51,7 +51,7 @@ primitive TransportSelfTest
       retry.connected()
       let seq = retry.next_sequence()?
       retry.sent(seq, wire, 1_000_000_000)
-      if retry.retransmit(500_000_000)?.size() != 0 then return false end
+      if retry.retransmit(1_100_000_000)?.size() != 0 then return false end
       var now: U64 = 1_000_000_000
       i = 0
       while i < 8 do

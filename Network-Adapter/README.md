@@ -105,3 +105,20 @@ CI tests regular 3.14, 3.14t with GIL enabled, and 3.14t with its default GIL
 disabled on Linux, macOS and Windows x64. Post-import GIL assertions prevent
 mislabelled results. Windows runs portable codec/concurrency checks and component
 benchmarks; platform-specific secret-file deployment checks remain separate.
+
+### Gleam transport profiles
+
+The catalog's `profiles` distinguishes `gleam` (secure stream) and `gleam-mux`
+(Micro-Mux UDP). Both Python and Node constructors accept the explicit profile
+name; callers using `gleam` can pass `transport="micro-mux"` in Python or the
+final `transport` argument in Node. DatagramEndpoint accepts the same selection.
+The UDP profile uses 1100-byte payloads and a 64-frame window, authenticated
+ACK/retry, deduplication and reassembly under existing message/memory/retry
+limits. Payload overrides above 1100 bytes fail closed. Deterministic tests
+cover missing, reordered, duplicate and tampered chunks in both backends.
+
+Micro-Mux transport itself provides **no availability guarantee whatsoever**.
+The native path stays native; Companion features are explicit and require both
+endpoints. The network-chain benchmark now has 39 combinations (12 cores,
+13 transport profiles, 3 backends). Component-only matrices with 12 families
+retain their own declared dimensions.

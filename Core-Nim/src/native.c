@@ -1,4 +1,5 @@
 #define _GNU_SOURCE
+#include <netinet/tcp.h>
 #include <fcntl.h>
 #include <stdint.h>
 #include <string.h>
@@ -111,11 +112,18 @@ int nim_tcp_port(int fd) {
     struct sockaddr_in a; socklen_t n = sizeof a;
     return getsockname(fd,(void *)&a,&n) ? -1 : ntohs(a.sin_port);
 }
-int nim_tcp_accept(int fd) { return accept4(fd,NULL,NULL,SOCK_NONBLOCK|SOCK_CLOEXEC); }
+static int nim_tcp_nodelay(int fd) {
+    int enabled = 1;
+    if (fd >= 0 && setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &enabled, sizeof enabled)) {
+        close(fd); return -1;
+    }
+    return fd;
+}
+int nim_tcp_accept(int fd) { return nim_tcp_nodelay(accept4(fd,NULL,NULL,SOCK_NONBLOCK|SOCK_CLOEXEC)); }
 int nim_tcp_connect(int port) {
     int fd = socket(AF_INET,SOCK_STREAM|SOCK_NONBLOCK|SOCK_CLOEXEC,0);
     struct sockaddr_in a = {0}; a.sin_family = AF_INET; a.sin_addr.s_addr = htonl(INADDR_LOOPBACK); a.sin_port = htons(port);
-    if (fd >= 0 && (!connect(fd,(void *)&a,sizeof a) || errno == EINPROGRESS)) return fd;
+    if (fd >= 0 && (!connect(fd,(void *)&a,sizeof a) || errno == EINPROGRESS)) return nim_tcp_nodelay(fd);
     if (fd >= 0) close(fd);
     return -1;
 }

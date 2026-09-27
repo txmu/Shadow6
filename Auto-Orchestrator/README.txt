@@ -16,3 +16,11 @@ Notes:
   procd/OpenWrt, launchd/macOS, and guix/Guix System (plus documented aliases).
 - Guix deployment writes a Shepherd fragment but deliberately does not run a
   whole-system reconfigure; runit activation is also left explicit.
+
+Native adapters and Gleam modes:
+- global.gleam_transport accepts secure-stream (default) or micro-mux.
+  Micro-Mux transport itself provides no availability guarantee whatsoever.
+  Current Gleam control is loopback ws only; generated unused roles are null.
+- Hare/Pony/Carp/Idris support one loopback trio through shadow6-native-config.
+  Flat JSON and fixed argv modes are validated independently, with unsupported
+  topology fields rejected. See ../docs/native-tooling.md for ports and limits.

@@ -376,7 +376,8 @@ actor ClientSession is DatagramReceiver
     end
     if (now >= _last_activity) and ((now - _last_activity) > 60_000_000_000) then _close(); return end
     try
-      for wire in _session.retransmit(now)?.values() do _network.send(wire, _peer) end
+      for wire in _session.retransmit(now)?.values() do _send(wire) end
+      _flush_output()
     else _close() end
   be received(data: Array[U8] iso, from: NetAddress val, application: Bool, source: SocketActor) =>
     _receive(consume data, from, application)

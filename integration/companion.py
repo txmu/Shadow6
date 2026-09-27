@@ -78,6 +78,9 @@ class Channel:
             connection.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
 
     def send(self, frames):
+        if not self.datagram:
+            if frames: self.connection.sendall(b"".join(frames))
+            return
         for frame in frames:
             if self.peer is None:
                 self.connection.sendall(frame)

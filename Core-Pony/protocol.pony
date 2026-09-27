@@ -141,6 +141,9 @@ class ref ReliableSession
         packet.last_sent = now
         packet.timeout = (packet.timeout * 2).min(5_000_000_000)
         due.push(packet.wire)
+        // Spread recovery across bounded scheduler ticks instead of sending
+        // the whole 4096-frame window into one socket mailbox at once.
+        if due.size() >= 32 then break end
       end
     end
     consume due
@@ -151,8 +154,8 @@ class ref ReliableSession
     _rttvar = ((_rttvar * 3) + deviation) / 4
     _srtt = ((_srtt * 7) + sample) / 8
   fun rto(): U64 =>
-    if _srtt == 0 then 1_000_000_000
-    else (_srtt + (_rttvar * 4).max(10_000_000)).max(100_000_000).min(5_000_000_000) end
+    if _srtt == 0 then 200_000_000
+    else (_srtt + (_rttvar * 4).max(10_000_000)).max(20_000_000).min(5_000_000_000) end
 
 class ref PendingPacket
   let wire: Array[U8] val

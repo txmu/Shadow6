@@ -843,9 +843,11 @@ jobs:
           report = json.loads(Path('benchmark-linux-adapter.json').read_text())
           assert report['schema'] == 'shadow6.benchmark.v2'
           rows = report['results']
-          assert len(rows) == 36
+          assert len(rows) == 39
+          expected = {(core, backend) for core in ('go','rust','zig','ada','d','nim','cpp','pony','hare','carp','gleam','gleam-mux','idris') for backend in ('native','python','node')}
+          assert {(row['core'], row['backend']) for row in rows} == expected
           assert {row['backend'] for row in rows} == {'native', 'python', 'node'}
-          assert len({row['core'] for row in rows}) == 12
+          assert {row['core'] for row in rows} == {'go','rust','zig','ada','d','nim','cpp','pony','hare','carp','gleam','gleam-mux','idris'}
           assert all(row['status'] == 'ok' and row['network']['bytes_received'] > 0 for row in rows)
           print('S6NA benchmark rows:', len(rows))
           PY
@@ -892,7 +894,7 @@ jobs:
             --output benchmark-linux-network
           python3 Benchmark/benchmark.py --config Benchmark/example.json --output benchmark-linux.json
           python3 CLI/shadow6.py benchmark --all --role feature-report --repeats 3 --output benchmark-cli-all.json
-      - name: Equal 12 by 3 concurrent pressure gate
+      - name: Equal 13 transport profiles by 3 concurrent pressure gate
         run: |
           .venv/bin/python Benchmark/benchmark.py --role network-chain --payload-bytes 4096 --requests 8 --concurrency 4 --require-network --output benchmark-linux-pressure
           .venv/bin/python - <<'PY'
@@ -901,9 +903,11 @@ jobs:
           from collections import Counter
           report = json.loads(Path('benchmark-linux-pressure.json').read_text())
           rows = report['results']
-          assert len(rows) == 36
-          assert len({(r['core'], r['backend']) for r in rows}) == 36
-          assert Counter(r['backend'] for r in rows) == {'native': 12, 'python': 12, 'node': 12}
+          assert len(rows) == 39
+          expected = {(core, backend) for core in ('go','rust','zig','ada','d','nim','cpp','pony','hare','carp','gleam','gleam-mux','idris') for backend in ('native','python','node')}
+          assert {(row['core'], row['backend']) for row in rows} == expected
+          assert len({(r['core'], r['backend']) for r in rows}) == 39
+          assert Counter(r['backend'] for r in rows) == {'native': 13, 'python': 13, 'node': 13}
           assert all(r['status'] == 'ok' and r['network']['concurrency'] == 4 and r['network']['bytes_received'] == 4096 * 8 * 4 for r in rows)
           PY
       - name: Native loss recovery and equal component performance coverage

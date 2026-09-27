@@ -31,7 +31,7 @@ agent(Config)->
 
 agent_stream(Config,Control,Listener,Secret,ClientEphemeral,AgentEphemeral)->
     {ok,Remote}=gen_tcp:accept(Listener,10000),gen_tcp:close(Listener),
-    {ok,Target}=gen_tcp:connect({127,0,0,1},maps:get(<<"target_port">>,Config),[binary,{active,false},{packet,raw},{exit_on_close,false}],10000),
+    {ok,Target}=gen_tcp:connect({127,0,0,1},maps:get(<<"target_port">>,Config),[binary,{active,false},{nodelay,true},{packet,raw},{exit_on_close,false}],10000),
     {Tx,Rx}=shadow6_forward:derive(Secret,ClientEphemeral,ClientEphemeral,AgentEphemeral,false),
     shadow6_forward:relay(Target,Remote,Tx,Rx,maps:get(<<"auto_close_after">>,Config)),
     gen_tcp:close(Target),gen_tcp:close(Remote),gen_tcp:close(Control).
@@ -56,7 +56,7 @@ client(Config)->
 
 client_stream(Control,RemoteAddress,Port,Tx,Rx)->
     Family=case tuple_size(RemoteAddress) of 8->[inet6];4->[] end,
-    {ok,Remote}=gen_tcp:connect(RemoteAddress,Port,Family++[binary,{active,false},{packet,raw}],10000),
+    {ok,Remote}=gen_tcp:connect(RemoteAddress,Port,Family++[binary,{active,false},{nodelay,true},{packet,raw}],10000),
     {ok,Listener}=listen({127,0,0,1},0),{ok,{_,ProxyPort}}=inet:sockname(Listener),
     io:format("[Client] Secure local proxy listening on 127.0.0.1:~B~n",[ProxyPort]),
     {ok,Local}=gen_tcp:accept(Listener,20000),gen_tcp:close(Listener),
@@ -66,7 +66,7 @@ mux(Config)->maps:get(<<"transport">>,Config,<<"secure-stream">>)=:=<<"micro-mux
 
 listen(Address,Port)->
     Family=case tuple_size(Address) of 8->[inet6];4->[] end,
-    gen_tcp:listen(Port,Family++[binary,{active,false},{packet,raw},{exit_on_close,false},{reuseaddr,true},{ip,Address},{backlog,16}]).
+    gen_tcp:listen(Port,Family++[binary,{active,false},{nodelay,true},{packet,raw},{exit_on_close,false},{reuseaddr,true},{ip,Address},{backlog,16}]).
 split_address(<<"[",Rest/binary>>)->[Host,Port]=binary:split(Rest,<<"]:">>),{Host,Port};
 split_address(Address)->[{Pos,1}]=binary:matches(Address,<<":">>),{binary:part(Address,0,Pos),binary:part(Address,Pos+1,byte_size(Address)-Pos-1)}.
 exact(M,K)->true=lists:sort(maps:keys(M))=:=lists:sort(K).

@@ -46,3 +46,9 @@ The control plane accepts bounded WebSocket JSON-RPC 2.0 frames. Peers and the
 broker authenticate each other with Ed25519 challenges. Config, trust, and
 private-key files are opened with `O_NOFOLLOW | O_CLOEXEC`, then checked twice
 for ownership, regular-file type, exact mode `0600`, identity, and size.
+
+The orchestrator accepts `global.gleam_transport: micro-mux` (default:
+`secure-stream`). **Micro-Mux transport itself provides no availability
+ guarantees whatsoever**, including delivery, ordering, recovery or uptime.
+Optional Python/Node S6NA `gleam-mux` profiles add bounded recovery; they do not
+provide an availability guarantee. See [native tooling](../docs/native-tooling.md).

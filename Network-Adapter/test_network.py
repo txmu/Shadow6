@@ -89,3 +89,32 @@ class ThreadSafetyTests(unittest.TestCase):
         self.assertEqual(len(set(emitted)),len(emitted))
 
 if __name__=="__main__": unittest.main()
+
+class GleamModeTests(unittest.TestCase):
+    def test_udp_profile_recovers_lost_reordered_duplicated_chunks(self):
+        clock=[0.0]; key=os.urandom(32)
+        left=ReliableAdapter('gleam',key,transport='micro-mux',clock=lambda:clock[0])
+        right=ReliableAdapter('gleam-mux',key,1,clock=lambda:clock[0])
+        self.assertEqual(left.policy.payload,1100)
+        self.assertEqual(left.policy.window,64)
+        self.assertEqual(ReliableAdapter('gleam',key).policy.payload,4096)
+        payload=os.urandom(100000); frames=left.send(7,payload); done=[]
+        lost=frames[0]
+        for frame in reversed(frames[1:]):
+            for repeat in range(2):
+                acks,messages,_=right.receive(frame);done+=messages
+                for ack in acks:left.receive(ack)
+        for frame in left.outbound():
+            acks,messages,_=right.receive(frame);done+=messages
+            for ack in acks:left.receive(ack)
+        self.assertEqual(done,[])
+        clock[0]=1.0
+        retried=left.retransmit();self.assertIn(lost,retried)
+        for frame in retried:
+            acks,messages,_=right.receive(frame);done+=messages
+            for ack in acks:left.receive(ack)
+        self.assertEqual(done,[(7,payload)]);self.assertEqual(left.buffered,0)
+        self.assertEqual(right.receive(lost)[1],[])
+        with self.assertRaises(ValueError): right.receive(lost[:-1]+bytes([lost[-1]^1]))
+        with self.assertRaises(ValueError): ReliableAdapter('gleam-mux',key,limits=Limits(payload_bytes=4096))
+        with self.assertRaises(ValueError): ReliableAdapter('go',key,transport='micro-mux')

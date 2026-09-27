@@ -74,7 +74,7 @@ JSON_DATAGRAM_ENGINES = {"shadow6-gleam-mux"}
 
 
 def adapter_family(engine: str) -> str:
-    return "gleam" if engine in GLEAM_ENGINES else engine.removeprefix("shadow6-")
+    return engine.removeprefix("shadow6-")
 
 def benchmark_metrics(payload: bytes, latencies: list[float], duration: float) -> dict:
     ordered = sorted(latencies); count = len(latencies)

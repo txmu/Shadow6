@@ -1819,6 +1819,7 @@ async fn provision_access(
                         let _connection_permit = connection_permit;
                         while let Ok((mut send, mut recv)) = connection.accept_bi().await {
                             if let Ok(target) = TcpStream::connect(format!("127.0.0.1:{}", target_p)).await {
+                                if target.set_nodelay(true).is_err() { continue; }
                                 let (mut t_read, mut t_write) = target.into_split();
                                 let c1 = tokio::spawn(async move { copy_data(&mut recv, &mut t_write).await });
                                 let c2 = tokio::spawn(async move { copy_data(&mut t_read, &mut send).await });
@@ -2702,6 +2703,7 @@ async fn start_client(cfg: Config) -> Result<(), String> {
             .accept()
             .await
             .map_err(|error| format!("local proxy accept failed: {error}"))?;
+        user_conn.set_nodelay(true).map_err(|error| format!("local TCP_NODELAY failed: {error}"))?;
         let permit = local_slots
             .clone()
             .acquire_owned()

@@ -83,15 +83,26 @@ func (connection *aeadConn) Write(plaintext []byte) (int, error) {
 	if len(plaintext) > maxAEADPlaintext {
 		return 0, errors.New("AEAD plaintext frame is too large")
 	}
-	written := 0
+	// Encrypt a bounded copy batch into independently authenticated records,
+	// then hand it to KCP once. Per-record writes forced repeated FEC/flush
+	// work on bulk downloads as well as uploads. Wire records stay unchanged.
+	records := (len(plaintext) + aeadRecordPlaintext - 1) / aeadRecordPlaintext
+	if connection.sendCounter >= uint64(^uint32(0)) || uint64(records) > uint64(^uint32(0))-connection.sendCounter {
+		return 0, errors.New("AEAD nonce counter exhausted")
+	}
+	size := len(plaintext) + records*(4+connection.aead.NonceSize()+connection.aead.Overhead())
+	if cap(connection.writeFrame) < size {
+		connection.writeFrame = make([]byte, size)
+	}
+	frame := connection.writeFrame[:0]
+	written := len(plaintext)
 	for len(plaintext) != 0 {
 		n := min(len(plaintext), aeadRecordPlaintext)
-		count, err := connection.writeFrameLocked(plaintext[:n])
-		written += count
-		if err != nil {
-			return written, err
-		}
+		frame = connection.sealRecordLocked(frame, plaintext[:n])
 		plaintext = plaintext[n:]
+	}
+	if err := writeFull(connection.Conn, frame); err != nil {
+		return 0, err
 	}
 	return written, nil
 }
@@ -119,17 +130,25 @@ func (connection *aeadConn) writeFrameLocked(plaintext []byte) (int, error) {
 	if cap(connection.writeFrame) < size {
 		connection.writeFrame = make([]byte, size)
 	}
-	frame := connection.writeFrame[:size]
-	nonce := frame[4 : 4+nonceSize]
-	copy(nonce, connection.noncePrefix[:])
-	connection.sendCounter++
-	binary.BigEndian.PutUint32(nonce[len(nonce)-4:], uint32(connection.sendCounter))
-	frame = connection.aead.Seal(frame[:4+nonceSize], nonce, plaintext, nil)
-	binary.BigEndian.PutUint32(frame[:4], uint32(len(frame)-4))
+	frame := connection.sealRecordLocked(connection.writeFrame[:0], plaintext)
 	if err := writeFull(connection.Conn, frame); err != nil {
 		return 0, err
 	}
 	return len(plaintext), nil
+}
+
+// Caller holds writeMutex and has checked capacity and counter exhaustion.
+func (connection *aeadConn) sealRecordLocked(batch, plaintext []byte) []byte {
+	offset := len(batch)
+	nonceSize := connection.aead.NonceSize()
+	batch = batch[:offset+4+nonceSize]
+	nonce := batch[offset+4:]
+	copy(nonce, connection.noncePrefix[:])
+	connection.sendCounter++
+	binary.BigEndian.PutUint32(nonce[len(nonce)-4:], uint32(connection.sendCounter))
+	batch = connection.aead.Seal(batch, nonce, plaintext, nil)
+	binary.BigEndian.PutUint32(batch[offset:offset+4], uint32(len(batch)-offset-4))
+	return batch
 }
 
 func (connection *aeadConn) Read(destination []byte) (int, error) {
