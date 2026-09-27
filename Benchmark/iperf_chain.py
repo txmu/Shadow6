@@ -28,7 +28,7 @@ import time
 ROOT = Path(__file__).resolve().parents[1]
 TEN_GBPS = 10_000_000_000
 sys.path.insert(0, str(ROOT / 'integration'))
-from stack_test import CORE_BINARIES, DATAGRAM_CORES, run_engine
+from stack_test import CORE_BINARIES, DATAGRAM_CORES, JSON_DATAGRAM_ENGINES, run_engine
 
 
 def receiver_result(document, datagram, *, reverse):
@@ -232,7 +232,7 @@ def measure(endpoint, target, processes, seconds, reverse, rate, baseline=False)
 def case(core, directory, seconds, reverse, rate, baseline=False):
     directory.mkdir(parents=True)
     engine = 'shadow6-' + core
-    datagram = engine in DATAGRAM_CORES
+    datagram = engine in DATAGRAM_CORES or engine in JSON_DATAGRAM_ENGINES
     family = socket.AF_INET6 if core == 'hare' else socket.AF_INET
     row = {'core': core, 'direction': 'reverse' if reverse else 'forward',
            'protocol': 'udp' if datagram else 'tcp', 'raw_directory': str(directory),

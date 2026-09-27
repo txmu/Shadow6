@@ -16,11 +16,20 @@ agent(Config)->
     true=shadow6_sodium:verify_ed25519(unhex(maps:get(<<"signature">>,Grant),64),
       shadow6_forward:access_text(ClientId,maps:get(<<"id">>,Config),ClientEphemeral),ClientIdentity),
     Secret=shadow6_sodium:random_bytes(32),{ok,AgentEphemeral}=shadow6_sodium:x25519_base(Secret),
-    Address=shadow6_control:local_ip(Control),{ok,Listener}=listen(Address,0),{ok,{_,Port}}=inet:sockname(Listener),
+    Address=shadow6_control:local_ip(Control),Mux=mux(Config),
+    {ok,Listener}=case Mux of true->shadow6_mux:open(Address);false->listen(Address,0) end,{ok,{_,Port}}=inet:sockname(Listener),
     GrantText=shadow6_forward:grant_text(ClientEphemeral,AgentEphemeral,Port),
     Signature=shadow6_sodium:sign_ed25519(GrantText,shadow6_config:private_seed(maps:get(<<"private_key">>,Config))),
     ok=shadow6_control:send_client_json(Control,#{<<"type">>=><<"ready">>,<<"port">>=>Port,
       <<"ephemeral">>=>hex(AgentEphemeral),<<"signature">>=>hex(Signature)}),
+    case Mux of
+      true->{Tx,Rx}=shadow6_forward:derive(Secret,ClientEphemeral,ClientEphemeral,AgentEphemeral,false),
+            shadow6_mux:agent_relay(Listener,maps:get(<<"target_port">>,Config),Tx,Rx,maps:get(<<"auto_close_after">>,Config)),
+            gen_tcp:close(Control);
+      false->agent_stream(Config,Control,Listener,Secret,ClientEphemeral,AgentEphemeral)
+    end.
+
+agent_stream(Config,Control,Listener,Secret,ClientEphemeral,AgentEphemeral)->
     {ok,Remote}=gen_tcp:accept(Listener,10000),gen_tcp:close(Listener),
     {ok,Target}=gen_tcp:connect({127,0,0,1},maps:get(<<"target_port">>,Config),[binary,{active,false},{packet,raw},{exit_on_close,false}],10000),
     {Tx,Rx}=shadow6_forward:derive(Secret,ClientEphemeral,ClientEphemeral,AgentEphemeral,false),
@@ -40,12 +49,20 @@ client(Config)->
     true=shadow6_sodium:verify_ed25519(unhex(maps:get(<<"signature">>,Ready),64),shadow6_forward:grant_text(ClientEphemeral,AgentEphemeral,Port),AgentIdentity),
     {Tx,Rx}=shadow6_forward:derive(Secret,AgentEphemeral,ClientEphemeral,AgentEphemeral,true),
     {ok,RemoteAddress}=inet:parse_address(binary_to_list(maps:get(<<"host">>,Ready))),
+    case mux(Config) of
+      true->shadow6_mux:client_relay(RemoteAddress,Port,Tx,Rx,7200),gen_tcp:close(Control);
+      false->client_stream(Control,RemoteAddress,Port,Tx,Rx)
+    end.
+
+client_stream(Control,RemoteAddress,Port,Tx,Rx)->
     Family=case tuple_size(RemoteAddress) of 8->[inet6];4->[] end,
     {ok,Remote}=gen_tcp:connect(RemoteAddress,Port,Family++[binary,{active,false},{packet,raw}],10000),
     {ok,Listener}=listen({127,0,0,1},0),{ok,{_,ProxyPort}}=inet:sockname(Listener),
     io:format("[Client] Secure local proxy listening on 127.0.0.1:~B~n",[ProxyPort]),
     {ok,Local}=gen_tcp:accept(Listener,20000),gen_tcp:close(Listener),
     shadow6_forward:relay(Local,Remote,Tx,Rx,7200),gen_tcp:close(Local),gen_tcp:close(Remote),gen_tcp:close(Control).
+
+mux(Config)->maps:get(<<"transport">>,Config,<<"secure-stream">>)=:=<<"micro-mux">>.
 
 listen(Address,Port)->
     Family=case tuple_size(Address) of 8->[inet6];4->[] end,

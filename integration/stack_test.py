@@ -45,6 +45,7 @@ CORE_TESTS = {
     "shadow6-hare": [ROOT / "Core-Hare/tests/test_runtime.py"],
     "shadow6-carp": [ROOT / "Core-Carp/tests/test_core.py"],
     "shadow6-gleam": [ROOT / "Core-Gleam/test_control.py"],
+    "shadow6-gleam-mux": [ROOT / "Core-Gleam/test_micro_mux.py"],
     "shadow6-idris": [ROOT / "Core-Idris/test_core.py"],
 }
 CORE_BINARIES = {
@@ -65,7 +66,15 @@ CORE_BINARIES = {
 CORE_BINARIES.update({
     "shadow6-go": ROOT / "Core-Go/shadow6-go",
     "shadow6-rust": ROOT / "Core-Rust/shadow6-rust",
+    "shadow6-gleam-mux": ROOT / "Core-Gleam/shadow6-gleam",
 })
+GLEAM_ENGINES = {"shadow6-gleam", "shadow6-gleam-mux"}
+# JSON-configured Gleam micro-mux carries UDP but starts like a stream Core.
+JSON_DATAGRAM_ENGINES = {"shadow6-gleam-mux"}
+
+
+def adapter_family(engine: str) -> str:
+    return "gleam" if engine in GLEAM_ENGINES else engine.removeprefix("shadow6-")
 
 def benchmark_metrics(payload: bytes, latencies: list[float], duration: float) -> dict:
     ordered = sorted(latencies); count = len(latencies)
@@ -98,7 +107,7 @@ def run_native_core_tests(engine: str) -> None:
             cwd = test.parent
             environment = dict(os.environ)
             environment["PYTHON"] = str(Path(sys.executable).resolve())
-        elif engine == "shadow6-gleam":
+        elif engine in GLEAM_ENGINES:
             command = [sys.executable, str(test), str(CORE_BINARIES[engine])]
             cwd = ROOT
             environment = None
@@ -509,7 +518,8 @@ def run_engine(engine: str, benchmark: dict | None = None, backend: str = "nativ
         raise FileNotFoundError(f"missing built binary: {binary}")
 
     options = benchmark or {"payload_bytes": 16384, "requests": 4}
-    datagram = engine in DATAGRAM_CORES
+    json_datagram = engine in JSON_DATAGRAM_ENGINES
+    datagram = engine in DATAGRAM_CORES or json_datagram
     family = socket.AF_INET6 if engine == "shadow6-hare" else socket.AF_INET
     impairment = {"rtt_ms": 0, "loss_percent": 0}  # common logical-request pacing below
     target = DatagramEchoTarget(family, **impairment) if datagram else EchoTarget(**impairment)
@@ -527,18 +537,18 @@ def run_engine(engine: str, benchmark: dict | None = None, backend: str = "nativ
             sys.path.insert(0, str(ROOT / 'Network-Adapter'))
             from shadow6_network import create_key
             create_key(key_path, os.urandom(32))
-            target = CompanionEchoTarget(family, datagram, backend, engine.removeprefix("shadow6-"), key_path, **impairment)
+            target = CompanionEchoTarget(family, datagram, backend, adapter_family(engine), key_path, **impairment)
         # Config generation releases temporary UDP reservations. Keep another
         # trio from choosing those ports until the native roles have bound them.
         startup = resources.enter_context(ExitStack())
-        if datagram:
+        if datagram and not json_datagram:
             if not _DATAGRAM_START_LOCK.acquire(timeout=45):
                 raise TimeoutError("native UDP startup queue deadline")
             startup.callback(_DATAGRAM_START_LOCK.release)
         target_port = target.start()
         broker_port = free_port()
         role_reservations = {}
-        if datagram:
+        if datagram and not json_datagram:
             commands, endpoint = generate_commands(engine, binary, output, target_port,
                                                     role_reservations)
             for group in role_reservations.values():
@@ -562,14 +572,14 @@ def run_engine(engine: str, benchmark: dict | None = None, backend: str = "nativ
                 for reservation in role_reservations.get(role, ()):
                     reservation.close()
                 popen_kwargs = {"stdout": log_files[role], "stderr": subprocess.STDOUT, "text": True}
-                if engine == "shadow6-gleam":
+                if engine in GLEAM_ENGINES:
                     environment = dict(os.environ)
                     environment["ERL_CRASH_DUMP"] = str(Path(directory) / f"{role}-erl_crash.dump")
                     popen_kwargs["cwd"] = directory
                     popen_kwargs["env"] = environment
                 return subprocess.Popen(commands[role], **popen_kwargs)
 
-            if engine == "shadow6-gleam":
+            if engine in GLEAM_ENGINES:
                 with _BROKER_BIND_LOCK:
                     broker = start_role("broker")
                     wait_until(lambda: tcp_port_open(broker_port), broker, log_paths["broker"],
@@ -588,7 +598,7 @@ def run_engine(engine: str, benchmark: dict | None = None, backend: str = "nativ
                 agent = start_role("agent")
                 time.sleep(1.0)
                 client = start_role("client")
-            if datagram:
+            if datagram and not json_datagram:
                 deadline = time.monotonic() + 20
                 marker = "ready:" if engine == "shadow6-pony" else "session ready"
                 while time.monotonic() < deadline:
@@ -604,7 +614,7 @@ def run_engine(engine: str, benchmark: dict | None = None, backend: str = "nativ
                     raise TimeoutError("native session readiness timeout")
                 startup.close()
             else:
-                proxy_wait = 30 if engine == "shadow6-gleam" else 20
+                proxy_wait = 30 if engine in GLEAM_ENGINES else 20
                 proxy_port = wait_for_proxy(client, log_paths["client"], time.monotonic() + proxy_wait)
                 endpoint = ("127.0.0.1", proxy_port)
             if workload is not None:
@@ -624,7 +634,7 @@ def run_engine(engine: str, benchmark: dict | None = None, backend: str = "nativ
                     adapter = None
                     try:
                         if backend != "native":
-                            adapter = Adapter(backend, engine.removeprefix("shadow6-"), key_path, 0)
+                            adapter = Adapter(backend, adapter_family(engine), key_path, 0)
                             connection.settimeout(.1)
                         # Start the workload together even when UDP port handoff
                         # needs serialized startup. A failed peer aborts this wait.

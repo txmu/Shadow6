@@ -887,7 +887,7 @@ jobs:
           # be hidden by feature-report rows or a not-applicable SCTP probe.
           python3 Benchmark/benchmark.py \
             --core go --core rust --core zig --core ada --core d --core nim \
-            --core cpp --core pony --core hare --core carp --core gleam --core idris \
+            --core cpp --core pony --core hare --core carp --core gleam --core gleam-mux --core idris \
             --role network-chain --repeats 3 --require-network \
             --output benchmark-linux-network
           python3 Benchmark/benchmark.py --config Benchmark/example.json --output benchmark-linux.json

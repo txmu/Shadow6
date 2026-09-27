@@ -17,7 +17,10 @@ import time
 ROOT=Path(__file__).resolve().parents[1]
 sys.path[:0]=[str(ROOT/"Network-Adapter"),str(ROOT/"Public6"),str(ROOT/"Tools")]
 from python_runtime import runtime_report
-from benchmark import CORE_PATHS, execute
+from benchmark import CORE_PATHS as _BENCHMARK_PATHS, execute
+
+# The adapter codec is keyed by Core family; transport variants share one family.
+CORE_PATHS = {core: path for core, path in _BENCHMARK_PATHS.items() if core != "gleam-mux"}
 from shadow6_network import ReliableAdapter
 from virtual_broker import Broker, Config, Tenant, canonical
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey

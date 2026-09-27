@@ -6,7 +6,7 @@ from pathlib import Path
 from benchmark import BACKENDS, execute, network_result
 
 ROOT = Path(__file__).resolve().parents[1]
-ENGINES = ("go", "rust", "zig", "ada", "d", "nim", "cpp", "pony", "hare", "carp", "gleam", "idris")
+ENGINES = ("go", "rust", "zig", "ada", "d", "nim", "cpp", "pony", "hare", "carp", "gleam", "gleam-mux", "idris")
 PAYLOADS = (4096, 65536, 1048576)
 CONDITIONS = ((0, 0), (20, 0), (80, 1), (150, 3))
 STREAM_BYTES = 16 * 1024 * 1024

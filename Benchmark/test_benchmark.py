@@ -32,7 +32,8 @@ class ConfigTests(unittest.TestCase):
         self.assertTrue(all(0<item["stream_bytes"] <= 16 * 1024 * 1024 for item in matrix))
         self.assertTrue(all(item["stream_bytes"]==16*1024*1024 for item in matrix if not item["rtt_ms"]))
         self.assertTrue(all(item["requests"]*item["rtt_ms"]*(1+item["loss_percent"]/100)<=30000 for item in matrix))
-        self.assertEqual(len(ENGINES), 12)
+        self.assertEqual(len(ENGINES), 13)
+        self.assertIn("gleam-mux", ENGINES)
         with self.assertRaises(ValueError): list(cases(0))
     def test_rejects_unknown_and_unbounded(self):
         with tempfile.TemporaryDirectory() as d:
@@ -40,7 +41,7 @@ class ConfigTests(unittest.TestCase):
             with self.assertRaises(ValueError): _load_config(str(p))
     def test_defaults_are_bounded(self):
         c = _load_config(None); self.assertEqual(c["repeats"], 1); self.assertIn("go", c["cores"])
-        self.assertEqual(len(c["cores"]), 12)
+        self.assertEqual(len(c["cores"]), 13)
         self.assertEqual(c["backends"], ["native", "python", "node"])
 
     def test_cli_overrides_and_network_fields_are_revalidated(self):
@@ -86,8 +87,8 @@ class ReportTests(unittest.TestCase):
             return 0, json.dumps({'schema':'shadow6.network-suite.v1','results':{key:result}}), '', {}
         with patch('benchmark.available',return_value=True), patch('benchmark.network_unavailable',return_value=None), patch('benchmark.shutil.which',return_value='/usr/bin/node'), patch('benchmark.execute',side_effect=execute_case):
             result = run({'roles':['network-chain'],'network':{'payload_bytes':4096,'requests':8,'concurrency':4}})
-        self.assertEqual(len(calls),36)
-        self.assertEqual(len({(r['core'],r['backend']) for r in result['results']}),36)
+        self.assertEqual(len(calls),13*3)
+        self.assertEqual(len({(r['core'],r['backend']) for r in result['results']}),13*3)
         self.assertTrue(all(r['status']=='ok' for r in result['results']))
         for command in calls:
             self.assertTrue(command[1].endswith('integration/stack_test.py'))
@@ -104,12 +105,12 @@ class ReportTests(unittest.TestCase):
             return 1, '', 'unavailable', {}
         with patch('performance_matrix.execute',side_effect=fail_case):
             result=matrix_run(list(ENGINES),1048576,concurrency=(1,4))
-        self.assertEqual(len(result['results']),12*3*2*12)
+        self.assertEqual(len(result['results']),len(ENGINES)*3*2*12)
         self.assertTrue(all(r['status']=='failed' for r in result['results']))
         workloads={}
         for row in result['results']:
             workloads.setdefault((row['engine'],row['backend']),set()).add((row['payload_bytes'],row['requests'],row['rtt_ms'],row['loss_percent'],row['concurrency']))
-        self.assertEqual(len(workloads),36)
+        self.assertEqual(len(workloads),len(ENGINES)*3)
         self.assertTrue(all(v==next(iter(workloads.values())) for v in workloads.values()))
 
     def test_internal_benchmark_metrics_are_not_accepted(self):

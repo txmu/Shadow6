@@ -106,7 +106,8 @@ actor SocketActor is (UDPSocketActor & UDPLifecycleEventReceiver)
   be send_batch(batch: Array[Array[U8] val] iso, target: NetAddress val) =>
     // Internal callers cap batches at 16, preserving scheduler fairness.
     if _udp.is_open() then
-      for data in consume batch.values() do _udp.send_to(data, target) end
+      let items: Array[Array[U8] val] ref = consume batch
+      for data in items.values() do _udp.send_to(data, target) end
     end
 
 class _Tick is TimerNotify

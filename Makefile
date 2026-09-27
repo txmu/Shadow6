@@ -222,6 +222,7 @@ ifeq ($(BUILD_GLEAM),1)
 	@$(PYTHON) Core-Gleam/test_contract.py Core-Gleam/shadow6-gleam
 	@$(PYTHON) Core-Gleam/test_control.py Core-Gleam/shadow6-gleam
 	@$(PYTHON) Core-Gleam/test_stack.py Core-Gleam/shadow6-gleam
+	@$(PYTHON) Core-Gleam/test_micro_mux.py Core-Gleam/shadow6-gleam
 endif
 
 ifeq ($(BUILD_GLEAM),1)
