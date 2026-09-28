@@ -19,7 +19,10 @@ static void *blocked(void *unused) {
 }
 int main(void) {
     assert(watch(1) == 1);
+    assert(nim_rtc_wait(1) == 0); /* empty queue wait is bounded */
+    assert(nim_rtc_wait(999) == -1);
     for (unsigned i = 0; i < 4; ++i) message(1, (const char *)&i, sizeof i, NULL);
+    assert(nim_rtc_wait(1) == 1); /* do not sleep with queued data */
     pthread_t worker;
     assert(!pthread_create(&worker, NULL, producer, NULL));
     struct timespec pause = {0, 20000000};
@@ -30,12 +33,13 @@ int main(void) {
         do {
             size = sizeof actual;
             result = nim_rtc_receive(1, (char *)&actual, &size);
-            if (result == RTC_ERR_NOT_AVAIL) nanosleep(&pause, NULL);
+            if (result == RTC_ERR_NOT_AVAIL) assert(nim_rtc_wait(1) >= 0);
         } while (result == RTC_ERR_NOT_AVAIL);
         assert(result == 0 && size == sizeof actual && actual == expected);
     }
     assert(!pthread_join(worker, NULL));
     nim_rtc_forget(1);
+    assert(nim_rtc_wait(1) == -1);
     assert(watch(999) == -1); /* callback registration rolls its slot back */
     assert(watch(2) == 2);
     for (unsigned i = 0; i < 4; ++i) message(2, (const char *)&i, sizeof i, NULL);
@@ -46,6 +50,9 @@ int main(void) {
     assert(!pthread_join(worker, NULL));
     unsigned actual; int size = sizeof actual;
     assert(nim_rtc_receive(2, (char *)&actual, &size) == RTC_ERR_NOT_AVAIL);
+    assert(nim_rtc_wait(2) == 0); /* reuse must not expose old messages */
+    message(2, "", 0, NULL);
+    assert(nim_rtc_wait(2) == -1); /* malformed callback fails closed */
     for (int i = 3; i < 22; ++i) assert(watch(i) == i);
     assert(watch(22) == -1); /* fixed global slot bound */
     puts("PASS: 1000 ordered messages, transient backpressure, deletion, slot reuse and bounds");

@@ -12,6 +12,7 @@ proc isClosed*(id: cint): bool {.importc: "rtcIsClosed", header: "rtc/rtc.h".}
 proc buffered*(id: cint): cint {.importc: "rtcGetBufferedAmount", header: "rtc/rtc.h".}
 proc sendMessage*(id: cint; data: cstring; size: cint): cint {.importc: "rtcSendMessage", header: "rtc/rtc.h".}
 proc receiveMessage*(id: cint; data: pointer; size: ptr cint): cint {.importc: "nim_rtc_receive".}
+proc waitMessage*(id: cint): cint {.importc: "nim_rtc_wait".}
 proc localDescription*(id: cint; kind: cstring): cint {.importc: "rtcSetLocalDescription", header: "rtc/rtc.h".}
 proc remoteDescription*(id: cint; sdp, kind: cstring): cint {.importc: "rtcSetRemoteDescription", header: "rtc/rtc.h".}
 proc getDescription*(id: cint; buffer: pointer; size: cint): cint {.importc: "rtcGetLocalDescription", header: "rtc/rtc.h".}

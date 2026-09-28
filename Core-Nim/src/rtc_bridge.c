@@ -17,6 +17,7 @@ static int rtcSetMessageCallback(int id, void (*callback)(int, const char *, int
 
 static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t space = PTHREAD_COND_INITIALIZER;
+static pthread_cond_t ready = PTHREAD_COND_INITIALIZER;
 #ifndef SHADOW6_QUEUE_TEST
 static int accepted[16], count;
 static atomic_int gathered;
@@ -47,6 +48,7 @@ static void message(int id, const char *data, int size, void *unused) {
             queues[i].size[slot]=size<0 ? -n : n;
             queues[i].count++;
         }
+        pthread_cond_broadcast(&ready);
         break;
     }
     pthread_mutex_unlock(&lock);
@@ -86,10 +88,36 @@ int nim_rtc_receive(int id, char *data, int *size) {
     pthread_mutex_unlock(&lock);
     return result;
 }
+/* Wake on arrival instead of sleeping through a full four-message queue.
+ * One millisecond still bounds the wait for unrelated local TCP activity.
+ * A generation check prevents a deleted/reused ID satisfying an old wait. */
+int nim_rtc_wait(int id) {
+    struct timespec until;
+    if (clock_gettime(CLOCK_REALTIME, &until)) return -1;
+    until.tv_nsec += 1000000;
+    if (until.tv_nsec >= 1000000000) { until.tv_nsec -= 1000000000; until.tv_sec++; }
+    int result = -1;
+    pthread_mutex_lock(&lock);
+    for (int i=0;i<20;i++) if (queues[i].used && queues[i].id==id) {
+        uint64_t generation = queues[i].generation;
+        while (queues[i].used && queues[i].generation==generation &&
+               !queues[i].failed && !queues[i].count) {
+            int status = pthread_cond_timedwait(&ready, &lock, &until);
+            if (status == ETIMEDOUT) break;
+            if (status) { pthread_mutex_unlock(&lock); return -1; }
+        }
+        if (queues[i].used && queues[i].generation==generation && !queues[i].failed)
+            result = queues[i].count ? 1 : 0;
+        break;
+    }
+    pthread_mutex_unlock(&lock);
+    return result;
+}
 void nim_rtc_forget(int id) {
     pthread_mutex_lock(&lock);
     for (int i=0;i<20;i++) if (queues[i].used && queues[i].id==id) queues[i].used=0;
     pthread_cond_broadcast(&space);
+    pthread_cond_broadcast(&ready);
     pthread_mutex_unlock(&lock);
 }
 #ifndef SHADOW6_QUEUE_TEST

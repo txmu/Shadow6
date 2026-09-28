@@ -60,6 +60,11 @@ func TestMobileTransportBudget(t *testing.T) {
 		}
 	}
 	desktop := budgetForPlatform("linux")
+	for _, platform := range []string{"linux", "windows", "darwin", "freebsd", "openbsd", "netbsd"} {
+		if !budgetForPlatform(platform).congestionControl {
+			t.Fatalf("%s can burst the full capacity window without congestion control", platform)
+		}
+	}
 	if int64(desktop.window*kcpMTU) < requiredBandwidthDelayBytes(targetThroughputBitsPerSecond, designRoundTripMilliseconds) {
 		t.Fatal("desktop capacity contract regressed")
 	}

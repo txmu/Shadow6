@@ -755,6 +755,91 @@ type batchCountingConn struct {
 	writes int
 }
 
+// A large advertised KCP window must remain usable when the kernel grants
+// much less UDP buffer space. Exercise real recovery and the authenticated
+// half-close rather than requiring a machine-specific throughput threshold.
+func TestKCPBulkWithSmallSocketBuffers(t *testing.T) {
+	key := bytes.Repeat([]byte{0x3d}, 32)
+	block, err := kcp.NewAESBlockCrypt(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	listener, err := kcp.ListenWithOptions("127.0.0.1:0", block, kcpDataShards, kcpParityShards)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	if err := listener.SetReadBuffer(64 * 1024); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(15 * time.Second)
+	if err := listener.SetDeadline(deadline); err != nil {
+		t.Fatal(err)
+	}
+	payload := bytes.Repeat([]byte("bulk half-close"), 128*1024)
+	transfer := func(conn *aeadConn) error {
+		for offset := 0; offset < len(payload); {
+			n := min(dataBudget.copyBytes, len(payload)-offset)
+			if _, err := conn.Write(payload[offset : offset+n]); err != nil {
+				return err
+			}
+			offset += n
+		}
+		return conn.writeEOF()
+	}
+	receive := func(conn *aeadConn) error {
+		got, err := io.ReadAll(io.LimitReader(conn, int64(len(payload)+1)))
+		if err != nil {
+			return err
+		}
+		if !bytes.Equal(got, payload) {
+			return errors.New("bulk payload corrupted, truncated or duplicated")
+		}
+		return nil
+	}
+	done := make(chan error, 1)
+	consumed := make(chan struct{})
+	defer close(consumed)
+	go func() {
+		session, err := listener.AcceptKCP()
+		if err != nil {
+			done <- err
+			return
+		}
+		defer session.Close()
+		configureKCP(session)
+		_ = session.SetDeadline(deadline)
+		secure, err := newAEADConn(session, key)
+		if err == nil {
+			err = receive(secure)
+		}
+		if err == nil {
+			err = transfer(secure)
+		}
+		// Wait for the peer to consume our EOF before closing KCP: Close flushes
+		// once but does not guarantee queued datagrams have been acknowledged.
+		done <- err
+		if err == nil {
+			<-consumed
+		}
+	}()
+	client, err := dialSecureKCP(listener.Addr().String(), key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	_ = client.SetDeadline(deadline)
+	if err := transfer(client); err != nil {
+		t.Fatal(err)
+	}
+	if err := receive(client); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+}
+
 func (c *batchCountingConn) Write(data []byte) (int, error) {
 	c.writes++
 	return c.Conn.Write(data)

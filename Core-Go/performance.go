@@ -29,11 +29,14 @@ type transportBudget struct {
 
 // Socket buffers are kernel memory; the KCP window bounds user-space queued
 // segments. Mobile builds need smaller budgets for both, independently.
+// The window is a capacity ceiling, not permission to burst that much data:
+// kernels may clamp socket buffers far below our requested size. Keep KCP's
+// congestion control on so losses reduce in-flight traffic on every platform.
 func budgetForPlatform(platform string) transportBudget {
 	if platform == "android" || platform == "ios" {
 		return transportBudget{256, 256 * 1024, 32 * 1024, true}
 	}
-	return transportBudget{kcpSendWindow, dataSocketBufferBytes, proxyCopyBufferBytes, false}
+	return transportBudget{kcpSendWindow, dataSocketBufferBytes, proxyCopyBufferBytes, true}
 }
 
 var dataBudget = budgetForPlatform(runtime.GOOS)

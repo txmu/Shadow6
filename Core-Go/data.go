@@ -248,6 +248,11 @@ func configureKCP(session *kcp.UDPSession) {
 	_ = session.SetMtu(kcpMTU)
 	_ = session.SetReadBuffer(dataBudget.socketBytes)
 	_ = session.SetWriteBuffer(dataBudget.socketBytes)
+	// kcp-go initializes cwnd during its first flush. Prime that flush without
+	// application bytes so a short first reply is sent by Write, not left for
+	// Close (whose best-effort flush can race the closed session). This keeps
+	// congestion control enabled even for sessions that immediately half-close.
+	_, _ = session.WriteBuffers(nil)
 }
 
 func copyWithPooledBuffer(destination io.Writer, source io.Reader) (int64, error) {
