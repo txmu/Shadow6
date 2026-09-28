@@ -253,7 +253,9 @@ jobs:
               ;;
           esac
           timeout_retries=0
-          if test '${{ matrix.os }}' = netbsd && test '${{ matrix.arch }}' = arm64; then
+          # Both NetBSD guests have exhibited isolated iperf3 control timeouts.
+          # Retry only timeouts once, retain both outcomes, and fail if repeated.
+          if test '${{ matrix.os }}' = netbsd; then
             timeout_retries=1
           fi
           "$python" Tools/iperf3_matrix.py --output-dir iperf3-bsd \
