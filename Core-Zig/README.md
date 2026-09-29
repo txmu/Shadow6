@@ -74,15 +74,20 @@ the original ciphertext. Duplicate reliable sequences are ACKed again without
 being delivered twice. Retired channel IDs remain reserved for the grant's
 lifetime. The loopback backend is contacted only after authenticated OPEN.
 ENet v1 data packets are rejected; upgrade both Zig endpoints together.
-The congestion window grows from four packets on authenticated ACKs up to
-256 (286 KiB payload in flight), then shrinks on loss. Each grant reserves a
+The congestion window starts at four packets, slow-starts to 32, then grows
+by one packet per window of authenticated ACKs up to 256 (286 KiB payload in
+flight). A lost flight reduces it once, rather than once per timed-out packet. Each grant reserves a
 16 MiB arena for its sixteen channels, with at most sixteen grants and a
 4 MiB worker stack per grant. These bounds are explicit memory tradeoffs;
 this change does not claim 2 MiB in flight or measured gigabit performance.
 
-Linux uses native `io_uring` for UDP and tunnel TCP operations, batches up to
-32 UDP sends per submission, and drains cancellation completions before
-reusing request buffers. A denied/unavailable ring fails closed; Linux does
+Linux uses native `io_uring` for readiness and UDP sends, batches up to
+64 UDP sends per submission, and drains cancellation completions before
+reusing request buffers. UDP receives and tunnel TCP reads/writes use immediate nonblocking
+socket operations, avoiding a submit/completion round trip per cell. Reliable
+retransmission scans run at most once per 20 ms per channel, sharing one clock
+sample across all slots. UDP sockets request bounded 1 MiB receive/send buffers;
+the kernel may clamp them and no host limits are changed. A denied/unavailable ring fails closed; Linux does
 not silently switch to poll. Other POSIX targets use poll and nonblocking
 socket operations. No host routes, firewall rules, or services are changed.
 

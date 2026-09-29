@@ -57,23 +57,31 @@ encode(Kind,Sequence,Plain,Key) ->
     Nonce = <<Kind,0:24,Sequence:32,0:32>>,{ok,Cipher,Mac}=shadow6_sodium:encrypt(Plain,Header,Nonce,Key),
     <<Header/binary,Cipher/binary,Mac/binary>>.
 
-decode_frames(Buffer,Sequence,_Key,_Local,Closed) when byte_size(Buffer)<14 -> {Sequence,Buffer,Closed};
-decode_frames(<<"S6GS",1,Kind,0:16,Sequence:32,Length:16,Rest/binary>>=Buffer,Sequence,Key,Local,false)
+%% Input is bounded by 2*MAX_FRAME in loop/11. Collect only authenticated
+%% plaintext from this read, then perform one bounded iolist write.
+decode_frames(Buffer,Sequence,Key,Local,Closed) ->
+    {Next,Rest,Finished,Frames}=decode_batch(Buffer,Sequence,Key,Closed,[]),
+    case Frames of []->ok;_->ok=gen_tcp:send(Local,lists:reverse(Frames)) end,
+    {Next,Rest,Finished}.
+
+decode_batch(<<>>,Sequence,_Key,true,Frames) -> {Sequence,<<>>,true,Frames};
+decode_batch(Buffer,Sequence,_Key,false,Frames) when byte_size(Buffer)<14 -> {Sequence,Buffer,false,Frames};
+decode_batch(<<"S6GS",1,Kind,0:16,Sequence:32,Length:16,Rest/binary>>=Buffer,Sequence,Key,false,Frames)
   when (Kind=:=1 orelse Kind=:=2),Length>=16,Length=< ?MAX_CHUNK+16 ->
     case byte_size(Rest)>=Length of
-      false->{Sequence,Buffer,false};
+      false->{Sequence,Buffer,false,Frames};
       true->
         CipherLength=Length-16,<<Cipher:CipherLength/binary,Mac:16/binary,Tail/binary>>=Rest,
         Header=binary:part(Buffer,0,14),Nonce = <<Kind,0:24,Sequence:32,0:32>>,
         {ok,Plain}=shadow6_sodium:decrypt(Cipher,Mac,Header,Nonce,Key),
         case {Kind,Plain} of
           {1,<<>>}->erlang:error(empty_data_frame);
-          {1,_}->ok=gen_tcp:send(Local,Plain),decode_frames(Tail,Sequence+1,Key,Local,false);
-          {2,<<>>}->decode_frames(Tail,Sequence+1,Key,Local,true);
+          {1,_}->decode_batch(Tail,Sequence+1,Key,false,[Plain|Frames]);
+          {2,<<>>}->decode_batch(Tail,Sequence+1,Key,true,Frames);
           _->erlang:error(invalid_close_frame)
         end
     end;
-decode_frames(_,_,_,_,_)->erlang:error(invalid_stream_frame).
+decode_batch(_,_,_,_,_)->erlang:error(invalid_stream_frame).
 
 hex(Binary)-> << <<(digit(N bsr 4)),(digit(N band 15))>> || <<N>><=Binary >>.
 digit(N) when N<10->$0+N;digit(N)->$a+N-10.

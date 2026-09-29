@@ -125,5 +125,6 @@ test {
     _ = @import("platform.zig");
     _ = @import("config.zig");
     _ = @import("enet.zig");
+    _ = @import("backend.zig");
     _ = @import("hook.zig");
 }

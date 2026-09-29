@@ -86,10 +86,11 @@ class ref ReliableSession
   let _received: Map[U64, Array[U8] val] = Map[U64, Array[U8] val]
   var _srtt: U64 = 0
   var _rttvar: U64 = 0
+  var _retry_at: U64 = 0
 
   fun ref connected() => _connected = true; _attempt = 0
   fun ref disconnected() => _connected = false; _attempt = (_attempt + 1).min(6)
-  fun ref clear() => _connected = false; _sent.clear(); _received.clear()
+  fun ref clear() => _connected = false; _sent.clear(); _received.clear(); _retry_at = 0
   fun can_send(): Bool =>
     _connected and (_next < U64.max_value()) and
       ((_next - _send_base) < SessionLimits.max_pending().u64())
@@ -108,7 +109,9 @@ class ref ReliableSession
     if not can_send() then error end
     let value = _next; _next = _next + 1; value
   fun ref sent(sequence: U64, wire: Array[U8] val, now: U64) =>
-    _sent(sequence) = PendingPacket(wire, now, rto())
+    let delay = rto()
+    _sent(sequence) = PendingPacket(wire, now, delay)
+    if (_retry_at == 0) or ((now + delay) < _retry_at) then _retry_at = now + delay end
   fun retry_delay(): U64 => SessionLimits.reconnect_delay(_attempt)
   fun ref receive_in_order(sequence: U64): Bool =>
     if (sequence == _receive_next) and (sequence < U64.max_value()) then
@@ -134,6 +137,8 @@ class ref ReliableSession
     consume result
   fun ref retransmit(now: U64): Array[Array[U8] val] iso^ ? =>
     let due = recover iso Array[Array[U8] val] end
+    if (_retry_at != 0) and (now < _retry_at) then return consume due end
+    _retry_at = 0
     for packet in _sent.values() do
       if (now >= packet.last_sent) and ((now - packet.last_sent) >= packet.timeout) then
         if packet.retries >= 8 then error end
@@ -143,8 +148,10 @@ class ref ReliableSession
         due.push(packet.wire)
         // Spread recovery across bounded scheduler ticks instead of sending
         // the whole 4096-frame window into one socket mailbox at once.
-        if due.size() >= 32 then break end
+        if due.size() >= 32 then _retry_at = now; break end
       end
+      let next = packet.last_sent + packet.timeout
+      if (_retry_at == 0) or (next < _retry_at) then _retry_at = next end
     end
     consume due
   fun ref sample_rtt(sample: U64) =>

@@ -75,6 +75,13 @@ with tempfile.TemporaryDirectory(prefix='shadow6-gleam-mux.') as td:
                 else:
                     raise AssertionError(f'no micro-mux echo for {size} bytes')
                 assert data == payload, f'corrupted {size}-byte datagram'
+            # Cross multiple 32-credit boundaries on both sockets. A missing
+            # udp_passive rearm would stall after the first window.
+            for sequence in range(70):
+                payload = sequence.to_bytes(4, 'big') + b'credit-rearm'
+                app.sendto(payload, proxy)
+                data, _ = app.recvfrom(65536)
+                assert data == payload, f'credit rearm/order failed at {sequence}'
         print('Core-Gleam real broker/agent/client micro-mux forwarding passed')
     finally:
         for p in reversed(processes):

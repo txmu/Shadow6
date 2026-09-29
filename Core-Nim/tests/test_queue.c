@@ -21,8 +21,17 @@ int main(void) {
     assert(watch(1) == 1);
     assert(nim_rtc_wait(1) == 0); /* empty queue wait is bounded */
     assert(nim_rtc_wait(999) == -1);
+    int tcp[2]; assert(!pipe(tcp));
+    assert(nim_rtc_wait_io(999,tcp[0],POLLIN)==-1);
+    assert(nim_rtc_wait_io(1,tcp[0],POLLIN)==0);
+    assert(write(tcp[1],"x",1)==1);
+    assert(nim_rtc_wait_io(1,tcp[0],POLLIN)==1);
+    char token; assert(read(tcp[0],&token,1)==1);
+    assert(nim_rtc_wait_io(1,tcp[1],POLLOUT)==1);
+    close(tcp[0]); close(tcp[1]);
     for (unsigned i = 0; i < 4; ++i) message(1, (const char *)&i, sizeof i, NULL);
     assert(nim_rtc_wait(1) == 1); /* do not sleep with queued data */
+    assert(nim_rtc_wait_io(1,-1,0)==1);
     pthread_t worker;
     assert(!pthread_create(&worker, NULL, producer, NULL));
     struct timespec pause = {0, 20000000};

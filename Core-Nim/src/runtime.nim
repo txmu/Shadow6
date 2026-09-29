@@ -215,14 +215,10 @@ proc forward(dc: cint; cfg: JsonNode; client: bool) =
         offset += n
         if offset == pending.len: pending = ""; offset = 0
       else: require(n == -2)
-    # Drain available TCP/RTC work before yielding. Wake on RTC arrival;
-    # fixed sleeps let its four-message queue fill while the consumer idles.
-    # A pending TCP write or peer EOF still uses a bounded idle sleep.
+    # One bounded wait services both TCP readiness and RTC callbacks.
     if not progressed:
-      if not peerEof and pending.len == 0:
-        require(waitMessage(dc) >= 0, "RTC receive queue closed")
-      else:
-        sleep(1)
+      require(waitIo(dc, socket, not localEof and buffered(dc) < 131072,
+                     pending.len > 0) >= 0, "RTC receive queue closed")
 
 proc endpointRun(cfg: JsonNode; client: bool) =
   let ws = wsClient(cfg["broker_addrs"][0].getStr.cstring)

@@ -14,6 +14,9 @@ static int rtcSetMessageCallback(int id, void (*callback)(int, const char *, int
 #include <stdint.h>
 #include <time.h>
 #include <errno.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <poll.h>
 
 static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t space = PTHREAD_COND_INITIALIZER;
@@ -22,6 +25,30 @@ static pthread_cond_t ready = PTHREAD_COND_INITIALIZER;
 static int accepted[16], count;
 static atomic_int gathered;
 #endif
+/* All Nim consumers run on one thread. One process-wide nonblocking pipe
+ * wakes that thread for any RTC queue; data remains in the bounded queues. */
+static pthread_once_t wake_once = PTHREAD_ONCE_INIT;
+static int wake_pipe[2] = {-1,-1};
+static void init_wake(void) {
+    int fd[2];
+    if (pipe(fd)) return;
+    for (int i=0;i<2;i++) {
+        int flags=fcntl(fd[i],F_GETFL);
+        if (flags<0 || fcntl(fd[i],F_SETFL,flags|O_NONBLOCK)<0 ||
+            fcntl(fd[i],F_SETFD,FD_CLOEXEC)<0) {
+            close(fd[0]); close(fd[1]); return;
+        }
+    }
+    wake_pipe[0]=fd[0]; wake_pipe[1]=fd[1];
+}
+static void wake_consumer(void) {
+    if (wake_pipe[1]>=0) {
+        char token=1;
+        /* EAGAIN means a wake is already pending; never block a callback. */
+        ssize_t result;
+        do { result=write(wake_pipe[1],&token,1); } while(result<0 && errno==EINTR);
+    }
+}
 static uint64_t next_generation;
 /* Fixed receive queues impose a bound even when an authenticated peer floods
  * while the Nim event loop is busy. These are reliable ordered streams:
@@ -48,6 +75,7 @@ static void message(int id, const char *data, int size, void *unused) {
             queues[i].size[slot]=size<0 ? -n : n;
             queues[i].count++;
         }
+        if (queues[i].count==1 || queues[i].failed) wake_consumer();
         pthread_cond_broadcast(&ready);
         break;
     }
@@ -55,6 +83,8 @@ static void message(int id, const char *data, int size, void *unused) {
 }
 static int watch(int id) {
     if (id<0) return id;
+    pthread_once(&wake_once,init_wake);
+    if (wake_pipe[0]<0) return -1;
     int slot=-1;
     pthread_mutex_lock(&lock);
     for (int i=0;i<20;i++) if (!queues[i].used) {
@@ -113,10 +143,37 @@ int nim_rtc_wait(int id) {
     pthread_mutex_unlock(&lock);
     return result;
 }
+/* Wake on either local TCP readiness or RTC arrival. The caller chooses
+ * POLLOUT only for a pending TCP write, and POLLIN only below its send bound.
+ * A 1 ms timeout still services RTC buffered-amount changes without callbacks. */
+int nim_rtc_wait_io(int id, int fd, int events) {
+    int slot=-1; uint64_t generation=0;
+    char tokens[64];
+    /* Drain a bounded number of notifications BEFORE checking queue state. */
+    if (wake_pipe[0]<0) return -1;
+    (void)read(wake_pipe[0],tokens,sizeof tokens);
+    pthread_mutex_lock(&lock);
+    for(int i=0;i<20;i++) if(queues[i].used && queues[i].id==id) {
+        if(!queues[i].failed) { slot=i; generation=queues[i].generation; }
+        break;
+    }
+    int queued=slot>=0 && queues[slot].count;
+    pthread_mutex_unlock(&lock);
+    if(slot<0) return -1;
+    if(queued && !(events&POLLOUT)) return 1;
+    struct pollfd fds[2]={{wake_pipe[0],POLLIN,0},{fd,(short)events,0}};
+    int status=poll(fds,2,1);
+    if(status<0 && errno!=EINTR) return -1;
+    pthread_mutex_lock(&lock);
+    int valid=queues[slot].used && queues[slot].generation==generation && !queues[slot].failed;
+    pthread_mutex_unlock(&lock);
+    return valid ? (status>0) : -1;
+}
 void nim_rtc_forget(int id) {
     pthread_mutex_lock(&lock);
     for (int i=0;i<20;i++) if (queues[i].used && queues[i].id==id) queues[i].used=0;
     pthread_cond_broadcast(&space);
+    wake_consumer();
     pthread_cond_broadcast(&ready);
     pthread_mutex_unlock(&lock);
 }

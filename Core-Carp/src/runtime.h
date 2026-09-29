@@ -295,6 +295,8 @@ static int chain_application(int port, int client) {
  * received packet. Domain-separated keys prevent reflection between directions. */
 static struct packet chain_receive(void) {
     struct packet p = {0};
+    static struct pollfd f[2];
+    static unsigned burst;
     int64_t now = monotonic_millis();
     if (now >= chain_retry_scan) {
         for (unsigned i = 0; i < CARP_WINDOW; ++i) if (chain_pending[i].used && now >= chain_pending[i].retry_at) {
@@ -305,16 +307,22 @@ static struct packet chain_receive(void) {
     }
     unsigned next_slot = (unsigned)((send_sequence + 1) & (CARP_WINDOW - 1));
     int can_send = chain_inflight < CARP_WINDOW && !chain_pending[next_slot].used;
-    struct pollfd f[2] = {{.fd=udp_fd,.events=POLLIN},
-        {.fd=application_fd,.events=can_send ? POLLIN : 0}};
-    int timeout = chain_inflight ? 20 : 100;
-    if (poll(f, 2, timeout) <= 0) return p;
+    if (!can_send) f[1].revents = 0;
+    if (!burst || !(f[0].revents | f[1].revents)) {
+        f[0] = (struct pollfd){.fd=udp_fd,.events=POLLIN};
+        f[1] = (struct pollfd){.fd=application_fd,.events=can_send ? POLLIN : 0};
+        int timeout = chain_inflight ? 20 : 100;
+        if (poll(f, 2, timeout) <= 0) return p;
+        burst = 32;
+    }
+    --burst; /* each call still consumes the original outer packet budget */
     if (can_send && (f[1].revents & POLLIN)) {
         unsigned char *body = p.bytes + 3 * HEADER;
         unsigned char input[BODY - COMMAND - 10 + 1];
         struct sockaddr_in source = {0}; socklen_t sl = sizeof source;
-        ssize_t n = recvfrom(application_fd, input, sizeof input, 0, (struct sockaddr *)&source, &sl);
-        if (n < 0 || n > BODY - COMMAND - 10) return p;
+        ssize_t n = recvfrom(application_fd, input, sizeof input, MSG_DONTWAIT, (struct sockaddr *)&source, &sl);
+        if (n < 0) { f[1].revents = 0; return p; }
+        if (n > BODY - COMMAND - 10) return p;
         if (chain_role == 1) {
             if (source.sin_addr.s_addr != htonl(INADDR_LOOPBACK) ||
                 (application_peer.sin_port && (application_peer.sin_port != source.sin_port ||
@@ -338,7 +346,8 @@ static struct packet chain_receive(void) {
     }
     if (f[0].revents & POLLIN) {
         unsigned char input[WIRE + 1];
-        ssize_t n = recv(udp_fd, input, sizeof input, 0);
+        ssize_t n = recv(udp_fd, input, sizeof input, MSG_DONTWAIT);
+        if (n < 0) f[0].revents = 0;
         if (n == WIRE) { memcpy(p.bytes, input, WIRE); memcpy(p.keys, receive_keys, 96); p.valid = 1; }
         sodium_memzero(input, sizeof input);
     }

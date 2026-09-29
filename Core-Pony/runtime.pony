@@ -41,9 +41,8 @@ actor SocketActor is (UDPSocketActor & UDPLifecycleEventReceiver)
     _udp.set_so_sndbuf(1_048_576)
     _receiver.bound(_application)
   fun ref _on_received(data: Array[U8] iso, from: NetAddress val): ReadAction =>
-    if (data.size() > ProtocolLimits.max_frame()) or (_inflight >= 256) then
-      return KeepReading
-    end
+    if _inflight >= 256 then return YieldReading end
+    if data.size() > ProtocolLimits.max_frame() then return KeepReading end
     if not _application then
       try
         if not ProtocolLimits.wire_frame(data.size(), data(0)?, data(1)?, data(2)?, data(3)?) then
@@ -56,7 +55,7 @@ actor SocketActor is (UDPSocketActor & UDPLifecycleEventReceiver)
         let receiver = _routes(PeerRoute(from)?)?
         _inflight = _inflight + 1
         _enqueue(consume data, from, receiver)
-        return KeepReading
+        return if _inflight >= 256 then YieldReading else KeepReading end
       end
       // Unknown peers can only request admission with a shaped hello. Keep
       // their work separate so a flood cannot fill all established credits.
@@ -67,8 +66,9 @@ actor SocketActor is (UDPSocketActor & UDPLifecycleEventReceiver)
     _inflight = _inflight + 1
     if _application then _enqueue(consume data, from, _receiver)
     else _receiver.received(consume data, from, false, this) end
-    // Keep the 16-datagram scheduler turn and 256 outstanding-packet bound.
-    KeepReading
+    // Yield at the credit bound so consumed messages can run promptly.
+    // This net API has no UDP mute/unmute; YieldReading is a bounded turn.
+    if _inflight >= 256 then YieldReading else KeepReading end
   fun ref _enqueue(data: Array[U8] iso, from: NetAddress val, receiver: DatagramReceiver) =>
     if _batch_receiver isnt receiver then _flush() end
     _batch_receiver = receiver
@@ -250,9 +250,10 @@ actor Runtime is DatagramReceiver
   be received_batch(batch: Array[InboundDatagram iso] iso, application: Bool, source: SocketActor) =>
     // Admissions use single-packet delivery; this fallback preserves the
     // interface if a future application socket is owned by Runtime.
+    batch.reverse_in_place()
     while batch.size() > 0 do
       try
-        let packet = batch.shift()?
+        let packet = batch.pop()?
         received(packet.take(), packet.from, application, source)
       end
     end
@@ -293,9 +294,10 @@ actor RelaySession is DatagramReceiver
   be received_batch(batch: Array[InboundDatagram iso] iso, application: Bool, source: SocketActor) =>
     let count = batch.size()
     let output = recover iso Array[Array[U8] val](16) end
+    batch.reverse_in_place()
     while batch.size() > 0 do
       try
-        let packet = batch.shift()?
+        let packet = batch.pop()?
         if not _closed then
           if application and (packet.from == _peer) then
             _confirmed = true; _last = Time.nanos()
@@ -385,9 +387,10 @@ actor ClientSession is DatagramReceiver
     source.consumed()
   be received_batch(batch: Array[InboundDatagram iso] iso, application: Bool, source: SocketActor) =>
     let count = batch.size()
+    batch.reverse_in_place()
     while batch.size() > 0 do
       try
-        let packet = batch.shift()?
+        let packet = batch.pop()?
         _receive(packet.take(), packet.from, application)
       end
     end

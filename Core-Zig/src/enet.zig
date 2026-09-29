@@ -26,6 +26,9 @@ pub const Session = struct {
     received: [window]?Received = @splat(null),
     in_flight: usize = 0,
     congestion: usize = 4,
+    slow_start_limit: usize = 32,
+    ack_credit: usize = 0,
+    recovery_until: u64 = 0,
     pub fn canQueue(self: *const Session) bool {
         return self.in_flight < self.congestion and self.next_tx < std.math.maxInt(u64) and !self.pending[self.next_tx % window].active and self.counter < std.math.maxInt(u64);
     }
@@ -99,14 +102,31 @@ pub const Session = struct {
         if (!slot.active or slot.seq != seq) return;
         slot.active = false;
         self.in_flight -= 1;
-        if (self.congestion < window) self.congestion += 1;
+        if (self.congestion < self.slow_start_limit) {
+            self.congestion += 1;
+        } else if (self.congestion < window) {
+            // Congestion avoidance: one packet of growth per window of ACKs,
+            // rather than doubling every RTT into a clamped UDP socket queue.
+            self.ack_credit += 1;
+            if (self.ack_credit >= self.congestion) {
+                self.ack_credit = 0;
+                self.congestion += 1;
+            }
+        }
     }
     pub fn retry(self: *Session, packet: *Packet, now: i64) !bool {
         if (!packet.active or packet.deadline > now) return false;
         if (packet.attempts >= 8) return error.RetryLimit;
         packet.attempts += 1;
         packet.deadline = now + @min(@as(i64, 200) << @as(u6, @intCast(packet.attempts - 1)), 3000);
-        self.congestion = @max(2, self.congestion / 2);
+        // One reduction for this flight, not one for every expired slot in
+        // the same scan. Subsequent flights can trigger another reduction.
+        if (packet.seq >= self.recovery_until) {
+            self.congestion = @max(2, self.congestion / 2);
+            self.slow_start_limit = self.congestion;
+            self.ack_credit = 0;
+            self.recovery_until = self.next_tx;
+        }
         return true;
     }
 };
@@ -163,4 +183,31 @@ test "WAN window exceeds 32, 64 bit sequences and fail closed version migration"
     try std.testing.expectError(error.InvalidPacket, receiver.decode(old.bytes[0..old.len]));
     sender.counter = std.math.maxInt(u64);
     try std.testing.expectError(error.SessionLimit, sender.encode(.ack, 1, ""));
+}
+
+test "congestion grows additively and reduces once per lost flight" {
+    var sender = Session.init(@splat(1), @splat(2), true);
+    sender.congestion = 32;
+    for (0..31) |_| {
+        const packet = try sender.queue(.data, "x", 0);
+        sender.acknowledge(packet.seq);
+    }
+    try std.testing.expectEqual(@as(usize, 32), sender.congestion);
+    const final = try sender.queue(.data, "x", 0);
+    sender.acknowledge(final.seq);
+    try std.testing.expectEqual(@as(usize, 33), sender.congestion);
+    // A duplicate ACK must not create congestion credit.
+    sender.acknowledge(final.seq);
+    try std.testing.expectEqual(@as(usize, 0), sender.ack_credit);
+    const first = try sender.queue(.data, "a", 0);
+    const second = try sender.queue(.data, "b", 0);
+    try std.testing.expect(try sender.retry(first, 200));
+    try std.testing.expectEqual(@as(usize, 16), sender.congestion);
+    try std.testing.expect(try sender.retry(second, 200));
+    try std.testing.expectEqual(@as(usize, 16), sender.congestion);
+    sender.acknowledge(first.seq);
+    sender.acknowledge(second.seq);
+    const next = try sender.queue(.data, "next flight", 201);
+    try std.testing.expect(try sender.retry(next, 401));
+    try std.testing.expectEqual(@as(usize, 8), sender.congestion);
 }

@@ -157,7 +157,13 @@ pub fn socket(a: *const Address, udp: bool) !c_int {
     const timeout = c.timeval{ .tv_sec = 10, .tv_usec = 0 };
     _ = c.setsockopt(fd, c.SOL_SOCKET, c.SO_RCVTIMEO, &timeout, @sizeOf(c.timeval));
     _ = c.setsockopt(fd, c.SOL_SOCKET, c.SO_SNDTIMEO, &timeout, @sizeOf(c.timeval));
-    if (!udp) {
+    if (udp) {
+        // Per-socket, bounded requests; kernels may clamp these. Accommodate
+        // the reliable window and ACKs without changing host buffer limits.
+        const bytes: c_int = 1024 * 1024;
+        _ = c.setsockopt(fd, c.SOL_SOCKET, c.SO_RCVBUF, &bytes, @sizeOf(c_int));
+        _ = c.setsockopt(fd, c.SOL_SOCKET, c.SO_SNDBUF, &bytes, @sizeOf(c_int));
+    } else {
         const enabled: c_int = 1;
         if (c.setsockopt(fd, c.IPPROTO_TCP, c.TCP_NODELAY, &enabled, @sizeOf(c_int)) != 0) {
             close(fd);

@@ -14,6 +14,7 @@ const Channel = struct {
     remote_fin: bool = false,
     retired: bool = false,
     output_offset: usize = 0,
+    retry_scan: i64 = 0,
 };
 pub const Tunnel = struct {
     parent: std.mem.Allocator,
@@ -181,12 +182,16 @@ pub const Tunnel = struct {
                     retire(ch);
                     continue;
                 };
-                for (&ch.secure.pending) |*out| {
-                    const retry = ch.secure.retry(out, p.now()) catch {
-                        retire(ch);
-                        break;
-                    };
-                    if (retry) self.send(ch, out) catch {};
+                const now = p.now();
+                if (now >= ch.retry_scan) {
+                    ch.retry_scan = now + 20;
+                    for (&ch.secure.pending) |*out| {
+                        const retry = ch.secure.retry(out, now) catch {
+                            retire(ch);
+                            break;
+                        };
+                        if (retry) self.send(ch, out) catch {};
+                    }
                 }
                 if (ch.retired) continue;
                 if (ch.opened and !ch.local_fin and ch.secure.canQueue()) {

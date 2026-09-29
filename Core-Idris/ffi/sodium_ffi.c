@@ -371,6 +371,8 @@ int idris_native_relay(int role,const char *bind_ip,unsigned int bind_port,const
     if(chain){puts("session ready");fflush(stdout);}
     struct timespec activity,now;if(clock_gettime(CLOCK_MONOTONIC,&activity))goto done;
     time_t started=activity.tv_sec;
+    fd_set set; FD_ZERO(&set);
+    unsigned burst=0;
     for(unsigned attempts=0;handled<max_packets&&attempts<1000000;++attempts){
         if(clock_gettime(CLOCK_MONOTONIC,&now))goto done;
         int64_t milliseconds=(int64_t)now.tv_sec*1000+now.tv_nsec/1000000;
@@ -382,14 +384,19 @@ int idris_native_relay(int role,const char *bind_ip,unsigned int bind_port,const
             }
             next_retry_scan=milliseconds+20;
         }
-        fd_set set;FD_ZERO(&set);FD_SET(net,&set);
         unsigned next_slot=(unsigned)((sent+1)&(IDRIS_CHAIN_WINDOW-1));
         int can_send=!chain||(pending_count<IDRIS_CHAIN_WINDOW&&!pending[next_slot].used);
-        if(can_send)FD_SET(local,&set);
-        int top=net>local?net:local;struct timeval wait={.tv_sec=0,.tv_usec=chain?20000:100000};
-        int ready=select(top+1,&set,NULL,NULL,&wait);if(ready<0&&errno==EINTR)continue;if(ready<0)goto done;
+        if(!can_send)FD_CLR(local,&set);
+        if(!burst||(!FD_ISSET(net,&set)&&!FD_ISSET(local,&set))){
+            FD_ZERO(&set);FD_SET(net,&set);if(can_send)FD_SET(local,&set);
+            int top=net>local?net:local;struct timeval wait={.tv_sec=0,.tv_usec=chain?20000:100000};
+            int ready=select(top+1,&set,NULL,NULL,&wait);if(ready<0&&errno==EINTR)continue;if(ready<0)goto done;
+            burst=32;
+        }
+        --burst; /* retain the original per-iteration attempt bound */
         if(FD_ISSET(net,&set)){
-            flen=sizeof from;ssize_t n=recvfrom(net,frame,sizeof frame,0,(struct sockaddr*)&from,&flen);
+            flen=sizeof from;ssize_t n=recvfrom(net,frame,sizeof frame,MSG_DONTWAIT,(struct sockaddr*)&from,&flen);
+            if(n<0)FD_CLR(net,&set);
             if(n>0&&same_addr(&from,&peer_sa)){
                 unsigned char direction=role==1?2:1;
                 if(chain&&n>50&&frame[6]==1){
@@ -444,8 +451,9 @@ int idris_native_relay(int role,const char *bind_ip,unsigned int bind_port,const
             }
         }
         if(FD_ISSET(local,&set)){
-            ssize_t n;if(role==1){flen=sizeof from;n=recvfrom(local,plain,sizeof plain,0,(struct sockaddr*)&from,&flen);if(n>0&&n<=IDRIS_NATIVE_MAX&&ntohl(from.sin_addr.s_addr)==INADDR_LOOPBACK&&(!app_peer.sin_port||same_addr(&from,&app_peer)))app_peer=from;else n=-1;}
-            else n=recv(local,plain,sizeof plain,0);
+            ssize_t n;if(role==1){flen=sizeof from;n=recvfrom(local,plain,sizeof plain,MSG_DONTWAIT,(struct sockaddr*)&from,&flen);if(n>0&&n<=IDRIS_NATIVE_MAX&&ntohl(from.sin_addr.s_addr)==INADDR_LOOPBACK&&(!app_peer.sin_port||same_addr(&from,&app_peer)))app_peer=from;else n=-1;}
+            else n=recv(local,plain,sizeof plain,MSG_DONTWAIT);
+            if(n<0)FD_CLR(local,&set);
             if(n>0){
                 if(!chain){size_t wn=0;if(native_seal(frame,&wn,plain,(size_t)n,role==1?1:2,++sent,send_session,key)||sendto(net,frame,wn,0,(struct sockaddr*)&peer_sa,sizeof peer_sa)!=(ssize_t)wn)break;if(role==2)handled++;}
                 else{

@@ -243,7 +243,8 @@ func configureKCP(session *kcp.UDPSession) {
 	if dataBudget.congestionControl {
 		noCongestion = 0
 	}
-	session.SetNoDelay(1, 20, 2, noCongestion)
+	// A bounded 10 ms flush services congestion-limited writers promptly.
+	session.SetNoDelay(1, 10, 2, noCongestion)
 	session.SetACKNoDelay(true)
 	_ = session.SetMtu(kcpMTU)
 	_ = session.SetReadBuffer(dataBudget.socketBytes)

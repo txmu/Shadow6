@@ -13,6 +13,14 @@ proc buffered*(id: cint): cint {.importc: "rtcGetBufferedAmount", header: "rtc/r
 proc sendMessage*(id: cint; data: cstring; size: cint): cint {.importc: "rtcSendMessage", header: "rtc/rtc.h".}
 proc receiveMessage*(id: cint; data: pointer; size: ptr cint): cint {.importc: "nim_rtc_receive".}
 proc waitMessage*(id: cint): cint {.importc: "nim_rtc_wait".}
+proc waitIoRaw(id, fd, events: cint): cint {.importc: "nim_rtc_wait_io".}
+# poll event values are supplied by the platform C header, not wire constants.
+var PollRead {.importc: "POLLIN", header: "poll.h".}: cshort
+var PollWrite {.importc: "POLLOUT", header: "poll.h".}: cshort
+proc waitIo*(id, fd: cint; reading, writing: bool): cint =
+  let events = (if reading: PollRead.cint else: 0.cint) or
+               (if writing: PollWrite.cint else: 0.cint)
+  waitIoRaw(id, fd, events)
 proc localDescription*(id: cint; kind: cstring): cint {.importc: "rtcSetLocalDescription", header: "rtc/rtc.h".}
 proc remoteDescription*(id: cint; sdp, kind: cstring): cint {.importc: "rtcSetRemoteDescription", header: "rtc/rtc.h".}
 proc getDescription*(id: cint; buffer: pointer; size: cint): cint {.importc: "rtcGetLocalDescription", header: "rtc/rtc.h".}

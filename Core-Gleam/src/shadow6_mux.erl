@@ -5,7 +5,9 @@
 %% stream 1 agent-to-client datagrams, each under its own direction key.
 -define(MAGIC, 16#53364D4D).
 -define(MAX_PLAIN, 65465).
--define(OPTS, [binary, {active, once}, {recbuf, 1048576}, {sndbuf, 1048576}]).
+%% Credits are replenished only by udp_passive, bounding queued datagrams
+%% to 32 per socket (at most about 2 MiB of payload at maximum frame size).
+-define(OPTS, [binary, {active, 32}, {recbuf, 1048576}, {sndbuf, 1048576}]).
 
 family(Address) -> case tuple_size(Address) of 8 -> [inet6]; 4 -> [] end.
 now_ms() -> erlang:monotonic_time(millisecond).
@@ -47,8 +49,10 @@ agent_loop(Remote, Target, TargetPort, Tx, Rx, Peer, Seq, Replay, Deadline) ->
     case Left =< 0 of
       true -> ok;
       false -> receive
+        {udp_passive, Socket} when Socket =:= Remote; Socket =:= Target ->
+          ok = inet:setopts(Socket, [{active, 32}]),
+          agent_loop(Remote, Target, TargetPort, Tx, Rx, Peer, Seq, Replay, Deadline);
         {udp, Remote, IP, Port, Packet} when Peer =:= undefined; Peer =:= {IP, Port} ->
-          ok = inet:setopts(Remote, [{active, once}]),
           case accept(0, Packet, Rx, Replay) of
             invalid -> agent_loop(Remote, Target, TargetPort, Tx, Rx, Peer, Seq, Replay, Deadline);
             {ok, Plain, Next} ->
@@ -56,10 +60,8 @@ agent_loop(Remote, Target, TargetPort, Tx, Rx, Peer, Seq, Replay, Deadline) ->
               agent_loop(Remote, Target, TargetPort, Tx, Rx, {IP, Port}, Seq, Next, Deadline)
           end;
         {udp, Remote, _, _, _} ->
-          ok = inet:setopts(Remote, [{active, once}]),
           agent_loop(Remote, Target, TargetPort, Tx, Rx, Peer, Seq, Replay, Deadline);
         {udp, Target, {127,0,0,1}, TargetPort, Plain} ->
-          ok = inet:setopts(Target, [{active, once}]),
           case Peer =/= undefined andalso byte_size(Plain) >= 1 andalso byte_size(Plain) =< ?MAX_PLAIN of
             true ->
               {PeerIP, PeerPort} = Peer,
@@ -68,7 +70,6 @@ agent_loop(Remote, Target, TargetPort, Tx, Rx, Peer, Seq, Replay, Deadline) ->
             false -> agent_loop(Remote, Target, TargetPort, Tx, Rx, Peer, Seq, Replay, Deadline)
           end;
         {udp, Target, _, _, _} ->
-          ok = inet:setopts(Target, [{active, once}]),
           agent_loop(Remote, Target, TargetPort, Tx, Rx, Peer, Seq, Replay, Deadline)
       after erlang:min(Left, 1000) ->
         agent_loop(Remote, Target, TargetPort, Tx, Rx, Peer, Seq, Replay, Deadline)
@@ -89,8 +90,10 @@ client_loop(Local, Remote, RA, RP, Tx, Rx, App, Seq, Replay, Deadline) ->
     case Left =< 0 of
       true -> ok;
       false -> receive
+        {udp_passive, Socket} when Socket =:= Local; Socket =:= Remote ->
+          ok = inet:setopts(Socket, [{active, 32}]),
+          client_loop(Local, Remote, RA, RP, Tx, Rx, App, Seq, Replay, Deadline);
         {udp, Local, {127,0,0,1}, AppPort, Plain} when App =:= undefined; App =:= AppPort ->
-          ok = inet:setopts(Local, [{active, once}]),
           case byte_size(Plain) >= 1 andalso byte_size(Plain) =< ?MAX_PLAIN of
             true ->
               _ = gen_udp:send(Remote, RA, RP, encode(0, Seq, Plain, Tx)),
@@ -98,10 +101,8 @@ client_loop(Local, Remote, RA, RP, Tx, Rx, App, Seq, Replay, Deadline) ->
             false -> client_loop(Local, Remote, RA, RP, Tx, Rx, App, Seq, Replay, Deadline)
           end;
         {udp, Local, _, _, _} ->
-          ok = inet:setopts(Local, [{active, once}]),
           client_loop(Local, Remote, RA, RP, Tx, Rx, App, Seq, Replay, Deadline);
         {udp, Remote, RA, RP, Packet} ->
-          ok = inet:setopts(Remote, [{active, once}]),
           case {App, accept(1, Packet, Rx, Replay)} of
             {undefined, _} -> client_loop(Local, Remote, RA, RP, Tx, Rx, App, Seq, Replay, Deadline);
             {_, invalid} -> client_loop(Local, Remote, RA, RP, Tx, Rx, App, Seq, Replay, Deadline);
@@ -110,7 +111,6 @@ client_loop(Local, Remote, RA, RP, Tx, Rx, App, Seq, Replay, Deadline) ->
               client_loop(Local, Remote, RA, RP, Tx, Rx, App, Seq, Next, Deadline)
           end;
         {udp, Remote, _, _, _} ->
-          ok = inet:setopts(Remote, [{active, once}]),
           client_loop(Local, Remote, RA, RP, Tx, Rx, App, Seq, Replay, Deadline)
       after erlang:min(Left, 1000) ->
         client_loop(Local, Remote, RA, RP, Tx, Rx, App, Seq, Replay, Deadline)

@@ -1,4 +1,5 @@
 use fmt;
+use errors;
 use io;
 use net;
 use net::ip;
@@ -6,6 +7,20 @@ use net::udp;
 use rt;
 use time;
 use unix::poll;
+
+// Nonblocking receive permits bounded bursts after one readiness check.
+fn recv_available(sock: net::socket, buf: []u8, src: *ip::addr, port: *u16) (size | net::error) = {
+	let addrsz = size(rt::sockaddr): u32;
+	const sockaddr = rt::sockaddr { ... };
+	const n = match (rt::recvfrom(sock, buf: *[*]u8, len(buf), rt::MSG_DONTWAIT, &sockaddr, &addrsz)) {
+	case let n: size => yield n;
+	case let err: rt::errno => return errors::errno(err);
+	};
+	if (addrsz > size(rt::sockaddr)) return errors::invalid;
+	const peer = ip::from_native(sockaddr);
+	*src = peer.0; *port = peer.1;
+	return n;
+};
 
 const WINDOW: size = 256z;
 
@@ -146,8 +161,14 @@ fn runtime(c: *configuration) void = {
 	socket_buffers(app);
 	const deadline = time::now(time::clock::MONOTONIC).sec + 300;
 	fmt::println("session ready")!;
-	for (let count = 0z; count < 1000000 && time::now(time::clock::MONOTONIC).sec < deadline; count += 1) {
+	let burst = 0z;
+	let poller = [
+		poll::pollfd { fd = sock, events = poll::event::POLLIN, ... },
+		poll::pollfd { fd = app, events = poll::event::POLLIN, ... },
+	];
+	for (let count = 0z; count < 1000000; count += 1) {
 		const now = monotonic_millis();
+		if (now / 1000 >= deadline) break;
 		if (pending_count != 0 && now >= next_retry_scan) {
 			for (let i = 0z; i < WINDOW; i += 1) if (pending_sequences[i] != 0 && now >= pending_at[i]) {
 				if (pending_retries[i] >= 8) { fmt::errorln("native retransmission limit reached")!; rt::exit(2); };
@@ -157,14 +178,17 @@ fn runtime(c: *configuration) void = {
 			next_retry_scan = now + 20;
 		};
 		const next_send_slot = ((sent + 1) % WINDOW: u64): size;
-		let poller = [
-			poll::pollfd { fd = sock, events = poll::event::POLLIN, ... },
-			poll::pollfd { fd = app, events = if (pending_count < WINDOW && pending_sequences[next_send_slot] == 0) poll::event::POLLIN else 0, ... },
-		];
-		if (poll::poll(poller, 20 * time::MILLISECOND) is poll::error) break;
+		const can_send = pending_count < WINDOW && pending_sequences[next_send_slot] == 0;
+		if (!can_send) poller[1].revents = 0;
+		if (burst == 0 || (poller[0].revents == 0 && poller[1].revents == 0)) {
+			poller[1].events = if (can_send) poll::event::POLLIN else 0;
+			if (poll::poll(poller, 20 * time::MILLISECOND) is poll::error) break;
+			burst = 32;
+		};
+		burst -= 1;
 		if (poller[0].revents & poll::event::POLLIN != 0) {
 			let source: ip::addr = ip::LOCAL_V6; let source_port = 0u16;
-			const n = match (udp::recvfrom(sock, packet, &source, &source_port)) { case let n: size => yield n; case => continue; };
+			const n = match (recv_available(sock, packet, &source, &source_port)) { case let n: size => yield n; case => poller[0].revents = 0; continue; };
 			if (n != 1024 || source_port != port || !ip::equal(source, addr)) continue;
 			if (generichash(&expected_hash[0], 32, &packet[32], 992, &rx[0], 32) != 0 || equal(&expected_hash[0], &packet[0], 32) != 0) continue;
 			if (chacha(&plain[0], &packet[44], 980, &packet[32], &rx[0]) != 0) continue;
@@ -213,7 +237,7 @@ fn runtime(c: *configuration) void = {
 		};
 		if (poller[1].revents & poll::event::POLLIN != 0 && pending_count < WINDOW && pending_sequences[next_send_slot] == 0) {
 			let source: ip::addr = ip::LOCAL_V6; let source_port = 0u16;
-			const n = match (udp::recvfrom(app, packet, &source, &source_port)) { case let n: size => yield n; case => continue; };
+			const n = match (recv_available(app, packet, &source, &source_port)) { case let n: size => yield n; case => poller[1].revents = 0; continue; };
 			if (n > 978 || sent >= 1000000) continue;
 			if (c.role == "client") {
 				if (local_port != 0 && (source_port != local_port || !ip::equal(source, local))) continue;

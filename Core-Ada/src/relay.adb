@@ -72,22 +72,40 @@ package body Relay is
          Output : Cells.Message := (others => 0);
          Plain : Cells.Plain_Cell;
          Wire : Cells.Wire_Cell;
+         Buffer : Cells.Bytes (1 .. Cells.Max_Fragments * Cells.Cell_Size);
+         Used : Natural := 0;
+         Offset : Natural;
+         N : Native.Int;
          State : Cells.Receiver := (Sequence => 1, Message_Id => 1, others => <>);
          Count : Cells.Length;
       begin
          while State.Mode /= Cells.Closed loop
             Check (Health.Alive);
             if Native.Ready (Remote) = 1 then
-               Check (Native.Read (Remote, Wire'Address, Cells.Cell_Size) = Cells.Cell_Size);
-               Plain := (others => 0);
-               declare Authenticated : constant Boolean := Native.Open_Cell
-                 (Receive_Key'Address, Native.Int (State.Sequence), Wire'Address, Plain'Address) = 0;
-               begin
-                  Cells.Accept_Cell (State, Plain, State.Sequence, Authenticated, Output, Count);
-               end;
-               Check (State.Mode /= Cells.Failed);
-               if Count > 0 then Check (Native.Write (Local, Output'Address, Native.Int (Count))); end if;
-               if State.Mode = Cells.Closed then Native.Half_Close (Local); end if;
+               N := Native.Read (Remote, Buffer (Used + 1)'Address,
+                 Native.Int (Buffer'Length - Used), 0);
+               Check (N > 0); -- raw EOF, including a partial cell, is invalid
+               Used := Used + Natural (N);
+               Offset := 0;
+               while Used - Offset >= Cells.Cell_Size loop
+                  Wire := Buffer (Offset + 1 .. Offset + Cells.Cell_Size);
+                  Offset := Offset + Cells.Cell_Size;
+                  Plain := (others => 0);
+                  declare Authenticated : constant Boolean := Native.Open_Cell
+                    (Receive_Key'Address, Native.Int (State.Sequence), Wire'Address, Plain'Address) = 0;
+                  begin
+                     Cells.Accept_Cell (State, Plain, State.Sequence, Authenticated, Output, Count);
+                  end;
+                  Check (State.Mode /= Cells.Failed);
+                  if Count > 0 then Check (Native.Write (Local, Output'Address, Native.Int (Count))); end if;
+                  if State.Mode = Cells.Closed then
+                     Check (Offset = Used); -- no trailing bytes after authenticated FIN
+                     Native.Half_Close (Local);
+                     exit;
+                  end if;
+               end loop;
+               Used := Used - Offset;
+               if Used > 0 then Buffer (1 .. Used) := Buffer (Offset + 1 .. Offset + Used); end if;
                Health.Touch;
             else Native.Wait_Readable (-1, Remote);
             end if;
