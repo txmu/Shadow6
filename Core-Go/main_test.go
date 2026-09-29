@@ -155,6 +155,40 @@ func TestConfigValidationAndPermissions(t *testing.T) {
 	}
 }
 
+func TestKCPParityShardsConfig(t *testing.T) {
+	clientKeys, brokerKeys, agentKeys := generateTestKeys(t), generateTestKeys(t), generateTestKeys(t)
+	client := &ClientConfig{
+		ID: "client-1", TargetAgent: "agent-1", BrokerAddrs: []string{"ws://127.0.0.1:4433/ws"},
+		BrokerPubKey: brokerKeys.publicHex, PrivateKey: clientKeys.privateHex,
+		AgentPubKey: agentKeys.publicHex, Transport: "kcp",
+	}
+	config := Config{Role: "client", Client: client}
+	if err := validateConfig(&config); err != nil || parityShards(client.KCPParityShards) != kcpParityShards {
+		t.Fatalf("absent kcp_parity_shards must keep the default: %v", err)
+	}
+	for _, value := range []int{0, 1, maxKCPParityShards} {
+		v := value
+		client.KCPParityShards = &v
+		if err := validateConfig(&config); err != nil || parityShards(client.KCPParityShards) != value {
+			t.Fatalf("kcp_parity_shards=%d rejected: %v", value, err)
+		}
+	}
+	for _, value := range []int{-1, maxKCPParityShards + 1} {
+		v := value
+		client.KCPParityShards = &v
+		if err := validateConfig(&config); err == nil {
+			t.Fatalf("kcp_parity_shards=%d was accepted", value)
+		}
+	}
+	var decoded ClientConfig
+	if err := decodeStrict([]byte(`{"id":"c","broker_addrs":[],"broker_pubkey":"","private_key":"","target_agent":"a","on_success":"","allow_local_discovery":false,"kcp_parity_shards":0}`), &decoded); err != nil || decoded.KCPParityShards == nil || *decoded.KCPParityShards != 0 {
+		t.Fatalf("explicit zero parity was not preserved: %v", err)
+	}
+	if err := decodeStrict([]byte(`{"kcp_parity_shards":1.5}`), &decoded); err == nil {
+		t.Fatal("fractional kcp_parity_shards was accepted")
+	}
+}
+
 func TestClientRequiresAgentKeyAndWebhookURLIsStrict(t *testing.T) {
 	clientKeys, brokerKeys := generateTestKeys(t), generateTestKeys(t)
 	config := Config{Role: "client", Client: &ClientConfig{
@@ -400,7 +434,7 @@ func TestBrokerAgentClientEndToEnd(t *testing.T) {
 	agentECDH, _ := ecdh.X25519().NewPublicKey(response.E2EEPubKey)
 	shared, _ := clientECDH.ECDH(agentECDH)
 	key, _ := deriveSymmetricKey(shared, request.E2EEPubKey, response.E2EEPubKey)
-	secure, err := dialSecureKCP(net.JoinHostPort(response.TargetIP, strconv.Itoa(response.KCPPort)), key)
+	secure, err := dialSecureKCP(net.JoinHostPort(response.TargetIP, strconv.Itoa(response.KCPPort)), key, kcpParityShards)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -475,7 +509,7 @@ func TestDialSecureKCPDualStack(t *testing.T) {
 				}
 				accepted <- readErr
 			}()
-			client, err := dialSecureKCP(listener.Addr().String(), key)
+			client, err := dialSecureKCP(listener.Addr().String(), key, kcpParityShards)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -823,7 +857,7 @@ func TestKCPBulkWithSmallSocketBuffers(t *testing.T) {
 			<-consumed
 		}
 	}()
-	client, err := dialSecureKCP(listener.Addr().String(), key)
+	client, err := dialSecureKCP(listener.Addr().String(), key, kcpParityShards)
 	if err != nil {
 		t.Fatal(err)
 	}

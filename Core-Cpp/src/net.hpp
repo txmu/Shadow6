@@ -39,7 +39,7 @@ inline HandshakeBudget handshake_budget;
 inline bool wait_fd(int fd, short events, Deadline until) {
   while (!stopped && Clock::now() < until) {
     pollfd p{fd, events, 0};
-    int n = poll(&p, 1, 100);
+    int n = poll(&p, 1, 5);
     if (n < 0 && errno != EINTR) return false;
     if (n > 0) return (p.revents & (events | POLLHUP | POLLERR)) != 0;
   }

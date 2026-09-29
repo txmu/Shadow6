@@ -12,11 +12,11 @@ const (
 	kcpSendWindow                       = 65_535
 	kcpReceiveWindow                    = 65_535
 	dataSocketBufferBytes               = 32 * 1024 * 1024
-	proxyCopyBufferBytes                = 256 * 1024
+	proxyCopyBufferBytes                = 1024 * 1024
 	maxAEADPlaintext                    = 1024 * 1024
 	// Copy batches and authenticated records serve different purposes. A
 	// record must arrive in full before any plaintext is released over KCP.
-	aeadRecordPlaintext   = 32 * 1024
+	aeadRecordPlaintext   = 256 * 1024
 	maxActiveTunnels      = 512
 	maxControlConnections = 4096
 	maxSessionsPerGrant   = 256

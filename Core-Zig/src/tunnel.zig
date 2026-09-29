@@ -36,12 +36,22 @@ pub const Tunnel = struct {
         errdefer _ = slots.fetchSub(1, .seq_cst);
         const self = try a.create(Tunnel);
         errdefer a.destroy(self);
-        var backend = try Backend.init();
-        errdefer backend.deinit();
         const bind_addr = try p.address(if (authorized.storage.ss_family == p.c.AF_INET) "0.0.0.0" else "::", 0);
         const udp = try p.bind(&bind_addr, true);
         errdefer p.close(udp);
-        self.* = .{ .parent = a, .backend = backend, .udp = udp, .master = master, .authorized = authorized, .target_port = target, .client = client, .deadline = p.now() + @as(i64, seconds) * 1000, .channels = undefined, .slots = slots };
+        // Assign fields in place: a whole-struct literal could materialize the
+        // backend send queue as a large temporary on the caller's stack.
+        self.parent = a;
+        self.udp = udp;
+        self.master = master;
+        self.authorized = authorized;
+        self.target_port = target;
+        self.client = client;
+        self.deadline = p.now() + @as(i64, seconds) * 1000;
+        self.channels = undefined;
+        self.slots = slots;
+        try self.backend.init();
+        errdefer self.backend.deinit();
         // Sixteen channels, each with bounded 256-packet TX/RX windows. The
         // slab is fixed and charged to the tunnel so a larger BDP window
         // cannot turn into unbounded process allocation.
@@ -184,7 +194,7 @@ pub const Tunnel = struct {
                 };
                 const now = p.now();
                 if (now >= ch.retry_scan) {
-                    ch.retry_scan = now + 20;
+                    ch.retry_scan = now + 5;
                     for (&ch.secure.pending) |*out| {
                         const retry = ch.secure.retry(out, now) catch {
                             retire(ch);
@@ -201,10 +211,10 @@ pub const Tunnel = struct {
                 }
             };
             if (self.client and active == 0) return;
-            try self.backend.poll(fds[0..count], 20);
+            try self.backend.poll(fds[0..count], 1);
             if (fds[0].revents & p.c.POLLIN != 0) {
                 var budget: usize = 0;
-                while (budget < 64) : (budget += 1) {
+                while (budget < 1024) : (budget += 1) {
                     var from = p.Address{};
                     const n = self.backend.receive(self.udp, &packet, &from) catch break;
                     self.receive(packet[0..n], from) catch {};
@@ -218,7 +228,7 @@ pub const Tunnel = struct {
                 // scans across available input. Bound work per channel so UDP
                 // ACKs, other channels and session deadlines remain serviced.
                 var budget: usize = 0;
-                while (budget < 64 and !ch.local_fin and ch.secure.canQueue()) : (budget += 1) {
+                while (budget < 256 and !ch.local_fin and ch.secure.canQueue()) : (budget += 1) {
                     const n = self.backend.tcpRead(ch.tcp, &data) catch break;
                     if (n == 0) ch.local_fin = true;
                     const out = ch.secure.queue(if (n == 0) .fin else .data, data[0..n], p.now()) catch break;

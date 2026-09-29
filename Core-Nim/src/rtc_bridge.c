@@ -50,11 +50,13 @@ static void wake_consumer(void) {
     }
 }
 static uint64_t next_generation;
+/* 128 x 64 KiB per channel, 20 channels: a fixed 160 MiB static bound. */
+#define RTC_QUEUE_DEPTH 128
 /* Fixed receive queues impose a bound even when an authenticated peer floods
  * while the Nim event loop is busy. These are reliable ordered streams:
  * dropping an already-delivered SCTP/WebSocket message would corrupt them.
  * Apply bounded callback backpressure until the consumer drains a slot. */
-static struct { int used, id, head, count, failed; uint64_t generation; int size[4]; char data[4][65536]; } queues[20];
+static struct { int used, id, head, count, failed; uint64_t generation; int size[RTC_QUEUE_DEPTH]; char data[RTC_QUEUE_DEPTH][65536]; } queues[20];
 static void message(int id, const char *data, int size, void *unused) {
     (void)unused;
     int n = size < 0 ? (int)strnlen(data,65536)+1 : size;
@@ -65,12 +67,12 @@ static void message(int id, const char *data, int size, void *unused) {
         struct timespec until;
         if (clock_gettime(CLOCK_REALTIME, &until)) queues[i].failed=1;
         else until.tv_sec += 5;
-        while (!queues[i].failed && queues[i].used && queues[i].generation==generation && queues[i].count==4) {
+        while (!queues[i].failed && queues[i].used && queues[i].generation==generation && queues[i].count==RTC_QUEUE_DEPTH) {
             int result = pthread_cond_timedwait(&space, &lock, &until);
             if (result && queues[i].used && queues[i].generation==generation) queues[i].failed=1;
         }
         if (!queues[i].failed && queues[i].used && queues[i].generation==generation) {
-            int slot=(queues[i].head+queues[i].count)%4;
+            int slot=(queues[i].head+queues[i].count)%RTC_QUEUE_DEPTH;
             memcpy(queues[i].data[slot],data,n);
             queues[i].size[slot]=size<0 ? -n : n;
             queues[i].count++;
@@ -112,7 +114,7 @@ int nim_rtc_receive(int id, char *data, int *size) {
         int slot=queues[i].head, n=queues[i].size[slot];
         if ((n<0 ? -n : n)>*size) break;
         memcpy(data,queues[i].data[slot],n<0 ? -n : n); *size=n;
-        queues[i].head=(slot+1)%4; queues[i].count--; result=0;
+        queues[i].head=(slot+1)%RTC_QUEUE_DEPTH; queues[i].count--; result=0;
         pthread_cond_broadcast(&space); break;
     }
     pthread_mutex_unlock(&lock);

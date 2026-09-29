@@ -173,17 +173,17 @@ fn runtime(c: *configuration) void = {
 			for (let i = 0z; i < WINDOW; i += 1) if (pending_sequences[i] != 0 && now >= pending_at[i]) {
 				if (pending_retries[i] >= 8) { fmt::errorln("native retransmission limit reached")!; rt::exit(2); };
 				if (udp::sendto(sock, pending_packets[i*1024 .. (i+1)*1024], addr, port) is net::error) rt::exit(2);
-				pending_retries[i] += 1; pending_at[i] = now + 200;
+				pending_retries[i] += 1; pending_at[i] = now + 100;
 			};
-			next_retry_scan = now + 20;
+			next_retry_scan = now + 5;
 		};
 		const next_send_slot = ((sent + 1) % WINDOW: u64): size;
 		const can_send = pending_count < WINDOW && pending_sequences[next_send_slot] == 0;
 		if (!can_send) poller[1].revents = 0;
 		if (burst == 0 || (poller[0].revents == 0 && poller[1].revents == 0)) {
 			poller[1].events = if (can_send) poll::event::POLLIN else 0;
-			if (poll::poll(poller, 20 * time::MILLISECOND) is poll::error) break;
-			burst = 32;
+			if (poll::poll(poller, 1 * time::MILLISECOND) is poll::error) break;
+			burst = 256;
 		};
 		burst -= 1;
 		if (poller[0].revents & poll::event::POLLIN != 0) {
@@ -251,7 +251,7 @@ fn runtime(c: *configuration) void = {
 			if (pending_sequences[slot] != 0) { fmt::errorln("bounded send window slot collision")!; rt::exit(2); };
 			pending_packets[slot*1024 .. (slot+1)*1024] = packet[..1024];
 			pending_sequences[slot] = seq; pending_retries[slot] = 0;
-			pending_at[slot] = monotonic_millis() + 200; pending_count += 1;
+			pending_at[slot] = monotonic_millis() + 100; pending_count += 1;
 			wipe(&plain[0], 980);
 		};
 	};

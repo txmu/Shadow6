@@ -80,7 +80,7 @@ static int idris_chain_broker(const struct sockaddr_in *bind_sa,
         if (!burst) {
             struct pollfd p = {.fd=fd,.events=POLLIN};
             if (poll(&p, 1, 1000)<=0 || !(p.revents&POLLIN)) continue;
-            burst = 64;
+            burst = 256;
         }
         --burst;
         struct sockaddr_in source; socklen_t sl=sizeof source;

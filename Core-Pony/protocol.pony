@@ -148,7 +148,7 @@ class ref ReliableSession
         due.push(packet.wire)
         // Spread recovery across bounded scheduler ticks instead of sending
         // the whole 4096-frame window into one socket mailbox at once.
-        if due.size() >= 32 then _retry_at = now; break end
+        if due.size() >= 256 then _retry_at = now; break end
       end
       let next = packet.last_sent + packet.timeout
       if (_retry_at == 0) or (next < _retry_at) then _retry_at = next end

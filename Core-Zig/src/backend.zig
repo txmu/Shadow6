@@ -6,10 +6,13 @@ const is_linux = builtin.os.tag == .linux;
 pub const Backend = struct {
     const Outgoing = struct { bytes: [1200]u8 = undefined, len: usize = 0, fd: c_int = -1, to: p.Address = .{}, iov: std.posix.iovec_const = undefined, msg: if (is_linux) linux.msghdr_const else void = undefined };
     ring: if (is_linux) linux.IoUring else void = undefined,
-    outgoing: [64]Outgoing = @splat(.{}),
+    outgoing: [1024]Outgoing = @splat(.{}),
     queued: usize = 0,
-    pub fn init() !Backend {
-        return if (is_linux) .{ .ring = try linux.IoUring.init(128, 0) } else .{};
+    // The 1024-slot send queue is ~1.3 MiB; initialize it in place inside the
+    // heap-allocated Tunnel rather than returning it by value on a caller stack.
+    pub fn init(self: *Backend) !void {
+        self.queued = 0;
+        if (is_linux) self.ring = try linux.IoUring.init(1024, 0);
     }
     pub fn deinit(self: *Backend) void {
         self.flush() catch {};

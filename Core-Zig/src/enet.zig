@@ -68,7 +68,7 @@ pub const Session = struct {
         const slot = &self.pending[self.next_tx % window];
         if (slot.active) return error.Backpressure;
         slot.* = try self.encode(kind, self.next_tx, data);
-        slot.deadline = now + 200;
+        slot.deadline = now + 100;
         slot.attempts = 1;
         self.in_flight += 1;
         self.next_tx += 1;
@@ -118,7 +118,7 @@ pub const Session = struct {
         if (!packet.active or packet.deadline > now) return false;
         if (packet.attempts >= 8) return error.RetryLimit;
         packet.attempts += 1;
-        packet.deadline = now + @min(@as(i64, 200) << @as(u6, @intCast(packet.attempts - 1)), 3000);
+        packet.deadline = now + @min(@as(i64, 100) << @as(u6, @intCast(packet.attempts - 1)), 3000);
         // One reduction for this flight, not one for every expired slot in
         // the same scan. Subsequent flights can trigger another reduction.
         if (packet.seq >= self.recovery_until) {
@@ -149,8 +149,8 @@ test "lost ACK, retransmission, bounded retries and window wrap" {
     const first = try sender.queue(.data, "first", 0);
     const bytes = first.bytes;
     _ = try receiver.decode(first.bytes[0..first.len]);
-    try std.testing.expect(!try sender.retry(first, 199));
-    try std.testing.expect(try sender.retry(first, 200));
+    try std.testing.expect(!try sender.retry(first, 99));
+    try std.testing.expect(try sender.retry(first, 100));
     try std.testing.expectEqualSlices(u8, bytes[0..first.len], first.bytes[0..first.len]);
     // Keep sequence zero outstanding while later packets are ACKed.
     sender.congestion = window;

@@ -1,8 +1,10 @@
 -module(shadow6_forward).
 -export([derive/5, relay/5, access_text/3, grant_text/3]).
 
--define(MAX_CHUNK, 32768).
--define(MAX_FRAME, 32798).
+%% Length is a 16-bit field (chunk + 16-byte tag), so 65504 is the largest
+%% 32-byte-aligned chunk that still fits a frame.
+-define(MAX_CHUNK, 65504).
+-define(MAX_FRAME, 65534).
 
 access_text(Client, Target, Ephemeral) ->
     <<"shadow6-gleam-access-v1\n",Client/binary,"\n",Target/binary,"\n",(hex(Ephemeral))/binary>>.

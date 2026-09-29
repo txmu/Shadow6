@@ -52,6 +52,8 @@ type AgentConfig struct {
 	AllowLocalDisc bool              `json:"allow_local_discovery"`
 	ClientPubKeys  map[string]string `json:"client_pubkeys,omitempty"`
 	Transport      string            `json:"transport,omitempty"`
+	// Optional KCP FEC parity shards; absent keeps the default, 0 disables FEC.
+	KCPParityShards *int `json:"kcp_parity_shards,omitempty"`
 }
 
 type ClientConfig struct {
@@ -64,6 +66,8 @@ type ClientConfig struct {
 	OnSuccess      string   `json:"on_success"`
 	AllowLocalDisc bool     `json:"allow_local_discovery"`
 	Transport      string   `json:"transport,omitempty"`
+	// Optional KCP FEC parity shards; absent keeps the default, 0 disables FEC.
+	KCPParityShards *int `json:"kcp_parity_shards,omitempty"`
 }
 
 type AccessReq struct {
@@ -209,6 +213,13 @@ func validateHTTPSURL(value string) error {
 	return nil
 }
 
+func validateParityShards(value *int) error {
+	if value != nil && (*value < 0 || *value > maxKCPParityShards) {
+		return fmt.Errorf("kcp_parity_shards must be between 0 and %d", maxKCPParityShards)
+	}
+	return nil
+}
+
 func validateConfig(config *Config) error {
 	switch config.Role {
 	case "broker":
@@ -285,6 +296,9 @@ func validateConfig(config *Config) error {
 		if agent.Transport != "" && agent.Transport != "kcp" {
 			return errors.New("Go data plane requires transport=kcp")
 		}
+		if err := validateParityShards(agent.KCPParityShards); err != nil {
+			return err
+		}
 		if len(agent.ClientPubKeys) == 0 {
 			return errors.New("agent requires client_pubkeys for end-to-end access authorization")
 		}
@@ -323,6 +337,9 @@ func validateConfig(config *Config) error {
 		}
 		if client.Transport != "" && client.Transport != "kcp" {
 			return errors.New("Go data plane requires transport=kcp")
+		}
+		if err := validateParityShards(client.KCPParityShards); err != nil {
+			return err
 		}
 	default:
 		return errors.New("role must be broker, agent, or client")

@@ -83,6 +83,10 @@ def generate_configs(output: Path, target_port: int, broker_port: int, engine: s
             "transport": transport,
         },
     }
+    if engine == "shadow6-go":
+        # Loopback/benign links do not need KCP FEC; declare it explicitly.
+        agent["agent"]["kcp_parity_shards"] = 0
+        client["client"]["kcp_parity_shards"] = 0
     for role, document in (("broker", broker), ("agent", agent), ("client", client)):
         if engine in ("shadow6-gleam", "shadow6-gleam-mux"):
             for other in ("broker", "agent", "client"):

@@ -59,7 +59,7 @@ inline void ready(const char *role, const Endpoint &ep) {
 }
 inline void serve(int listener, const std::function<void(int)> &handler) {
   struct Worker { std::thread thread; std::atomic<bool> done{true}; };
-  std::array<Worker, 16> workers;
+  std::array<Worker, 64> workers;
   struct Pending { Fd fd; Deadline expires; };
   std::deque<Pending> pending;
   while (!stopped) {
@@ -69,7 +69,7 @@ inline void serve(int listener, const std::function<void(int)> &handler) {
       Fd accepted(accept(listener, nullptr, nullptr));
       if (accepted && nonblocking(accepted.value)) pending.push_back({std::move(accepted), deadline()});
     } else if (pending.size() == 128) {
-      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
     for (auto &worker : workers) {
       if (pending.empty()) break;

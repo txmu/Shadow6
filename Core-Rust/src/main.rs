@@ -112,7 +112,7 @@ where
     R: tokio::io::AsyncRead + Unpin,
     W: tokio::io::AsyncWrite + Unpin,
 {
-    let mut buffered = tokio::io::BufReader::with_capacity(64 * 1024, reader);
+    let mut buffered = tokio::io::BufReader::with_capacity(1024 * 1024, reader);
     tokio::io::copy_buf(&mut buffered, writer).await
 }
 

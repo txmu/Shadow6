@@ -380,18 +380,18 @@ int idris_native_relay(int role,const char *bind_ip,unsigned int bind_port,const
         if(chain&&pending_count&&milliseconds>=next_retry_scan){
             for(unsigned i=0;i<IDRIS_CHAIN_WINDOW;++i)if(pending[i].used&&milliseconds>=pending[i].retry_at){
                 if(pending[i].retries++>=8||sendto(net,pending[i].bytes,pending[i].length,0,(struct sockaddr*)&peer_sa,sizeof peer_sa)!=(ssize_t)pending[i].length)goto done;
-                pending[i].retry_at=milliseconds+200;
+                pending[i].retry_at=milliseconds+100;
             }
-            next_retry_scan=milliseconds+20;
+            next_retry_scan=milliseconds+5;
         }
         unsigned next_slot=(unsigned)((sent+1)&(IDRIS_CHAIN_WINDOW-1));
         int can_send=!chain||(pending_count<IDRIS_CHAIN_WINDOW&&!pending[next_slot].used);
         if(!can_send)FD_CLR(local,&set);
         if(!burst||(!FD_ISSET(net,&set)&&!FD_ISSET(local,&set))){
             FD_ZERO(&set);FD_SET(net,&set);if(can_send)FD_SET(local,&set);
-            int top=net>local?net:local;struct timeval wait={.tv_sec=0,.tv_usec=chain?20000:100000};
+            int top=net>local?net:local;struct timeval wait={.tv_sec=0,.tv_usec=chain?1000:5000};
             int ready=select(top+1,&set,NULL,NULL,&wait);if(ready<0&&errno==EINTR)continue;if(ready<0)goto done;
-            burst=32;
+            burst=256;
         }
         --burst; /* retain the original per-iteration attempt bound */
         if(FD_ISSET(net,&set)){
@@ -464,7 +464,7 @@ int idris_native_relay(int role,const char *bind_ip,unsigned int bind_port,const
                         pending[slot].length=wn;pending[slot].sequence=seq;pending[slot].used=1;
                         if(sendto(net,pending[slot].bytes,wn,0,(struct sockaddr*)&peer_sa,sizeof peer_sa)!=(ssize_t)wn)goto done;
                         if(clock_gettime(CLOCK_MONOTONIC,&now))goto done;
-                        pending[slot].retry_at=(int64_t)now.tv_sec*1000+now.tv_nsec/1000000+200;
+                        pending[slot].retry_at=(int64_t)now.tv_sec*1000+now.tv_nsec/1000000+100;
                         ++pending_count;
                     }
                 }

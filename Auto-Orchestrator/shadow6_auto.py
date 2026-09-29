@@ -762,6 +762,10 @@ async def execute_mtd_rotation(topo: dict):
                 "transport": CORE_TRANSPORTS[core_engine],
             }
 
+        if core_engine == "shadow6-go" and node['type'] in {"agent", "client"}:
+            # Go KCP FEC is disabled explicitly; the Go Core validates 0..246.
+            config_data[node['type']]["kcp_parity_shards"] = 0
+
         if core_engine == "shadow6-ada":
             domains = {item["name"]: item.get("domain", "default") for item in topo["nodes"]}
             config_data[node["type"]]["domain"] = domains[node["name"]]

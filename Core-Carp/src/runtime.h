@@ -301,9 +301,9 @@ static struct packet chain_receive(void) {
     if (now >= chain_retry_scan) {
         for (unsigned i = 0; i < CARP_WINDOW; ++i) if (chain_pending[i].used && now >= chain_pending[i].retry_at) {
             if (chain_pending[i].retries++ >= 8 || send(udp_fd, chain_pending[i].bytes, WIRE, 0) != WIRE) exit(2);
-            chain_pending[i].retry_at = now + 200;
+            chain_pending[i].retry_at = now + 100;
         }
-        chain_retry_scan = now + 20;
+        chain_retry_scan = now + 5;
     }
     unsigned next_slot = (unsigned)((send_sequence + 1) & (CARP_WINDOW - 1));
     int can_send = chain_inflight < CARP_WINDOW && !chain_pending[next_slot].used;
@@ -311,9 +311,9 @@ static struct packet chain_receive(void) {
     if (!burst || !(f[0].revents | f[1].revents)) {
         f[0] = (struct pollfd){.fd=udp_fd,.events=POLLIN};
         f[1] = (struct pollfd){.fd=application_fd,.events=can_send ? POLLIN : 0};
-        int timeout = chain_inflight ? 20 : 100;
+        int timeout = chain_inflight ? 1 : 5;
         if (poll(f, 2, timeout) <= 0) return p;
-        burst = 32;
+        burst = 256;
     }
     --burst; /* each call still consumes the original outer packet budget */
     if (can_send && (f[1].revents & POLLIN)) {
@@ -339,7 +339,7 @@ static struct packet chain_receive(void) {
         if (chain_pending[next_slot].used || wrap(&p, total)) exit(2);
         memcpy(chain_pending[next_slot].bytes, p.bytes, WIRE);
         chain_pending[next_slot].sequence = send_sequence;
-        chain_pending[next_slot].retry_at = monotonic_millis() + 200;
+        chain_pending[next_slot].retry_at = monotonic_millis() + 100;
         chain_pending[next_slot].used = 1; ++chain_inflight;
         if (send(udp_fd, p.bytes, WIRE, 0) != WIRE) exit(2);
         sodium_memzero(input, sizeof input); sodium_memzero(&p, sizeof p);
@@ -371,7 +371,7 @@ static int chain_broker(const char *path, int local, int client, int agent) {
         if (!burst) {
             struct pollfd poller = {.fd=fd,.events=POLLIN};
             if (poll(&poller, 1, 1000) <= 0 || !(poller.revents & POLLIN)) continue;
-            burst = 64;
+            burst = 256;
         }
         --burst;
         struct sockaddr_in source; socklen_t sl = sizeof source;

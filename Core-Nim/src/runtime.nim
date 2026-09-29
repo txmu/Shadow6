@@ -40,14 +40,14 @@ proc receiveJson(id: cint; timeout = 10000): JsonNode =
     require(not isClosed(id))
     let data = receive(id, false)
     if data.len > 0: return strictJson(data)
-    sleep(5)
+    sleep(1)
   raise newException(ValueError, "control timeout")
 proc awaitOpen(id: cint) =
   require(id >= 0)
   let deadline = clock()+10000
   while not isOpen(id):
     require(clock() < deadline and not isClosed(id), "connection timeout")
-    sleep(5)
+    sleep(1)
 proc authPayload(identity, nonce: string): string =
   result = "shadow6-control-auth-v1"
   for field in [identity,nonce]:
@@ -139,13 +139,13 @@ proc broker(cfg: JsonNode) =
     for ws in removed:
       peers.del(ws)
       discard deleteWs(ws)
-    sleep(5)
+    sleep(1)
 
 proc signal(ws,pc: cint; cfg: JsonNode; session, recipient, kind: string) =
   let deadline = clock()+15000
   while gathered() == 0:
     require(clock() < deadline,"ICE gathering timeout")
-    sleep(5)
+    sleep(1)
   var buffer: array[16385,char]
   let size = getDescription(pc,addr buffer[0],buffer.len.cint)
   require(size > 0 and size <= buffer.len)
@@ -169,7 +169,7 @@ proc forward(dc: cint; cfg: JsonNode; client: bool) =
     while socket < 0:
       require(clock() < deadline and isOpen(dc))
       socket = tcpAccept(listener)
-      sleep(5)
+      sleep(1)
   else: socket = tcpConnect(cfg["target_port"].getInt.cint)
   require(socket >= 0)
   var outgoing, incoming: uint32
@@ -182,7 +182,7 @@ proc forward(dc: cint; cfg: JsonNode; client: bool) =
   while not (localEof and peerEof and pending.len == 0):
     require(clock() < deadline and isOpen(dc),"session closed or expired")
     var progressed = false
-    if not localEof and buffered(dc) < 131072:
+    if not localEof and buffered(dc) < 13107200:
       let n = tcpRead(socket,addr buffer[0],buffer.len.cint)
       if n >= 0:
         progressed = true
@@ -217,7 +217,7 @@ proc forward(dc: cint; cfg: JsonNode; client: bool) =
       else: require(n == -2)
     # One bounded wait services both TCP readiness and RTC callbacks.
     if not progressed:
-      require(waitIo(dc, socket, not localEof and buffered(dc) < 131072,
+      require(waitIo(dc, socket, not localEof and buffered(dc) < 13107200,
                      pending.len > 0) >= 0, "RTC receive queue closed")
 
 proc endpointRun(cfg: JsonNode; client: bool) =

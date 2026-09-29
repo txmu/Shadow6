@@ -24,7 +24,7 @@ actor SocketActor is (UDPSocketActor & UDPLifecycleEventReceiver)
   let _application: Bool
   var _inflight: USize = 0
   var _admitting: USize = 0
-  var _batch: Array[InboundDatagram iso] iso = recover iso Array[InboundDatagram iso](16) end
+  var _batch: Array[InboundDatagram iso] iso = recover iso Array[InboundDatagram iso](64) end
   var _batch_receiver: (DatagramReceiver | None) = None
   var _flush_pending: Bool = false
   let _routes: Map[U64, DatagramReceiver] = Map[U64, DatagramReceiver]
@@ -41,7 +41,7 @@ actor SocketActor is (UDPSocketActor & UDPLifecycleEventReceiver)
     _udp.set_so_sndbuf(1_048_576)
     _receiver.bound(_application)
   fun ref _on_received(data: Array[U8] iso, from: NetAddress val): ReadAction =>
-    if _inflight >= 256 then return YieldReading end
+    if _inflight >= 1024 then return YieldReading end
     if data.size() > ProtocolLimits.max_frame() then return KeepReading end
     if not _application then
       try
@@ -55,7 +55,7 @@ actor SocketActor is (UDPSocketActor & UDPLifecycleEventReceiver)
         let receiver = _routes(PeerRoute(from)?)?
         _inflight = _inflight + 1
         _enqueue(consume data, from, receiver)
-        return if _inflight >= 256 then YieldReading else KeepReading end
+        return if _inflight >= 1024 then YieldReading else KeepReading end
       end
       // Unknown peers can only request admission with a shaped hello. Keep
       // their work separate so a flood cannot fill all established credits.
@@ -68,7 +68,7 @@ actor SocketActor is (UDPSocketActor & UDPLifecycleEventReceiver)
     else _receiver.received(consume data, from, false, this) end
     // Yield at the credit bound so consumed messages can run promptly.
     // This net API has no UDP mute/unmute; YieldReading is a bounded turn.
-    if _inflight >= 256 then YieldReading else KeepReading end
+    if _inflight >= 1024 then YieldReading else KeepReading end
   fun ref _enqueue(data: Array[U8] iso, from: NetAddress val, receiver: DatagramReceiver) =>
     if _batch_receiver isnt receiver then _flush() end
     _batch_receiver = receiver
@@ -76,12 +76,12 @@ actor SocketActor is (UDPSocketActor & UDPLifecycleEventReceiver)
     // Always queue a flush for short bursts, including a single handshake
     // response. A batch never waits for another packet or a timer to arrive.
     if not _flush_pending then _flush_pending = true; flush() end
-    if _batch.size() >= 16 then _flush() end
+    if _batch.size() >= 64 then _flush() end
   fun ref _flush() =>
     if _batch.size() == 0 then return end
     match _batch_receiver
     | let receiver: DatagramReceiver =>
-      receiver.received_batch(_batch = recover iso Array[InboundDatagram iso](16) end,
+      receiver.received_batch(_batch = recover iso Array[InboundDatagram iso](64) end,
         _application, this)
     end
     _batch_receiver = None
@@ -153,7 +153,7 @@ actor Runtime is DatagramReceiver
       _target = targets(0)?
     else _closed = true; _main.failed() end
     _network = SocketActor(auth, config.bind_host, config.listen_port.string(), this, false)
-    _timers(Timer(_Tick(this), 10_000_000, 10_000_000))
+    _timers(Timer(_Tick(this), 1_000_000, 1_000_000))
   be failed() =>
     if not _closed then
       _closed = true; _network.dispose(); _timers.dispose(); _main.failed()

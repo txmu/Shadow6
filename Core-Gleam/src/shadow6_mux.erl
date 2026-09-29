@@ -7,7 +7,7 @@
 -define(MAX_PLAIN, 65465).
 %% Credits are replenished only by udp_passive, bounding queued datagrams
 %% to 32 per socket (at most about 2 MiB of payload at maximum frame size).
--define(OPTS, [binary, {active, 32}, {recbuf, 1048576}, {sndbuf, 1048576}]).
+-define(OPTS, [binary, {active, 1024}, {recbuf, 1048576}, {sndbuf, 1048576}]).
 
 family(Address) -> case tuple_size(Address) of 8 -> [inet6]; 4 -> [] end.
 now_ms() -> erlang:monotonic_time(millisecond).
@@ -50,7 +50,7 @@ agent_loop(Remote, Target, TargetPort, Tx, Rx, Peer, Seq, Replay, Deadline) ->
       true -> ok;
       false -> receive
         {udp_passive, Socket} when Socket =:= Remote; Socket =:= Target ->
-          ok = inet:setopts(Socket, [{active, 32}]),
+          ok = inet:setopts(Socket, [{active, 1024}]),
           agent_loop(Remote, Target, TargetPort, Tx, Rx, Peer, Seq, Replay, Deadline);
         {udp, Remote, IP, Port, Packet} when Peer =:= undefined; Peer =:= {IP, Port} ->
           case accept(0, Packet, Rx, Replay) of
@@ -91,7 +91,7 @@ client_loop(Local, Remote, RA, RP, Tx, Rx, App, Seq, Replay, Deadline) ->
       true -> ok;
       false -> receive
         {udp_passive, Socket} when Socket =:= Local; Socket =:= Remote ->
-          ok = inet:setopts(Socket, [{active, 32}]),
+          ok = inet:setopts(Socket, [{active, 1024}]),
           client_loop(Local, Remote, RA, RP, Tx, Rx, App, Seq, Replay, Deadline);
         {udp, Local, {127,0,0,1}, AppPort, Plain} when App =:= undefined; App =:= AppPort ->
           case byte_size(Plain) >= 1 andalso byte_size(Plain) =< ?MAX_PLAIN of

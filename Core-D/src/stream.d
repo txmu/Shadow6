@@ -96,7 +96,7 @@ private extern(C) int transfer(void* argument) {
     auto state = cast(Direction*)argument;
     uint sequence;
     // A worker owns its sequence, buffers and key direction for its lifetime.
-    enum BATCH = 16;
+    enum BATCH = 128;
     ubyte[MAX_CHUNK * BATCH] buffer;
     ubyte[MAX_FRAME * BATCH] wire;
     FrameReader reader;

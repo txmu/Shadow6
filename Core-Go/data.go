@@ -28,9 +28,20 @@ import (
 )
 
 const (
-	kcpDataShards   = 10
+	kcpDataShards = 10
+	// Default FEC parity when kcp_parity_shards is absent. Zero disables FEC.
 	kcpParityShards = 3
+	// kcp-go requires data+parity shards <= 256.
+	maxKCPParityShards = 256 - kcpDataShards
 )
+
+// parityShards resolves an optional kcp_parity_shards config value.
+func parityShards(configured *int) int {
+	if configured == nil {
+		return kcpParityShards
+	}
+	return *configured
+}
 
 var activeTunnelSlots = make(chan struct{}, maxActiveTunnels)
 var proxyBufferPool = sync.Pool{New: func() any {
@@ -243,8 +254,9 @@ func configureKCP(session *kcp.UDPSession) {
 	if dataBudget.congestionControl {
 		noCongestion = 0
 	}
-	// A bounded 10 ms flush services congestion-limited writers promptly.
-	session.SetNoDelay(1, 10, 2, noCongestion)
+	// Request a 1 ms flush interval. kcp-go v5.6.72 clamps intervals below
+	// 10 ms, so the effective interval stays 10 ms with this library version.
+	session.SetNoDelay(1, 1, 2, noCongestion)
 	session.SetACKNoDelay(true)
 	_ = session.SetMtu(kcpMTU)
 	_ = session.SetReadBuffer(dataBudget.socketBytes)
@@ -429,7 +441,7 @@ func (service *AgentService) provisionAccess(request *AccessReq) (*AccessResp, e
 	if authorizedIP.To4() != nil {
 		listenAddress = "0.0.0.0:0"
 	}
-	listener, err := kcp.ListenWithOptions(listenAddress, block, kcpDataShards, kcpParityShards)
+	listener, err := kcp.ListenWithOptions(listenAddress, block, kcpDataShards, parityShards(service.config.KCPParityShards))
 	if err != nil {
 		return nil, err
 	}
@@ -848,7 +860,7 @@ func verifyAgentAccess(config *ClientConfig, request *AccessReq, response *Acces
 	return nil
 }
 
-func dialSecureKCP(target string, key []byte) (*aeadConn, error) {
+func dialSecureKCP(target string, key []byte, parity int) (*aeadConn, error) {
 	block, err := kcp.NewAESBlockCrypt(key)
 	if err != nil {
 		return nil, err
@@ -875,7 +887,7 @@ func dialSecureKCP(target string, key []byte) (*aeadConn, error) {
 	// NewConn4 lets us select udp4/udp6 explicitly and transfers ownership of
 	// the packet socket to the session, avoiding both OpenBSD's generic-bind
 	// IPv4 default and a socket leak on close.
-	session, err := kcp.NewConn4(conversation, remote, block, kcpDataShards, kcpParityShards, true, packet)
+	session, err := kcp.NewConn4(conversation, remote, block, kcpDataShards, parity, true, packet)
 	if err != nil {
 		packet.Close()
 		return nil, err
@@ -994,7 +1006,7 @@ func startClient(config *Config) error {
 			go func() {
 				defer func() { <-localSlots }()
 				defer localConnection.Close()
-				secure, dialErr := dialSecureKCP(target, key)
+				secure, dialErr := dialSecureKCP(target, key, parityShards(client.KCPParityShards))
 				if dialErr != nil {
 					log.Printf("[Client] KCP session failed for %s: %v", target, dialErr)
 					return

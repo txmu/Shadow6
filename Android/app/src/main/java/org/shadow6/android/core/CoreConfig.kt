@@ -71,6 +71,7 @@ data class CoreProfile(
                     .put("allow_local_discovery", allowLocalDiscovery)
                     .put("client_pubkeys", strictKeyMap(JSONObject(StrictJson.objectValue(StrictJson.parse(clientPublicKeysJson.ifBlank { "{}" })))))
                     .put("transport", engine.transport)
+                goKcp(engine, section)
                 rustTls(engine, section)
                 root.put("agent", section)
             }
@@ -87,6 +88,7 @@ data class CoreProfile(
                     .put("on_success", "")
                     .put("allow_local_discovery", allowLocalDiscovery)
                     .put("transport", engine.transport)
+                goKcp(engine, section)
                 rustTls(engine, section)
                 root.put("client", section)
             }
@@ -98,6 +100,11 @@ data class CoreProfile(
         val values = brokerAddresses.lineSequence().map(String::trim).filter(String::isNotEmpty).toList()
         require(values.isNotEmpty() && values.size <= 16 && values.all { it.length <= 2048 && !it.contains(Regex("[\\r\\n\\u0000]")) }) { "Enter 1–16 valid broker addresses, one per line" }
         return JSONArray(values)
+    }
+
+    // Go KCP FEC is disabled explicitly; other Cores reject this Go-only field.
+    private fun goKcp(engine: CoreEngine, section: JSONObject) {
+        if (engine == CoreEngine.GO) section.put("kcp_parity_shards", 0)
     }
 
     private fun rustTls(engine: CoreEngine, section: JSONObject) {

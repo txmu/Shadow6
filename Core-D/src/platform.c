@@ -265,10 +265,10 @@ int d_wait_pair(int a, int b) {
         if (valid(hs[i]) && handles[hs[i]].tls && SSL_pending(handles[hs[i]].tls)) return 1;
         p[i] = (struct pollfd){valid(hs[i]) ? handles[hs[i]].fd : -1, POLLIN, 0};
     }
-    int result = poll(p, 2, 100);
+    int result = poll(p, 2, 5);
     return result < 0 && errno == EINTR ? 0 : result;
 }
-void d_pause(void) { struct timespec t = {0, 10000000}; nanosleep(&t, NULL); }
+void d_pause(void) { struct timespec t = {0, 1000000}; nanosleep(&t, NULL); }
 void d_half_close(int h) { if (valid(h)) shutdown(handles[h].fd, SHUT_WR); }
 
 /* The relay owns both handles until this join returns. Each worker exclusively
@@ -291,7 +291,8 @@ int d_run_pair(int local, int remote, int (*run)(void *), void *tx, void *rx) {
     pthread_t worker;
     pthread_attr_t attributes;
     if (pthread_attr_init(&attributes)) return 0;
-    int error = pthread_attr_setstacksize(&attributes, 256 * 1024);
+    /* BATCH=128 transfer buffers need ~270 KiB of worker stack. */
+    int error = pthread_attr_setstacksize(&attributes, 1024 * 1024);
     if (!error) error = pthread_create(&worker, &attributes, relay_worker, &writer);
     pthread_attr_destroy(&attributes);
     if (error) return 0;
