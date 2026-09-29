@@ -220,8 +220,11 @@ int d_tls(int h, const char *host, const char *cert, const char *key) {
         if (waitfd(handles[h].fd, e == SSL_ERROR_WANT_READ ? POLLIN : POLLOUT, deadline)) return -1;
     }
 }
+/* Stream I/O bound: covers the 128-frame relay batch (128 KiB plaintext,
+ * ~135 KiB wire) while keeping every single call finite. */
+#define D_IO_MAX (256 * 1024)
 int d_read(int h, void *buf, int n, int exact) {
-    if (!valid(h) || n < 0 || n > 65536) return -1;
+    if (!valid(h) || n < 0 || n > D_IO_MAX) return -1;
     int used = 0; int64_t deadline = d_clock() + 10000;
     while (used < n) {
         if (d_clock() >= deadline) return -1;
@@ -236,7 +239,7 @@ int d_read(int h, void *buf, int n, int exact) {
     return used;
 }
 int d_write(int h, const void *buf, int n) {
-    if (!valid(h) || n < 0 || n > 65536) return -1;
+    if (!valid(h) || n < 0 || n > D_IO_MAX) return -1;
     int used = 0; int64_t deadline = d_clock() + 10000;
     while (used < n) {
         if (d_clock() >= deadline) return -1;
