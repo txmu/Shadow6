@@ -81,8 +81,8 @@ class ModelPipeline(RFModelPipeline):
             last_seen = {}
             with PcapReader(pcap_path) as packets:
                 for index, packet in enumerate(packets):
-                    if index >= max_packets:
-                        raise ValueError(f"PCAP exceeds max_packets={max_packets}")
+                    if max_packets > 0 and index >= max_packets:
+                        break
                     network = packet.getlayer(IP) or packet.getlayer(IPv6)
                     if network is None:
                         continue
@@ -320,6 +320,7 @@ def main() -> int:
     actions.add_argument("--test", action="store_true")
     actions.add_argument("--generate-dummy", metavar="CSV")
     actions.add_argument("--extract-pcap", nargs=3, metavar=("NORMAL_PCAP", "PROBE_PCAP", "OUT_CSV"))
+    actions.add_argument("--max-packets", type=int, default=1_000_000, help="per-PCAP limit; 0 means unlimited")
     actions.add_argument("--train", nargs=2, metavar=("DATASET_CSV", "MODEL_OUT"))
     actions.add_argument("--detect", action="store_true")
     parser.add_argument("--model-type", choices=("rf", "lstm"), default="rf")
@@ -339,7 +340,7 @@ def main() -> int:
         ModelPipeline.generate_dummy_dataset(args.generate_dummy)
         return 0
     if args.extract_pcap:
-        ModelPipeline.extract_pcap_to_csv(*args.extract_pcap)
+        ModelPipeline.extract_pcap_to_csv(*args.extract_pcap, max_packets=args.max_packets)
         return 0
     if args.train:
         if args.model_type == "rf":
