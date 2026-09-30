@@ -37,6 +37,43 @@ CODE_RE = re.compile(r"^[A-Za-z0-9_-]{40}$")
 CORE_NAMES = frozenset(("go", "rust", "gleam", "ada", "nim", "pony", "zig", "d", "cpp", "idris", "hare", "carp"))
 PROFILE_SCHEMA = "shadow6.public-node-profile.v1"
 INVITATION_PREFIX = "S6INV1."
+PROTOCOL_PREFIX = "S6P1."
+
+def pack_protocol(envelope: dict) -> str:
+    """Encode a platform-neutral Shadow6 protocol envelope.
+
+    The payload is data only: runtimes decide which supported fields they use.
+    This keeps Core binaries unchanged while allowing every role/component to
+    share one import format.
+    """
+    if type(envelope) is not dict or set(envelope) - {"schema", "version", "purpose", "core", "role", "identity", "routes", "components", "credentials"}:
+        raise ValueError("invalid Shadow6 protocol envelope")
+    required = {"schema", "version", "purpose", "core", "role", "identity", "routes", "components", "credentials"}
+    if set(envelope) != required or envelope["schema"] != "shadow6.protocol-envelope.v1" or envelope["version"] != 1:
+        raise ValueError("invalid Shadow6 protocol envelope schema")
+    if not isinstance(envelope["purpose"], str) or not 1 <= len(envelope["purpose"]) <= 64:
+        raise ValueError("invalid envelope purpose")
+    if not isinstance(envelope["core"], str) or envelope["core"] not in CORE_NAMES and envelope["core"] != "all":
+        raise ValueError("invalid envelope Core")
+    if not isinstance(envelope["role"], str) or envelope["role"] not in ("broker", "agent", "client", "gate", "relay", "plugin", "all"):
+        raise ValueError("invalid envelope role")
+    if not isinstance(envelope["identity"], dict) or not isinstance(envelope["routes"], list) or not isinstance(envelope["components"], dict) or not isinstance(envelope["credentials"], dict):
+        raise ValueError("invalid envelope sections")
+    raw = json.dumps(envelope, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False).encode()
+    token = PROTOCOL_PREFIX + base64.urlsafe_b64encode(raw).decode().rstrip("=")
+    if len(token) > 65536: raise ValueError("protocol envelope is oversized")
+    return token
+
+def unpack_protocol(token: str) -> dict:
+    if type(token) is not str or not token.startswith(PROTOCOL_PREFIX) or len(token) > 65536:
+        raise ValueError("invalid Shadow6 protocol envelope")
+    try:
+        raw = base64.urlsafe_b64decode(token[len(PROTOCOL_PREFIX):] + "===")
+        value = json.loads(raw, object_pairs_hook=_pairs, parse_float=_reject_float, parse_constant=_reject_float)
+    except Exception as exc:
+        raise ValueError("invalid Shadow6 protocol envelope encoding") from exc
+    pack_protocol(value)
+    return value
 
 def pack_invitation(code: str, profile: dict, gate_public_key: str) -> str:
     """Create one portable invitation carrying code, profile and Gate pin."""

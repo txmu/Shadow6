@@ -11,7 +11,7 @@ from python_runtime import bootstrap
 if __name__ == "__main__":
     bootstrap(ROOT, Path(__file__).resolve())
 sys.path.insert(0, str(ROOT / "Public6"))
-from join_code import resolve, install_peer, unpack_invitation
+from join_code import resolve, install_peer, unpack_invitation, unpack_protocol
 
 CORE_NAMES = ("go", "rust", "gleam", "ada", "nim", "pony", "zig", "d", "cpp", "idris", "hare", "carp")
 
@@ -76,10 +76,17 @@ def main():
     p.add_argument("--check", action="store_true", help="validate the invitation/profile without writing files")
     p.add_argument("--code-file", type=Path, help="read invitation from an owner-only 0600 file")
     p.add_argument("--invitation", help="single long S6INV1 invitation containing code, profile and Gate pin")
+    p.add_argument("--protocol-envelope", help="universal S6P1 envelope; extracts its Public6 invitation when present")
     p.add_argument("--list-routes", action="store_true", help="resolve invitation and show offered core transports without provisioning")
     p.add_argument("--native-config", type=Path, help="validate and emit a bounded native configuration alongside Virtual Peer files")
     args = p.parse_args()
     try:
+        if args.protocol_envelope:
+            envelope = unpack_protocol(args.protocol_envelope)
+            embedded = envelope.get("credentials", {}).get("public6_invitation")
+            if not isinstance(embedded, str):
+                raise ValueError("protocol envelope has no public6_invitation credential")
+            args.invitation = embedded
         if args.invitation:
             invitation = unpack_invitation(args.invitation)
             args.code, args.profile, args.pin = invitation["code"], None, invitation["gate_public_key"]

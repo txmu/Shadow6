@@ -6,11 +6,20 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from join_code import decode, install_peer, issue, peer_public, provision, resolve, validate_profile
+from join_code import decode, install_peer, issue, peer_public, provision, resolve, validate_profile, pack_protocol, unpack_protocol
 from virtual_peer import load_config as load_peer
 
 
 class JoinCodeTests(unittest.TestCase):
+    def test_universal_protocol_envelope_round_trip(self):
+        value = {"schema": "shadow6.protocol-envelope.v1", "version": 1,
+                 "purpose": "public-node", "core": "all", "role": "client",
+                 "identity": {"id": "device-01"}, "routes": [],
+                 "components": {"gate": True, "virtual_broker": True},
+                 "credentials": {"public6_invitation": "S6INV1.example"}}
+        self.assertEqual(unpack_protocol(pack_protocol(value)), value)
+        with self.assertRaises(ValueError):
+            unpack_protocol("S6P1.bad")
     def test_android_wire_vector(self):
         code = "A8YzZAoBuwABAgMEBQYHCAkKCwwNDg8QERITFBUW"
         self.assertEqual(decode(code)["lookup_id"], "29ba43311f908fa99653084749d2078ded0d30252704a1c7f5cd3f082a03b082")
