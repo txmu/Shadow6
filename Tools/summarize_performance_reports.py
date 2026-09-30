@@ -9,7 +9,7 @@ def num(v, digits=2):
 
 def main(root: Path, out: Path) -> None:
     lines = ["# Shadow6 performance-all | source: GitHub Actions artifact | fmt: Core Proto Dir(F/R) Base? Gbps Loss/Retrans CPU(s) Mem(MB) Errors"]
-    reports = sorted(root.rglob("report.json"))
+    reports = sorted(root.rglob("shadow6-linux-iperf-chain/report.json"))
     for path in reports:
         data = json.loads(path.read_text())
         env = data.get("environment", {})
@@ -17,7 +17,8 @@ def main(root: Path, out: Path) -> None:
         arch = env.get("machine", "unknown")
         logical = data.get("logical_cpus", "?")
         title = path.parent.name
-        lines.append(f"\n# {platform} | arch={arch} | CPUs={logical} | report={path.relative_to(root)}")
+        if "linux-iperf-chain" not in str(path):
+            continue
         for row in data.get("results", []):
             core = row.get("core") or re.sub(r"^(shadow6-iperf3-|shadow6-)|(-network-benchmark.*|-iperf-chain)$", "", title)
             proto = row.get("protocol", "?")
