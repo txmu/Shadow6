@@ -9,6 +9,7 @@ reported. Parallelism means independent native trios, not worker threads.
 """
 from __future__ import annotations
 import argparse
+import errno
 from contextlib import nullcontext
 from types import SimpleNamespace
 from concurrent.futures import ThreadPoolExecutor
@@ -190,12 +191,24 @@ class Frontend:
                             except BlockingIOError: continue
                             del pending[connection][:sent]
         except OSError as error:
-            if not self.stop.is_set(): self.errors.append(str(error))
+            # Once one side has sent FIN, the peer may report the orderly
+            # close as EPIPE/ECONNRESET while the bounded fixture drains. Do
+            # not turn that expected half-close into a failed benchmark.
+            if not self.stop.is_set() and error.errno not in (getattr(errno, 'EPIPE', 32), getattr(errno, 'ECONNRESET', 104)):
+                self.errors.append(str(error))
 
     def __enter__(self): self.thread.start(); return self
     def __exit__(self, *args):
-        self.stop.set(); self.listener.close(); self.thread.join(1)
-        for worker in self.threads: worker.join(1)
+        # Stop accepting new clients, then let active copies propagate FIN in
+        # both directions before closing descriptors. Closing during a pending
+        # write was the source of spurious RST/EPIPE reports in CI.
+        self.listener.close()
+        self.thread.join(2)
+        for worker in self.threads:
+            worker.join(5)
+        self.stop.set()
+        for worker in self.threads:
+            worker.join(1)
 
 
 def measure(endpoint, target, processes, seconds, reverse, rate, baseline=False):
