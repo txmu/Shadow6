@@ -103,13 +103,16 @@ class ModelPipeline:
         labels = sorted(frame["label"].unique().tolist())
         if labels != [0, 1]:
             raise ValueError("dataset labels must be exactly 0 and 1")
-        train_x, test_x, train_y, test_y = train_test_split(
-            frame[FEATURE_COLUMNS],
-            frame["label"],
-            test_size=0.2,
-            random_state=42,
-            stratify=frame["label"],
-        )
+        if "flow_id" in frame:
+            from sklearn.model_selection import GroupShuffleSplit
+            split = GroupShuffleSplit(n_splits=1, test_size=0.2, random_state=42)
+            train_i, test_i = next(split.split(frame, frame["label"], groups=frame["flow_id"].astype(str)))
+            train_x, test_x = frame.iloc[train_i][FEATURE_COLUMNS], frame.iloc[test_i][FEATURE_COLUMNS]
+            train_y, test_y = frame.iloc[train_i]["label"], frame.iloc[test_i]["label"]
+        else:
+            train_x, test_x, train_y, test_y = train_test_split(
+                frame[FEATURE_COLUMNS], frame["label"], test_size=0.2, random_state=42, stratify=frame["label"]
+            )
         classifier = RandomForestClassifier(
             n_estimators=100,
             max_depth=10,

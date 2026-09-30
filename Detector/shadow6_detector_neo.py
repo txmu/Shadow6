@@ -95,6 +95,7 @@ class ModelPipeline(RFModelPipeline):
                     timestamp = float(packet.time)
                     iat = max(0.0, timestamp - last_seen.get(flow, timestamp))
                     last_seen[flow] = timestamp
+                    flow_id = "|".join(map(str, flow))
                     rows.append(
                         [
                             len(packet),
@@ -103,11 +104,12 @@ class ModelPipeline(RFModelPipeline):
                             len(payload),
                             iat,
                             label,
+                            flow_id,
                         ]
                     )
         if not rows:
             raise ValueError("no IPv4/IPv6 packets were extracted")
-        frame = pd.DataFrame(rows, columns=FEATURE_COLUMNS + ["label"])
+        frame = pd.DataFrame(rows, columns=FEATURE_COLUMNS + ["label", "flow_id"])
         atomic_write_csv(output_csv, frame)
         logger.info("Extracted %d packets into %s", len(rows), output_csv)
 
@@ -152,13 +154,17 @@ class ModelPipeline(RFModelPipeline):
         class_counts = collections.Counter(sequence_labels.tolist())
         if set(class_counts) != {0, 1} or min(class_counts.values()) < 2:
             raise ValueError("sliding windows must contain at least two samples from each class")
-        train_x, test_x, train_y, test_y = train_test_split(
-            sequences,
-            sequence_labels,
-            test_size=0.2,
-            random_state=42,
-            stratify=sequence_labels,
-        )
+        if "flow_id" in frame:
+            from sklearn.model_selection import GroupShuffleSplit
+            sequence_groups = frame["flow_id"].astype(str).to_numpy()[window_size - 1:]
+            split = GroupShuffleSplit(n_splits=1, test_size=0.2, random_state=42)
+            train_i, test_i = next(split.split(sequences, sequence_labels, groups=sequence_groups))
+            train_x, test_x = sequences[train_i], sequences[test_i]
+            train_y, test_y = sequence_labels[train_i], sequence_labels[test_i]
+        else:
+            train_x, test_x, train_y, test_y = train_test_split(
+                sequences, sequence_labels, test_size=0.2, random_state=42, stratify=sequence_labels
+            )
         torch.manual_seed(42)
         model = DPI_LSTM()
         optimizer = optim.Adam(model.parameters(), lr=0.001)
@@ -320,7 +326,7 @@ def main() -> int:
     actions.add_argument("--test", action="store_true")
     actions.add_argument("--generate-dummy", metavar="CSV")
     actions.add_argument("--extract-pcap", nargs=3, metavar=("NORMAL_PCAP", "PROBE_PCAP", "OUT_CSV"))
-    actions.add_argument("--max-packets", type=int, default=1_000_000, help="per-PCAP limit; 0 means unlimited")
+    parser.add_argument("--max-packets", type=int, default=1_000_000, help="per-PCAP limit; 0 means unlimited")
     actions.add_argument("--train", nargs=2, metavar=("DATASET_CSV", "MODEL_OUT"))
     actions.add_argument("--detect", action="store_true")
     parser.add_argument("--model-type", choices=("rf", "lstm"), default="rf")

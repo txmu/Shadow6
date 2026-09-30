@@ -68,6 +68,14 @@ tar --mode=go-w \
     --exclude='*/.nox' \
     --exclude='*/.cache' \
     --exclude='*/.coverage*' \
+    --exclude="$project_name/Detector/datasets" \
+    --exclude="$project_name/Detector/models" \
+    --exclude='*/datasets/*' \
+    --exclude='*/models/*' \
+    --exclude='*.pcap' \
+    --exclude='*.csv' \
+    --exclude='*.pt' \
+    --exclude='*.pth' \
     -czpf "$tar_tmp" "$project_name"
 if [[ "$apk_included" == 1 ]]; then
     tar -tzf "$tar_tmp" "$apk_archive_path" >/dev/null || {
@@ -124,6 +132,14 @@ tar --exclude="$project_name/.venv" \
     --exclude='*/.nox' \
     --exclude='*/.cache' \
     --exclude='*/.coverage*' \
+    --exclude="$project_name/Detector/datasets" \
+    --exclude="$project_name/Detector/models" \
+    --exclude='*/datasets/*' \
+    --exclude='*/models/*' \
+    --exclude='*.pcap' \
+    --exclude='*.csv' \
+    --exclude='*.pt' \
+    --exclude='*.pth' \
     --exclude="$project_name/Core-Go/shadow6-go" \
     --exclude="$project_name/Core-Go/shadow6-go-crosed" \
     --exclude="$project_name/Core-Go/shadow6-go-public6" \
