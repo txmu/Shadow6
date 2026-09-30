@@ -300,7 +300,7 @@ component's normal arguments. For an external installation prefix, run
 This mode checks only the selected executable entry points; use the regular
 `doctor` for a complete Shadow6 deployment audit. A copied CLI can also route
 to companion `shadow6-*` binaries beside it without a Shadow6 source tree.
-A latest CI measurement (2026-09-30) for the Linux iperf chain is recorded below. Base is the direct baseline; format is `Core Proto Dir(F/R) Base? Gbps Loss/Retrans CPU(s) Mem(MB)`.
+2026-09-30 第3次性能测试（CI 36732325902，commit 4cf9d7b） for the Linux iperf chain is recorded below. Base is the direct baseline; format is `Core Proto Dir(F/R) Base? Gbps Loss/Retrans CPU(s) Mem(MB)`.
 
 ```text
 zig tcp F base 12.86 - 0 0.00 0
