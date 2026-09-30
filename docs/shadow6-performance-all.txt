@@ -1,0 +1,571 @@
+# Shadow6 performance-all | source: GitHub Actions artifact | fmt: Core Proto Dir(F/R) Base? Gbps Loss/Retrans CPU(s) Mem(MB) Errors
+
+# Linux-6.17.0-1022-azure-aarch64-with | arch=aarch64 | CPUs=? | report=shadow6-iperf3-alpine-aarch64/report.json
+alpine-aarch64 tcp F node 63.57 - 0 100.00 - -
+alpine-aarch64 tcp F node 121.49 - 0 197.50 - -
+alpine-aarch64 tcp F node 178.43 - 0 186.95 - -
+alpine-aarch64 tcp F node 185.01 - 1 211.83 - -
+alpine-aarch64 tcp F node 183.13 - 46 214.27 - -
+alpine-aarch64 udp F node 2.00 0.0% - 5.91 - -
+alpine-aarch64 udp F node 2.00 0.0% - 9.96 - -
+alpine-aarch64 udp F node 2.00 0.0% - 9.83 - -
+alpine-aarch64 tcp R node 62.13 - 0 61.84 - -
+alpine-aarch64 tcp R node 121.72 - 0 124.48 - -
+alpine-aarch64 tcp R node 177.51 - 0 213.44 - -
+alpine-aarch64 tcp R node 185.39 - 43 189.68 - -
+alpine-aarch64 tcp R node 183.94 - 9 185.09 - -
+alpine-aarch64 udp R node 2.00 0.0% - 3.30 - -
+alpine-aarch64 udp R node 2.00 0.0% - 4.70 - -
+alpine-aarch64 udp R node 2.00 0.0% - 6.16 - -
+alpine-aarch64 tcp F node 61.46 - 0 100.05 - -
+alpine-aarch64 tcp F node 120.20 - 0 198.12 - -
+alpine-aarch64 tcp F node 174.25 - 0 184.63 - -
+alpine-aarch64 tcp F node 183.76 - 1 217.71 - -
+alpine-aarch64 tcp F node 183.73 - 14 211.78 - -
+alpine-aarch64 udp F node 2.00 0.0% - 5.77 - -
+alpine-aarch64 udp F node 2.00 0.0% - 9.76 - -
+alpine-aarch64 udp F node 2.00 0.0% - 9.60 - -
+alpine-aarch64 tcp R node 61.85 - 0 62.41 - -
+alpine-aarch64 tcp R node 120.22 - 0 125.41 - -
+alpine-aarch64 tcp R node 175.98 - 0 212.07 - -
+alpine-aarch64 tcp R node 183.38 - 0 182.58 - -
+alpine-aarch64 tcp R node 182.45 - 11 186.62 - -
+alpine-aarch64 udp R node 2.00 0.0% - 3.33 - -
+alpine-aarch64 udp R node 2.00 0.0% - 4.72 - -
+alpine-aarch64 udp R node 2.00 0.0% - 6.14 - -
+
+# Linux-6.17.0-1022-azure-x86_64-with | arch=x86_64 | CPUs=? | report=shadow6-iperf3-alpine-x86_64/report.json
+alpine-x86_64 tcp F node 50.12 - 0 100.08 - -
+alpine-x86_64 tcp F node 115.04 - 0 199.85 - -
+alpine-x86_64 tcp F node 136.23 - 3 213.21 - -
+alpine-x86_64 tcp F node 133.25 - 2 244.77 - -
+alpine-x86_64 tcp F node 131.90 - 45 222.32 - -
+alpine-x86_64 udp F node 2.00 0.0% - 8.99 - -
+alpine-x86_64 udp F node 2.00 0.0% - 10.01 - -
+alpine-x86_64 udp F node 2.00 0.0% - 7.92 - -
+alpine-x86_64 tcp R node 49.88 - 0 63.53 - -
+alpine-x86_64 tcp R node 107.30 - 0 116.67 - -
+alpine-x86_64 tcp R node 132.11 - 1 189.42 - -
+alpine-x86_64 tcp R node 131.31 - 37 152.66 - -
+alpine-x86_64 tcp R node 131.97 - 122 179.92 - -
+alpine-x86_64 udp R node 2.00 0.0% - 6.37 - -
+alpine-x86_64 udp R node 2.00 0.0% - 4.33 - -
+alpine-x86_64 udp R node 2.00 0.0% - 4.88 - -
+alpine-x86_64 tcp F node 47.87 - 0 100.06 - -
+alpine-x86_64 tcp F node 107.45 - 0 199.96 - -
+alpine-x86_64 tcp F node 127.85 - 0 213.07 - -
+alpine-x86_64 tcp F node 129.41 - 14 234.15 - -
+alpine-x86_64 tcp F node 129.71 - 77 224.58 - -
+alpine-x86_64 udp F node 2.00 0.0% - 8.70 - -
+alpine-x86_64 udp F node 2.00 0.0% - 10.83 - -
+alpine-x86_64 udp F node 2.00 0.0% - 8.68 - -
+alpine-x86_64 tcp R node 47.30 - 0 63.11 - -
+alpine-x86_64 tcp R node 101.05 - 0 116.53 - -
+alpine-x86_64 tcp R node 123.81 - 0 191.27 - -
+alpine-x86_64 tcp R node 120.13 - 44 150.92 - -
+alpine-x86_64 tcp R node 124.65 - 70 160.55 - -
+alpine-x86_64 udp R node 2.00 0.0% - 6.44 - -
+alpine-x86_64 udp R node 2.00 0.0% - 4.41 - -
+alpine-x86_64 udp R node 2.00 0.0% - 5.17 - -
+
+# FreeBSD-14.4-RELEASE-arm64-aarch64-64bit-ELF | arch=arm64 | CPUs=? | report=shadow6-iperf3-freebsd-arm64/report.json
+freebsd-arm64 tcp F node 6.44 - 0 57.89 - -
+freebsd-arm64 tcp F node 8.80 - 1 58.56 - -
+freebsd-arm64 tcp F node 7.72 - 1 64.54 - -
+freebsd-arm64 tcp F node 7.56 - 0 66.81 - -
+freebsd-arm64 tcp F node 7.65 - 0 66.80 - -
+freebsd-arm64 udp F node 1.55 1.0% - 79.84 - -
+freebsd-arm64 udp F node 1.89 34.6% - 108.80 - -
+freebsd-arm64 udp F node 1.69 19.5% - 103.06 - -
+freebsd-arm64 tcp R node 5.98 - 0 66.74 - -
+freebsd-arm64 tcp R node 8.45 - 0 71.15 - -
+freebsd-arm64 tcp R node 6.61 - 0 75.67 - -
+freebsd-arm64 tcp R node 6.71 - 0 75.35 - -
+freebsd-arm64 tcp R node 6.36 - 0 74.54 - -
+freebsd-arm64 udp R node 1.33 1.6% - 63.83 - -
+freebsd-arm64 udp R node 1.87 45.8% - 47.24 - -
+freebsd-arm64 udp R node 1.76 75.4% - 26.94 - -
+freebsd-arm64 tcp F node 4.99 - 0 57.40 - -
+freebsd-arm64 tcp F node 7.59 - 0 57.43 - -
+freebsd-arm64 tcp F node 7.20 - 1 63.18 - -
+freebsd-arm64 tcp F node 6.97 - 0 64.22 - -
+freebsd-arm64 tcp F node 6.88 - 1 64.71 - -
+freebsd-arm64 udp F node 1.42 1.1% - 83.74 - -
+freebsd-arm64 udp F node 1.71 38.1% - 110.65 - -
+freebsd-arm64 udp F node 1.56 26.3% - 106.34 - -
+freebsd-arm64 tcp R node 5.24 - 0 61.36 - -
+freebsd-arm64 tcp R node 7.42 - 0 62.56 - -
+freebsd-arm64 tcp R node 5.99 - 0 68.87 - -
+freebsd-arm64 tcp R node 6.46 - 1 67.36 - -
+freebsd-arm64 tcp R node 6.67 - 0 66.32 - -
+freebsd-arm64 udp R node 1.50 1.8% - 64.29 - -
+freebsd-arm64 udp R node 1.62 40.2% - 48.84 - -
+freebsd-arm64 udp R node 1.69 78.2% - 22.27 - -
+
+# FreeBSD-14.4-RELEASE-amd64-64bit-ELF | arch=amd64 | CPUs=? | report=shadow6-iperf3-freebsd-x86-64/report.json
+freebsd-x86-64 tcp F node 66.40 - 0 72.87 - -
+freebsd-x86-64 tcp F node 71.09 - 5 73.69 - -
+freebsd-x86-64 tcp F node 55.88 - 4 87.79 - -
+freebsd-x86-64 tcp F node 58.62 - 1 84.33 - -
+freebsd-x86-64 tcp F node 57.51 - 590 84.65 - -
+freebsd-x86-64 udp F node 2.00 2.7% - 30.81 - -
+freebsd-x86-64 udp F node 2.00 0.1% - 38.20 - -
+freebsd-x86-64 udp F node 2.00 0.0% - 36.59 - -
+freebsd-x86-64 tcp R node 67.85 - 1 67.86 - -
+freebsd-x86-64 tcp R node 67.82 - 1 71.09 - -
+freebsd-x86-64 tcp R node 54.61 - 7 84.54 - -
+freebsd-x86-64 tcp R node 54.91 - 14 84.67 - -
+freebsd-x86-64 tcp R node 53.01 - 12 83.88 - -
+freebsd-x86-64 udp R node 2.00 1.4% - 3.91 - -
+freebsd-x86-64 udp R node 2.00 0.4% - 8.44 - -
+freebsd-x86-64 udp R node 2.00 0.3% - 6.63 - -
+freebsd-x86-64 tcp F node 58.00 - 0 71.80 - -
+freebsd-x86-64 tcp F node 64.12 - 0 65.19 - -
+freebsd-x86-64 tcp F node 54.08 - 2 78.43 - -
+freebsd-x86-64 tcp F node 54.40 - 210 79.47 - -
+freebsd-x86-64 tcp F node 54.15 - 1 79.78 - -
+freebsd-x86-64 udp F node 2.00 2.6% - 31.20 - -
+freebsd-x86-64 udp F node 2.00 0.0% - 38.20 - -
+freebsd-x86-64 udp F node 2.00 0.0% - 36.64 - -
+freebsd-x86-64 tcp R node 58.68 - 1 58.80 - -
+freebsd-x86-64 tcp R node 59.50 - 0 65.98 - -
+freebsd-x86-64 tcp R node 48.80 - 10 80.91 - -
+freebsd-x86-64 tcp R node 48.22 - 1 82.67 - -
+freebsd-x86-64 tcp R node 43.81 - 12 87.25 - -
+freebsd-x86-64 udp R node 2.00 1.2% - 3.91 - -
+freebsd-x86-64 udp R node 2.00 0.0% - 8.70 - -
+freebsd-x86-64 udp R node 2.00 0.0% - 6.36 - -
+
+# Linux-6.17.0-1022-azure-aarch64-with-glibc2.39 | arch=aarch64 | CPUs=? | report=shadow6-iperf3-linux-arm64/report.json
+linux-arm64 tcp F node 60.24 - 0 100.01 - -
+linux-arm64 tcp F node 114.76 - 1 196.13 - -
+linux-arm64 tcp F node 164.45 - 1 175.33 - -
+linux-arm64 tcp F node 175.61 - 1 203.88 - -
+linux-arm64 tcp F node 172.28 - 40 203.37 - -
+linux-arm64 udp F node 2.00 0.0% - 100.41 - -
+linux-arm64 udp F node 2.00 0.0% - 334.07 - -
+linux-arm64 udp F node 2.00 0.0% - 360.34 - -
+linux-arm64 tcp R node 60.22 - 0 66.97 - -
+linux-arm64 tcp R node 116.04 - 0 136.83 - -
+linux-arm64 tcp R node 163.52 - 1 214.91 - -
+linux-arm64 tcp R node 170.24 - 2 200.90 - -
+linux-arm64 tcp R node 172.09 - 18 197.09 - -
+linux-arm64 udp R node 2.00 0.0% - 3.19 - -
+linux-arm64 udp R node 2.00 0.0% - 6.39 - -
+linux-arm64 udp R node 2.00 0.0% - 6.23 - -
+linux-arm64 tcp F node 61.41 - 0 100.05 - -
+linux-arm64 tcp F node 123.65 - 0 198.45 - -
+linux-arm64 tcp F node 167.32 - 0 180.92 - -
+linux-arm64 tcp F node 182.80 - 0 205.31 - -
+linux-arm64 tcp F node 182.33 - 16 204.67 - -
+linux-arm64 udp F node 2.00 0.0% - 100.37 - -
+linux-arm64 udp F node 2.00 0.0% - 368.58 - -
+linux-arm64 udp F node 2.00 0.0% - 364.54 - -
+linux-arm64 tcp R node 65.13 - 0 67.96 - -
+linux-arm64 tcp R node 127.32 - 0 141.78 - -
+linux-arm64 tcp R node 168.08 - 0 186.65 - -
+linux-arm64 tcp R node 183.26 - 0 192.11 - -
+linux-arm64 tcp R node 176.73 - 35 197.64 - -
+linux-arm64 udp R node 2.00 0.0% - 2.75 - -
+linux-arm64 udp R node 2.00 0.0% - 6.29 - -
+linux-arm64 udp R node 2.00 0.0% - 5.62 - -
+
+# Linux-6.17.0-1022-azure-x86_64-with-glibc2.39 | arch=x86_64 | CPUs=? | report=shadow6-iperf3-linux-x86_64/report.json
+linux-x86_64 tcp F node 32.74 - 0 99.99 - -
+linux-x86_64 tcp F node 48.14 - 0 196.81 - -
+linux-x86_64 tcp F node 88.44 - 1 174.12 - -
+linux-x86_64 tcp F node 80.94 - 208 203.12 - -
+linux-x86_64 tcp F node 78.27 - 1918 198.38 - -
+linux-x86_64 udp F node 2.00 0.0% - 101.22 - -
+linux-x86_64 udp F node 2.00 0.0% - 365.43 - -
+linux-x86_64 udp F node 2.00 0.0% - 361.80 - -
+linux-x86_64 tcp R node 37.32 - 0 72.53 - -
+linux-x86_64 tcp R node 48.03 - 0 134.97 - -
+linux-x86_64 tcp R node 85.22 - 0 195.12 - -
+linux-x86_64 tcp R node 81.20 - 162 200.64 - -
+linux-x86_64 tcp R node 76.91 - 1655 196.37 - -
+linux-x86_64 udp R node 2.00 0.0% - 5.06 - -
+linux-x86_64 udp R node 2.00 0.0% - 8.90 - -
+linux-x86_64 udp R node 2.00 0.0% - 8.45 - -
+linux-x86_64 tcp F node 38.48 - 0 100.17 - -
+linux-x86_64 tcp F node 53.58 - 0 199.18 - -
+linux-x86_64 tcp F node 91.26 - 1 168.23 - -
+linux-x86_64 tcp F node 86.34 - 92 202.93 - -
+linux-x86_64 tcp F node 82.19 - 1549 199.27 - -
+linux-x86_64 udp F node 2.00 0.0% - 101.42 - -
+linux-x86_64 udp F node 2.00 0.0% - 342.11 - -
+linux-x86_64 udp F node 2.00 0.0% - 363.55 - -
+linux-x86_64 tcp R node 38.64 - 0 68.65 - -
+linux-x86_64 tcp R node 52.84 - 0 131.17 - -
+linux-x86_64 tcp R node 91.85 - 1 229.26 - -
+linux-x86_64 tcp R node 83.53 - 115 178.16 - -
+linux-x86_64 tcp R node 81.02 - 1366 191.22 - -
+linux-x86_64 udp R node 2.00 0.0% - 5.88 - -
+linux-x86_64 udp R node 2.00 0.0% - 9.51 - -
+linux-x86_64 udp R node 2.00 0.0% - 8.31 - -
+
+# macOS-15.7.9-arm64-arm-64bit | arch=arm64 | CPUs=? | report=shadow6-iperf3-macos-arm64/report.json
+macos-arm64 tcp F node 99.37 - 1 94.49 - -
+macos-arm64 tcp F node 99.14 - 6 103.85 - -
+macos-arm64 tcp F node 115.22 - 14 111.23 - -
+macos-arm64 tcp F node 108.05 - 89 105.02 - -
+macos-arm64 tcp F node 101.05 - 58 100.88 - -
+macos-arm64 udp F node 2.00 70.5% - 8.45 - -
+macos-arm64 udp F node 2.00 64.5% - 14.53 - -
+macos-arm64 udp F node 2.00 68.8% - 23.57 - -
+macos-arm64 tcp R node 80.51 - 1 74.81 - -
+macos-arm64 tcp R node 111.11 - 2 84.85 - -
+macos-arm64 tcp R node 115.01 - 29 90.98 - -
+macos-arm64 tcp R node 105.26 - 91 89.66 - -
+macos-arm64 tcp R node 114.45 - 132 94.71 - -
+macos-arm64 udp R node 2.00 70.4% - 8.35 - -
+macos-arm64 udp R node 2.00 69.4% - 8.81 - -
+macos-arm64 udp R node 2.00 55.3% - 14.94 - -
+macos-arm64 tcp F node 87.97 - 0 94.89 - -
+macos-arm64 tcp F node 106.99 - 0 112.98 - -
+macos-arm64 tcp F node 84.68 - 51 97.99 - -
+macos-arm64 tcp F node 85.59 - 126 104.59 - -
+macos-arm64 tcp F node 93.31 - 175 113.69 - -
+macos-arm64 udp F node 2.00 75.2% - 27.16 - -
+macos-arm64 udp F node 2.00 71.1% - 38.68 - -
+macos-arm64 udp F node 2.00 61.7% - 41.82 - -
+macos-arm64 tcp R node 90.97 - 0 83.81 - -
+macos-arm64 tcp R node 101.96 - 1 83.10 - -
+macos-arm64 tcp R node 82.84 - 48 83.60 - -
+macos-arm64 tcp R node 85.56 - 104 90.75 - -
+macos-arm64 tcp R node 71.34 - 192 84.77 - -
+macos-arm64 udp R node 2.00 76.6% - 5.88 - -
+macos-arm64 udp R node 2.00 71.3% - 7.92 - -
+macos-arm64 udp R node 2.00 67.2% - 7.49 - -
+
+# macOS-15.7.9-x86_64-i386-64bit | arch=x86_64 | CPUs=? | report=shadow6-iperf3-macos-x86_64/report.json
+macos-x86_64 tcp F node 20.03 - 7 66.71 - -
+macos-x86_64 tcp F node 32.50 - 18 100.47 - -
+macos-x86_64 tcp F node 34.44 - 49 115.73 - -
+macos-x86_64 tcp F node 33.26 - 177 100.29 - -
+macos-x86_64 tcp F node 33.16 - 212 94.34 - -
+macos-x86_64 udp F node 2.00 73.3% - 32.59 - -
+macos-x86_64 udp F node 1.99 57.8% - 78.37 - -
+macos-x86_64 udp F node 2.00 32.4% - 97.15 - -
+macos-x86_64 tcp R node 27.75 - 2 59.44 - -
+macos-x86_64 tcp R node 34.37 - 36 78.34 - -
+macos-x86_64 tcp R node 43.18 - 62 104.45 - -
+macos-x86_64 tcp R node 46.71 - 92 127.93 - -
+macos-x86_64 tcp R node 40.03 - 162 116.66 - -
+macos-x86_64 udp R node 2.00 81.7% - 17.23 - -
+macos-x86_64 udp R node 2.00 56.1% - 29.55 - -
+macos-x86_64 udp R node 2.00 35.6% - 43.09 - -
+macos-x86_64 tcp F node 25.83 - 3 83.09 - -
+macos-x86_64 tcp F node 25.44 - 7 88.32 - -
+macos-x86_64 tcp F node 37.31 - 11 121.74 - -
+macos-x86_64 tcp F node 34.23 - 69 117.14 - -
+macos-x86_64 tcp F node 31.20 - 45 121.08 - -
+macos-x86_64 udp F node 2.00 77.7% - 48.11 - -
+macos-x86_64 udp F node 1.99 36.3% - 93.17 - -
+macos-x86_64 udp F node 2.00 42.5% - 107.34 - -
+macos-x86_64 tcp R node 25.53 - 5 66.18 - -
+macos-x86_64 tcp R node 23.48 - 18 71.73 - -
+macos-x86_64 tcp R node 29.51 - 67 97.06 - -
+macos-x86_64 tcp R node 28.84 - 64 100.46 - -
+macos-x86_64 tcp R node 27.23 - 134 97.53 - -
+macos-x86_64 udp R node 1.98 70.8% - 20.11 - -
+macos-x86_64 udp R node 2.00 46.5% - 35.08 - -
+macos-x86_64 udp R node 2.00 33.2% - 43.99 - -
+
+# NetBSD-10.1-evbarm-aarch64-64bit-ELF | arch=evbarm | CPUs=? | report=shadow6-iperf3-netbsd-arm64/report.json
+netbsd-arm64 tcp F node 0.87 - 0 81.92 - -
+netbsd-arm64 tcp F node 0.73 - 0 103.38 - -
+netbsd-arm64 tcp F node 0.71 - 0 93.44 - -
+netbsd-arm64 tcp F node 0.64 - 0 87.99 - -
+netbsd-arm64 tcp F node 0.61 - 0 102.53 - -
+netbsd-arm64 udp F node 0.44 15.9% - 36.98 - -
+netbsd-arm64 udp F node 0.43 9.4% - 115.55 - -
+netbsd-arm64 udp F node 0.44 9.0% - 50.34 - -
+netbsd-arm64 tcp R node 0.78 - 0 66.56 - -
+netbsd-arm64 tcp R node 0.61 - 0 63.21 - -
+netbsd-arm64 tcp R node 0.66 - 0 61.32 - -
+netbsd-arm64 tcp R node 0.72 - 0 64.10 - -
+netbsd-arm64 tcp R node 0.63 - 0 59.64 - -
+netbsd-arm64 udp R node 0.39 46.2% - 22.23 - -
+netbsd-arm64 udp R node 0.39 13.0% - 31.58 - -
+netbsd-arm64 udp R node 0.39 8.8% - 63.56 - -
+netbsd-arm64 tcp F node 0.72 - 0 76.00 - -
+netbsd-arm64 tcp F node 0.65 - 0 100.99 - -
+netbsd-arm64 tcp F node 0.42 - 0 116.54 - -
+netbsd-arm64 tcp F node 0.41 - 0 115.97 - -
+netbsd-arm64 tcp F node 0.54 - 0 81.09 - -
+netbsd-arm64 udp F node 0.36 41.8% - 25.21 - -
+netbsd-arm64 udp F node 0.36 0.7% - 45.83 - -
+netbsd-arm64 udp F node 0.36 5.1% - 76.10 - -
+netbsd-arm64 tcp R node 0.26 - 0 90.04 - -
+netbsd-arm64 tcp R node 0.48 - 0 93.43 - -
+netbsd-arm64 tcp R node 0.60 - 0 96.06 - -
+netbsd-arm64 tcp R node 0.43 - 0 98.55 - -
+netbsd-arm64 tcp R node 0.55 - 0 91.96 - -
+netbsd-arm64 udp R node 0.30 42.6% - 16.57 - -
+netbsd-arm64 udp R node 0.30 12.3% - 25.80 - -
+netbsd-arm64 udp R node 0.30 9.7% - 27.47 - -
+
+# NetBSD-10.1-amd64-x86_64-64bit-ELF | arch=amd64 | CPUs=? | report=shadow6-iperf3-netbsd-x86-64/report.json
+netbsd-x86-64 tcp F node 6.75 - 0 45.53 - -
+netbsd-x86-64 tcp F node 9.03 - 0 61.02 - -
+netbsd-x86-64 tcp F node 9.49 - 0 81.78 - -
+netbsd-x86-64 tcp F node 9.59 - 0 89.23 - -
+netbsd-x86-64 tcp F node 6.58 - 0 81.28 - -
+netbsd-x86-64 udp F node 2.00 3.4% - 26.59 - -
+netbsd-x86-64 udp F node 2.00 12.0% - 54.34 - -
+netbsd-x86-64 udp F node 2.00 27.8% - 53.08 - -
+netbsd-x86-64 tcp R node 6.31 - 0 44.87 - -
+netbsd-x86-64 tcp R node 9.13 - 0 73.33 - -
+netbsd-x86-64 tcp R node 7.74 - 0 70.01 - -
+netbsd-x86-64 tcp R node 8.84 - 0 74.20 - -
+netbsd-x86-64 tcp R node 9.10 - 0 88.96 - -
+netbsd-x86-64 udp R node 1.99 10.1% - 23.43 - -
+netbsd-x86-64 udp R node 2.00 30.4% - 29.58 - -
+netbsd-x86-64 udp R node 2.00 37.8% - 34.68 - -
+netbsd-x86-64 tcp F node 9.15 - 0 47.69 - -
+netbsd-x86-64 tcp F node 8.82 - 0 71.29 - -
+netbsd-x86-64 tcp F node 8.19 - 0 95.88 - -
+netbsd-x86-64 tcp F node 9.22 - 0 81.80 - -
+netbsd-x86-64 tcp F node 8.50 - 0 96.17 - -
+netbsd-x86-64 udp F node 1.99 0.1% - 33.07 - -
+netbsd-x86-64 udp F node 2.00 2.4% - 51.93 - -
+netbsd-x86-64 udp F node 2.00 22.0% - 55.74 - -
+netbsd-x86-64 tcp R node 9.00 - 0 54.67 - -
+netbsd-x86-64 tcp R node 9.03 - 0 69.52 - -
+netbsd-x86-64 tcp R node 8.75 - 0 85.79 - -
+netbsd-x86-64 tcp R node 8.42 - 0 72.88 - -
+netbsd-x86-64 tcp R node 8.06 - 0 90.94 - -
+netbsd-x86-64 udp R node 2.00 0.3% - 22.93 - -
+netbsd-x86-64 udp R node 2.00 24.4% - 29.91 - -
+netbsd-x86-64 udp R node 2.00 19.2% - 34.51 - -
+
+# SunOS-5.11-i86pc-i386-64bit-ELF | arch=i86pc | CPUs=? | report=shadow6-iperf3-omnios-x86-64/report.json
+omnios-x86-64 tcp F node 10.38 - - 45.41 - -
+omnios-x86-64 tcp F node 32.24 - - 96.11 - -
+omnios-x86-64 tcp F node 41.19 - - 101.65 - -
+omnios-x86-64 tcp F node 34.08 - - 102.08 - -
+omnios-x86-64 tcp F node 31.49 - - 98.83 - -
+omnios-x86-64 udp F node 2.00 72.7% - 9.09 - -
+omnios-x86-64 udp F node 2.00 8.5% - 21.30 - -
+omnios-x86-64 udp F node 2.00 0.0% - 24.00 - -
+omnios-x86-64 tcp R node 11.85 - - 48.07 - -
+omnios-x86-64 tcp R node 47.95 - - 91.34 - -
+omnios-x86-64 tcp R node 45.41 - - 94.68 - -
+omnios-x86-64 tcp R node 40.82 - - 92.86 - -
+omnios-x86-64 tcp R node 39.05 - - 93.25 - -
+omnios-x86-64 udp R node 2.00 72.3% - 2.80 - -
+omnios-x86-64 udp R node 2.00 7.6% - 10.10 - -
+omnios-x86-64 udp R node 2.00 0.0% - 17.56 - -
+omnios-x86-64 tcp F node 10.25 - - 45.98 - -
+omnios-x86-64 tcp F node 45.06 - - 100.49 - -
+omnios-x86-64 tcp F node 38.34 - - 105.31 - -
+omnios-x86-64 tcp F node 34.62 - - 100.72 - -
+omnios-x86-64 tcp F node 30.34 - - 97.86 - -
+omnios-x86-64 udp F node 2.00 72.9% - 9.16 - -
+omnios-x86-64 udp F node 2.00 8.6% - 20.37 - -
+omnios-x86-64 udp F node 2.00 0.0% - 22.88 - -
+omnios-x86-64 tcp R node 11.90 - - 46.62 - -
+omnios-x86-64 tcp R node 41.52 - - 78.68 - -
+omnios-x86-64 tcp R node 38.26 - - 76.53 - -
+omnios-x86-64 tcp R node 33.65 - - 80.12 - -
+omnios-x86-64 tcp R node 32.56 - - 81.22 - -
+omnios-x86-64 udp R node 2.00 70.3% - 3.35 - -
+omnios-x86-64 udp R node 2.00 7.9% - 10.39 - -
+omnios-x86-64 udp R node 2.00 0.0% - 16.44 - -
+
+# OpenBSD-7.9-arm64-aarch64-64bit-ELF | arch=arm64 | CPUs=? | report=shadow6-iperf3-openbsd-arm64/report.json
+openbsd-arm64 tcp F node 1.71 - 0 68.45 - -
+openbsd-arm64 tcp F node 1.78 - 0 81.40 - -
+openbsd-arm64 tcp F node 1.87 - 0 69.75 - -
+openbsd-arm64 tcp F node 1.95 - 0 74.91 - -
+openbsd-arm64 tcp F node 1.84 - 0 68.18 - -
+openbsd-arm64 udp F node 0.98 94.4% - 36.87 - -
+openbsd-arm64 udp F node 0.98 19.4% - 64.42 - -
+openbsd-arm64 udp F node 0.98 47.5% - 51.36 - -
+openbsd-arm64 tcp R node 1.06 - 0 79.51 - -
+openbsd-arm64 tcp R node 1.26 - 0 90.66 - -
+openbsd-arm64 tcp R node 1.55 - 0 61.07 - -
+openbsd-arm64 tcp R node 1.53 - 0 55.73 - -
+openbsd-arm64 tcp R node 1.63 - 0 53.07 - -
+openbsd-arm64 udp R node 0.81 94.1% - 30.78 - -
+openbsd-arm64 udp R node 0.81 32.8% - 28.49 - -
+openbsd-arm64 udp R node 0.81 43.4% - 26.24 - -
+openbsd-arm64 tcp F node 1.64 - 0 68.02 - -
+openbsd-arm64 tcp F node 1.82 - 0 83.16 - -
+openbsd-arm64 tcp F node 1.87 - 0 61.53 - -
+openbsd-arm64 tcp F node 1.85 - 0 68.86 - -
+openbsd-arm64 tcp F node 1.90 - 0 73.87 - -
+openbsd-arm64 udp F node 0.95 92.9% - 37.01 - -
+openbsd-arm64 udp F node 0.95 22.9% - 55.59 - -
+openbsd-arm64 udp F node 0.95 43.1% - 53.32 - -
+openbsd-arm64 tcp R node 1.03 - 0 89.56 - -
+openbsd-arm64 tcp R node 1.77 - 0 43.63 - -
+openbsd-arm64 tcp R node 1.54 - 0 59.54 - -
+openbsd-arm64 tcp R node 1.61 - 0 55.54 - -
+openbsd-arm64 tcp R node 1.57 - 0 62.01 - -
+openbsd-arm64 udp R node 0.88 94.1% - 30.81 - -
+openbsd-arm64 udp R node 0.88 25.8% - 37.30 - -
+openbsd-arm64 udp R node 0.88 44.7% - 25.92 - -
+
+# OpenBSD-7.9-amd64-64bit-ELF | arch=amd64 | CPUs=? | report=shadow6-iperf3-openbsd-x86-64/report.json
+openbsd-x86-64 tcp F node 22.09 - 0 47.88 - -
+openbsd-x86-64 tcp F node 37.65 - 0 68.38 - -
+openbsd-x86-64 tcp F node 36.43 - 0 62.57 - -
+openbsd-x86-64 tcp F node 38.13 - 0 63.94 - -
+openbsd-x86-64 tcp F node 39.19 - 0 67.63 - -
+openbsd-x86-64 udp F node 2.00 87.5% - 5.49 - -
+openbsd-x86-64 udp F node 1.99 86.4% - 6.14 - -
+openbsd-x86-64 udp F node 1.99 84.9% - 8.61 - -
+openbsd-x86-64 tcp R node 40.24 - 0 40.73 - -
+openbsd-x86-64 tcp R node 31.90 - 0 47.81 - -
+openbsd-x86-64 tcp R node 41.16 - 0 43.48 - -
+openbsd-x86-64 tcp R node 42.83 - 0 45.24 - -
+openbsd-x86-64 tcp R node 40.19 - 0 50.70 - -
+openbsd-x86-64 udp R node 2.00 86.6% - 0.50 - -
+openbsd-x86-64 udp R node 2.00 89.6% - 0.83 - -
+openbsd-x86-64 udp R node 2.00 84.8% - 1.16 - -
+openbsd-x86-64 tcp F node 26.13 - 0 69.99 - -
+openbsd-x86-64 tcp F node 33.88 - 0 71.71 - -
+openbsd-x86-64 tcp F node 35.77 - 0 61.08 - -
+openbsd-x86-64 tcp F node 38.34 - 0 63.94 - -
+openbsd-x86-64 tcp F node 39.15 - 0 65.76 - -
+openbsd-x86-64 udp F node 2.00 87.4% - 5.32 - -
+openbsd-x86-64 udp F node 1.99 89.8% - 4.98 - -
+openbsd-x86-64 udp F node 1.99 86.0% - 5.14 - -
+openbsd-x86-64 tcp R node 42.73 - 0 42.56 - -
+openbsd-x86-64 tcp R node 33.32 - 0 47.64 - -
+openbsd-x86-64 tcp R node 42.08 - 0 42.33 - -
+openbsd-x86-64 tcp R node 40.07 - 0 45.75 - -
+openbsd-x86-64 tcp R node 40.04 - 0 43.92 - -
+openbsd-x86-64 udp R node 1.99 71.1% - 1.00 - -
+openbsd-x86-64 udp R node 2.00 89.8% - 0.66 - -
+openbsd-x86-64 udp R node 2.00 85.7% - 1.82 - -
+
+# MSYS_NT-10.0-26100-3.6.9-01d6c708.x86_64-x86_64-64bit-WindowsPE | arch=x86_64 | CPUs=? | report=shadow6-iperf3-windows-amd64/report.json
+windows-amd64 tcp F node 49.55 - - 92.14 - -
+windows-amd64 tcp F node 93.69 - - 188.92 - -
+windows-amd64 tcp F node 82.44 - - 213.31 - -
+windows-amd64 tcp F node 83.22 - - 220.82 - -
+windows-amd64 tcp F node 81.67 - - 217.53 - -
+windows-amd64 udp F node 2.00 4.0% - 4.43 - -
+windows-amd64 udp F node - - - - - not_applicable
+windows-amd64 udp F node - - - - - not_applicable
+windows-amd64 tcp R node 47.63 - - 65.52 - -
+windows-amd64 tcp R node 92.58 - - 138.24 - -
+windows-amd64 tcp R node 79.75 - - 158.18 - -
+windows-amd64 tcp R node 79.44 - - 160.84 - -
+windows-amd64 tcp R node 78.48 - - 159.09 - -
+windows-amd64 udp R node 2.00 2.5% - 3.36 - -
+windows-amd64 udp R node - - - - - not_applicable
+windows-amd64 udp R node - - - - - not_applicable
+windows-amd64 tcp F node 44.58 - - 82.23 - -
+windows-amd64 tcp F node 101.99 - - 179.82 - -
+windows-amd64 tcp F node 90.32 - - 216.36 - -
+windows-amd64 tcp F node 90.84 - - 208.02 - -
+windows-amd64 tcp F node 89.15 - - 206.30 - -
+windows-amd64 udp F node 2.00 4.6% - 4.95 - -
+windows-amd64 udp F node - - - - - not_applicable
+windows-amd64 udp F node - - - - - not_applicable
+windows-amd64 tcp R node 43.19 - - 68.71 - -
+windows-amd64 tcp R node 100.03 - - 162.13 - -
+windows-amd64 tcp R node 88.65 - - 168.65 - -
+windows-amd64 tcp R node 88.32 - - 169.57 - -
+windows-amd64 tcp R node 90.43 - - 169.39 - -
+windows-amd64 udp R node 2.00 3.1% - 3.90 - -
+windows-amd64 udp R node - - - - - not_applicable
+windows-amd64 udp R node - - - - - not_applicable
+
+# MSYS_NT-10.0-26200-ARM64-3.6.9-01d6c708.x86_64-x86_64-64bit-WindowsPE | arch=x86_64 | CPUs=? | report=shadow6-iperf3-windows-arm64/report.json
+windows-arm64 tcp F node 25.80 - - 99.08 - -
+windows-arm64 tcp F node 44.76 - - 194.96 - -
+windows-arm64 tcp F node 46.32 - - 269.08 - -
+windows-arm64 tcp F node 46.30 - - 276.51 - -
+windows-arm64 tcp F node 45.92 - - 268.17 - -
+windows-arm64 udp F node 1.99 2.4% - 6.23 - -
+windows-arm64 udp F node - - - - - not_applicable
+windows-arm64 udp F node - - - - - not_applicable
+windows-arm64 tcp R node 24.14 - - 38.71 - -
+windows-arm64 tcp R node 46.75 - - 76.39 - -
+windows-arm64 tcp R node 46.70 - - 104.31 - -
+windows-arm64 tcp R node 45.93 - - 110.77 - -
+windows-arm64 tcp R node 46.05 - - 115.58 - -
+windows-arm64 udp R node 2.00 2.7% - 3.62 - -
+windows-arm64 udp R node - - - - - not_applicable
+windows-arm64 udp R node - - - - - not_applicable
+windows-arm64 tcp F node 27.30 - - 97.22 - -
+windows-arm64 tcp F node 50.73 - - 198.43 - -
+windows-arm64 tcp F node 49.53 - - 282.65 - -
+windows-arm64 tcp F node 49.92 - - 280.35 - -
+windows-arm64 tcp F node 49.75 - - 269.60 - -
+windows-arm64 udp F node 1.99 4.9% - 5.71 - -
+windows-arm64 udp F node - - - - - not_applicable
+windows-arm64 udp F node - - - - - not_applicable
+windows-arm64 tcp R node 26.13 - - 40.22 - -
+windows-arm64 tcp R node 47.41 - - 70.61 - -
+windows-arm64 tcp R node 49.05 - - 111.28 - -
+windows-arm64 tcp R node 49.19 - - 111.10 - -
+windows-arm64 tcp R node 49.24 - - 114.59 - -
+windows-arm64 udp R node 2.00 5.2% - 2.84 - -
+windows-arm64 udp R node - - - - - not_applicable
+windows-arm64 udp R node - - - - - not_applicable
+
+# Linux-6.17.0-1022-azure-x86_64-with-glibc2.39 | arch=unknown | CPUs=4 | report=shadow6-linux-iperf-chain/report.json
+zig tcp F base 10.14 - 0 - - [Errno 104] Connection reset by peer,[Errno 32] Broken pipe
+zig tcp F node 0.58 - 7 4.48 27.96 [Errno 104] Connection reset by peer
+zig tcp R base 10.33 - 0 - - [Errno 104] Connection reset by peer,[Errno 104] Connection reset by peer
+zig tcp R node 0.59 - 1 4.50 27.90 -
+ada tcp F base 10.08 - 0 - - [Errno 104] Connection reset by peer,[Errno 32] Broken pipe
+ada tcp F node 1.05 - 1 5.08 7.39 [Errno 104] Connection reset by peer
+ada tcp R base 10.34 - 0 - - [Errno 104] Connection reset by peer,[Errno 104] Connection reset by peer
+ada tcp R node 1.07 - 0 5.23 7.52 -
+d tcp F base 9.88 - 0 - - [Errno 104] Connection reset by peer,[Errno 104] Connection reset by peer
+d tcp F node 3.90 - 2 5.57 6.89 [Errno 104] Connection reset by peer,[Errno 32] Broken pipe
+d tcp R base 10.33 - 0 - - [Errno 104] Connection reset by peer
+d tcp R node 3.97 - 1 5.52 6.90 [Errno 104] Connection reset by peer
+nim tcp F base 9.55 - 0 - - [Errno 104] Connection reset by peer,[Errno 32] Broken pipe
+nim tcp F node 0.64 - 5 7.89 40.38 [Errno 104] Connection reset by peer
+nim tcp R base 9.79 - 0 - - [Errno 104] Connection reset by peer
+nim tcp R node 0.69 - 5 8.05 45.78 [Errno 32] Broken pipe
+cpp tcp F base 9.98 - 0 - - [Errno 104] Connection reset by peer,[Errno 104] Connection reset by peer
+cpp tcp F node 3.73 - 0 5.38 9.21 [Errno 104] Connection reset by peer,[Errno 104] Connection reset by peer
+cpp tcp R base 10.72 - 0 - - [Errno 104] Connection reset by peer
+cpp tcp R node 3.55 - 1 5.32 9.26 [Errno 104] Connection reset by peer,[Errno 104] Connection reset by peer
+pony udp F base 1.10 0.0% - - - -
+pony udp F node 0.07 93.1% - 8.92 44.54 -
+pony udp R base 1.10 0.0% - - - -
+pony udp R node 0.08 92.7% - 9.07 45.25 -
+hare udp F base 1.10 0.0% - - - -
+hare udp F node 0.33 69.7% - 5.73 1.93 -
+hare udp R base 1.10 0.0% - - - -
+hare udp R node 0.42 61.6% - 6.95 1.93 -
+carp udp F base 1.10 0.0% - - - -
+carp udp F node 0.25 77.2% - 5.99 2.39 -
+carp udp R base 1.10 0.0% - - - -
+carp udp R node 0.31 71.8% - 7.13 2.41 -
+gleam tcp F base 10.41 - 0 - - [Errno 104] Connection reset by peer,[Errno 104] Connection reset by peer
+gleam tcp F node 1.47 - 46 8.91 76.74 [Errno 104] Connection reset by peer
+gleam tcp R base 10.44 - 0 - - [Errno 104] Connection reset by peer
+gleam tcp R node 1.54 - 82 8.24 69.69 [Errno 104] Connection reset by peer
+idris udp F base 1.10 0.0% - - - -
+idris udp F node 0.37 66.0% - 0.00 1.89 -
+idris udp R base 1.10 0.0% - - - -
+idris udp R node 0.49 55.1% - 0.00 1.89 -
+go tcp F base 9.80 - 0 - - [Errno 104] Connection reset by peer,[Errno 32] Broken pipe
+go tcp F node 0.85 - 203 8.57 161.93 -
+go tcp R base 10.35 - 0 - - [Errno 104] Connection reset by peer,[Errno 104] Connection reset by peer
+go tcp R node 0.85 - 197 8.52 172.43 -
+rust tcp F base 10.01 - 0 - - [Errno 104] Connection reset by peer,[Errno 32] Broken pipe
+rust tcp F node 3.98 - 57 6.19 38.09 [Errno 104] Connection reset by peer,[Errno 32] Broken pipe
+rust tcp R base 10.08 - 0 - - [Errno 104] Connection reset by peer,[Errno 104] Connection reset by peer
+rust tcp R node 3.90 - 88 6.07 27.15 [Errno 104] Connection reset by peer
+gleam-mux udp F base 1.10 0.0% - - - -
+gleam-mux udp F node 0.18 83.4% - 7.53 81.09 -
+gleam-mux udp R base 1.10 0.0% - - - -
+gleam-mux udp R node 0.20 81.6% - 8.30 79.50 -
+
+# Linux-6.17.0-1022-azure-x86_64-with-glibc2.39 | arch=unknown | CPUs=4 | report=shadow6-pony-iperf-chain/report.json
+pony udp F base 1.10 0.0% - - - -
+pony udp F node 0.06 93.9% - 8.68 35.81 -
+pony udp R base 1.10 0.0% - - - -
+pony udp R node 0.06 93.5% - 8.56 41.12 -
