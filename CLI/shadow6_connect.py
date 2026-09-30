@@ -11,7 +11,7 @@ from python_runtime import bootstrap
 if __name__ == "__main__":
     bootstrap(ROOT, Path(__file__).resolve())
 sys.path.insert(0, str(ROOT / "Public6"))
-from join_code import resolve, install_peer
+from join_code import resolve, install_peer, unpack_invitation
 
 CORE_NAMES = ("go", "rust", "gleam", "ada", "nim", "pony", "zig", "d", "cpp", "idris", "hare", "carp")
 
@@ -75,12 +75,20 @@ def main():
     p.add_argument("--pin", help="manual Gate public-key pin")
     p.add_argument("--check", action="store_true", help="validate the invitation/profile without writing files")
     p.add_argument("--code-file", type=Path, help="read invitation from an owner-only 0600 file")
+    p.add_argument("--invitation", help="single long S6INV1 invitation containing code, profile and Gate pin")
     p.add_argument("--list-routes", action="store_true", help="resolve invitation and show offered core transports without provisioning")
     p.add_argument("--native-config", type=Path, help="validate and emit a bounded native configuration alongside Virtual Peer files")
     args = p.parse_args()
     try:
-        if bool(args.code) == bool(args.code_file):
-            raise ValueError("provide exactly one of code or --code-file")
+        if args.invitation:
+            invitation = unpack_invitation(args.invitation)
+            args.code, args.profile, args.pin = invitation["code"], None, invitation["gate_public_key"]
+            import tempfile
+            temp = Path(tempfile.mkdtemp(prefix="shadow6-invitation-")) / "profile.json"
+            temp.write_text(json.dumps(invitation["profile"], separators=(",", ":"))); temp.chmod(0o600)
+            args.profile = temp
+        elif bool(args.code) == bool(args.code_file):
+            raise ValueError("provide exactly one of code, --code-file or --invitation")
         if args.code_file: args.code = secure_read(args.code_file, 256).decode('ascii').strip()
         if args.list_routes:
             resolved = resolve(args.code, directory=args.directory, manual_profile=args.profile, manual_pin=args.pin)

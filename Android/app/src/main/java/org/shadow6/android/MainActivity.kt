@@ -920,6 +920,7 @@ private fun SettingsScreen() {
     var manualPin by remember { mutableStateOf("") }
     var joinBusy by remember { mutableStateOf(false) }
     var joinStatus by remember { mutableStateOf(nodePreferences.getString("summary", "") ?: "") }
+    val longInvitation = joinCode.startsWith("S6INV1.")
     val joinMode = remember(joinCode) { runCatching { PublicNodeCode.decode(joinCode).mode }.getOrNull() }
     var language by remember { mutableStateOf(preferences.getString(MainActivity.LANGUAGE_KEY, MainActivity.LANGUAGE_SYSTEM) ?: MainActivity.LANGUAGE_SYSTEM) }
     val labels = listOf(
@@ -949,7 +950,7 @@ private fun SettingsScreen() {
         Text(stringResource(R.string.language_note), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
         SectionLabel("公共节点 / Public node")
-        ConfigField(joinCode, { joinCode = it.take(40) }, "40-character join code", !joinBusy, password = true)
+        ConfigField(joinCode, { joinCode = it.take(16_384) }, "Join code or long invitation", !joinBusy, password = true)
         if (joinMode == "directory") ConfigField(directory, { directory = it.take(2048) }, "Trusted HTTPS directory", !joinBusy)
         if (joinMode == "manual") {
             ConfigField(manualProfile, { manualProfile = it.take(65_536) }, "Profile JSON", !joinBusy, minLines = 3)
@@ -960,8 +961,14 @@ private fun SettingsScreen() {
             joinStatus = ""
             scope.launch {
                 runCatching {
-                    val code = joinCode
-                    val profile = withContext(Dispatchers.IO) { PublicNodeCode.profile(code, directory, manualProfile, manualPin) }
+                    var code = joinCode
+                    var profileJson = manualProfile
+                    var pin = manualPin
+                    if (longInvitation) {
+                        val bundled = PublicNodeCode.unpackInvitation(code)
+                        code = bundled.first; profileJson = bundled.second; pin = bundled.third
+                    }
+                    val profile = withContext(Dispatchers.IO) { PublicNodeCode.profile(code, directory, profileJson, pin) }
                     val routes = profile["routes"] as List<*>
                     nodeSecrets.put("code", code)
                     val summary = "${profile["tenant"]}: ${routes.size} Core route(s) verified"
@@ -973,7 +980,7 @@ private fun SettingsScreen() {
                 }.onSuccess { joinStatus = it }.onFailure { joinStatus = it.message ?: "Join-code import failed" }
                 joinBusy = false
             }
-        }, enabled = !joinBusy && joinMode != null) {
+        }, enabled = !joinBusy && (joinMode != null || longInvitation)) {
             if (joinBusy) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
             else Text("Add public node")
         }

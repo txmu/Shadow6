@@ -36,6 +36,36 @@ MODES = {1: "directory", 2: "manual", 3: "ipv4-https"}
 CODE_RE = re.compile(r"^[A-Za-z0-9_-]{40}$")
 CORE_NAMES = frozenset(("go", "rust", "gleam", "ada", "nim", "pony", "zig", "d", "cpp", "idris", "hare", "carp"))
 PROFILE_SCHEMA = "shadow6.public-node-profile.v1"
+INVITATION_PREFIX = "S6INV1."
+
+def pack_invitation(code: str, profile: dict, gate_public_key: str) -> str:
+    """Create one portable invitation carrying code, profile and Gate pin."""
+    if type(gate_public_key) is not str or not re.fullmatch(r"[0-9a-f]{64}", gate_public_key):
+        raise ValueError("invalid Gate public key")
+    validate_profile(json.dumps(profile, separators=(",", ":")).encode(), code)
+    payload = {"schema": "shadow6.invitation.v1", "code": code,
+               "gate_public_key": gate_public_key, "profile": profile}
+    packed = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    token = INVITATION_PREFIX + base64.urlsafe_b64encode(packed).decode().rstrip("=")
+    if len(token) > 16384:
+        raise ValueError("invitation is oversized")
+    return token
+
+def unpack_invitation(token: str) -> dict:
+    if type(token) is not str or not token.startswith(INVITATION_PREFIX) or len(token) > 16384:
+        raise ValueError("invalid long invitation")
+    try:
+        raw = base64.urlsafe_b64decode(token[len(INVITATION_PREFIX):] + "===")
+        value = json.loads(raw, object_pairs_hook=_pairs)
+    except Exception as exc:
+        raise ValueError("invalid long invitation encoding") from exc
+    if type(value) is not dict or set(value) != {"schema", "code", "gate_public_key", "profile"} or value["schema"] != "shadow6.invitation.v1":
+        raise ValueError("invalid long invitation schema")
+    if value["profile"].get("routes"):
+        validate_profile(json.dumps(value["profile"], separators=(",", ":")).encode(), value["code"])
+    if value["gate_public_key"] not in [r["gate_public_key"] for r in value["profile"]["routes"]]:
+        raise ValueError("invitation Gate key does not match profile")
+    return value
 
 
 def issue(mode: str, host: str | None = None, port: int | None = None) -> str:

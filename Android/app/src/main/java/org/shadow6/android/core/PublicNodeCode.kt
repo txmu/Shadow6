@@ -7,12 +7,14 @@ import java.net.InetAddress
 import java.net.URL
 import java.security.MessageDigest
 import java.util.Base64
+import org.json.JSONObject
 import javax.net.ssl.HttpsURLConnection
 
 data class PublicNodeCodeInfo(val mode: String, val lookupId: String, val httpsHost: String? = null, val httpsPort: Int? = null)
 
 /** The wire layout matches Public6/join_code.py; codes are credentials and stay in SecretStore. */
 object PublicNodeCode {
+    private const val INVITATION_PREFIX = "S6INV1."
     private val alphabet = Regex("^[A-Za-z0-9_-]{40}$")
     private val tenant = Regex("^[A-Za-z0-9._-]{1,64}$")
     private val hexKey = Regex("^[0-9a-f]{64}$")
@@ -29,6 +31,15 @@ object PublicNodeCode {
         val port = ((raw[5].toInt() and 255) shl 8) or (raw[6].toInt() and 255)
         require(port in 1..65535) { "Invalid HTTPS port" }
         return PublicNodeCodeInfo(mode, id, host, port)
+    }
+
+    /** Decode the cross-platform long invitation containing all three import fields. */
+    fun unpackInvitation(token: String): Triple<String, String, String> {
+        require(token.startsWith(INVITATION_PREFIX) && token.length <= 16_384) { "Invalid long invitation" }
+        val raw = Base64.getUrlDecoder().decode(token.removePrefix(INVITATION_PREFIX))
+        val value = JSONObject(String(raw, Charsets.UTF_8))
+        require(value.getString("schema") == "shadow6.invitation.v1") { "Invalid invitation schema" }
+        return Triple(value.getString("code"), value.getJSONObject("profile").toString(), value.getString("gate_public_key"))
     }
 
     fun seed(code: String, purpose: String): ByteArray {
