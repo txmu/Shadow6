@@ -1,5 +1,10 @@
 # Shadow6 plugin system
 
+The signed out-of-process Plugin boundary grew out of the late-August
+platform refactor and was integrated into the Extension contract during the
+2026-09-01 to 2026-09-06 transition. It remains a runtime component contract
+rather than a Native Core ABI: plugin changes do not require recompiling a Core.
+
 Plugins are separately executed JSON processors. They never load into the Go,
 Rust, Guard, Relay, Detector, or Orchestrator process. Every launch verifies:
 
@@ -41,3 +46,17 @@ openssl genpkey -algorithm ED25519 -out plugin-signing-key.pem
 
 Do not distribute the signing private key. Treat adding a trust-store signer as
 a security-sensitive administrative action.
+
+## Extension and Slot integration
+
+`Extension-System` is the only combined entrypoint. It verifies the Crosed
+request and its `shadow.extension` application frame before calling
+`Slot-System`; Slot bindings then require the provider's signed manifest to
+declare the selected slot as both capability and hook. Use `shadow6-extensions`
+or Control Center's `extensions.invoke` for the complete transaction. Calling a
+plugin executable directly does not grant it extension or Core privileges.
+
+The manifest, trust store, binding file and entrypoint are all bounded,
+owner-controlled inputs. Keep the signing key outside the repository and make
+trust-store changes an explicit deployment action. A missing signature,
+capability, hook, provider, sandbox prerequisite, or approval is a hard deny.

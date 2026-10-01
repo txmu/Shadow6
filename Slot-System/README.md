@@ -1,5 +1,10 @@
 # Shadow6 Slots
 
+Slots were integrated into the Extension contract during the 2026-09-01 to
+2026-09-06 transition and became the typed provider registry used by the later
+Core family. They remain independent of Native Core wire compatibility: a Slot
+adds a bounded component hook, not a new Core protocol.
+
 Slots are typed extension points spanning lifecycle, configuration, transport,
 ProtocolFactory, ShadowChat, ShadowIdentity, policy, telemetry, assistants,
 service integration and GUI panels. They are independent contracts, but their
@@ -17,3 +22,10 @@ access inherit Plugin-System limits.
 shadow6-slots catalog
 shadow6-slots validate --bindings Slot-System/bindings.example.json
 ```
+
+The catalog is available through `shadow6-slots catalog`, Control Center's
+`slots.catalog`, and the shared MCP/LSP/OpenAI tool schemas. `slots.invoke` and
+the combined `extensions.invoke` path are mutating operations; they require
+the existing explicit mutation/privileged gate. Required, pipeline, and
+all-must-pass slots fail closed when a provider fails, while observational
+fanout slots report bounded per-provider results.

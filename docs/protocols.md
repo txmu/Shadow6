@@ -58,6 +58,20 @@ does not permit arbitrary callbacks or commands. See
 
 ## Application and policy protocols
 
+### Extension layer
+
+The `shadow.extension` v1 application frame was integrated during the
+2026-09-01 to 2026-09-06 transition, building on the late-August platform
+refactor and later connecting Crosed, Plugin, and Slot systems. It is not a
+Native Core wire protocol.
+`Extension-System` requires exactly one frame inside a signed Crosed request,
+checks source/target domains and NFC text, and invokes only a signed isolated
+Plugin through a typed Slot. Control Center's `extensions.invoke` and the
+standalone `shadow6-extensions` command expose the same operation. The default
+Core build cannot satisfy this path: an explicit `*-crosed` binary, signed
+request, capability intersection, provider binding, and operator approval are
+all required.
+
 | Protocol | Purpose |
 | --- | --- |
 | ProtocolFactory framing | Versioned bounded 32-bit application frames; unknown versions and malformed lengths fail closed |

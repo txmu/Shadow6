@@ -9,6 +9,12 @@ native key generation. Existing control, plugin, package, security,
 infrastructure, Slot, Public6, init and all twelve Core routes remain available.
 Availability depends on the installed components; listing never starts them.
 
+The `extensions` route is the component-layer integration point for the
+2026-09-01 to 2026-09-06 Extension integration. It validates the signed Crosed request,
+then delegates to the signed Plugin/Slot boundary; it does not add a Core wire
+mode or accept arbitrary host commands. For a complete transaction use
+`shadow6-extensions` directly or Control Center's `extensions.invoke`.
+
 ```sh
 shadow6 connect CODE --core carp --role client --output ./new-peer
 shadow6 connect CODE --core idris --role client --profile ./profile.json --pin PUBLIC_HEX --check
