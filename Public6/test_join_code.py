@@ -6,7 +6,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from join_code import decode, install_peer, issue, peer_public, provision, resolve, validate_profile, pack_protocol, unpack_protocol
+from join_code import decode, install_peer, issue, peer_public, provision, resolve, validate_profile, pack_protocol, unpack_protocol, community_protocol, verify_passport_visa
 from virtual_peer import load_config as load_peer
 
 
@@ -20,6 +20,15 @@ class JoinCodeTests(unittest.TestCase):
         self.assertEqual(unpack_protocol(pack_protocol(value)), value)
         with self.assertRaises(ValueError):
             unpack_protocol("S6P1.bad")
+
+    def test_protocol_float_and_community_admission(self):
+        value = {"schema":"shadow6.protocol-envelope.v1", "version":1, "purpose":"test", "core":"all", "role":"all", "identity":{}, "routes":[], "components":{}, "credentials":{"number": 1.5}}
+        with self.assertRaises(ValueError): pack_protocol(value)
+        value["credentials"] = {}
+        token = community_protocol(value, community="example", passport="visa-123")
+        self.assertTrue(verify_passport_visa(unpack_protocol(token), allowed_communities=("example",)))
+        free = community_protocol(value, community="example")
+        self.assertTrue(verify_passport_visa(unpack_protocol(free), visa_free=True))
     def test_android_wire_vector(self):
         code = "A8YzZAoBuwABAgMEBQYHCAkKCwwNDg8QERITFBUW"
         self.assertEqual(decode(code)["lookup_id"], "29ba43311f908fa99653084749d2078ded0d30252704a1c7f5cd3f082a03b082")

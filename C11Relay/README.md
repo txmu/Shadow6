@@ -18,7 +18,8 @@ Modes:
   with metrics instead of blocking other peers. It uses ordinary UDP sockets
   and needs no capabilities or root.
   Other supported hosts retain the ordinary receive loop with the same wire
-  format.
+  format. The current implementation is bounded by configured peer, queue,
+  packet-rate and burst limits; it is not limited to eight datagrams overall.
 - `data-saving`: framed RLE transport. Both ends must be C11Relay instances in
   data-saving mode; it is not compatible with an ordinary UDP endpoint.
 

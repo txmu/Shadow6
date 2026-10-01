@@ -38,6 +38,16 @@ CORE_NAMES = frozenset(("go", "rust", "gleam", "ada", "nim", "pony", "zig", "d",
 PROFILE_SCHEMA = "shadow6.public-node-profile.v1"
 INVITATION_PREFIX = "S6INV1."
 PROTOCOL_PREFIX = "S6P1."
+PROTOCOL_MAX_BYTES = 262144
+PROTOCOL_SECTIONS = ("identity", "routes", "components", "credentials")
+
+def _reject_protocol_float(value):
+    if isinstance(value, float):
+        raise ValueError("floating-point values are not permitted in S6P1")
+    if isinstance(value, dict):
+        for item in value.values(): _reject_protocol_float(item)
+    elif isinstance(value, list):
+        for item in value: _reject_protocol_float(item)
 
 def pack_protocol(envelope: dict) -> str:
     """Encode a platform-neutral Shadow6 protocol envelope.
@@ -59,13 +69,14 @@ def pack_protocol(envelope: dict) -> str:
         raise ValueError("invalid envelope role")
     if not isinstance(envelope["identity"], dict) or not isinstance(envelope["routes"], list) or not isinstance(envelope["components"], dict) or not isinstance(envelope["credentials"], dict):
         raise ValueError("invalid envelope sections")
+    _reject_protocol_float(envelope)
     raw = json.dumps(envelope, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False).encode()
     token = PROTOCOL_PREFIX + base64.urlsafe_b64encode(raw).decode().rstrip("=")
-    if len(token) > 65536: raise ValueError("protocol envelope is oversized")
+    if len(token) > PROTOCOL_MAX_BYTES: raise ValueError("protocol envelope is oversized")
     return token
 
 def unpack_protocol(token: str) -> dict:
-    if type(token) is not str or not token.startswith(PROTOCOL_PREFIX) or len(token) > 65536:
+    if type(token) is not str or not token.startswith(PROTOCOL_PREFIX) or len(token) > PROTOCOL_MAX_BYTES:
         raise ValueError("invalid Shadow6 protocol envelope")
     try:
         raw = base64.urlsafe_b64decode(token[len(PROTOCOL_PREFIX):] + "===")
@@ -74,6 +85,28 @@ def unpack_protocol(token: str) -> dict:
         raise ValueError("invalid Shadow6 protocol envelope encoding") from exc
     pack_protocol(value)
     return value
+
+def community_protocol(envelope: dict, *, community: str, passport: str = "visa-free") -> str:
+    """Mark an S6P1 envelope for a community-defined protocol adapter."""
+    if not isinstance(community, str) or not re.fullmatch(r"[A-Za-z0-9._-]{1,64}", community):
+        raise ValueError("invalid community identifier")
+    value = dict(envelope)
+    value["purpose"] = f"community:{community}"
+    credentials = dict(value["credentials"])
+    credentials["admission"] = passport
+    value["credentials"] = credentials
+    return pack_protocol(value)
+
+def verify_passport_visa(envelope: dict, *, allowed_communities=(), visa_free=False) -> bool:
+    """Validate community admission metadata without contacting a service."""
+    pack_protocol(envelope)
+    purpose = envelope["purpose"]
+    if not purpose.startswith("community:"):
+        return True
+    community = purpose.split(":", 1)[1]
+    admission = envelope["credentials"].get("admission")
+    if admission == "visa-free": return bool(visa_free)
+    return community in set(allowed_communities) and isinstance(admission, str) and 1 <= len(admission) <= 256
 
 def pack_invitation(code: str, profile: dict, gate_public_key: str) -> str:
     """Create one portable invitation carrying code, profile and Gate pin."""
