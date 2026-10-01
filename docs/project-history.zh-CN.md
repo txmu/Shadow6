@@ -155,6 +155,26 @@ portable JSON 边界。两者继续位于组件层，不要求十二个原生 Co
 - README 已记录 2026-09-30 Linux 4CPU iperf chain CI 实测；性能数据保留基线、
   方向、吞吐、丢包/重传、CPU 和内存字段，不将预期的 FIN 清理噪声列为错误。
 
+## 2026-10-01：S6P1 全入口接入与 Android 安全检查
+
+`fcc0afe` 将完整 S6P1 从“可编码格式”推进为所有无须重新编译组件都能直接消费
+的统一入口。Public6 新增统一 envelope/Passport/Visa scope resolver；CLI Connect
+支持直接传入完整 `S6P1.` 或受保护文件，并继续兼容 Join Code、`S6INV1.` 和旧的
+profile/pin 参数；Virtual Broker、Virtual Peer、Detector 都支持同一 S6P1 输入并在
+启动边界校验 component、role、audience、社区 admission 和凭据有效期。Control Center
+新增 `protocol.envelope.validate`，旧 JSON-RPC 方法仍可用，S6AR1 同时拒绝重复字段、
+浮点数和非有限值。Android Public6 导入也支持完整 S6P1，保留旧长邀请码流程。
+
+本次验证通过：Public6、CLI、Control Center S6AR1/旧 RPC、Detector 共 57 个 Python
+测试，以及 Android 项目/原生资源静态测试 10 个。Android 源码复核确认 SecretStore
+使用 `KeyGenParameterSpec` 正确初始化 Android Keystore，Manifest 保持禁用明文流量、
+非导出服务和应用私有存储；本次没有在本机重新编译 APK，构建仍交由 CI。
+
+### 2026-10-01 当前提交
+
+代码提交：`fcc0afe`；历史文档提交：本节对应的后续提交。当前统一协议仍位于组件层，
+十二个原生 Core 不需要重新编译。
+
 ## 如何继续维护
 
 新增 Core 时，同时记录首次加入提交、原生控制/数据协议、角色和平台限制，
