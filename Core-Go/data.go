@@ -976,6 +976,12 @@ func startClient(config *Config) error {
 	}
 	defer listener.Close()
 	localPort := listener.Addr().(*net.TCPAddr).Port
+	readyEvent, _ := json.Marshal(map[string]any{
+		"event": "shadow6.ready", "schema": 1, "core": "shadow6-go", "role": "client",
+		"application_boundary": map[string]any{"kind": "stream", "mode": "localhost-tcp-proxy",
+			"endpoint": map[string]any{"host": "127.0.0.1", "port": localPort}},
+	})
+	fmt.Println(string(readyEvent))
 	log.Printf("[Client] Secure local proxy listening on 127.0.0.1:%d", localPort)
 	if client.OnSuccess != "" {
 		if len(client.OnSuccess) > 4096 {

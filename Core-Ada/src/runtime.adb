@@ -323,6 +323,7 @@ package body Runtime is
       Keys (Secret, Pub, Agent_Pub, True, TX, RX); Native.Wipe (Secret'Address, 32);
       Remote := Native.Connect (Field (R, P, "target_ip") & ASCII.NUL, Native.Int (Number (R, P, "port"))); Check (Remote >= 0); Confirm (Remote, TX, RX, True);
       Listener := Native.Listen ("127.0.0.1" & ASCII.NUL, 0); Check (Listener >= 0);
+      Ada.Text_IO.Put_Line ("{""event"":""shadow6.ready"",""schema"":1,""core"":""shadow6-ada"",""role"":""client"",""application_boundary"":{""kind"":""stream"",""mode"":""localhost-tcp-proxy"",""endpoint"":{""host"":""127.0.0.1"",""port"":" & Num (Long_Long_Integer (Native.Port (Listener))) & "}}}");
       Ada.Text_IO.Put_Line ("[Client] Secure local proxy listening on 127.0.0.1:" & Num (Long_Long_Integer (Native.Port (Listener))));
       Local := Await_Peer (Listener, 20); Check (Local >= 0); Native.Close (Listener); Listener := -1;
       Relay.Run (Local, Remote, TX, RX, 7200);

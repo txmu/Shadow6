@@ -1,15 +1,22 @@
 import os, tempfile, unittest
 from pathlib import Path
-from shadow6_network import DatagramEndpoint, Limits, POLICIES, ReliableAdapter, load_key
+from shadow6_network import (CREDITED_APPLICATION_BOUNDARY, DatagramEndpoint,
+    Limits, POLICIES, ReliableAdapter, load_key)
 
 class AdapterTests(unittest.TestCase):
+    def test_catalog_identifies_credited_application_boundary(self):
+        self.assertEqual(CREDITED_APPLICATION_BOUNDARY["kind"], "credited")
+        self.assertEqual(CREDITED_APPLICATION_BOUNDARY["credit_unit"], "data-frames")
+        self.assertEqual(CREDITED_APPLICATION_BOUNDARY["max_window"], 64)
+
     def test_micro_mux_application_credit_tracks_ack(self):
         left=ReliableAdapter('gleam-mux',bytes(range(32)),limits=Limits(payload_bytes=1100,window_frames=1))
         right=ReliableAdapter('gleam-mux',bytes(range(32)),1,limits=Limits(payload_bytes=1100,window_frames=1))
         self.assertEqual(left.application_credit(),1)
         frames=left.send_flow_controlled(0,b"flow")
         self.assertEqual(left.application_credit(),0)
-        with self.assertRaises(BufferError): left.send_flow_controlled(0,b"blocked")
+        with self.assertRaises(BufferError) as raised: left.send_flow_controlled(0,b"blocked")
+        self.assertEqual(raised.exception.code,"S6NA_BACKPRESSURE")
         for ack in right.receive(frames[0])[0]: left.receive(ack)
         self.assertEqual(left.application_credit(),1)
     def test_lazy_message_retention_stays_within_backpressure_budget(self):

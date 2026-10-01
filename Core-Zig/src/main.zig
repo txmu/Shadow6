@@ -1,7 +1,7 @@
 const std = @import("std");
 const cfg = @import("config.zig");
 const p = @import("platform.zig");
-pub const features = .{ .core = "shadow6-zig", .version = "1.1.0", .crosed_compiled = false, .crosed_max_level = @as(u8, 0), .app_transport = false, .qubes_isolation = false, .gate_compiled = true, .gate_enabled_by_default = false, .utf8 = true, .crosed_capabilities = [0][]const u8{} };
+pub const features = .{ .core = "shadow6-zig", .version = "1.1.0", .crosed_compiled = false, .crosed_max_level = @as(u8, 0), .app_transport = false, .qubes_isolation = false, .gate_compiled = true, .gate_enabled_by_default = false, .utf8 = true, .crosed_capabilities = [0][]const u8{}, .application_boundaries = .{.{ .kind = "stream", .mode = "localhost-tcp-proxy", .roles = [_][]const u8{"client"}, .full_duplex = true, .ordered = true, .reliable = true, .backpressure = "tcp-flow-control", .half_close = true, .listener_ownership = "core", .endpoint_discovery = "stdout-ready-jsonl-v1", .listener_ready = "bound-and-listening", .local_connection_limit = 16, .shutdown = "close-active-flows", .eof = "propagate-half-close", .connection_mapping = "one-local-connection-per-native-flow"}} };
 fn run(init: std.process.Init) !void {
     if (p.shadow6_ignore_sigpipe() != 0) return error.SignalSetupFailed;
     var arena = std.heap.ArenaAllocator.init(init.gpa);

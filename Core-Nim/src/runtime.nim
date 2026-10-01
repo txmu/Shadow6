@@ -164,6 +164,7 @@ proc forward(dc: cint; cfg: JsonNode; client: bool) =
   if client:
     listener = tcpListen()
     require(listener >= 0)
+    echo "{\"event\":\"shadow6.ready\",\"schema\":1,\"core\":\"shadow6-nim\",\"role\":\"client\",\"application_boundary\":{\"kind\":\"stream\",\"mode\":\"localhost-tcp-proxy\",\"endpoint\":{\"host\":\"127.0.0.1\",\"port\":" & $tcpPort(listener) & "}}}"
     echo "Local proxy listening on 127.0.0.1:", tcpPort(listener)
     let deadline = clock()+120000
     while socket < 0:

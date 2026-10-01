@@ -96,6 +96,7 @@ serializeFeatureReport report =
      "  \"crosed_max_level\": " ++ show report.crosedMaxLevel ++ ",\n" ++
      "  \"app_transport\": " ++ (if report.appTransport then "true" else "false") ++ ",\n" ++
      "  \"app_transport_modes\": [\"udp\", \"seqpacket-fd\"],\n" ++
+     "  \"application_boundaries\": [{\"kind\":\"message\",\"mode\":\"seqpacket-fd\",\"roles\":[\"client\"],\"max_record\":1024,\"message_preserving\":true,\"backpressure\":\"native-window\",\"producer_send_success\":\"kernel-queue-only\",\"oversize\":\"discard-record-continue\",\"transient_error\":\"retry-eagain-eintr\",\"hard_error\":\"fail-closed\",\"eof\":\"empty-record-drain\",\"close\":\"drain-accepted-then-stop\"}],\n" ++
      "  \"qubes_isolation\": " ++ (if report.qubesIsolation then "true" else "false") ++ ",\n" ++
      "  \"gate_compiled\": " ++ (if report.gateCompiled then "true" else "false") ++ ",\n" ++
      "  \"gate_enabled_by_default\": " ++ (if report.gateEnabledDefault then "true" else "false") ++ ",\n" ++

@@ -79,7 +79,7 @@ fn read_secure(path: str) (str | void) = {
 };
 
 fn feature_report() void = {
-	fmt::println("{\"core\":\"shadow6-hare\",\"version\":\"1.0.0\",\"crosed_compiled\":false,\"crosed_max_level\":0,\"app_transport\":false,\"app_transport_modes\":[\"udp\",\"seqpacket-fd\"],\"qubes_isolation\":false,\"gate_compiled\":false,\"gate_enabled_by_default\":false,\"utf8\":true,\"crosed_capabilities\":[]}")!;
+	fmt::println("{\"core\":\"shadow6-hare\",\"version\":\"1.0.0\",\"crosed_compiled\":false,\"crosed_max_level\":0,\"app_transport\":false,\"app_transport_modes\":[\"udp\",\"seqpacket-fd\"],\"application_boundaries\":[{\"kind\":\"message\",\"mode\":\"seqpacket-fd\",\"roles\":[\"client\"],\"max_record\":978,\"message_preserving\":true,\"backpressure\":\"native-window\",\"producer_send_success\":\"kernel-queue-only\",\"oversize\":\"discard-record-continue\",\"transient_error\":\"retry-eagain-eintr\",\"hard_error\":\"fail-closed\",\"eof\":\"empty-record-drain\",\"close\":\"drain-accepted-then-stop\"}],\"qubes_isolation\":false,\"gate_compiled\":false,\"gate_enabled_by_default\":false,\"utf8\":true,\"crosed_capabilities\":[]}")!;
 };
 
 

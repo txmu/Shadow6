@@ -58,6 +58,7 @@ client_stream(Control,RemoteAddress,Port,Tx,Rx)->
     Family=case tuple_size(RemoteAddress) of 8->[inet6];4->[] end,
     {ok,Remote}=gen_tcp:connect(RemoteAddress,Port,Family++[binary,{active,false},{nodelay,true},{packet,raw}],10000),
     {ok,Listener}=listen({127,0,0,1},0),{ok,{_,ProxyPort}}=inet:sockname(Listener),
+    io:format("{\"event\":\"shadow6.ready\",\"schema\":1,\"core\":\"shadow6-gleam\",\"role\":\"client\",\"application_boundary\":{\"kind\":\"stream\",\"mode\":\"localhost-tcp-proxy\",\"endpoint\":{\"host\":\"127.0.0.1\",\"port\":~B}}}~n",[ProxyPort]),
     io:format("[Client] Secure local proxy listening on 127.0.0.1:~B~n",[ProxyPort]),
     {ok,Local}=gen_tcp:accept(Listener,20000),gen_tcp:close(Listener),
     shadow6_forward:relay(Local,Remote,Tx,Rx,7200),gen_tcp:close(Local),gen_tcp:close(Remote),gen_tcp:close(Control).

@@ -99,6 +99,12 @@ POLICIES={
 # 1100 + S6NA(48) + Micro-Mux(42) + IPv6/UDP(48) < IPv6 minimum MTU.
 PROFILES = {**POLICIES, "gleam-mux": Policy("companion", 1100, 64,
     "Micro-Mux UDP: bounded ACK/retry, deduplication and reassembly; no availability guarantee")}
+CREDITED_APPLICATION_BOUNDARY = {
+    "kind": "credited", "mode": "s6na-companion", "credit_unit": "data-frames",
+    "max_window": 64, "backpressure": "explicit-credit",
+    "backpressure_error": "S6NA_BACKPRESSURE", "close": "invalidate-credit",
+    "closed_error": "S6NA_CLOSED", "retry_exhaustion": "S6NA_RETRY_EXHAUSTED",
+}
 
 def profile_name(core, transport=None):
     if transport is None: return core
@@ -420,6 +426,6 @@ def audit(bin_dir:Path):
 def main():
     parser=argparse.ArgumentParser(); parser.add_argument("action",choices=("catalog","audit"),default="catalog",nargs="?")
     parser.add_argument("--bin-dir",type=Path,default=Path.home()/".local/bin"); args=parser.parse_args()
-    result=audit(args.bin_dir) if args.action=="audit" else {"schema":"shadow6.network-adapter-catalog.v1","cores":{k:v.__dict__ for k,v in POLICIES.items()},"profiles":{k:v.__dict__ for k,v in PROFILES.items()}}
+    result=audit(args.bin_dir) if args.action=="audit" else {"schema":"shadow6.network-adapter-catalog.v1","application_boundary":CREDITED_APPLICATION_BOUNDARY,"cores":{k:v.__dict__ for k,v in POLICIES.items()},"profiles":{k:v.__dict__ for k,v in PROFILES.items()}}
     print(json.dumps(result,sort_keys=True,indent=2)); return 0
 if __name__=="__main__": raise SystemExit(main())

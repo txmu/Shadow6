@@ -149,6 +149,7 @@ struct FeatureReport {
     gate_enabled_by_default: bool,
     utf8: bool,
     crosed_capabilities: Vec<&'static str>,
+    application_boundaries: Vec<serde_json::Value>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -234,6 +235,15 @@ fn feature_report() -> FeatureReport {
         gate_enabled_by_default: false,
         utf8: true,
         crosed_capabilities: capabilities,
+        application_boundaries: vec![serde_json::json!({
+            "kind": "stream", "mode": "localhost-tcp-proxy", "roles": ["client"],
+            "full_duplex": true, "ordered": true, "reliable": true,
+            "backpressure": "tcp-flow-control", "half_close": true,
+            "listener_ownership": "core", "endpoint_discovery": "stdout-ready-jsonl-v1",
+            "listener_ready": "bound-and-listening", "local_connection_limit": MAX_STREAMS_PER_TUNNEL,
+            "shutdown": "close-active-flows", "eof": "propagate-half-close",
+            "connection_mapping": "one-local-connection-per-native-flow"
+        })],
     }
 }
 
@@ -2643,6 +2653,11 @@ async fn start_client(cfg: Config) -> Result<(), String> {
         .local_addr()
         .map_err(|error| format!("cannot inspect local proxy address: {error}"))?;
     let local_port = local_addr.port();
+    println!("{}", serde_json::json!({
+        "event": "shadow6.ready", "schema": 1, "core": "shadow6-rust", "role": "client",
+        "application_boundary": {"kind": "stream", "mode": "localhost-tcp-proxy",
+            "endpoint": {"host": "127.0.0.1", "port": local_port}}
+    }));
 
     // Establish QUIC Connection
     let target_addr = match target_address {

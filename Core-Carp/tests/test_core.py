@@ -6,10 +6,13 @@ import tempfile
 import unittest
 import socket
 import time
+import sys
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
 BIN = Path(__file__).resolve().parents[1] / "shadow6-carp"
+sys.path.insert(0, str(BIN.parents[1] / "Crosed"))
+from feature_contract import validate_feature_report
 
 class CoreTests(unittest.TestCase):
     def setUp(self):
@@ -27,6 +30,7 @@ class CoreTests(unittest.TestCase):
 
     def test_features(self):
         report = json.loads(self.call("--feature-report"))
+        validate_feature_report(report, "shadow6-carp")
         self.assertEqual(report["crosed_max_level"], 0)
         self.assertEqual(report["crosed_capabilities"], [])
 

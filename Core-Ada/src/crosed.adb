@@ -33,7 +33,8 @@ package body Crosed is
       return "{""core"":""shadow6-ada"",""version"":""1.1.0"",""crosed_compiled"":" & On &
         ",""crosed_max_level"":" & Num (Long_Long_Integer (L)) & ",""app_transport"":" &
         (if L >= 3 then "true" else "false") & ",""qubes_isolation"":" & On &
-        ",""gate_compiled"":false,""gate_enabled_by_default"":false,""utf8"":true,""transport"":""cell-relay"",""cell_size"":512,""crosed_capabilities"": [" & Caps_Text (Caps) & "]}";
+        ",""gate_compiled"":false,""gate_enabled_by_default"":false,""utf8"":true,""transport"":""cell-relay"",""cell_size"":512,""crosed_capabilities"": [" & Caps_Text (Caps) &
+        "],""application_boundaries"":[{""kind"":""stream"",""mode"":""localhost-tcp-proxy"",""roles"":[""client""],""full_duplex"":true,""ordered"":true,""reliable"":true,""backpressure"":""tcp-flow-control"",""half_close"":true,""listener_ownership"":""core"",""endpoint_discovery"":""stdout-ready-jsonl-v1"",""listener_ready"":""bound-and-listening"",""local_connection_limit"":1,""shutdown"":""close-active-flows"",""eof"":""propagate-half-close"",""connection_mapping"":""one-local-connection-per-native-flow""}]}";
    end Features;
    function Read_Caps (D : JSON.Document; I : JSON.Index) return Domain_Policy.Cap_Set is
       C : JSON.Index := D.Items (I).Child; R : Domain_Policy.Cap_Set := (others => False); Found : Boolean;

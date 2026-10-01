@@ -27,6 +27,7 @@ BIN = ROOT / "Core-Ada/shadow6-ada"
 L5 = ROOT / "Core-Ada/shadow6-ada-crosed"
 sys.path.insert(0, str(ROOT / "Crosed"))
 from crosedctl import build_request
+from feature_contract import validate_ready_event
 
 
 def identity():
@@ -145,6 +146,22 @@ class CoreTests(unittest.TestCase):
                 self.fail(f"core exited {process.returncode}: {text}")
             time.sleep(.03)
         self.fail(f"timeout: {text}")
+
+    def wait_ready_event(self, process, log):
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            log.seek(0)
+            for line in log:
+                try:
+                    event = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(event, dict) and event.get("event") == "shadow6.ready":
+                    return validate_ready_event(event, "shadow6-ada")
+            if process.poll() is not None:
+                self.fail(f"core exited {process.returncode}: {log.read()}")
+            time.sleep(.03)
+        self.fail("timeout waiting for structured application ready event")
 
     def start_broker(self):
         process, log = self.start(self.config("broker.json", self.broker))
@@ -283,8 +300,9 @@ class CoreTests(unittest.TestCase):
         client = {"role": "client", "client": dict(common, id="client", private_key=self.cpriv,
             target_agent="agent", agent_pubkey=self.apub, on_success="", domain="work-vm", target_domain="vault-vm")}
         cp, cl = self.start(self.config("client.json", client))
-        match = self.wait_log(cp, cl, r"proxy listening on 127\.0\.0\.1:(\d+)")
-        with socket.create_connection(("127.0.0.1", int(match[1])), timeout=10) as sock:
+        ready = self.wait_ready_event(cp, cl)
+        port = ready["application_boundary"]["endpoint"]["port"]
+        with socket.create_connection(("127.0.0.1", port), timeout=10) as sock:
             sock.settimeout(10)
             for size in (1, 475, 476, 477, 512, 16384, 48000):
                 payload = os.urandom(size)

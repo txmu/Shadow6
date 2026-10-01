@@ -43,6 +43,13 @@ proc features*(): JsonNode =
     "app_transport": CrosedLevel >= 3, "qubes_isolation": CrosedLevel > 0,
     "gate_compiled": false, "gate_enabled_by_default": false, "utf8": true,
     "crosed_capabilities": caps, "transport": "webrtc",
+    "application_boundaries": [%*{"kind":"stream", "mode":"localhost-tcp-proxy",
+      "roles":["client"], "full_duplex":true, "ordered":true, "reliable":true,
+      "backpressure":"tcp-flow-control", "half_close":true,
+      "listener_ownership":"core", "endpoint_discovery":"stdout-ready-jsonl-v1",
+      "listener_ready":"bound-and-listening", "local_connection_limit":1,
+      "shutdown":"close-active-flows", "eof":"propagate-half-close",
+      "connection_mapping":"one-local-connection-per-native-flow"}],
     "memory_model": (when defined(gcArc): "arc" else: "orc")}
 
 proc identifier*(s: string): bool =

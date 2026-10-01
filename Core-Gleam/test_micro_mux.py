@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Real Core-Gleam broker/agent/client micro-mux (UDP) forwarding test."""
-import json, os, pathlib, re, socket, subprocess, sys, tempfile, threading, time
+import json, os, pathlib, socket, subprocess, sys, tempfile, threading, time
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
 binary = pathlib.Path(sys.argv[1]).resolve()
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "Crosed"))
+from feature_contract import validate_ready_event
 
 
 def keypair():
@@ -55,14 +57,18 @@ with tempfile.TemporaryDirectory(prefix='shadow6-gleam-mux.') as td:
         for path in (broker, agent, client):
             processes.append(subprocess.Popen([binary, '--config', path], stdout=subprocess.PIPE,
                                               stderr=subprocess.PIPE, text=True)); time.sleep(.3)
-        cp = processes[-1]; deadline = time.time() + 15; match = None
-        while time.time() < deadline and not match:
+        cp = processes[-1]; deadline = time.time() + 15; event = None
+        while time.time() < deadline and event is None:
             line = cp.stdout.readline()
-            match = re.search(r'proxy listening on 127\.0\.0\.1:(\d+)', line)
+            try:
+                candidate = json.loads(line)
+                event = validate_ready_event(candidate, "shadow6-gleam")
+            except (json.JSONDecodeError, ValueError):
+                pass
             if not line and cp.poll() is not None:
                 raise AssertionError(f'client exited: {cp.stderr.read()}')
-        assert match, 'client proxy was not published'
-        proxy = ('127.0.0.1', int(match.group(1)))
+        assert event, 'client proxy was not published'
+        proxy = ('127.0.0.1', event['application_boundary']['endpoint']['port'])
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as app:
             app.bind(('127.0.0.1', 0)); app.settimeout(3)
             for size in (1, 512, 1400, 16384, 65000):

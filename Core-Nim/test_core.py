@@ -13,6 +13,8 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "Crosed"))
+from feature_contract import validate_ready_event
 BIN = ROOT / "Core-Nim/shadow6-nim"
 sys.path.insert(0, str(ROOT / "Crosed"))
 from crosedctl import build_request
@@ -90,6 +92,24 @@ class CoreTests(unittest.TestCase):
                     if found: return found
         self.fail(f"expected {pattern}: {data.decode(errors='replace')}")
 
+    def ready_event(self, proc, timeout=30):
+        end = time.monotonic()+timeout
+        data = b""
+        with selectors.DefaultSelector() as selector:
+            selector.register(proc.stdout,selectors.EVENT_READ)
+            while time.monotonic() < end:
+                if selector.select(0.1):
+                    chunk = os.read(proc.stdout.fileno(),65536)
+                    if not chunk: break
+                    data += chunk
+                    while b"\n" in data:
+                        raw, data = data.split(b"\n", 1)
+                        try: event = json.loads(raw)
+                        except (UnicodeDecodeError, json.JSONDecodeError): continue
+                        if isinstance(event,dict) and event.get("event") == "shadow6.ready":
+                            return validate_ready_event(event,"shadow6-nim")
+        self.fail(f"expected structured ready event: {data.decode(errors='replace')}")
+
     def test_actual_webrtc_loopback_relay(self):
         keys = {role:self.key() for role in ("broker","agent","client")}
         with socket.socket() as reserve:
@@ -119,7 +139,7 @@ class CoreTests(unittest.TestCase):
         client = self.start({"role":"client","client":{**common,"id":"client",
             "private_key":keys["client"]["private_key"],"target_agent":"agent",
             "agent_pubkey":keys["agent"]["public_key"]}})
-        proxy = int(self.line(client,r"Local proxy listening on 127\.0\.0\.1:(\d+)").group(1))
+        proxy = self.ready_event(client)["application_boundary"]["endpoint"]["port"]
         payload = bytes(range(256))*512
         with socket.create_connection(("127.0.0.1",proxy),timeout=20) as conn:
             conn.sendall(payload)

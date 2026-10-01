@@ -343,8 +343,12 @@ fn runClient(a: std.mem.Allocator, io: std.Io, config: cfg.Client) !void {
     const bind_addr = try p.address("127.0.0.1", 0);
     const listener = try p.bind(&bind_addr, false);
     defer p.close(listener);
+    const proxy_port = (try p.local(listener)).port();
+    const ready_event = try std.json.Stringify.valueAlloc(a, .{ .event = "shadow6.ready", .schema = 1, .core = "shadow6-zig", .role = "client", .application_boundary = .{ .kind = "stream", .mode = "localhost-tcp-proxy", .endpoint = .{ .host = "127.0.0.1", .port = proxy_port } } }, .{});
+    try p.write(1, ready_event);
+    try p.write(1, "\n");
     var line: [256]u8 = undefined;
-    try p.write(2, try std.fmt.bufPrint(&line, "[Client] Secure local proxy listening on 127.0.0.1:{d}\n", .{(try p.local(listener)).port()}));
+    try p.write(2, try std.fmt.bufPrint(&line, "[Client] Secure local proxy listening on 127.0.0.1:{d}\n", .{proxy_port}));
     if (config.on_success.len != 0) {
         const argv = try @import("hook.zig").arguments(ma, config.on_success, (try p.local(listener)).port(), resp.target_ip);
         var child = try std.process.spawn(io, .{ .argv = argv, .expand_arg0 = .expand });

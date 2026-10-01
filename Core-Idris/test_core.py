@@ -6,6 +6,8 @@ import shlex
 import subprocess
 import sys
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "Crosed"))
+from feature_contract import validate_feature_report
 
 def run_command(cmd, check=True):
     """Run command and return output."""
@@ -22,6 +24,7 @@ def test_feature_report():
     
     output = run_command("./shadow6-idris --feature-report")
     report = json.loads(output)
+    validate_feature_report(report, "shadow6-idris")
     
     # Validate required fields
     assert report["core"] == "shadow6-idris", "Core name mismatch"
@@ -50,6 +53,7 @@ def test_crosed_variant():
     
     output = run_command("./shadow6-idris-crosed --feature-report")
     report = json.loads(output)
+    validate_feature_report(report, "shadow6-idris")
     
     assert report["core"] == "shadow6-idris", "Core name mismatch"
     assert report["crosed_compiled"] == True, "Crosed variant must have Crosed enabled"

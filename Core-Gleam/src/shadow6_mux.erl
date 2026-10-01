@@ -80,6 +80,7 @@ client_relay(RemoteAddress, RemotePort, Tx, Rx, Lifetime) when Lifetime >= 1, Li
     {ok, Remote} = gen_udp:open(0, family(RemoteAddress) ++ ?OPTS),
     {ok, Local} = open({127,0,0,1}),
     {ok, {_, ProxyPort}} = inet:sockname(Local),
+    io:format("{\"event\":\"shadow6.ready\",\"schema\":1,\"core\":\"shadow6-gleam\",\"role\":\"client\",\"application_boundary\":{\"kind\":\"message\",\"mode\":\"localhost-udp-datagram-proxy\",\"endpoint\":{\"host\":\"127.0.0.1\",\"port\":~B}}}~n", [ProxyPort]),
     io:format("[Client] Secure local proxy listening on 127.0.0.1:~B~n", [ProxyPort]),
     try client_loop(Local, Remote, RemoteAddress, RemotePort, Tx, Rx, undefined, 0, undefined,
                     now_ms() + Lifetime * 1000)

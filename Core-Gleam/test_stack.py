@@ -4,6 +4,9 @@ import json, os, pathlib, re, socket, subprocess, sys, tempfile, threading, time
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "Crosed"))
+from feature_contract import validate_ready_event
+
 binary=pathlib.Path(sys.argv[1]).resolve()
 def keypair():
     key=Ed25519PrivateKey.generate()
@@ -45,18 +48,22 @@ with tempfile.TemporaryDirectory(prefix='shadow6-gleam-e2e.') as td:
             assert checked.returncode==0,checked.stderr
         for path in (broker,agent,client):
             p=subprocess.Popen([binary,'--config',path],stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True);processes.append(p);time.sleep(.2)
-        cp=processes[-1];deadline=time.time()+10;match=None
+        cp=processes[-1];deadline=time.time()+10;event=None
         while time.time()<deadline:
-            line=cp.stdout.readline();match=re.search(r'proxy listening on 127\.0\.0\.1:(\d+)',line,re.I)
-            if match:break
+            line=cp.stdout.readline()
+            try: candidate=json.loads(line)
+            except json.JSONDecodeError: candidate=None
+            if isinstance(candidate,dict) and candidate.get('event')=='shadow6.ready':
+                event=validate_ready_event(candidate,'shadow6-gleam');break
             if cp.poll() is not None:
                 for process in processes:
                     if process.poll() is None:process.terminate()
                 diagnostics=[process.communicate(timeout=2)[1] for process in processes]
                 raise AssertionError(f'client exited before publishing its proxy: {diagnostics}')
-        assert match,'client proxy was not published'
+        assert event,'client structured ready event was not published'
+        proxy_port=event['application_boundary']['endpoint']['port']
         payload=os.urandom(256*1024+91)
-        with socket.create_connection(('127.0.0.1',int(match.group(1))),timeout=5) as app:
+        with socket.create_connection(('127.0.0.1',proxy_port),timeout=5) as app:
             app.settimeout(10);app.sendall(payload);app.shutdown(socket.SHUT_WR);received=bytearray()
             while chunk:=app.recv(65536):received.extend(chunk)
         if bytes(received)!=payload:

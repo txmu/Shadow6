@@ -13,6 +13,10 @@ import tempfile
 import threading
 import time
 import unittest
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "Crosed"))
+from feature_contract import validate_ready_event
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat, PrivateFormat, NoEncryption
@@ -144,6 +148,22 @@ class CoreTests(unittest.TestCase):
             time.sleep(.05)
         self.fail(f"Timed out waiting for {pattern}: {text}")
 
+    def ready_event(self, process, log, core, seconds=15):
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline:
+            log.seek(0)
+            for line in log:
+                try:
+                    event = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(event, dict) and event.get("event") == "shadow6.ready":
+                    return validate_ready_event(event, core)["application_boundary"]["endpoint"]["port"]
+            if process.poll() is not None:
+                self.fail(log.read())
+            time.sleep(.05)
+        self.fail(f"Timed out waiting for {core} structured ready event")
+
     def test_feature_key_and_l0_contract(self):
         report = json.loads(subprocess.check_output([str(BIN), "--feature-report"]))
         self.assertEqual(report["core"], "shadow6-zig")
@@ -237,8 +257,7 @@ class CoreTests(unittest.TestCase):
             log.seek(0)
             self.assertIn("invalid QUIC access response", log.read())
             return
-        match = self.ready(cl, log, r"local proxy listening on 127\.0\.0\.1:(\d+)")
-        port = int(match[1])
+        port = self.ready_event(cl, log, "shadow6-zig")
         for size in (1, 1144, 70000):
             with socket.create_connection(("127.0.0.1",port),timeout=10) as sock:
                 sock.settimeout(10); data = os.urandom(size); sock.sendall(data)

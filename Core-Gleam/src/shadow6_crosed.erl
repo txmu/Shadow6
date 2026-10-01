@@ -28,6 +28,13 @@ feature_report() ->
       crosed_compiled => Level > 0, crosed_max_level => Level,
       app_transport => shadow6_build:app_transport(), qubes_isolation => shadow6_build:qubes_isolation(),
       gate_compiled => true, gate_enabled_by_default => false, utf8 => true,
+      application_boundaries => [#{kind => <<"stream">>, mode => <<"localhost-tcp-proxy">>,
+        roles => [<<"client">>], full_duplex => true, ordered => true, reliable => true,
+        backpressure => <<"tcp-flow-control">>, half_close => true,
+        listener_ownership => <<"core">>, endpoint_discovery => <<"stdout-ready-jsonl-v1">>,
+        listener_ready => <<"bound-and-listening">>, local_connection_limit => 1,
+        shutdown => <<"close-active-flows">>, eof => <<"propagate-half-close">>,
+        connection_mapping => <<"one-local-connection-per-native-flow">>}],
       crosed_capabilities => Caps}.
 
 request(RequestPath, TrustPath) ->

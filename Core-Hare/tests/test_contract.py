@@ -3,8 +3,11 @@ import argparse
 import json
 import subprocess
 import tempfile
+import sys
 
 ROOT = Path(__file__).parents[1]
+sys.path.insert(0, str(ROOT.parent / "Crosed"))
+from feature_contract import validate_feature_report
 SRC = (ROOT / "src/main.ha").read_text()
 
 def test_fixed_packet_contract():
@@ -30,6 +33,7 @@ if __name__ == "__main__":
         result = subprocess.run([binary, "--feature-report"], check=True,
                                 capture_output=True, text=True, timeout=10)
         report = json.loads(result.stdout)
+        validate_feature_report(report, "shadow6-hare")
         assert report["core"] == "shadow6-hare"
         assert report["crosed_max_level"] == 0
         assert report["crosed_capabilities"] == []

@@ -57,6 +57,18 @@ inline void ready(const char *role, const Endpoint &ep) {
   auto j = message("ready"); j.object["role"] = Json(role); j.object["listen_addr"] = Json(ep.text());
   std::puts(encode(j).c_str()); std::fflush(stdout);
 }
+inline void application_ready(unsigned port) {
+  Json event = Json::obj(); event.object["event"] = Json("shadow6.ready");
+  event.object["schema"] = Json(std::int64_t{1}); event.object["core"] = Json("shadow6-cpp");
+  event.object["role"] = Json("client");
+  Json boundary = Json::obj(); boundary.object["kind"] = Json("stream");
+  boundary.object["mode"] = Json("localhost-tcp-proxy");
+  Json endpoint = Json::obj(); endpoint.object["host"] = Json("127.0.0.1");
+  endpoint.object["port"] = Json(static_cast<std::int64_t>(port));
+  boundary.object["endpoint"] = std::move(endpoint);
+  event.object["application_boundary"] = std::move(boundary);
+  std::puts(encode(event).c_str()); std::fflush(stdout);
+}
 inline void serve(int listener, const std::function<void(int)> &handler) {
   struct Worker { std::thread thread; std::atomic<bool> done{true}; };
   std::array<Worker, 64> workers;
@@ -231,6 +243,7 @@ inline int run(const Config &cfg) {
     control.join();
   } else {
     ready("client", local);
+    application_ready(local.port);
     serve(listener.value, [&](int fd) { client_session(cfg, broker, agent, fd); });
   }
   return 0;

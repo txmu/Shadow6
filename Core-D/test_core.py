@@ -14,6 +14,9 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
 BIN = Path(__file__).resolve().parent / "shadow6-d"
+import sys
+sys.path.insert(0, str(BIN.parents[1] / "Crosed"))
+from feature_contract import validate_ready_event
 
 
 def keypair():
@@ -113,17 +116,22 @@ class CoreDTests(unittest.TestCase):
                 cp = subprocess.Popen([str(BIN), "--config", str(client)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
                 processes.append(cp)
                 deadline = time.time() + 10
-                match = None
+                event = None
                 while time.time() < deadline:
                     line = cp.stdout.readline()
-                    match = re.search(r"proxy listening on 127\.0\.0\.1:(\d+)", line, re.I)
-                    if match:
+                    try:
+                        candidate = json.loads(line)
+                    except json.JSONDecodeError:
+                        candidate = None
+                    if isinstance(candidate, dict) and candidate.get("event") == "shadow6.ready":
+                        event = validate_ready_event(candidate, "shadow6-d")
                         break
                     if cp.poll() is not None:
                         self.fail(cp.stderr.read())
-                self.assertIsNotNone(match, "client did not publish its local proxy")
+                self.assertIsNotNone(event, "client did not publish its structured ready event")
                 payload = os.urandom(2 * 1024 * 1024 + 37)
-                with socket.create_connection(("127.0.0.1", int(match.group(1))), timeout=5) as app:
+                port = event["application_boundary"]["endpoint"]["port"]
+                with socket.create_connection(("127.0.0.1", port), timeout=5) as app:
                     app.settimeout(10)
                     app.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 4096)
                     errors = []

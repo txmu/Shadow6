@@ -2,7 +2,7 @@ module config;
 import bounded, json, native;
 import core.stdc.string : memcmp;
 @nogc nothrow:
-enum features = `{"core":"shadow6-d","version":"2.0.0","crosed_compiled":false,"crosed_max_level":0,"app_transport":false,"qubes_isolation":false,"gate_compiled":false,"gate_enabled_by_default":false,"utf8":true,"crosed_capabilities":[],"transport":"secure-stream","better_c":true}`;
+enum features = `{"core":"shadow6-d","version":"2.0.0","crosed_compiled":false,"crosed_max_level":0,"app_transport":false,"qubes_isolation":false,"gate_compiled":false,"gate_enabled_by_default":false,"utf8":true,"crosed_capabilities":[],"transport":"secure-stream","better_c":true,"application_boundaries":[{"kind":"stream","mode":"localhost-tcp-proxy","roles":["client"],"full_duplex":true,"ordered":true,"reliable":true,"backpressure":"tcp-flow-control","half_close":true,"listener_ownership":"core","endpoint_discovery":"stdout-ready-jsonl-v1","listener_ready":"bound-and-listening","local_connection_limit":1,"shutdown":"close-active-flows","eof":"propagate-half-close","connection_mapping":"one-local-connection-per-native-flow"}]}`;
 
 bool loadKey(const(char)[] encoded, out Key pub, out Secret secret)
 in { assert(encoded.length <= MAX_JSON); }

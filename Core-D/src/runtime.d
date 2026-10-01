@@ -204,6 +204,7 @@ private bool client(ref const Document doc, ushort section) {
     d_wipe(secret.ptr,32);
     Buffer!256 host;if(!host.append(response.field(1,"host")))return false;int remote=d_connect(host.cstring,cast(int)port);if(remote<0)return false;
     int listener=d_listen("127.0.0.1".ptr,0);if(listener<0){d_close(remote);return false;}
+    printf("{\"event\":\"shadow6.ready\",\"schema\":1,\"core\":\"shadow6-d\",\"role\":\"client\",\"application_boundary\":{\"kind\":\"stream\",\"mode\":\"localhost-tcp-proxy\",\"endpoint\":{\"host\":\"127.0.0.1\",\"port\":%d}}}\n",d_port(listener));
     printf("[Client] Secure local proxy listening on 127.0.0.1:%d\n",d_port(listener));
     fflush(null);
     deadline=d_clock()+20000;int local=-1;while(d_clock()<deadline&&local<0){if(d_ready(listener))local=d_accept(listener);else d_pause();}d_close(listener);
