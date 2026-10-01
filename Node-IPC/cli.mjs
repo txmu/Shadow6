@@ -36,7 +36,7 @@ function controlPath() {
   const script = candidates.find(name => fs.existsSync(name));
   if (!script) throw Error('Control Center unavailable'); return script;
 }
-export function controlHandler({python = process.env.SHADOW6_PYTHON ?? 'python3', allowMutations = false} = {}) {
+export function controlHandler({python = process.env.SHADOW6_PYTHON ?? (process.platform === 'win32' ? 'python' : 'python3'), allowMutations = false} = {}) {
   const script = controlPath();
   return (method, params, {signal} = {}) => new Promise((resolve, reject) => {
     if (method.startsWith('ipc.') || method === 'c11relay.ipc.status') { reject(new Error('recursive transport call disabled')); return; }

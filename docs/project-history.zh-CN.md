@@ -259,6 +259,11 @@ Ed25519 签名、父 Passport digest、issuer、scope 和有效期，避免移�
 
 ## 2026-10-01：Node FastRPC/RawIPC 与 C11Relay 组件层收尾
 
+同日 action 日志复核修复了跨平台 IPC 回归：Windows 使用系统 `python` 解释器而不是
+POSIX 专用的 `python3`，Unix socket 专属候选组件测试在 Windows 明确跳过，Windows
+仍覆盖 TCP、认证、RawIPC 加密和协议互操作性。旧的仍在运行 action 已取消，避免过期
+提交继续消耗资源或覆盖修复结果。
+
 本次在不改动、也不重新编译十二个 Native Core 或 Android APK 的前提下，完成了
 Node 组件层的生产化收尾。`Node-IPC/` 只使用 Node 内置模块，不依赖 npm：FastRPC
 采用 canonical safe-integer JSON、方向分离 HMAC-SHA256、时间窗、nonce、有限重放缓存、
