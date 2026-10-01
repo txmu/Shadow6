@@ -228,6 +228,12 @@ C11Relay normal/high-speed 回环链路。当前本地通过 Node IPC 18 项（�
 竞态、故障注入和跨协议边界，生产路径不依赖它们；Detector 的 synthetic/dummy 数据命令
 仅用于回归测试，真实训练仍使用 PCAP/实测提取器流程。
 
+C11Relay 的 `compile.sh` 同时完成跨平台 hardening 收尾：保留可移植 C11 警告基线，
+对 Fortify、栈保护、格式检查、LTO、PIE、控制流/栈冲突保护、自动变量初始化以及
+RELRO/NOW/no-exec-stack/undefined-symbol 链接检查逐项探测，当前工具链不支持的选项
+只跳过该项。Linux high-speed API 仍由 C 源码自身的条件编译决定，脚本不会把 Relay
+扩展到源码未支持的协议或平台。
+
 ## 如何继续维护
 
 新增 Core 时，同时记录首次加入提交、原生控制/数据协议、角色和平台限制，
