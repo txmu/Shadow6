@@ -110,7 +110,18 @@ D、Rust、C++ 仍保持约 1.5–3.2 Gbit/s，Nim 约 341/383 Mbit/s。UDP 核�
 1.1 Gbit/s offered load 下仍普遍丢包约 74–97%，不能据此宣称可靠容量。不同
 日期使用共享 runner 的短时回环测试，必须同时比较基线，不能直接当作跨日排名。
 
-## 当前快照（`b479ae2`，2026-09-30）
+## 2026-10-01：S6P1 通用凭据与社区协议接口
+
+`9c8f650` 将 S6P1 从预留字段封装提升为各组件可直接消费的通用凭据：
+identity、routes、components、credentials 四个 section 统一参与校验和传递，
+pack/unpack 对浮点值采用一致的拒绝规则，单 envelope 上限提高到 256 KiB。
+Public6 提供社区协议兼容入口，并以 Passport/Visa admission metadata 支持社区
+自定义协议；Visa-free 必须由接收策略显式开启。Control Center 的
+`orchestrator.client.knock` engine enum 扩展到十二个 Core；C11Relay 文档更新
+为当前按 peer、队列、速率和 burst 的实际边界。上述改动均在 Python/CLI/Public6
+层完成，不要求原生 Core 重新编译。
+
+## 当前快照（`9c8f650`，2026-10-01）
 
 - 十二个 Core 均有独立目录和 README；能力、协议和平台边界见能力矩阵。
 - 默认 `shadow6-*` 构建保持 `CROSED_LEVEL=0`、`APP_TRANSPORT=0`、
