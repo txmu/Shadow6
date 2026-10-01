@@ -63,6 +63,12 @@ The two optional Network Adapter companions are described in
 [`docs/companions.md`](docs/companions.md), and the complete protocol index is
 in [`docs/protocols.md`](docs/protocols.md).
 
+The dependency-free [Node IPC companion](Node-IPC/README.md) adds bounded local
+FastRPC and encrypted RawIPC for Control Center and C11Relay. It is available
+through `shadow6 ipc`, the Control Center schema, MCP, LSP, OpenAI function
+tools, JSONL, and the loopback HTTP API; it does not replace any Native Core
+wire protocol or require a Core rebuild.
+
 | Component | Implemented role | Protocol / important boundary |
 | --- | --- | --- |
 | Core-Go | broker, agent, client, dual-stack local discovery | WebSocket control and authenticated encrypted KCP data; IPv6 LPD uses `ff02::1` with interface scope |

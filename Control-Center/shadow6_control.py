@@ -41,6 +41,7 @@ for directory in (
     ROOT / "Online-Repository", ROOT / "Gate",
     ROOT / "Service-Init",
     ROOT / "CLI",
+    ROOT / "Control-Center",
     ROOT / "Virtual-Adapter",
     ROOT / "Detector",
     HERE.parent / "share" / "shadow6" / "modules",
@@ -117,6 +118,14 @@ METHOD_SPECS: dict[str, dict[str, Any]] = {
         {"envelope": {"type": "string", "maxLength": 262144},
          "component": _STRING, "role": {"type": "string", "enum": ["broker", "agent", "client", "gate", "relay", "plugin", "all"]},
          "audience": _STRING, "community": _STRING, "allow_visa_free": _BOOL}, ("envelope",)),
+    "ipc.catalog": _method("Return the built-in Node FastRPC, RawIPC and C11Relay bridge contract."),
+    "ipc.call": _method("Call an authenticated operator-configured FastRPC component; requires mutation permission.",
+        {"method": _STRING, "params": _OBJECT}, ("method",), mutating=True),
+    "ipc.raw": _method("Exchange bounded authenticated binary IPC with an operator-configured component.",
+        {"type": {"type":"integer", "minimum":1, "maximum":255}, "payload_base64": {"type":"string", "maxLength":60000}},
+        ("type", "payload_base64"), mutating=True),
+    "c11relay.ipc.status": _method("Read companion relay metrics over authenticated FastRPC; does not send a datagram."),
+    "c11relay.ipc.schema": _method("Return the bounded C11Relay RawIPC datagram contract."),
     "system.guide": _method("Read a bilingual guide to safe operations and privacy.", {"lang": {"type": "string", "enum": ["en", "zh"]}}),
     "privacy.report": _method("Return only aggregate health counts, without paths, identifiers or diagnostic details."),
     "system.status": _method("Run bounded read-only component health and observation checks.", {"root": _PATH}),
@@ -406,6 +415,32 @@ def dispatch(method: str, raw_params: Any = None) -> Any:
             audience=params.get("audience"), allowed_communities=communities,
             visa_free=params.get("allow_visa_free", False))
         return {"envelope": envelope, "credentials": claims}
+    if method == "ipc.catalog":
+        _only(params, set())
+        from ipc_client import invoke
+        return invoke(ROOT, "catalog", {})
+    if method in {"ipc.call", "ipc.raw", "c11relay.ipc.status"}:
+        from ipc_client import invoke
+        if method == "ipc.call":
+            _only(params, {"method", "params"})
+            # IPC methods must not recursively invoke the transport bridge.
+            if params["method"].startswith("ipc.") or params["method"] == "s6ar.dispatch":
+                raise ValueError("recursive IPC calls are disabled")
+            return invoke(ROOT, "call", {"method": params["method"], "params": params.get("params", {})})
+        if method == "ipc.raw":
+            _only(params, {"type", "payload_base64"})
+            data = base64.b64decode(params["payload_base64"], validate=True)
+            if len(data) > 45000 or base64.b64encode(data).decode() != params["payload_base64"]:
+                raise ValueError("invalid IPC base64")
+            return invoke(ROOT, "raw-send", params)
+        _only(params, set())
+        return invoke(ROOT, "call", {"method": "c11relay.status", "params": {}})
+    if method == "c11relay.ipc.schema":
+        _only(params, set())
+        return {"schema": "shadow6.c11relay-ipc.v1", "magic": "S6CR", "version": 1,
+                "types": {"datagram": 17, "metrics": 19, "batch": 20},
+                "datagram_header_bytes": 12, "max_peers": 4096, "max_queue": 4096, "max_batch": 256,
+                "note": "fixed loopback UDP target; arbitrary relay control commands are disabled"}
     if method == "system.guide":
         zh = params.get("lang", "en") == "zh"
         return {

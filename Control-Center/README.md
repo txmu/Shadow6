@@ -46,6 +46,16 @@ curl --fail --header "Authorization: Bearer $(< /etc/shadow6/control.token)" \
 
 中文说明见 [README.zh-CN.md](README.zh-CN.md)。
 
+## Component IPC
+
+`ipc.catalog` reports the dependency-free Node FastRPC/RawIPC contract;
+`ipc.call` and `ipc.raw` call an operator-configured local service.
+`c11relay.ipc.status` and `c11relay.ipc.schema` expose relay metrics and framing.
+Set `SHADOW6_IPC_CONFIG` in the operator environment, never in caller arguments.
+The existing mutation gate also covers IPC packet sending and forwarded calls.
+These methods share JSONL, HTTP, MCP, LSP, and OpenAI tool discovery. See the
+[IPC configuration and wire contract](../Node-IPC/README.md).
+
 ## MCP for Claude and Cursor
 
 The MCP server uses bounded JSON-RPC over stdio and exposes every finite Control

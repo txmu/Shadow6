@@ -34,4 +34,13 @@ API 只监听回环地址，并拒绝异常 Host、重复认证头、跨站浏�
 本机地址和端口；收到 `415`，请添加 `Content-Type: application/json` 并发送
 未压缩的 UTF-8 JSON。这样的错误信息是路标，不必靠猜。
 
+## 组件 IPC
+
+`ipc.catalog` 返回无 npm 依赖的 Node FastRPC/RawIPC 契约；`ipc.call`、
+`ipc.raw` 调用运维者预先配置的本地服务；`c11relay.ipc.status` 和
+`c11relay.ipc.schema` 提供 Relay 状态与数据报格式。运维者在服务环境中设置
+`SHADOW6_IPC_CONFIG`，调用者不能传入密钥、配置路径或目标地址。发送数据及转发
+调用仍受显式 mutation gate 保护。这些方法共用 JSONL、HTTP、MCP、LSP 和
+OpenAI 函数工具发现，参见[配置与协议说明](../Node-IPC/README.md)。
+
 [Read in English](README.md)

@@ -83,7 +83,7 @@ vectors, and a SHA-256 manifest; hashes describe the bundle, not a trusted signa
 | features | all core families, missing/unknown/mistyped fields, contradictory capabilities |
 | plugins | signed manifests, code hashes, deny-by-default grants, symlinks/oversize requests, RPC capability/replay boundaries; execution tests excluded |
 | slots | explicit privileged approval, signed providers, strict bindings, empty safe defaults |
-| extensions | signed domain binding, missing providers, capability intersection; orchestration calls mocked as in the original tests |
+| extensions | signed domain binding, missing providers, capability intersection; orchestration boundary is exercised by isolated test doubles |
 | adversarial | 13 adapter profiles × 30 individual header/ciphertext/tag mutations, wrong key/reflection/backpressure/loss-reorder-duplicate checks; strict JSON, frame truncations, native-config unknown fields, replay saturation/time bounds |
 
 These local contracts cover the bundled implementations. They do not prove that

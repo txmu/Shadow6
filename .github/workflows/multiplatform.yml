@@ -308,12 +308,13 @@ jobs:
           path: qemu-components/${{ matrix.arch }}/
           if-no-files-found: warn
   node-adapter:
-    name: Network Adapter (Node ${{ matrix.node }})
-    runs-on: ubuntu-latest
+    name: Network Adapter and IPC (${{ matrix.os }}, Node ${{ matrix.node }})
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
+        os: [ubuntu-latest, macos-14, windows-latest]
         node: ['22', '24']
     steps:
       - uses: actions/checkout@v6
@@ -323,10 +324,21 @@ jobs:
       - uses: actions/setup-python@v6
         with: {python-version: '3.12'}
       - name: Test supported Node runtimes and Python interoperability
+        env:
+          SHADOW6_IPC_CONTROL_TEST: '1'
         run: |
           python -m pip install 'cryptography==50.0.1'
           node --test Network-Adapter/test_node.mjs
+          node --test Node-IPC/test_ipc.mjs
+          node Node-IPC/cli.mjs catalog
           PYTHONPATH=Network-Adapter python -m unittest test_conformance test_secure_key
+        shell: bash
+      - name: Test IPC with native C11Relay
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          (cd C11Relay && bash compile.sh)
+          SHADOW6_RELAY_BINARY="$PWD/C11Relay/bridge_relay" SHADOW6_IPC_CONTROL_TEST=1 node --test Node-IPC/test_ipc.mjs
   pony-only:
     name: Core-Pony focused contract
     runs-on: ubuntu-24.04

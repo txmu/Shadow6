@@ -30,6 +30,7 @@ COMPONENTS.update({
  "iperf": ROOT/"Tools/iperf3_matrix.py", "iperf-chain": ROOT/"Benchmark/iperf_chain.py",
  "audit": ROOT/"shadow6_audit.py", "python-runtime": ROOT/"Tools/python_runtime.py",
  "performance": ROOT/"Benchmark/component_benchmark.py", "collect-performance": ROOT/"Tools/collect_performance.py",
+ "ipc": ROOT/"Node-IPC/cli.mjs",
 
 })
 CORE_NAMES=("go","rust","gleam","ada","nim","pony","zig","d","cpp","idris","hare","carp")

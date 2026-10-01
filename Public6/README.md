@@ -201,7 +201,7 @@ is not claimed as a Windows deployment path.
 
 S6P1 is the platform-neutral envelope used by Public6 and community adapters.
 Its identity, routes, components and credentials sections are active data, not
-reserved placeholders. Community protocols can wrap an envelope with a
+reserved fields. Community protocols can wrap an envelope with a
 community identifier and Passport/Visa admission metadata; `visa-free` is an
 explicit opt-in path controlled by the receiving policy.
 

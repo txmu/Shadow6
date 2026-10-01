@@ -36,7 +36,7 @@ PREFIX ?= /usr/local
 DESTDIR ?=
 PYTHON ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python3)
 
-.PHONY: all build benchmark performance-matrix benchmark-test network-adapter-test network-adapter-benchmark core-go core-rust core-gleam test-gleam core-cpp core-hare test-hare core-carp test-carp core-pony test-pony pony-crosed-variant gate migration i18n crosed-variants public6 public6-variants public6-contract relay guard service-init auto detector plugins package-manager easybuild crosed app-layer extension-system assistants slots control-center android-preflight android-cores android-apk integration-test test check audit package install install-tree clean distclean
+.PHONY: all build benchmark performance-matrix benchmark-test network-adapter-test node-ipc-test network-adapter-benchmark core-go core-rust core-gleam test-gleam core-cpp core-hare test-hare core-carp test-carp core-pony test-pony pony-crosed-variant gate migration i18n crosed-variants public6 public6-variants public6-contract relay guard service-init auto detector plugins package-manager easybuild crosed app-layer extension-system assistants slots control-center android-preflight android-cores android-apk integration-test test check audit package install install-tree clean distclean
 
 all: build
 
@@ -56,6 +56,9 @@ benchmark-test:
 network-adapter-test:
 	@PYTHONPATH=Network-Adapter $(PYTHON) -m unittest Network-Adapter/test_network.py Network-Adapter/test_conformance.py Network-Adapter/test_secure_key.py
 	@node --test Network-Adapter/test_node.mjs
+
+node-ipc-test:
+	@SHADOW6_PYTHON="$(PYTHON)" SHADOW6_IPC_CONTROL_TEST=1 node --test Node-IPC/test_ipc.mjs
 
 network-adapter-benchmark:
 	@PYTHONPATH=Network-Adapter $(PYTHON) Network-Adapter/benchmark_backends.py
@@ -506,6 +509,10 @@ endif
 	@install -m 0755 Paranoid-Proxy-Benchmark/paranoid_proxy_benchmark.py "$(DESTDIR)$(PREFIX)/bin/paranoid-proxy-benchmark"
 	@install -m 0755 Network-Adapter/shadow6_network.py "$(DESTDIR)$(PREFIX)/bin/shadow6-network"
 	@install -m 0755 Network-Adapter/shadow6_network.mjs "$(DESTDIR)$(PREFIX)/bin/shadow6-network-node"
+	@install -m 0755 Node-IPC/cli.mjs "$(DESTDIR)$(PREFIX)/bin/shadow6-ipc"
+	@install -d -m 0755 "$(DESTDIR)$(PREFIX)/share/shadow6/modules"
+	@install -m 0644 Node-IPC/shadow6_ipc.mjs Node-IPC/c11relay.mjs "$(DESTDIR)$(PREFIX)/bin/"
+	@install -m 0644 Node-IPC/shadow6_ipc.mjs Node-IPC/c11relay.mjs Node-IPC/cli.mjs "$(DESTDIR)$(PREFIX)/share/shadow6/modules/"
 	@install -m 0644 Network-Adapter/secure_key_windows.ps1 "$(DESTDIR)$(PREFIX)/bin/"
 	@install -m 0644 CLI/shadow6_vcore.py CLI/vcore_adapters.py "$(DESTDIR)$(PREFIX)/bin/"
 	@install -d -m 0755 "$(DESTDIR)$(PREFIX)/share/shadow6/modules"
@@ -595,6 +602,7 @@ endif
 ifeq ($(BUILD_CONTROL),1)
 	@install -m 0755 Control-Center/shadow6_control.py "$(DESTDIR)$(PREFIX)/bin/shadow6-control"
 	@install -d -m 0755 "$(DESTDIR)$(PREFIX)/share/shadow6/modules"
+	@install -m 0644 Control-Center/s6ar.py Control-Center/ipc_client.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/"
 	@install -m 0644 Auto-Orchestrator/shadow6_auto.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/shadow6_auto.py"
 	@install -m 0644 Infrastructure-Assistants/shadow6_infra.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/shadow6_infra.py"
 	@install -m 0644 Plugin-System/shadow6_plugins.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/shadow6_plugins.py"

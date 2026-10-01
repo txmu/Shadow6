@@ -43,3 +43,14 @@ multi-client multiplexing within a single native process.
 
 The [runtime review](network-runtime-review-2026-09.md) documents interpreter
 selection, per-instance locking and identical GIL-on/off component benchmarks.
+
+## Component IPC Companion
+
+The separate [Node IPC companion](../Node-IPC/README.md) exposes FastRPC
+(canonical safe-integer JSON and directional HMAC-SHA256) and RawIPC (binary
+frames and directional AES-256-GCM). Both use bounded Unix/loopback sockets,
+timestamps, nonces, replay state, request/response binding, and explicit limits.
+The C11Relay adapter adds fixed-target peer-isolated UDP exchange, ordered
+batches, and metrics. It preserves native relay limits and authorization.
+Unified CLI and Control Center make these APIs discoverable through MCP, LSP,
+OpenAI tools, JSONL, and HTTP without changing native Core protocols.
