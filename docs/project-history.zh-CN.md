@@ -173,6 +173,9 @@ profile/pin 参数；Virtual Broker、Virtual Peer、Detector 都支持同一 S6
 同时修正发布预检器在 `--root` 或非默认目录名下仍硬编码 `Shadow6/` 的问题；tar.gz
 和 zip 的预检现在使用实际项目目录名，打包脚本继续支持分别选择归档格式。
 
+随后提交 `dd55444` 收紧 Visa 的 component scope：带有组件字段的 Visa 必须与
+实际消费组件完全一致，防止仅凭通用 Passport 格式跨组件重用。
+
 ### 2026-10-01 当前提交
 
 代码提交：`fcc0afe`；历史文档提交：本节对应的后续提交。当前统一协议仍位于组件层，
