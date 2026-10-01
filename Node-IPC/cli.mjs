@@ -7,11 +7,12 @@ import {spawn} from 'node:child_process';
 import {parseArgs} from 'node:util';
 import {FastRPCClient, FastRPCServer, RawIPCClient, RawIPCServer, loadKey, readPrivate, canonical, parseCanonical, LIMITS} from './shadow6_ipc.mjs';
 import {C11RelayAdapter, RELAY_IPC_TYPES} from './c11relay.mjs';
+import {IPC_COMPONENTS, componentCatalog, componentHandler} from './component_adapters.mjs';
 
 export function catalog() {
   return {schema: 'shadow6.node-ipc.v1', backend: 'node-builtin', node: '>=22', npm: false,
     transports: ['unix','loopback-tcp'], protocols: ['fastrpc','rawipc'], limits: LIMITS,
-    components: ['control-center','c11relay'], relay_types: RELAY_IPC_TYPES,
+    components: ['control-center','c11relay', ...IPC_COMPONENTS], relay_types: RELAY_IPC_TYPES,
     actions: ['catalog','keygen','call','raw-send','serve']};
 }
 function assertOnly(v, keys) {
@@ -20,7 +21,7 @@ function assertOnly(v, keys) {
 export function loadConfig(filename) {
   const value = JSON.parse(new TextDecoder('utf-8', {fatal: true}).decode(readPrivate(filename, 65536)));
   assertOnly(value, ['schema','key_file','fastrpc','rawipc','component','relay','timeout_ms','max_connections']);
-  if (value.schema !== 'shadow6.node-ipc-config.v1' || !path.isAbsolute(value.key_file ?? '') || !['control-center','c11relay'].includes(value.component)) throw Error('invalid IPC configuration');
+  if (value.schema !== 'shadow6.node-ipc-config.v1' || !path.isAbsolute(value.key_file ?? '') || !['control-center','c11relay', ...IPC_COMPONENTS].includes(value.component)) throw Error('invalid IPC configuration');
   for (const kind of ['fastrpc','rawipc']) if (value[kind]) {
     assertOnly(value[kind], ['socketPath','host','port']);
     if (value[kind].socketPath && (value[kind].host !== undefined || value[kind].port !== undefined)) throw Error('ambiguous IPC endpoint');
@@ -62,7 +63,7 @@ export function controlHandler({python = process.env.SHADOW6_PYTHON ?? 'python3'
 }
 export async function serve(config, options = {}) {
   const key = loadKey(config.key_file), adapter = config.component === 'c11relay' ? new C11RelayAdapter(config.relay) : null;
-  const control = adapter ? null : controlHandler(options), servers = [];
+  const control = adapter ? null : config.component === 'control-center' ? controlHandler(options) : componentHandler(config.component), servers = [];
   const common = {key, timeoutMs: config.timeout_ms, maxConnections: config.max_connections ?? 8};
   try {
     if (config.fastrpc) {

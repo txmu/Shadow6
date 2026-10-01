@@ -151,6 +151,22 @@ test('C11Relay FastRPC/RawIPC share peer-isolated UDP channels, batches and metr
   await assert.rejects(binary.call(encodeRelayDatagram(9, Buffer.from('bad')), RELAY_IPC_TYPES.datagram));
   assert.ok((await rpc.call('c11relay.shell', {})).error);
 });
+
+test('Virtual Broker, Detector and S6NA expose bounded read-only contracts', async t => {
+  for (const component of ['virtual-broker', 'detector', 's6na']) {
+    const o = fixture(t), key = o.key;
+    const server = new FastRPCServer({key, socketPath: o.socketPath, handler: component === 'virtual-broker'
+      ? (method, params) => import('./component_adapters.mjs').then(({componentHandler}) => componentHandler(component)(method, params))
+      : (method, params) => import('./component_adapters.mjs').then(({componentHandler}) => componentHandler(component)(method, params))});
+    t.after(() => server.close()); await server.listen();
+    const client = new FastRPCClient({key, socketPath: o.socketPath});
+    const capabilities = (await client.call(`${component}.capabilities`)).result;
+    assert.equal(capabilities.read_only, true);
+    assert.ok((await client.call(`${component}.status`)).result.state === 'available');
+    assert.ok((await client.call(`${component}.reload`, {})).error);
+    await server.close();
+  }
+});
 test('relay limits reject busy peers, invalid batch before send and clean expired mappings', async t => {
   const port = await echo(t, true), adapter = new C11RelayAdapter({port, maxPeers: 2, maxQueue: 1, timeoutMs: 30, idleMs: 20}); t.after(() => adapter.close());
   const pending = adapter.exchange(0, Buffer.from('slow'));

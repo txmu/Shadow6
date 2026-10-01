@@ -112,3 +112,26 @@ high-speed native relay chains. CI tests Node 22/24 on Linux, macOS, and Windows
 the Linux runner additionally builds and tests the native C11Relay companion.
 Optional
 tests report explicit skips when their prerequisites are absent.
+
+## Candidate component contracts
+
+The dependency-free service also supports `virtual-broker`, `detector`, and
+`s6na` as read-only component identities. Each exposes only
+`<component>.capabilities` and `<component>.status`. Mutation, packet
+injection, configuration reload, and credential bypass are unavailable; each
+component keeps its own authentication and lifecycle rules. Configure one of
+these identities in `node-ipc-config.v1` with a dedicated owner-only key.
+
+```sh
+shadow6 ipc call --config /tmp/shadow6-ipc-local/config.json \
+  --method virtual-broker.capabilities
+shadow6 ipc call --config /tmp/shadow6-ipc-local/config.json \
+  --method detector.status
+shadow6 ipc call --config /tmp/shadow6-ipc-local/config.json \
+  --method s6na.status
+```
+
+The CLI catalog lists all five supported component identities. Unsupported
+identities fail closed during configuration loading. RawIPC type 1 for these
+components is limited to the same canonical status calls; other types are
+rejected.

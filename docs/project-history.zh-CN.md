@@ -278,6 +278,13 @@ HTTP、MCP、LSP 与 OpenAI function tools；旧 API 继续可用，AI 调用不
 路径、主机、命令或 Relay 目标，变更操作仍受显式 mutation gate 保护。安装布局同步
 包含 `s6ar.py` 和 IPC bridge，保证源代码与安装树一致。
 
+本次进一步把候选组件接入同一安全合同：Virtual Broker、Detector、S6NA 现在可通过
+独立 owner-only key 提供只读 `*.capabilities` 与 `*.status` FastRPC/RawIPC 调用。
+它们不开放配置变更、原始包注入或凭据绕过，仍分别遵守 Virtual Broker admission、
+Detector 数据边界和 S6NA 原生传输认证；不支持的组件名在配置加载时 fail closed。
+这样 Control Center、C11Relay、Virtual Broker、Detector 与 S6NA 共同覆盖控制面、
+数据面、运行时、检测面和适配器面，而不会把 IPC 变成万能后门。
+
 CI 的 Node 适配矩阵覆盖 Node 22/24、Linux/macOS/Windows；Linux runner 额外运行真实
 C11Relay normal/high-speed 回环链路。当前本地通过 Node IPC 18 项（含 Control Center
 实桥）测试、Control Center 35 项、CLI 7 项和 C11Relay 原生 sanitizer/回环测试。全仓
