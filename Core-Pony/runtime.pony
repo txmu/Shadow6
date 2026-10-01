@@ -410,7 +410,7 @@ actor ClientSession is DatagramReceiver
     try
       for wire in _session.retransmit(now)?.values() do _send(wire) end
       _flush_output()
-      _read_flow()
+      _read_flow()?
       if _flow_eof and (_session.pending_count() == 0) then
         _flow_drained = true
         _owner.flow_drained(); _close()
