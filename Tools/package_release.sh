@@ -103,7 +103,7 @@ if [[ "$apk_included" == 1 ]]; then
     }
 fi
 
-"$python" "$project_dir/Tools/archive_preflight.py" --tar "$tar_tmp"
+"$python" "$project_dir/Tools/archive_preflight.py" --tar "$tar_tmp" --project-root "$project_name"
 fi
 
 if ((build_zip)); then
@@ -183,7 +183,7 @@ tar --exclude="$project_name/.venv" \
 "$python" "$project_dir/Tools/prepare_text_zip.py" "$zip_stage/$project_name"
 cd "$zip_stage"
 zip -rq -X "$zip_tmp" "$project_name"
-"$python" "$project_dir/Tools/archive_preflight.py" --zip "$zip_tmp"
+"$python" "$project_dir/Tools/archive_preflight.py" --zip "$zip_tmp" --project-root "$project_name"
 fi
 
 ((build_tar)) && mv -f -- "$tar_tmp" "$package_output_dir/$project_name.tar.gz"

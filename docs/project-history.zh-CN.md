@@ -170,6 +170,9 @@ profile/pin 参数；Virtual Broker、Virtual Peer、Detector 都支持同一 S6
 使用 `KeyGenParameterSpec` 正确初始化 Android Keystore，Manifest 保持禁用明文流量、
 非导出服务和应用私有存储；本次没有在本机重新编译 APK，构建仍交由 CI。
 
+同时修正发布预检器在 `--root` 或非默认目录名下仍硬编码 `Shadow6/` 的问题；tar.gz
+和 zip 的预检现在使用实际项目目录名，打包脚本继续支持分别选择归档格式。
+
 ### 2026-10-01 当前提交
 
 代码提交：`fcc0afe`；历史文档提交：本节对应的后续提交。当前统一协议仍位于组件层，

@@ -80,12 +80,13 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--tar", help="Shadow6.tar.gz")
     parser.add_argument("--zip", help="Shadow6.zip")
+    parser.add_argument("--project-root", default="Shadow6", help="archive top-level directory")
     args = parser.parse_args()
     if not (args.tar or args.zip):
         parser.error("provide at least one archive")
     try:
         if args.tar:
-            check_tar(args.tar)
+            check_tar(args.tar, args.project_root)
             print(f"PASS {args.tar}: bounded paths and required Core binaries")
         if args.zip:
             check_zip(args.zip)
