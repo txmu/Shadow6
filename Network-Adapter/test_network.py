@@ -3,6 +3,15 @@ from pathlib import Path
 from shadow6_network import DatagramEndpoint, Limits, POLICIES, ReliableAdapter, load_key
 
 class AdapterTests(unittest.TestCase):
+    def test_micro_mux_application_credit_tracks_ack(self):
+        left=ReliableAdapter('gleam-mux',bytes(range(32)),limits=Limits(payload_bytes=1100,window_frames=1))
+        right=ReliableAdapter('gleam-mux',bytes(range(32)),1,limits=Limits(payload_bytes=1100,window_frames=1))
+        self.assertEqual(left.application_credit(),1)
+        frames=left.send_flow_controlled(0,b"flow")
+        self.assertEqual(left.application_credit(),0)
+        with self.assertRaises(BufferError): left.send_flow_controlled(0,b"blocked")
+        for ack in right.receive(frames[0])[0]: left.receive(ack)
+        self.assertEqual(left.application_credit(),1)
     def test_lazy_message_retention_stays_within_backpressure_budget(self):
         limits=Limits(max_message=4096,max_inflight=4096,payload_bytes=64,window_frames=1)
         left=ReliableAdapter("hare",bytes(32),limits=limits); right=ReliableAdapter("hare",bytes(32),1,limits=limits)

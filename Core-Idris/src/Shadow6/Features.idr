@@ -95,6 +95,7 @@ serializeFeatureReport report =
      "  \"crosed_compiled\": " ++ (if report.crosedCompiled then "true" else "false") ++ ",\n" ++
      "  \"crosed_max_level\": " ++ show report.crosedMaxLevel ++ ",\n" ++
      "  \"app_transport\": " ++ (if report.appTransport then "true" else "false") ++ ",\n" ++
+     "  \"app_transport_modes\": [\"udp\", \"seqpacket-fd\"],\n" ++
      "  \"qubes_isolation\": " ++ (if report.qubesIsolation then "true" else "false") ++ ",\n" ++
      "  \"gate_compiled\": " ++ (if report.gateCompiled then "true" else "false") ++ ",\n" ++
      "  \"gate_enabled_by_default\": " ++ (if report.gateEnabledDefault then "true" else "false") ++ ",\n" ++

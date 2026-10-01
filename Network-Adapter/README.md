@@ -118,6 +118,10 @@ limits. Payload overrides above 1100 bytes fail closed. Deterministic tests
 cover missing, reordered, duplicate and tampered chunks in both backends.
 
 Micro-Mux transport itself provides **no availability guarantee whatsoever**.
+The adapters also expose local producer credit (`application_credit()` in
+Python, `applicationCredit()` in Node) and flow-controlled send helpers. ACKs
+restore credit; this local API adds no wire message and does not alter the
+1100-byte profile or native Core flow control.
 The native path stays native; Companion features are explicit and require both
 endpoints. The network-chain benchmark now has 39 combinations (12 cores,
 13 transport profiles, 3 backends). Component-only matrices with 12 families

@@ -308,3 +308,15 @@ RELRO/NOW/no-exec-stack/undefined-symbol 链接检查逐项探测，当前工具
 新增 Core 时，同时记录首次加入提交、原生控制/数据协议、角色和平台限制，
 并更新 `docs/core-matrix.md`。协议或安全契约发生变化时，在本文件的阶段
 时间线补充提交号和原因；不要用“兼容所有 Core”之类的概括替代具体边界。
+## 2026-10-01：原生 Core 本地入口背压与 Gleam Micro-Mux credit
+
+在不改变 Hare、Carp、Idris、Pony 远端 wire protocol 的前提下，补齐本地应用入口的
+流控合同：UDP 继续兼容并允许 best-effort admission；支持的本地 flow ingress 使用
+有界 message-preserving 入口，窗口耗尽时向 producer 返回 backpressure。Carp 已接入
+继承的 `SOCK_SEQPACKET` FD（`SHADOW6_APP_FLOW_FD`），其余 Core 保留原生 runtime
+抽象并在 feature report 声明 `udp`/`seqpacket-fd` 能力，逐步接入不会旁路认证或 S6NA。
+
+Gleam Micro-Mux 同步增加本地 `application_credit()` / `applicationCredit()` 和
+flow-controlled send helper。credit 由现有 ACK/window 状态恢复，不新增 S6NA frame、
+不改变 1100-byte MTU、64-frame window、AEAD 或重传语义；持续 producer 超过 consumer
+时仍会明确阻塞/返回 backpressure，而不是无限缓存。

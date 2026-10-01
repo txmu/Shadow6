@@ -34,6 +34,17 @@ static unsigned long packets;
 static time_t session_deadline;
 static int endpoint_mode;
 static int application_fd = -1, chain_role;
+/* Optional inherited SOCK_SEQPACKET ingress; UDP remains the default. */
+static int application_flow_fd = -1;
+static void enable_flow_ingress(void) {
+    const char *value = getenv("SHADOW6_APP_FLOW_FD");
+    if (!value || !*value) return;
+    char *end = NULL; long fd = strtol(value, &end, 10);
+    if (*end || fd < 0 || fd > 2147483647L) exit(2);
+    application_flow_fd = (int)fd;
+    int flags = fcntl(application_flow_fd, F_GETFL, 0);
+    if (flags < 0 || fcntl(application_flow_fd, F_SETFL, flags | O_NONBLOCK) < 0) exit(2);
+}
 static struct sockaddr_in application_peer;
 static unsigned char receive_keys[96];
 static uint64_t send_sequence;
@@ -310,7 +321,7 @@ static struct packet chain_receive(void) {
     if (!can_send) f[1].revents = 0;
     if (!burst || !(f[0].revents | f[1].revents)) {
         f[0] = (struct pollfd){.fd=udp_fd,.events=POLLIN};
-        f[1] = (struct pollfd){.fd=application_fd,.events=can_send ? POLLIN : 0};
+        f[1] = (struct pollfd){.fd=application_flow_fd >= 0 ? application_flow_fd : application_fd,.events=can_send ? POLLIN : 0};
         int timeout = chain_inflight ? 1 : 5;
         if (poll(f, 2, timeout) <= 0) return p;
         burst = 256;
@@ -320,7 +331,9 @@ static struct packet chain_receive(void) {
         unsigned char *body = p.bytes + 3 * HEADER;
         unsigned char input[BODY - COMMAND - 10 + 1];
         struct sockaddr_in source = {0}; socklen_t sl = sizeof source;
-        ssize_t n = recvfrom(application_fd, input, sizeof input, MSG_DONTWAIT, (struct sockaddr *)&source, &sl);
+        ssize_t n = application_flow_fd >= 0
+            ? recv(application_flow_fd, input, sizeof input, MSG_DONTWAIT)
+            : recvfrom(application_fd, input, sizeof input, MSG_DONTWAIT, (struct sockaddr *)&source, &sl);
         if (n < 0) { f[1].revents = 0; return p; }
         if (n > BODY - COMMAND - 10) return p;
         if (chain_role == 1) {
@@ -435,6 +448,7 @@ static struct packet packet_receive(void) {
         udp_fd = udp_open(local, peer);
         application_fd = chain_application(application, chain_role == 1);
         if (udp_fd < 0 || application_fd < 0) exit(2);
+        enable_flow_ingress();
         puts("control ready");
         if (establish(udp_fd, p.keys, chain_role == 1)) exit(2);
         unsigned char base[96]; memcpy(base, session_keys, 96);
@@ -459,7 +473,7 @@ static struct packet packet_receive(void) {
         endpoint_mode = 1; return packet_receive();
     }
     if (argc == 2 && strcmp(argv[1], "--feature-report") == 0) {
-        puts("{\"core\":\"shadow6-carp\",\"version\":\"0.1.0\",\"crosed_compiled\":false,\"crosed_max_level\":0,\"app_transport\":false,\"qubes_isolation\":false,\"gate_compiled\":false,\"gate_enabled_by_default\":false,\"utf8\":true,\"crosed_capabilities\":[]}"); exit(0);
+        puts("{\"core\":\"shadow6-carp\",\"version\":\"0.1.0\",\"crosed_compiled\":false,\"crosed_max_level\":0,\"app_transport\":false,\"app_transport_modes\":[\"udp\",\"seqpacket-fd\"],\"qubes_isolation\":false,\"gate_compiled\":false,\"gate_enabled_by_default\":false,\"utf8\":true,\"crosed_capabilities\":[]}"); exit(0);
     }
     if (argc == 3 && strcmp(argv[1], "--gen-key") == 0) {
         int fd = open(argv[2], O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0600);

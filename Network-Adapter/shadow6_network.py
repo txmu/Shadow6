@@ -251,6 +251,14 @@ class ReliableAdapter:
             if item[2]==count: queue.popleft()
             if queue: self.active_streams.append(stream)
         return frames
+
+    def application_credit(self):
+        window=min(self.limits.window_frames or self.policy.window,self.limits.max_window)
+        return max(0,min(window-len(self.pending),4096-len(self.outgoing)))
+
+    def send_flow_controlled(self,stream,data):
+        if self.application_credit() <= 0: raise BufferError("application backpressure credit exhausted")
+        return self.send(stream,data)
     def _sample(self,rtt):
         if self.srtt is None: self.srtt,self.rttvar=rtt,rtt/2
         else: self.rttvar=.75*self.rttvar+.25*abs(self.srtt-rtt); self.srtt=.875*self.srtt+.125*rtt

@@ -61,5 +61,5 @@ actor Main
     else "[]" end
     "{\"core\":\"shadow6-pony\",\"version\":\"1.0.0\",\"crosed_compiled\":" +
       compiled + ",\"crosed_max_level\":" + level +
-      ",\"app_transport\":" + app + ",\"qubes_isolation\":" + qubes +
+      ",\"app_transport\":" + app + ",\"app_transport_modes\":[\"udp\",\"seqpacket-fd\"],\"qubes_isolation\":" + qubes +
       ",\"gate_compiled\":false,\"gate_enabled_by_default\":false,\"utf8\":true,\"transport\":\"udp\",\"crosed_capabilities\":" + caps + "}"

@@ -19,6 +19,7 @@ test('lazy message snapshots retain the full backpressure charge until acknowled
  assert.ok(completed[0][1].equals(Buffer.alloc(4096,97)));
  assert.equal(left.outgoing.size,0);assert.equal(right.incomingBytes,0);
 });
+test('Micro-Mux local producer credit is restored by ACK',()=>{let key=crypto.randomBytes(32),left=new ReliableAdapter('gleam-mux',key,0,[],{payload_bytes:1100,window_frames:1}),right=new ReliableAdapter('gleam-mux',key,1,[],{payload_bytes:1100,window_frames:1});assert.equal(left.applicationCredit(),1);let frames=left.sendFlowControlled(0,Buffer.from('flow'));assert.equal(left.applicationCredit(),0);assert.throws(()=>left.sendFlowControlled(0,Buffer.from('blocked')),/credit/);for(let ack of right.receive(frames[0]).acks)left.receive(ack);assert.equal(left.applicationCredit(),1)});
 
 test('startup limits expand payload, streams and window without mutation',()=>{
   const limits={max_message:32*1024*1024,max_streams:128,max_inflight:64*1024*1024,max_window:128,

@@ -79,7 +79,7 @@ fn read_secure(path: str) (str | void) = {
 };
 
 fn feature_report() void = {
-	fmt::println("{\"core\":\"shadow6-hare\",\"version\":\"1.0.0\",\"crosed_compiled\":false,\"crosed_max_level\":0,\"app_transport\":false,\"qubes_isolation\":false,\"gate_compiled\":false,\"gate_enabled_by_default\":false,\"utf8\":true,\"crosed_capabilities\":[]}")!;
+	fmt::println("{\"core\":\"shadow6-hare\",\"version\":\"1.0.0\",\"crosed_compiled\":false,\"crosed_max_level\":0,\"app_transport\":false,\"app_transport_modes\":[\"udp\",\"seqpacket-fd\"],\"qubes_isolation\":false,\"gate_compiled\":false,\"gate_enabled_by_default\":false,\"utf8\":true,\"crosed_capabilities\":[]}")!;
 };
 
 
