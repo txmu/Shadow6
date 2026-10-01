@@ -3,7 +3,7 @@
 ## 说明与范围
 
 本文根据当前 Git 仓库和前期考古材料整理，覆盖从 Shadow6 开始开发的
-2026-05-31 到 2026-09-30。5.31—9.5 的内容主要来自尚未提交的历史材料；
+2026-05-31 到 2026-10-01。5.31—9.5 的内容主要来自尚未提交的历史材料；
 9.6 起进入可直接追踪的 Git 信史阶段。因此，最早可见提交 `deb56a8a`
 （2026-09-06）不是项目起点，只是公开提交时间线的起点。
 
@@ -347,7 +347,7 @@ wire frame、MTU 或重传语义。该变化可能改善后续 UDP Loss 表现�
 和快照查询。返回值明确标为本地只读合同观察，不冒充运行中组件的状态，也不替代
 其 admission、policy、credential 或 transport authentication。
 
-## 当前快照（`99dfb172`，2026-10-01）
+## 当时快照（`99dfb172`，2026-10-01）
 
 - 仓库包含十二个独立 Core；具体传输、Crosed 能力和工具链要求按 Core 分别说明，不能从 Go/Rust 旧路径推断所有 Core 等价。
 - 默认 `shadow6-*` 构建仍保持 `CROSED_LEVEL=0`、`APP_TRANSPORT=0`、`QUBES_ISOLATION=0`；显式变体构建后恢复默认二进制。
@@ -363,3 +363,31 @@ wire frame、MTU 或重传语义。该变化可能改善后续 UDP Loss 表现�
 
 本机 Node 22 验证通过：Network Adapter 10 项通过；Node IPC 19 项通过、1 项因未提供
 预编译 C11Relay 而跳过。本次没有编译组件。
+
+## 2026-10-01：本地入口运行时接入与双向 Core-blind 边界
+
+`f16f7758` 先给 Carp 接通继承的 `SOCK_SEQPACKET` 本地应用入口，并给
+Pony、Hare、Idris 建立 `udp`/`seqpacket-fd` 能力词汇；Gleam Micro-Mux 的
+应用 credit 位于 S6NA companion，并未给 Gleam 原生 wire 增加 ACK。
+随后 `deb6b12c` 将 Pony、Hare、Idris 的 **client runtime** 真正接到
+`SHADOW6_APP_FLOW_FD`，并收齐 Carp 路径的有界读取、窗口背压、EOF 和硬错误处理。
+这补上了能力声明与运行时行为之间的缺口，但不能据此推断 broker/agent 也支持该
+FD、各 Core 的原生可靠性相同，或默认 UDP 入口已经具备产生端背压。
+
+这一边界具有双向含义：外围只需依据 Core 合同选择和驱动原生数据面，不必读取
+各语言的调度器和 wire 内部；Core 也不必知道输入由 S6P1、Public6、Control
+Center 还是第三方控制面准备。理论上可以保留某个 Shadow6 Core 而替换身份、
+授权、编排和可靠层；也可以让未来的新 Core 实现相应合同，接入 Shadow6 外围。
+这不产生跨 Core 家族的原生 wire 互通。新增英文文档 [`Core-Blind.md`](../Core-Blind.md)
+（`c228e8f5`）明确区分 Core、外围及整套部署的兼容性，并把能力发现、启动配置、
+消息入口、压力反馈和生命周期列为独立演化的边界。
+
+目前 `seqpacket-fd` 仍是可选的客户端入口原语，而非冻结的完整 Core ABI：各 Core
+的记录上限不同，反向应用出口仍沿用各自机制，feature report 尚未表达模式的
+角色范围。一次本地 `send` 成功仅代表内核队列接受记录，不代表 Core 已读取或
+远端已交付；要获得更强的所有权承诺，仍需明确的 admission ACK 和恢复规则。
+S6NA 的 `application_credit()`/`applicationCredit()` 则提供组件层的另一种
+背压路径；其 `S6NA_BACKPRESSURE`、`S6NA_CLOSED`、`S6NA_RETRY_EXHAUSTED`
+是 S6NA 语义，不能当成 Gleam 原生 ACK。README 已将旧 UDP 性能注释改为英文：
+9 月 30 日数据早于 `f16f7758` 及后续运行时接入，尚未按新入口复测；任何 Loss
+或 goodput 改善幅度都不能从旧表推定。
