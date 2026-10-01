@@ -6,7 +6,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from join_code import decode, install_peer, issue, peer_public, provision, resolve, validate_profile, pack_protocol, unpack_protocol, community_protocol, verify_passport_visa
+from join_code import decode, install_peer, issue, peer_public, provision, resolve, validate_profile, pack_protocol, unpack_protocol, community_protocol, verify_passport_visa, issue_passport, issue_visa, verify_credential
 from virtual_peer import load_config as load_peer
 
 
@@ -29,6 +29,14 @@ class JoinCodeTests(unittest.TestCase):
         self.assertTrue(verify_passport_visa(unpack_protocol(token), allowed_communities=("example",)))
         free = community_protocol(value, community="example")
         self.assertTrue(verify_passport_visa(unpack_protocol(free), visa_free=True))
+
+    def test_component_passport_and_visa(self):
+        passport = issue_passport("developer", components=("gate", "detector"), roles=("client",))
+        claim = verify_credential(passport, "S6PASS1.")
+        self.assertEqual(claim["subject"], "developer")
+        visa = issue_visa(passport, audience="broker-1", component="detector")
+        self.assertEqual(verify_credential(visa, "S6VISA1.")["component"], "detector")
+        with self.assertRaises(ValueError): verify_credential(passport, "S6PASS1.", now=claim["expires_at"] + 1)
     def test_android_wire_vector(self):
         code = "A8YzZAoBuwABAgMEBQYHCAkKCwwNDg8QERITFBUW"
         self.assertEqual(decode(code)["lookup_id"], "29ba43311f908fa99653084749d2078ded0d30252704a1c7f5cd3f082a03b082")

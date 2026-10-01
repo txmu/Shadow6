@@ -12,6 +12,7 @@ from pathlib import Path
 import re
 import stat
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -40,6 +41,8 @@ INVITATION_PREFIX = "S6INV1."
 PROTOCOL_PREFIX = "S6P1."
 PROTOCOL_MAX_BYTES = 262144
 PROTOCOL_SECTIONS = ("identity", "routes", "components", "credentials")
+PASSPORT_PREFIX = "S6PASS1."
+VISA_PREFIX = "S6VISA1."
 
 def _reject_protocol_float(value):
     if isinstance(value, float):
@@ -107,6 +110,37 @@ def verify_passport_visa(envelope: dict, *, allowed_communities=(), visa_free=Fa
     admission = envelope["credentials"].get("admission")
     if admission == "visa-free": return bool(visa_free)
     return community in set(allowed_communities) and isinstance(admission, str) and 1 <= len(admission) <= 256
+
+def issue_passport(subject: str, *, components=(), roles=(), ttl: int = 3600) -> str:
+    """Issue a bounded, portable passport claim for component consumers."""
+    if not isinstance(subject, str) or not 1 <= len(subject) <= 128 or not 1 <= ttl <= 604800:
+        raise ValueError("invalid passport claim")
+    claim = {"schema":"shadow6.passport.v1", "subject":subject,
+             "components":sorted(set(components)), "roles":sorted(set(roles)),
+             "issued_at":int(time.time()), "expires_at":int(time.time()) + ttl}
+    raw = json.dumps(claim, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode()
+    return PASSPORT_PREFIX + base64.urlsafe_b64encode(raw).decode().rstrip("=")
+
+def issue_visa(passport: str, *, audience: str, component: str, ttl: int = 900) -> str:
+    """Derive a short-lived component visa from a passport claim."""
+    claim = verify_credential(passport, PASSPORT_PREFIX)
+    if not isinstance(audience, str) or not audience or not isinstance(component, str) or not component:
+        raise ValueError("invalid visa audience or component")
+    if not 1 <= ttl <= 86400: raise ValueError("invalid visa lifetime")
+    visa = {"schema":"shadow6.visa.v1", "subject":claim["subject"], "audience":audience,
+            "component":component, "passport_expires_at":claim["expires_at"],
+            "issued_at":int(time.time()), "expires_at":int(time.time()) + ttl}
+    raw = json.dumps(visa, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode()
+    return VISA_PREFIX + base64.urlsafe_b64encode(raw).decode().rstrip("=")
+
+def verify_credential(token: str, prefix: str, *, now: int | None = None) -> dict:
+    if type(token) is not str or not token.startswith(prefix) or len(token) > 32768:
+        raise ValueError("invalid credential")
+    try: value = json.loads(base64.urlsafe_b64decode(token[len(prefix):] + "==="))
+    except Exception as exc: raise ValueError("invalid credential encoding") from exc
+    if not isinstance(value, dict) or value.get("expires_at", 0) < int(time.time() if now is None else now):
+        raise ValueError("expired credential")
+    return value
 
 def pack_invitation(code: str, profile: dict, gate_public_key: str) -> str:
     """Create one portable invitation carrying code, profile and Gate pin."""
