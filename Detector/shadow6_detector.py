@@ -14,6 +14,10 @@ import threading
 import time
 from pathlib import Path
 
+_ROOT = Path(__file__).resolve().parents[1]
+if str(_ROOT / "Public6") not in sys.path:
+    sys.path.insert(0, str(_ROOT / "Public6"))
+
 from detector_core import (
     DecoyManager,
     HeuristicProbeModel,
@@ -218,6 +222,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--decoy-host", default="127.0.0.1", help="Decoy bind address")
     parser.add_argument("--decoy-port", type=int, default=8080, help="Decoy TCP port")
     parser.add_argument("--decoy-max-clients", type=int, default=64, help="Maximum concurrent decoy clients")
+    parser.add_argument("--protocol-envelope", help="complete S6P1 detector credential")
+    parser.add_argument("--protocol-file", type=Path, help="owner-only file containing S6P1")
     return parser
 
 
@@ -227,6 +233,21 @@ def main() -> int:
     if len(sys.argv) == 1:
         parser.print_help()
         return 0
+    if args.protocol_envelope and args.protocol_file:
+        parser.error("use only one S6P1 input")
+    if args.protocol_envelope or args.protocol_file:
+        token = args.protocol_envelope
+        if args.protocol_file:
+            from join_code import _private_file
+            try:
+                token = _private_file(args.protocol_file, 262144).decode("ascii").strip()
+            except (OSError, ValueError, UnicodeError) as exc:
+                parser.error(str(exc))
+        try:
+            from join_code import resolve_protocol_envelope
+            resolve_protocol_envelope(token, component="detector")
+        except (ValueError, OSError, UnicodeError) as exc:
+            parser.error(f"invalid S6P1: {exc}")
     if args.test:
         run_integration_test()
         return 0

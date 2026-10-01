@@ -151,6 +151,50 @@ def verify_credential(token: str, prefix: str, *, now: int | None = None) -> dic
         except Exception as exc: raise ValueError("invalid credential signature") from exc
     return value
 
+def resolve_credentials(credentials: dict, *, now: int | None = None) -> dict:
+    """Validate all standard S6P1 credentials and return typed claims."""
+    if not isinstance(credentials, dict): raise ValueError("invalid credentials section")
+    result = {}
+    for name, prefix in (("passport", PASSPORT_PREFIX), ("visa", VISA_PREFIX)):
+        token = credentials.get(name)
+        if token is not None: result[name] = verify_credential(token, prefix, now=now)
+    invitation = credentials.get("public6_invitation")
+    if invitation is not None: result["public6_invitation"] = unpack_invitation(invitation)
+    return result
+
+def require_credential_scope(claim: dict, *, component: str | None = None,
+                             role: str | None = None, audience: str | None = None) -> dict:
+    """Enforce the optional Passport/Visa scope at every component boundary."""
+    if not isinstance(claim, dict):
+        raise ValueError("invalid credential claim")
+    if component is not None and component not in claim.get("components", [component]):
+        raise ValueError("credential does not authorize this component")
+    if role is not None and role not in claim.get("roles", [role]):
+        raise ValueError("credential does not authorize this role")
+    if audience is not None and claim.get("audience") not in (None, audience):
+        raise ValueError("credential audience mismatch")
+    return claim
+
+def resolve_protocol_envelope(token: str, *, component: str | None = None,
+                              role: str | None = None, audience: str | None = None,
+                              allowed_communities=(), visa_free: bool = False) -> tuple[dict, dict]:
+    """Decode S6P1 and enforce its community and Passport/Visa credentials."""
+    envelope = unpack_protocol(token)
+    if not verify_passport_visa(envelope, allowed_communities=allowed_communities, visa_free=visa_free):
+        raise ValueError("S6P1 community admission was rejected")
+    claims = resolve_credentials(envelope["credentials"])
+    passport = claims.get("passport")
+    visa = claims.get("visa")
+    if passport is not None:
+        require_credential_scope(passport, component=component, role=role)
+    if visa is not None:
+        require_credential_scope(visa, component=component, audience=audience)
+        if passport is not None and visa.get("subject") != passport.get("subject"):
+            raise ValueError("Visa subject does not match Passport")
+        if passport is not None and visa.get("passport_expires_at", 0) > passport.get("expires_at", 0):
+            raise ValueError("Visa outlives Passport")
+    return envelope, claims
+
 def pack_invitation(code: str, profile: dict, gate_public_key: str) -> str:
     """Create one portable invitation carrying code, profile and Gate pin."""
     if type(gate_public_key) is not str or not re.fullmatch(r"[0-9a-f]{64}", gate_public_key):

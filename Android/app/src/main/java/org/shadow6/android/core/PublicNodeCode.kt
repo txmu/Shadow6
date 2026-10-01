@@ -15,6 +15,8 @@ data class PublicNodeCodeInfo(val mode: String, val lookupId: String, val httpsH
 /** The wire layout matches Public6/join_code.py; codes are credentials and stay in SecretStore. */
 object PublicNodeCode {
     private const val INVITATION_PREFIX = "S6INV1."
+    private const val PROTOCOL_PREFIX = "S6P1."
+    private const val PROTOCOL_MAX = 262_144
     private val alphabet = Regex("^[A-Za-z0-9_-]{40}$")
     private val tenant = Regex("^[A-Za-z0-9._-]{1,64}$")
     private val hexKey = Regex("^[0-9a-f]{64}$")
@@ -40,6 +42,19 @@ object PublicNodeCode {
         val value = JSONObject(String(raw, Charsets.UTF_8))
         require(value.getString("schema") == "shadow6.invitation.v1") { "Invalid invitation schema" }
         return Triple(value.getString("code"), value.getJSONObject("profile").toString(), value.getString("gate_public_key"))
+    }
+
+    /** Decode the complete portable S6P1 envelope and extract its Public6 credential. */
+    fun unpackProtocolEnvelope(token: String): Triple<String, String, String> {
+        require(token.startsWith(PROTOCOL_PREFIX) && token.length <= PROTOCOL_MAX) { "Invalid S6P1 envelope" }
+        val encoded = token.removePrefix(PROTOCOL_PREFIX)
+        val raw = Base64.getUrlDecoder().decode(encoded + "=".repeat((4 - encoded.length % 4) % 4))
+        val envelope = StrictJson.objectValue(StrictJson.decode(raw))
+        require(envelope.keys == setOf("schema", "version", "purpose", "core", "role", "identity", "routes", "components", "credentials") &&
+                envelope["schema"] == "shadow6.protocol-envelope.v1" && envelope["version"] == 1L) { "Invalid S6P1 schema" }
+        val credentials = StrictJson.objectValue(envelope["credentials"])
+        val invitation = StrictJson.text(credentials["public6_invitation"], 16_384)
+        return unpackInvitation(invitation)
     }
 
     fun seed(code: String, purpose: String): ByteArray {

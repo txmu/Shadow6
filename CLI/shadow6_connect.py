@@ -11,7 +11,7 @@ from python_runtime import bootstrap
 if __name__ == "__main__":
     bootstrap(ROOT, Path(__file__).resolve())
 sys.path.insert(0, str(ROOT / "Public6"))
-from join_code import resolve, install_peer, unpack_invitation, unpack_protocol
+from join_code import resolve, install_peer, unpack_invitation, resolve_protocol_envelope
 
 CORE_NAMES = ("go", "rust", "gleam", "ada", "nim", "pony", "zig", "d", "cpp", "idris", "hare", "carp")
 
@@ -77,12 +77,24 @@ def main():
     p.add_argument("--code-file", type=Path, help="read invitation from an owner-only 0600 file")
     p.add_argument("--invitation", help="single long S6INV1 invitation containing code, profile and Gate pin")
     p.add_argument("--protocol-envelope", help="universal S6P1 envelope; extracts its Public6 invitation when present")
+    p.add_argument("--protocol-file", type=Path, help="read a complete S6P1 token from an owner-only file")
     p.add_argument("--list-routes", action="store_true", help="resolve invitation and show offered core transports without provisioning")
     p.add_argument("--native-config", type=Path, help="validate and emit a bounded native configuration alongside Virtual Peer files")
     args = p.parse_args()
     try:
-        if args.protocol_envelope:
-            envelope = unpack_protocol(args.protocol_envelope)
+        if args.protocol_envelope and args.protocol_file:
+            raise ValueError("use only one of --protocol-envelope or --protocol-file")
+        token = args.protocol_envelope
+        if args.protocol_file:
+            token = secure_read(args.protocol_file, 262144).decode("ascii").strip()
+        if token:
+            envelope, claims = resolve_protocol_envelope(token, component="public6")
+            if args.core and envelope["core"] not in (args.core, "all"):
+                raise ValueError("S6P1 Core does not match --core")
+            if args.role and envelope["role"] not in (args.role, "all"):
+                raise ValueError("S6P1 role does not match --role")
+            args.core = args.core or (envelope["core"] if envelope["core"] != "all" else None)
+            args.role = args.role or (envelope["role"] if envelope["role"] in ("client", "agent") else None)
             embedded = envelope.get("credentials", {}).get("public6_invitation")
             if not isinstance(embedded, str):
                 raise ValueError("protocol envelope has no public6_invitation credential")
@@ -94,8 +106,8 @@ def main():
             temp = Path(tempfile.mkdtemp(prefix="shadow6-invitation-")) / "profile.json"
             temp.write_text(json.dumps(invitation["profile"], separators=(",", ":"))); temp.chmod(0o600)
             args.profile = temp
-        elif bool(args.code) == bool(args.code_file):
-            raise ValueError("provide exactly one of code, --code-file or --invitation")
+        elif bool(args.code or args.code_file) == bool(args.invitation):
+            raise ValueError("provide exactly one of code, --code-file, --invitation or S6P1")
         if args.code_file: args.code = secure_read(args.code_file, 256).decode('ascii').strip()
         if args.list_routes:
             resolved = resolve(args.code, directory=args.directory, manual_profile=args.profile, manual_pin=args.pin)

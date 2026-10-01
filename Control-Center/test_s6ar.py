@@ -1,5 +1,6 @@
 import unittest
-from s6ar import pack, unpack
+from s6ar import pack, unpack, request, to_rpc
+from shadow6_control import response
 
 class S6ARTests(unittest.TestCase):
     def test_round_trip(self):
@@ -7,3 +8,9 @@ class S6ARTests(unittest.TestCase):
         self.assertEqual(unpack(pack(value)), value)
     def test_schema_rejects_unknown_kind(self):
         with self.assertRaises(ValueError): pack({"schema":"shadow6.api-receiver-router.v1","version":1,"kind":"bad","receiver":{},"router":{},"payload":{}})
+
+    def test_legacy_rpc_bridge(self):
+        self.assertEqual(to_rpc(unpack(request("system", "local", "schema")))["method"], "system.schema")
+        result = response({"s6ar1": request("system", "local", "schema")})
+        self.assertTrue(result["ok"])
+        self.assertTrue(result["result"]["s6ar1"].startswith("S6AR1."))

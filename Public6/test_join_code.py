@@ -6,7 +6,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from join_code import decode, install_peer, issue, peer_public, provision, resolve, validate_profile, pack_protocol, unpack_protocol, community_protocol, verify_passport_visa, issue_passport, issue_visa, verify_credential
+from join_code import decode, install_peer, issue, peer_public, provision, resolve, validate_profile, pack_protocol, unpack_protocol, community_protocol, verify_passport_visa, issue_passport, issue_visa, verify_credential, resolve_protocol_envelope
 from virtual_peer import load_config as load_peer
 
 
@@ -39,6 +39,17 @@ class JoinCodeTests(unittest.TestCase):
         visa = issue_visa(passport, audience="broker-1", component="detector")
         self.assertEqual(verify_credential(visa, "S6VISA1.")["component"], "detector")
         with self.assertRaises(ValueError): verify_credential(passport, "S6PASS1.", now=claim["expires_at"] + 1)
+
+    def test_complete_envelope_resolves_scoped_credentials(self):
+        passport = issue_passport("tester", components=("public6",), roles=("client",))
+        value = {"schema":"shadow6.protocol-envelope.v1", "version":1, "purpose":"test", "core":"all", "role":"client",
+                 "identity":{"id":"tester"}, "routes":[], "components":{"public6":True},
+                 "credentials":{"passport":passport}}
+        envelope, claims = resolve_protocol_envelope(pack_protocol(value), component="public6", role="client")
+        self.assertEqual(envelope["purpose"], "test")
+        self.assertEqual(claims["passport"]["subject"], "tester")
+        with self.assertRaises(ValueError):
+            resolve_protocol_envelope(pack_protocol(value), component="detector")
     def test_android_wire_vector(self):
         code = "A8YzZAoBuwABAgMEBQYHCAkKCwwNDg8QERITFBUW"
         self.assertEqual(decode(code)["lookup_id"], "29ba43311f908fa99653084749d2078ded0d30252704a1c7f5cd3f082a03b082")

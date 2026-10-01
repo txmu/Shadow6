@@ -328,8 +328,16 @@ class Broker:
             await asyncio.gather(*(server.wait_closed() for server in servers))
 
 def main()->int:
-    parser=argparse.ArgumentParser(); parser.add_argument("--config",type=Path,required=True); parser.add_argument("--check",action="store_true"); args=parser.parse_args()
+    parser=argparse.ArgumentParser(); parser.add_argument("--config",type=Path,required=True); parser.add_argument("--check",action="store_true"); parser.add_argument("--protocol-envelope", help="complete S6P1 broker credential"); parser.add_argument("--protocol-file", type=Path, help="owner-only file containing S6P1"); args=parser.parse_args()
     try:
+        if args.protocol_envelope and args.protocol_file: raise ValueError("use only one S6P1 input")
+        token = args.protocol_envelope
+        if args.protocol_file:
+            from join_code import _private_file
+            token = _private_file(args.protocol_file, 262144).decode("ascii").strip()
+        if token:
+            from join_code import resolve_protocol_envelope
+            resolve_protocol_envelope(token, component="virtual-broker", role="broker")
         config=load_config(args.config)
         if args.check: print(json.dumps({"schema":SCHEMA,"cores":sorted(config.cores),"tenants":len(config.tenants),"anonymous_ports":[x[0] for x in config.anonymous_listeners],"datagram_ports":[x[0] for x in config.datagram_listeners],"guard":True,"gate":True})); return 0
         asyncio.run(Broker(config).serve()); return 0

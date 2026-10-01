@@ -920,7 +920,7 @@ private fun SettingsScreen() {
     var manualPin by remember { mutableStateOf("") }
     var joinBusy by remember { mutableStateOf(false) }
     var joinStatus by remember { mutableStateOf(nodePreferences.getString("summary", "") ?: "") }
-    val longInvitation = joinCode.startsWith("S6INV1.")
+    val longInvitation = joinCode.startsWith("S6INV1.") || joinCode.startsWith("S6P1.")
     val joinMode = remember(joinCode) { runCatching { PublicNodeCode.decode(joinCode).mode }.getOrNull() }
     var language by remember { mutableStateOf(preferences.getString(MainActivity.LANGUAGE_KEY, MainActivity.LANGUAGE_SYSTEM) ?: MainActivity.LANGUAGE_SYSTEM) }
     val labels = listOf(
@@ -965,7 +965,8 @@ private fun SettingsScreen() {
                     var profileJson = manualProfile
                     var pin = manualPin
                     if (longInvitation) {
-                        val bundled = PublicNodeCode.unpackInvitation(code)
+                        val bundled = if (code.startsWith("S6P1.")) PublicNodeCode.unpackProtocolEnvelope(code)
+                        else PublicNodeCode.unpackInvitation(code)
                         code = bundled.first; profileJson = bundled.second; pin = bundled.third
                     }
                     val profile = withContext(Dispatchers.IO) { PublicNodeCode.profile(code, directory, profileJson, pin) }

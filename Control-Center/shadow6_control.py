@@ -59,6 +59,8 @@ from shadow6_extensions import invoke as invoke_extension  # noqa: E402
 from shadow6_pkg import activate as package_activate, install_package, list_packages, verify_package  # noqa: E402
 from shadow6_public import negotiate as public6_negotiate, offer_from_feature_report, read_json as public6_read_json, read_offer as public6_read_offer, suite_profile as public6_profile  # noqa: E402
 from virtual_broker import load_config as virtual_broker_load_config  # noqa: E402
+from s6ar import unpack as unpack_s6ar, to_rpc as s6ar_to_rpc, response_for as s6ar_response_for  # noqa: E402
+from join_code import resolve_protocol_envelope  # noqa: E402
 from shadow6_migrate import export as migration_export, import_bundle as migration_import, plan as migration_plan  # noqa: E402
 from shadow6_repo import build as repository_build, sync as repository_sync, verify as repository_verify, regular as repository_read  # noqa: E402
 from portmap import generate as portmap_generate, validate as portmap_validate  # noqa: E402
@@ -110,6 +112,11 @@ _OBJECT = {"type": "object"}
 
 METHOD_SPECS: dict[str, dict[str, Any]] = {
     "system.schema": _method("Return the complete versioned Shadow6 control schema."),
+    "protocol.envelope.validate": _method(
+        "Decode and validate a complete S6P1 envelope, including standard credential scope.",
+        {"envelope": {"type": "string", "maxLength": 262144},
+         "component": _STRING, "role": {"type": "string", "enum": ["broker", "agent", "client", "gate", "relay", "plugin", "all"]},
+         "audience": _STRING, "community": _STRING, "allow_visa_free": _BOOL}, ("envelope",)),
     "system.guide": _method("Read a bilingual guide to safe operations and privacy.", {"lang": {"type": "string", "enum": ["en", "zh"]}}),
     "privacy.report": _method("Return only aggregate health counts, without paths, identifiers or diagnostic details."),
     "system.status": _method("Run bounded read-only component health and observation checks.", {"root": _PATH}),
@@ -391,6 +398,14 @@ def dispatch(method: str, raw_params: Any = None) -> Any:
     if method == "system.schema":
         _only(params, set())
         return schema()
+    if method == "protocol.envelope.validate":
+        _only(params, {"envelope", "component", "role", "audience", "community", "allow_visa_free"})
+        communities = (params["community"],) if "community" in params else ()
+        envelope, claims = resolve_protocol_envelope(
+            params["envelope"], component=params.get("component"), role=params.get("role"),
+            audience=params.get("audience"), allowed_communities=communities,
+            visa_free=params.get("allow_visa_free", False))
+        return {"envelope": envelope, "credentials": claims}
     if method == "system.guide":
         zh = params.get("lang", "en") == "zh"
         return {
@@ -720,6 +735,14 @@ def _safe_error(exc: Exception) -> str:
 
 
 def response(request: Any, *, allow_mutations: bool = False) -> dict[str, Any]:
+    if isinstance(request, dict) and (request.get("schema") == "shadow6.api-receiver-router.v1" or "s6ar1" in request):
+        try:
+            token = request.get("s6ar1", request.get("token", ""))
+            envelope = unpack_s6ar(token)
+            rpc_result = response(s6ar_to_rpc(envelope), allow_mutations=allow_mutations)
+            return {"id": rpc_result.get("id"), "ok": rpc_result.get("ok", False), "result": {"s6ar1": s6ar_response_for(envelope, rpc_result)}} if rpc_result.get("ok") else rpc_result
+        except Exception as exc:
+            return {"id": None, "ok": False, "error": {"code": type(exc).__name__, "message": _safe_error(exc)}}
     request_id = request.get("id") if isinstance(request, dict) else None
     try:
         if not isinstance(request, dict) or set(request) - {"id", "method", "params"}:

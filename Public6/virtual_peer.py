@@ -224,8 +224,21 @@ def main():
     parser.add_argument("--transport", choices=("tcp", "udp"), default="tcp")
     parser.add_argument("--max-connections", type=int, default=32)
     parser.add_argument("--idle-seconds", type=int, default=120)
+    parser.add_argument("--protocol-envelope", help="complete S6P1 peer credential")
+    parser.add_argument("--protocol-file", type=Path, help="owner-only file containing S6P1")
     args = parser.parse_args()
     try:
+        if args.protocol_envelope and args.protocol_file:
+            raise ValueError("use only one S6P1 input")
+        token = args.protocol_envelope
+        if args.protocol_file:
+            from join_code import _private_file
+            token = _private_file(args.protocol_file, 262144).decode("ascii").strip()
+        if token:
+            from join_code import resolve_protocol_envelope
+            if not args.role:
+                raise ValueError("--role is required with S6P1")
+            resolve_protocol_envelope(token, component="virtual-peer", role=args.role)
         if args.init:
             if not all((args.role, args.core, args.output, args.private_key_output)):
                 raise ValueError("--init requires --role, --core, --output and --private-key-output")
