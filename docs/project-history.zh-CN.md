@@ -221,7 +221,7 @@ HTTP、MCP、LSP 与 OpenAI function tools；旧 API 继续可用，AI 调用不
 路径、主机、命令或 Relay 目标，变更操作仍受显式 mutation gate 保护。安装布局同步
 包含 `s6ar.py` 和 IPC bridge，保证源代码与安装树一致。
 
-CI 的 Node 适配矩阵覆盖 Node 22/24、Linux/macOS/Windows；POSIX runner 额外运行真实
+CI 的 Node 适配矩阵覆盖 Node 22/24、Linux/macOS/Windows；Linux runner 额外运行真实
 C11Relay normal/high-speed 回环链路。当前本地通过 Node IPC 18 项（含 Control Center
 实桥）测试、Control Center 35 项、CLI 7 项和 C11Relay 原生 sanitizer/回环测试。全仓
 清查未发现生产代码中的 TODO、未实现异常、空壳 stub 或 Mock；测试中的替身仅用于权限
