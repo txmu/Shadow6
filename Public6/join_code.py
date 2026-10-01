@@ -173,6 +173,8 @@ def require_credential_scope(claim: dict, *, component: str | None = None,
         raise ValueError("credential does not authorize this role")
     if audience is not None and claim.get("audience") not in (None, audience):
         raise ValueError("credential audience mismatch")
+    if component is not None and "component" in claim and claim.get("component") != component:
+        raise ValueError("credential component mismatch")
     return claim
 
 def resolve_protocol_envelope(token: str, *, component: str | None = None,
