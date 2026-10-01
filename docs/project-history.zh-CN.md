@@ -320,3 +320,10 @@ Gleam Micro-Mux 同步增加本地 `application_credit()` / `applicationCredit()
 flow-controlled send helper。credit 由现有 ACK/window 状态恢复，不新增 S6NA frame、
 不改变 1100-byte MTU、64-frame window、AEAD 或重传语义；持续 producer 超过 consumer
 时仍会明确阻塞/返回 backpressure，而不是无限缓存。
+## 2026-10-01：Node IPC 候选组件只读观测扩展
+
+Virtual Broker、Detector 与 S6NA 的 Node IPC 合同扩展为窄只读观测面：除
+`capabilities/status` 外，提供有界 `metrics` 以及 routes/sessions/alerts 的空摘要或
+快照结构。它们仍是组件合同层观察，不模拟运行时、不替代 admission、policy、Core
+credential 或 transport authentication；mutation、packet injection、reload 与任意
+目标路由继续 fail closed。这样统一了发现和监控命名空间，同时保留各组件原有权力边界。

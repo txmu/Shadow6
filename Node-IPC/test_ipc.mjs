@@ -163,6 +163,11 @@ test('Virtual Broker, Detector and S6NA expose bounded read-only contracts', {sk
     const capabilities = (await client.call(`${component}.capabilities`)).result;
     assert.equal(capabilities.read_only, true);
     assert.ok((await client.call(`${component}.status`)).result.state === 'available');
+    for (const method of capabilities.methods.filter(name => !name.endsWith('.capabilities') && !name.endsWith('.status'))) {
+      const result = (await client.call(method)).result;
+      assert.equal(result.read_only, true);
+      assert.ok(result.schema.startsWith('shadow6.'));
+    }
     assert.ok((await client.call(`${component}.reload`, {})).error);
     await server.close();
   }

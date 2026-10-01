@@ -116,11 +116,13 @@ tests report explicit skips when their prerequisites are absent.
 ## Candidate component contracts
 
 The dependency-free service also supports `virtual-broker`, `detector`, and
-`s6na` as read-only component identities. Each exposes only
-`<component>.capabilities` and `<component>.status`. Mutation, packet
+`s6na` as read-only component identities. Each exposes capabilities, status,
+bounded metrics, and component-specific summary/snapshot observations. Mutation, packet
 injection, configuration reload, and credential bypass are unavailable; each
 component keeps its own authentication and lifecycle rules. Configure one of
 these identities in `node-ipc-config.v1` with a dedicated owner-only key.
+These are contract-level observations; they do not impersonate a running
+component or replace its admission, policy, or transport authentication.
 
 ```sh
 shadow6 ipc call --config /tmp/shadow6-ipc-local/config.json \
