@@ -176,6 +176,25 @@ profile/pin 参数；Virtual Broker、Virtual Peer、Detector 都支持同一 S6
 随后提交 `dd55444` 收紧 Visa 的 component scope：带有组件字段的 Visa 必须与
 实际消费组件完全一致，防止仅凭通用 Passport 格式跨组件重用。
 
+## 2026-10-01：S6P1/S6AR1 完整组件协议契约
+
+`2633b38` 完成了协议骨架到生产级组件契约的收紧。S6PASS1 现在可以由 Ed25519
+issuer 签名，验证默认拒绝未签名凭据；S6VISA1 必须由同一 issuer 签发，并携带父
+Passport 的 canonical digest、subject、component 和 audience 绑定，生命周期不能超过
+父 Passport。签发 Visa 前也会检查 Passport 的 component scope；接收端会再次验证
+父链、签名、过期时间和 scope。
+
+S6AR1 的 receiver 现在只接受 `component`/可选 `instance`，router 只接受 route、
+有界 hops 和 timeout；request 必须有 action、correlation_id，response 必须严格二选一
+携带 result 或结构化 error，event 也有固定 event/data 形状。payload 可携带完整 S6P1
+context，Control Center 在旧 RPC 桥接前按 receiver component 和 router audience 验证
+该 context，并把成功和失败都包装为 S6AR1 response；原 JSON-RPC/HTTP/JSONL 入口继续
+兼容。
+
+Android Public6 对完整 S6P1 同步校验九个顶层字段、十二 Core/角色、Passport/Visa
+Ed25519 签名、父 Passport digest、issuer、scope 和有效期，避免移动端成为较弱验证端。
+本次仍不在本机编译 APK，交给 CI 生成最终构件。
+
 ### 2026-10-01 当前提交
 
 代码提交：`fcc0afe`；历史文档提交：本节对应的后续提交。当前统一协议仍位于组件层，
