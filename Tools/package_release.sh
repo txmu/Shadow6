@@ -1,7 +1,24 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-project_dir=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+build_tar=1
+build_zip=1
+root_override=""
+output_override=""
+while (($#)); do
+    case "$1" in
+        --tar) build_tar=1; build_zip=0 ;;
+        --zip) build_tar=0; build_zip=1 ;;
+        --both) build_tar=1; build_zip=1 ;;
+        --root) root_override=${2:?--root requires a directory}; shift ;;
+        --output-dir) output_override=${2:?--output-dir requires a directory}; shift ;;
+        -h|--help) echo "usage: $0 [--tar|--zip|--both] [--root DIR] [--output-dir DIR]"; exit 0 ;;
+        *) echo "unknown option: $1" >&2; exit 2 ;;
+    esac
+    shift
+done
+
+project_dir=${root_override:-$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)}
 parent_dir=$(dirname -- "$project_dir")
 project_name=$(basename -- "$project_dir")
 python=${SHADOW6_PYTHON:-$project_dir/.venv/bin/python}
@@ -9,7 +26,7 @@ if ! [[ -x "$python" ]]; then python=$(command -v python3); fi
 [[ -x "$python" ]] || { echo "python3 is required" >&2; exit 2; }
 package_tmp_root=${SHADOW6_PACKAGE_TMPDIR:-$parent_dir}
 package_tmp=$(mktemp -d "$package_tmp_root/.${project_name}.package.XXXXXX")
-package_output_dir=${SHADOW6_PACKAGE_OUTPUT_DIR:-$parent_dir}
+package_output_dir=${output_override:-${SHADOW6_PACKAGE_OUTPUT_DIR:-$parent_dir}}
 tar_tmp="$package_tmp/$project_name.tar.gz"
 zip_tmp="$package_tmp/$project_name.zip"
 zip_stage="$package_tmp/zip-stage"
@@ -22,7 +39,9 @@ cleanup() {
 }
 trap cleanup EXIT
 
+mkdir -p "$package_output_dir"
 cd "$parent_dir"
+if ((build_tar)); then
 if [[ -f "$apk_source" ]]; then
     mkdir -p "$project_name/Android/dist"
     install -m 0644 "$apk_source" "$apk_archive_path"
@@ -85,7 +104,9 @@ if [[ "$apk_included" == 1 ]]; then
 fi
 
 "$python" "$project_dir/Tools/archive_preflight.py" --tar "$tar_tmp"
+fi
 
+if ((build_zip)); then
 mkdir -p "$zip_stage"
 cd "$parent_dir"
 tar --exclude="$project_name/.venv" \
@@ -163,9 +184,11 @@ tar --exclude="$project_name/.venv" \
 cd "$zip_stage"
 zip -rq -X "$zip_tmp" "$project_name"
 "$python" "$project_dir/Tools/archive_preflight.py" --zip "$zip_tmp"
+fi
 
-mv -f -- "$tar_tmp" "$package_output_dir/$project_name.tar.gz"
-mv -f -- "$zip_tmp" "$package_output_dir/$project_name.zip"
+((build_tar)) && mv -f -- "$tar_tmp" "$package_output_dir/$project_name.tar.gz"
+((build_zip)) && mv -f -- "$zip_tmp" "$package_output_dir/$project_name.zip"
 rm -rf -- "$package_tmp"
 trap - EXIT
-printf 'Created %s and %s\n' "$package_output_dir/$project_name.tar.gz" "$package_output_dir/$project_name.zip"
+((build_tar)) && printf 'Created %s\n' "$package_output_dir/$project_name.tar.gz"
+((build_zip)) && printf 'Created %s\n' "$package_output_dir/$project_name.zip"
