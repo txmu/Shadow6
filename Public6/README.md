@@ -204,3 +204,10 @@ Its identity, routes, components and credentials sections are active data, not
 reserved placeholders. Community protocols can wrap an envelope with a
 community identifier and Passport/Visa admission metadata; `visa-free` is an
 explicit opt-in path controlled by the receiving policy.
+
+`S6PASS1.` and `S6VISA1.` credentials are signed Ed25519 claims at every
+component boundary. A Visa must use the Passport issuer, include its canonical
+parent digest, stay within the Passport lifetime, and name a component granted
+by the Passport. Consumers should call `resolve_protocol_envelope()` rather
+than parsing credential fields independently; unsigned claims are accepted
+only by an explicitly configured legacy/metadata path.
