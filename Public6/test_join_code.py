@@ -31,7 +31,9 @@ class JoinCodeTests(unittest.TestCase):
         self.assertTrue(verify_passport_visa(unpack_protocol(free), visa_free=True))
 
     def test_component_passport_and_visa(self):
-        passport = issue_passport("developer", components=("gate", "detector"), roles=("client",))
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+        key = Ed25519PrivateKey.generate().private_bytes_raw()
+        passport = issue_passport("developer", components=("gate", "detector"), roles=("client",), issuer_key=key)
         claim = verify_credential(passport, "S6PASS1.")
         self.assertEqual(claim["subject"], "developer")
         visa = issue_visa(passport, audience="broker-1", component="detector")

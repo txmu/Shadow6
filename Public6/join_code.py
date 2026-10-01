@@ -30,7 +30,7 @@ if __name__ == "__main__":
             sys.path.insert(0, str(_candidate))
             break
 
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
 MODES = {1: "directory", 2: "manual", 3: "ipv4-https"}
@@ -111,13 +111,16 @@ def verify_passport_visa(envelope: dict, *, allowed_communities=(), visa_free=Fa
     if admission == "visa-free": return bool(visa_free)
     return community in set(allowed_communities) and isinstance(admission, str) and 1 <= len(admission) <= 256
 
-def issue_passport(subject: str, *, components=(), roles=(), ttl: int = 3600) -> str:
+def issue_passport(subject: str, *, components=(), roles=(), ttl: int = 3600, issuer_key: bytes | None = None) -> str:
     """Issue a bounded, portable passport claim for component consumers."""
     if not isinstance(subject, str) or not 1 <= len(subject) <= 128 or not 1 <= ttl <= 604800:
         raise ValueError("invalid passport claim")
     claim = {"schema":"shadow6.passport.v1", "subject":subject,
              "components":sorted(set(components)), "roles":sorted(set(roles)),
              "issued_at":int(time.time()), "expires_at":int(time.time()) + ttl}
+    if issuer_key is not None:
+        key = Ed25519PrivateKey.from_private_bytes(issuer_key); claim["issuer"] = key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw).hex()
+        claim["signature"] = key.sign(json.dumps({k:v for k,v in claim.items()}, sort_keys=True, separators=(",", ":")).encode()).hex()
     raw = json.dumps(claim, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode()
     return PASSPORT_PREFIX + base64.urlsafe_b64encode(raw).decode().rstrip("=")
 
@@ -129,7 +132,7 @@ def issue_visa(passport: str, *, audience: str, component: str, ttl: int = 900) 
     if not 1 <= ttl <= 86400: raise ValueError("invalid visa lifetime")
     visa = {"schema":"shadow6.visa.v1", "subject":claim["subject"], "audience":audience,
             "component":component, "passport_expires_at":claim["expires_at"],
-            "issued_at":int(time.time()), "expires_at":int(time.time()) + ttl}
+            "issued_at":int(time.time()), "expires_at":min(int(time.time()) + ttl, claim["expires_at"])}
     raw = json.dumps(visa, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode()
     return VISA_PREFIX + base64.urlsafe_b64encode(raw).decode().rstrip("=")
 
@@ -140,6 +143,12 @@ def verify_credential(token: str, prefix: str, *, now: int | None = None) -> dic
     except Exception as exc: raise ValueError("invalid credential encoding") from exc
     if not isinstance(value, dict) or value.get("expires_at", 0) < int(time.time() if now is None else now):
         raise ValueError("expired credential")
+    signature=value.get("signature"); issuer=value.get("issuer")
+    if signature is not None or issuer is not None:
+        if not isinstance(signature,str) or not isinstance(issuer,str): raise ValueError("incomplete credential signature")
+        unsigned={k:v for k,v in value.items() if k != "signature"}
+        try: Ed25519PublicKey.from_public_bytes(bytes.fromhex(issuer)).verify(bytes.fromhex(signature), json.dumps(unsigned, sort_keys=True, separators=(",", ":")).encode())
+        except Exception as exc: raise ValueError("invalid credential signature") from exc
     return value
 
 def pack_invitation(code: str, profile: dict, gate_public_key: str) -> str:
