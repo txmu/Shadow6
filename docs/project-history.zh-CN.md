@@ -121,7 +121,15 @@ Public6 提供社区协议兼容入口，并以 Passport/Visa admission metadata
 为当前按 peer、队列、速率和 burst 的实际边界。上述改动均在 Python/CLI/Public6
 层完成，不要求原生 Core 重新编译。
 
-## 当前快照（`9c8f650`，2026-10-01）
+## 2026-10-01：Passport/Visa 全组件凭据化
+
+`e4b28d5` 在 S6P1 之上推广通用 Passport/Visa：Passport 绑定 subject、组件、
+角色和有效期，Visa 再绑定 audience、组件和更短有效期；两类凭据均可直接放入
+S6P1 的 credentials section，由 CLI、Public6、Gate、Detector、Control Center
+和其它无须重新编译的组件验证。Visa-free 仍由接收策略显式允许，过期和格式错误
+凭据默认拒绝。新增回归测试覆盖签发、验证、过期和组件范围。
+
+## 当前快照（`e4b28d5`，2026-10-01）
 
 - 十二个 Core 均有独立目录和 README；能力、协议和平台边界见能力矩阵。
 - 默认 `shadow6-*` 构建保持 `CROSED_LEVEL=0`、`APP_TRANSPORT=0`、
