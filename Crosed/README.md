@@ -7,9 +7,12 @@ separate owner-only trust policy.
 
 Crosed never uses `ptrace`, `LD_PRELOAD`, writable executable memory, arbitrary
 native libraries, or process-memory patching. A Mod submits a time-bounded
-Ed25519-signed request. Core-Go and Core-Rust independently verify it and return
+Ed25519-signed request. ~~Core-Go and Core-Rust independently verify it and return
 their Core name/version, compiled maximum level, compiled optional features,
-and the exact granted capabilities.
+and the exact granted capabilities.~~ Crosed support is implemented per Core;
+each supported Core verifies requests according to its compiled feature set and
+reports its own name/version, maximum level, optional features, and granted
+capabilities. Consult that Core's README for its actual support and limits.
 
 ## Levels
 
@@ -29,7 +32,10 @@ orthogonal feature.
 
 ## Build matrix
 
-All features default off. Both cores accept the same build environment:
+All features default off. ~~Both cores accept the same build environment:~~
+Build support and target names vary by Core; use its documented target and
+check the resulting feature report. For the Go/Rust build path, the shared
+Makefile accepts this example:
 
 ```sh
 CROSED_LEVEL=4 APP_TRANSPORT=1 QUBES_ISOLATION=1 make core-go core-rust

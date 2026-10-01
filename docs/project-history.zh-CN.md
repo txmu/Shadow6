@@ -157,7 +157,7 @@ Git 路径首次出现为准，而不是以标题推断。完整的当前能力�
 公开 botnet-only PCAP 与真实 Shadow6 本机链路训练 RF/LSTM，模型和评估结果作为
 本机 Artifact 保存，源码包排除数据集与权重。9 月 30 日修正 Linux iperf chain
 TCP fixture 的 FIN 排空顺序，避免把正常半关闭显示为 RST/EPIPE；最新 CI 实测
-结果已合并进 README。当前最新提交为 `b479ae2`。
+结果已合并进 README。当时最新提交为 `b479ae2`；后续的 10 月 1 日提交继续扩展了组件接口与本地流控。
 
 这一时间段的性能变化也有独立记录：9 月 26 日 TCP 原生吞吐以 Rust 约
 3.63/3.83 Gbit/s、C++ 约 2.72/2.75 Gbit/s、Gleam 约 1.57/1.47 Gbit/s
@@ -200,7 +200,7 @@ Visa 生命周期不再超过父 Passport；S6AR1 要求 receiver.component、ro
 和 request/response correlation_id，新增统一 request 构造器，并保持严格大小与
 portable JSON 边界。两者继续位于组件层，不要求十二个原生 Core 重新编译。
 
-## 当前快照（`b29e3f2`，2026-10-01）
+## 历史快照（`b29e3f2`，2026-10-01）
 
 - 十二个 Core 均有独立目录和 README；能力、协议和平台边界见能力矩阵。
 - 默认 `shadow6-*` 构建保持 `CROSED_LEVEL=0`、`APP_TRANSPORT=0`、
@@ -327,3 +327,29 @@ Virtual Broker、Detector 与 S6NA 的 Node IPC 合同扩展为窄只读观测�
 快照结构。它们仍是组件合同层观察，不模拟运行时、不替代 admission、policy、Core
 credential 或 transport authentication；mutation、packet injection、reload 与任意
 目标路由继续 fail closed。这样统一了发现和监控命名空间，同时保留各组件原有权力边界。
+
+## 2026-10-01：跨平台 IPC 修正与运行时候选扩展
+
+`5776acd0` 将 Node IPC 的候选组件适配扩展为运行时注册合同，并补充相应 CLI
+参数校验和测试；候选仍需遵循固定组件名与只读边界。`a64efca7` 修正 Network
+Adapter 与 IPC 动作在跨平台环境下的处理，并调整对应测试，保持本地 IPC 的固定
+动作集合。
+
+## 2026-10-01：本地入口背压与组件观测边界
+
+`f16f7758` 为 Carp 增加可选继承 `SOCK_SEQPACKET` 应用入口，并让 Hare、Idris、Pony
+在 feature report 中声明 UDP 与 `seqpacket-fd` 模式；UDP 仍是默认入口。Network
+Adapter 的 Micro-Mux 增加由现有 ACK/window 状态驱动的本地产生端 credit，不改变
+wire frame、MTU 或重传语义。该变化可能改善后续 UDP Loss 表现，但 9 月 30 日性能
+表尚未复测，不能作为已验证的改善结果。
+
+`99dfb172` 为 Virtual Broker、Detector 和 S6NA 的 Node IPC 增加有界 metrics、摘要
+和快照查询。返回值明确标为本地只读合同观察，不冒充运行中组件的状态，也不替代
+其 admission、policy、credential 或 transport authentication。
+
+## 当前快照（`99dfb172`，2026-10-01）
+
+- 仓库包含十二个独立 Core；具体传输、Crosed 能力和工具链要求按 Core 分别说明，不能从 Go/Rust 旧路径推断所有 Core 等价。
+- 默认 `shadow6-*` 构建仍保持 `CROSED_LEVEL=0`、`APP_TRANSPORT=0`、`QUBES_ISOLATION=0`；显式变体构建后恢复默认二进制。
+- 当前提交扩展 Node IPC 只读观测合同，并补充 Network Adapter credit 与部分 Core 的本地 flow ingress 能力声明；不表示各 Core 的远端协议或可靠性相同。
+- README 中的 Linux iperf chain 数据截至 2026-09-30；UDP Loss 在 10 月 1 日入口流控相关改动后可能改善，但尚无更新测量证实。

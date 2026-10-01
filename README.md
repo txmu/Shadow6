@@ -207,9 +207,12 @@ inject Core code or arbitrary commands. See `Slot-System/README.md`.
 
 ## Crosed and application protocols
 
-Crosed is disabled in default Core builds. Enable identical orthogonal options
+Crosed is disabled in default Core builds. ~~Enable identical orthogonal options
 for both cores with `CROSED_LEVEL=1..5`, `APP_TRANSPORT=1`, and/or
-`QUBES_ISOLATION=1`. `--feature-report` returns the Core version, maximum
+`QUBES_ISOLATION=1`.~~ Crosed options are implemented and compiled per Core; use
+the matching Core target and README, then confirm its actual build with
+`--feature-report`. `CROSED_LEVEL`, `APP_TRANSPORT`, and `QUBES_ISOLATION` are
+orthogonal build flags, and support varies by Core. The report returns the Core version, maximum
 compiled Crosed level, exact capabilities, UTF-8 support, and optional feature
 state. Signed Mod requests are then reduced by a per-Mod trust policy and, in
 Qubes isolation mode, source/target compartment rules.
@@ -266,8 +269,9 @@ commands. Secret-bearing configuration files must be regular, owned by the
 effective user, and mode `0600`.
 
 Agent configurations must include `client_pubkeys` for every client permitted
-to open a data-plane tunnel, even when local discovery is disabled. Both core
-engines verify the client's signed access request at the Agent; the Rust engine
+to open a data-plane tunnel, even when local discovery is disabled. ~~Both core
+engines verify the client's signed access request at the Agent;~~ Core-Go and
+Core-Rust verify that request at the Agent; the Rust engine
 also binds its ephemeral QUIC certificate to that request with an Agent
 signature. This prevents a compromised control-plane broker from minting an
 independent tunnel or substituting a QUIC certificate.
@@ -307,6 +311,9 @@ This mode checks only the selected executable entry points; use the regular
 `doctor` for a complete Shadow6 deployment audit. A copied CLI can also route
 to companion `shadow6-*` binaries beside it without a Shadow6 source tree.
 2026-09-30 第3次性能测试（CI 36732325902，commit 4cf9d7b） for the Linux iperf chain is recorded below. Base is the direct baseline; format is `Core Proto Dir(F/R) Base? Gbps Loss/Retrans CPU(s) Mem(MB)`.
+
+> 注：本组 UDP 测试早于 2026-10-01 的原生入口背压与 Micro-Mux credit 提交
+>（`f16f7758`）。该提交后续可能改善 UDP Loss；当前数据尚未用新版本重测，不能据此推定改善幅度。
 
 ```text
 zig tcp F base 12.86 - 0 0.00 0
