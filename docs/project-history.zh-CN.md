@@ -200,6 +200,34 @@ Ed25519 签名、父 Passport digest、issuer、scope 和有效期，避免移�
 代码提交：`fcc0afe`；历史文档提交：本节对应的后续提交。当前统一协议仍位于组件层，
 十二个原生 Core 不需要重新编译。
 
+## 2026-10-01：Node FastRPC/RawIPC 与 C11Relay 组件层收尾
+
+本次在不改动、也不重新编译十二个 Native Core 或 Android APK 的前提下，完成了
+Node 组件层的生产化收尾。`Node-IPC/` 只使用 Node 内置模块，不依赖 npm：FastRPC
+采用 canonical safe-integer JSON、方向分离 HMAC-SHA256、时间窗、nonce、有限重放缓存、
+有界帧和通用错误；RawIPC 采用方向分离 AES-256-GCM、认证头、时间窗、重放保护、响应
+绑定和 1 MiB 帧上限。Unix socket 强制私有目录与 `0600`，TCP 只允许数字回环地址；密钥
+加载拒绝符号链接、硬链接、错误所有者/权限及读取期间替换。
+
+`Node-IPC/c11relay.mjs` 为 C11Relay 提供固定目标、按 peer 隔离的 UDP companion，
+支持 FastRPC 的 capabilities/status/exchange/batch 和 RawIPC 的 datagram/metrics/batch
+类型。批处理上限 256，peer、队列、速率、burst、超时和空闲回收均在发包前检查，重复
+peer 保持 FIFO；不暴露任意 Relay 控制、路由或防火墙操作。既有 C11Relay 原生协议与
+高性能批处理实现保持不变。
+
+统一 CLI 新增 `shadow6 ipc`，Control Center 新增 `ipc.catalog`、`ipc.call`、`ipc.raw`、
+`c11relay.ipc.status` 和 `c11relay.ipc.schema`。这些方法由共享 schema 自动进入 JSONL、
+HTTP、MCP、LSP 与 OpenAI function tools；旧 API 继续可用，AI 调用不能提供密钥、配置
+路径、主机、命令或 Relay 目标，变更操作仍受显式 mutation gate 保护。安装布局同步
+包含 `s6ar.py` 和 IPC bridge，保证源代码与安装树一致。
+
+CI 的 Node 适配矩阵覆盖 Node 22/24、Linux/macOS/Windows；POSIX runner 额外运行真实
+C11Relay normal/high-speed 回环链路。当前本地通过 Node IPC 18 项（含 Control Center
+实桥）测试、Control Center 35 项、CLI 7 项和 C11Relay 原生 sanitizer/回环测试。全仓
+清查未发现生产代码中的 TODO、未实现异常、空壳 stub 或 Mock；测试中的替身仅用于权限
+竞态、故障注入和跨协议边界，生产路径不依赖它们；Detector 的 synthetic/dummy 数据命令
+仅用于回归测试，真实训练仍使用 PCAP/实测提取器流程。
+
 ## 如何继续维护
 
 新增 Core 时，同时记录首次加入提交、原生控制/数据协议、角色和平台限制，
