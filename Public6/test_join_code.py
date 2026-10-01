@@ -36,12 +36,15 @@ class JoinCodeTests(unittest.TestCase):
         passport = issue_passport("developer", components=("gate", "detector"), roles=("client",), issuer_key=key)
         claim = verify_credential(passport, "S6PASS1.")
         self.assertEqual(claim["subject"], "developer")
-        visa = issue_visa(passport, audience="broker-1", component="detector")
+        visa = issue_visa(passport, audience="broker-1", component="detector", issuer_key=key)
         self.assertEqual(verify_credential(visa, "S6VISA1.")["component"], "detector")
         with self.assertRaises(ValueError): verify_credential(passport, "S6PASS1.", now=claim["expires_at"] + 1)
+        with self.assertRaises(ValueError): issue_visa(passport, audience="broker-1", component="public6", issuer_key=key)
 
     def test_complete_envelope_resolves_scoped_credentials(self):
-        passport = issue_passport("tester", components=("public6",), roles=("client",))
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+        key = Ed25519PrivateKey.generate().private_bytes_raw()
+        passport = issue_passport("tester", components=("public6",), roles=("client",), issuer_key=key)
         value = {"schema":"shadow6.protocol-envelope.v1", "version":1, "purpose":"test", "core":"all", "role":"client",
                  "identity":{"id":"tester"}, "routes":[], "components":{"public6":True},
                  "credentials":{"passport":passport}}

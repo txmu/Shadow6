@@ -6,6 +6,9 @@ import java.net.HttpURLConnection
 import java.net.InetAddress
 import java.net.URL
 import java.security.MessageDigest
+import java.security.KeyFactory
+import java.security.Signature
+import java.security.spec.X509EncodedKeySpec
 import java.util.Base64
 import org.json.JSONObject
 import javax.net.ssl.HttpsURLConnection
@@ -21,6 +24,7 @@ object PublicNodeCode {
     private val tenant = Regex("^[A-Za-z0-9._-]{1,64}$")
     private val hexKey = Regex("^[0-9a-f]{64}$")
     private val cores = setOf("go", "rust", "gleam", "ada", "nim", "pony", "zig", "d", "cpp", "idris", "hare", "carp")
+    private val roles = setOf("broker", "agent", "client", "gate", "relay", "plugin", "all")
 
     fun decode(code: String): PublicNodeCodeInfo {
         require(alphabet.matches(code)) { "Join code must have exactly 40 characters" }
@@ -51,10 +55,51 @@ object PublicNodeCode {
         val raw = Base64.getUrlDecoder().decode(encoded + "=".repeat((4 - encoded.length % 4) % 4))
         val envelope = StrictJson.objectValue(StrictJson.decode(raw))
         require(envelope.keys == setOf("schema", "version", "purpose", "core", "role", "identity", "routes", "components", "credentials") &&
-                envelope["schema"] == "shadow6.protocol-envelope.v1" && envelope["version"] == 1L) { "Invalid S6P1 schema" }
+                envelope["schema"] == "shadow6.protocol-envelope.v1" && envelope["version"] == 1L &&
+                envelope["purpose"] is String && (envelope["purpose"] as String).length in 1..64 &&
+                envelope["core"] is String && ((envelope["core"] as String) == "all" || (envelope["core"] as String) in cores) &&
+                envelope["role"] is String && (envelope["role"] as String) in roles &&
+                envelope["identity"] is Map<*, *> && envelope["routes"] is List<*> &&
+                envelope["components"] is Map<*, *> && envelope["credentials"] is Map<*, *>) { "Invalid S6P1 schema" }
         val credentials = StrictJson.objectValue(envelope["credentials"])
+        validateCredentials(credentials)
         val invitation = StrictJson.text(credentials["public6_invitation"], 16_384)
         return unpackInvitation(invitation)
+    }
+
+    private fun validateCredentials(credentials: Map<String, Any?>) {
+        val passport = credentials["passport"] as? String
+        val visa = credentials["visa"] as? String
+        val passportClaim = passport?.let { verifyCredential(it, "S6PASS1.", setOf("schema", "subject", "components", "roles", "issued_at", "expires_at")) }
+        visa?.let {
+            val claim = verifyCredential(it, "S6VISA1.", setOf("schema", "subject", "audience", "component", "passport_expires_at", "passport_digest", "issued_at", "expires_at"))
+            require(passportClaim != null) { "Visa requires a Passport" }
+            require(claim["subject"] == passportClaim["subject"] && claim["issuer"] == passportClaim["issuer"]) { "Visa parent mismatch" }
+            require((claim["expires_at"] as Long) <= (claim["passport_expires_at"] as Long) && (claim["passport_expires_at"] as Long) == (passportClaim["expires_at"] as Long)) { "Visa lifetime exceeds Passport" }
+            val components = passportClaim["components"] as? List<*> ?: emptyList<Any>()
+            require(claim["component"] in components || "all" in components) { "Passport does not authorize Visa component" }
+            val parent = passportClaim.filterKeys { it != "signature" }
+            val digest = MessageDigest.getInstance("SHA-256").digest(StrictJson.canonical(parent).toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it.toInt() and 255) }
+            require(claim["passport_digest"] == digest) { "Visa parent digest mismatch" }
+        }
+    }
+
+    private fun verifyCredential(token: String, prefix: String, required: Set<String>): Map<String, Any?> {
+        require(token.startsWith(prefix) && token.length <= 32_768) { "Invalid credential" }
+        val encoded = token.removePrefix(prefix)
+        val bytes = Base64.getUrlDecoder().decode(encoded + "=".repeat((4 - encoded.length % 4) % 4))
+        val claim = StrictJson.objectValue(StrictJson.decode(bytes))
+        require(required.all { it in claim } && claim["schema"] == if (prefix == "S6PASS1.") "shadow6.passport.v1" else "shadow6.visa.v1") { "Invalid credential schema" }
+        val now = System.currentTimeMillis() / 1000
+        require(claim["issued_at"] is Long && claim["expires_at"] is Long && now < claim["expires_at"] as Long && claim["issued_at"] as Long <= claim["expires_at"] as Long) { "Expired credential" }
+        val issuer = claim["issuer"] as? String ?: error("Unsigned credential")
+        val signature = claim["signature"] as? String ?: error("Unsigned credential")
+        require(issuer.matches(Regex("[0-9a-f]{64}")) && signature.matches(Regex("[0-9a-f]{128}"))) { "Invalid credential signature" }
+        val unsigned = claim.filterKeys { it != "signature" }
+        val public = KeyFactory.getInstance("Ed25519").generatePublic(X509EncodedKeySpec(
+            byteArrayOf(0x30, 0x2a, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x03, 0x21, 0x00) + issuer.chunked(2).map { it.toInt(16).toByte() }.toByteArray()))
+        require(Signature.getInstance("Ed25519").apply { initVerify(public); update(StrictJson.canonical(unsigned).toByteArray(Charsets.UTF_8)) }.verify(signature.chunked(2).map { it.toInt(16).toByte() }.toByteArray())) { "Invalid credential signature" }
+        return claim
     }
 
     fun seed(code: String, purpose: String): ByteArray {

@@ -33,9 +33,26 @@ def pack(message: dict) -> str:
         raise ValueError("invalid S6AR1 kind")
     if not isinstance(message["receiver"], dict) or not isinstance(message["router"], dict) or not isinstance(message["payload"], dict):
         raise ValueError("invalid S6AR1 sections")
-    if not re.fullmatch(r"[A-Za-z0-9._-]{1,64}", str(message["receiver"].get("component", ""))): raise ValueError("invalid S6AR1 receiver")
-    if not re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", str(message["router"].get("route", ""))): raise ValueError("invalid S6AR1 route")
-    if message["kind"] in ("request", "response") and not re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", str(message["payload"].get("correlation_id", ""))): raise ValueError("missing S6AR1 correlation_id")
+    receiver = message["receiver"]
+    router = message["router"]
+    payload = message["payload"]
+    if set(receiver) - {"component", "instance"} or not re.fullmatch(r"[A-Za-z0-9._-]{1,64}", str(receiver.get("component", ""))): raise ValueError("invalid S6AR1 receiver")
+    if "instance" in receiver and not re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", str(receiver["instance"])): raise ValueError("invalid S6AR1 receiver instance")
+    if set(router) - {"route", "hops", "timeout_ms"} or not re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", str(router.get("route", ""))): raise ValueError("invalid S6AR1 route")
+    if "hops" in router and (not isinstance(router["hops"], list) or len(router["hops"]) > 16 or not all(isinstance(item, str) and re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", item) for item in router["hops"])): raise ValueError("invalid S6AR1 route hops")
+    if "timeout_ms" in router and (type(router["timeout_ms"]) is not int or not 1 <= router["timeout_ms"] <= 300000): raise ValueError("invalid S6AR1 route timeout")
+    if message["kind"] == "request":
+        if set(payload) - {"action", "correlation_id", "params", "context"} or not re.fullmatch(r"[A-Za-z0-9._-]{1,64}", str(payload.get("action", ""))): raise ValueError("invalid S6AR1 action")
+        if not re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", str(payload.get("correlation_id", ""))): raise ValueError("missing S6AR1 correlation_id")
+        if "params" in payload and not isinstance(payload["params"], dict): raise ValueError("invalid S6AR1 params")
+        if "context" in payload and (not isinstance(payload["context"], str) or not payload["context"].startswith("S6P1.")): raise ValueError("invalid S6P1 context")
+    elif message["kind"] == "response":
+        if set(payload) - {"correlation_id", "result", "error"} or not re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", str(payload.get("correlation_id", ""))): raise ValueError("missing S6AR1 correlation_id")
+        if ("result" in payload) == ("error" in payload): raise ValueError("response must contain exactly one result or error")
+        if "error" in payload and (not isinstance(payload["error"], dict) or set(payload["error"]) - {"code", "message", "details"} or not re.fullmatch(r"[A-Za-z0-9._:-]{1,64}", str(payload["error"].get("code", ""))) or not isinstance(payload["error"].get("message"), str) or len(payload["error"]["message"]) > 512): raise ValueError("invalid S6AR1 error")
+    else:
+        if set(payload) - {"event", "correlation_id", "data"} or not re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", str(payload.get("event", ""))): raise ValueError("invalid S6AR1 event")
+        if "correlation_id" in payload and not re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", str(payload["correlation_id"])): raise ValueError("invalid S6AR1 event correlation")
     _reject_nested_float(message)
     raw = json.dumps(message, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False).encode()
     token = PREFIX + base64.urlsafe_b64encode(raw).decode().rstrip("=")
@@ -60,8 +77,19 @@ def to_rpc(message: dict) -> dict:
     if not isinstance(params, dict): raise ValueError("invalid S6AR1 params")
     return {"id": message["payload"]["correlation_id"], "method": f"{component}.{action}", "params": params}
 
-def response_for(message: dict, result: dict) -> str:
-    return pack({"schema":"shadow6.api-receiver-router.v1", "version":1, "kind":"response", "receiver":message["receiver"], "router":message["router"], "payload":{"correlation_id":message["payload"].get("correlation_id", "event"), "result":result}})
+def response_for(message: dict, result: dict | None = None, *, error: dict | None = None) -> str:
+    if (result is None) == (error is None): raise ValueError("provide exactly one S6AR1 result or error")
+    payload = {"correlation_id": message["payload"]["correlation_id"]}
+    payload["result" if error is None else "error"] = result if error is None else error
+    return pack({"schema":"shadow6.api-receiver-router.v1", "version":1, "kind":"response", "receiver":message["receiver"], "router":message["router"], "payload":payload})
 
-def request(component: str, route: str, action: str, *, correlation_id: str | None = None, params: dict | None = None) -> str:
-    return pack({"schema":"shadow6.api-receiver-router.v1", "version":1, "kind":"request", "receiver":{"component":component}, "router":{"route":route}, "payload":{"action":action, "correlation_id":correlation_id or uuid.uuid4().hex, "params":params or {}}})
+def error_for(message: dict, code: str, text: str, details: dict | None = None) -> str:
+    error = {"code": code, "message": text}
+    if details is not None: error["details"] = details
+    return response_for(message, error=error)
+
+def request(component: str, route: str, action: str, *, correlation_id: str | None = None,
+            params: dict | None = None, context: str | None = None) -> str:
+    payload = {"action": action, "correlation_id": correlation_id or uuid.uuid4().hex, "params": params or {}}
+    if context is not None: payload["context"] = context
+    return pack({"schema":"shadow6.api-receiver-router.v1", "version":1, "kind":"request", "receiver":{"component":component}, "router":{"route":route}, "payload":payload})

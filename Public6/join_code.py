@@ -43,6 +43,9 @@ PROTOCOL_MAX_BYTES = 262144
 PROTOCOL_SECTIONS = ("identity", "routes", "components", "credentials")
 PASSPORT_PREFIX = "S6PASS1."
 VISA_PREFIX = "S6VISA1."
+PASSPORT_SCHEMA = "shadow6.passport.v1"
+VISA_SCHEMA = "shadow6.visa.v1"
+MAX_CREDENTIAL_BYTES = 32768
 
 def _reject_protocol_float(value):
     if isinstance(value, float):
@@ -100,7 +103,8 @@ def community_protocol(envelope: dict, *, community: str, passport: str = "visa-
     value["credentials"] = credentials
     return pack_protocol(value)
 
-def verify_passport_visa(envelope: dict, *, allowed_communities=(), visa_free=False) -> bool:
+def verify_passport_visa(envelope: dict, *, allowed_communities=(), visa_free=False,
+                         require_signed=False, now: int | None = None) -> bool:
     """Validate community admission metadata without contacting a service."""
     pack_protocol(envelope)
     purpose = envelope["purpose"]
@@ -109,55 +113,114 @@ def verify_passport_visa(envelope: dict, *, allowed_communities=(), visa_free=Fa
     community = purpose.split(":", 1)[1]
     admission = envelope["credentials"].get("admission")
     if admission == "visa-free": return bool(visa_free)
-    return community in set(allowed_communities) and isinstance(admission, str) and 1 <= len(admission) <= 256
+    if community not in set(allowed_communities) or not isinstance(admission, str) or not 1 <= len(admission) <= MAX_CREDENTIAL_BYTES:
+        return False
+    if admission.startswith(PASSPORT_PREFIX):
+        verify_credential(admission, PASSPORT_PREFIX, now=now, require_signature=require_signed)
+        return True
+    if admission.startswith(VISA_PREFIX):
+        verify_credential(admission, VISA_PREFIX, now=now, require_signature=require_signed)
+        return True
+    return not require_signed
+
+def _issuer_claim(claim: dict) -> bytes:
+    issuer = claim.get("issuer")
+    if not isinstance(issuer, str) or not re.fullmatch(r"[0-9a-f]{64}", issuer):
+        raise ValueError("signed credential requires an Ed25519 issuer")
+    return bytes.fromhex(issuer)
+
+def _credential_bytes(value: dict) -> bytes:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True,
+                      allow_nan=False).encode("utf-8")
+
+def _sign_claim(claim: dict, issuer_key: bytes) -> dict:
+    if not isinstance(issuer_key, bytes) or len(issuer_key) != 32:
+        raise ValueError("issuer key must be a 32-byte Ed25519 seed")
+    key = Ed25519PrivateKey.from_private_bytes(issuer_key)
+    claim = dict(claim)
+    claim["issuer"] = key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw).hex()
+    claim["signature"] = key.sign(_credential_bytes(claim)).hex()
+    return claim
 
 def issue_passport(subject: str, *, components=(), roles=(), ttl: int = 3600, issuer_key: bytes | None = None) -> str:
     """Issue a bounded, portable passport claim for component consumers."""
     if not isinstance(subject, str) or not 1 <= len(subject) <= 128 or not 1 <= ttl <= 604800:
         raise ValueError("invalid passport claim")
-    claim = {"schema":"shadow6.passport.v1", "subject":subject,
+    if not all(isinstance(item, str) and 1 <= len(item) <= 64 and re.fullmatch(r"[A-Za-z0-9._:-]+", item) for item in components):
+        raise ValueError("invalid passport components")
+    if not all(isinstance(item, str) and 1 <= len(item) <= 32 and re.fullmatch(r"[A-Za-z0-9._:-]+", item) for item in roles):
+        raise ValueError("invalid passport roles")
+    issued = int(time.time())
+    claim = {"schema":PASSPORT_SCHEMA, "subject":subject,
              "components":sorted(set(components)), "roles":sorted(set(roles)),
-             "issued_at":int(time.time()), "expires_at":int(time.time()) + ttl}
+             "issued_at":issued, "expires_at":issued + ttl}
     if issuer_key is not None:
-        key = Ed25519PrivateKey.from_private_bytes(issuer_key); claim["issuer"] = key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw).hex()
-        claim["signature"] = key.sign(json.dumps({k:v for k,v in claim.items()}, sort_keys=True, separators=(",", ":")).encode()).hex()
-    raw = json.dumps(claim, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode()
+        claim = _sign_claim(claim, issuer_key)
+    raw = _credential_bytes(claim)
     return PASSPORT_PREFIX + base64.urlsafe_b64encode(raw).decode().rstrip("=")
 
-def issue_visa(passport: str, *, audience: str, component: str, ttl: int = 900) -> str:
+def issue_visa(passport: str, *, audience: str, component: str, ttl: int = 900,
+               issuer_key: bytes | None = None) -> str:
     """Derive a short-lived component visa from a passport claim."""
     claim = verify_credential(passport, PASSPORT_PREFIX)
-    if not isinstance(audience, str) or not audience or not isinstance(component, str) or not component:
+    if not isinstance(audience, str) or not re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", audience) or not isinstance(component, str) or not re.fullmatch(r"[A-Za-z0-9._:-]{1,64}", component):
         raise ValueError("invalid visa audience or component")
     if not 1 <= ttl <= 86400: raise ValueError("invalid visa lifetime")
-    visa = {"schema":"shadow6.visa.v1", "subject":claim["subject"], "audience":audience,
+    if component not in claim.get("components", ()) and "all" not in claim.get("components", ()):
+        raise ValueError("Passport does not authorize Visa component")
+    if not claim.get("issuer") or issuer_key is None:
+        raise ValueError("a signed Passport and issuer key are required for Visa issuance")
+    issued = int(time.time())
+    visa = {"schema":VISA_SCHEMA, "subject":claim["subject"], "audience":audience,
             "component":component, "passport_expires_at":claim["expires_at"],
-            "issued_at":int(time.time()), "expires_at":min(int(time.time()) + ttl, claim["expires_at"])}
-    raw = json.dumps(visa, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode()
+            "passport_digest": hashlib.sha256(_credential_bytes({k:v for k,v in claim.items() if k != "signature"})).hexdigest(),
+            "issued_at":issued, "expires_at":min(issued + ttl, claim["expires_at"])}
+    visa = _sign_claim(visa, issuer_key)
+    if visa["issuer"] != claim["issuer"]:
+        raise ValueError("Visa issuer key does not match Passport issuer")
+    raw = _credential_bytes(visa)
     return VISA_PREFIX + base64.urlsafe_b64encode(raw).decode().rstrip("=")
 
-def verify_credential(token: str, prefix: str, *, now: int | None = None) -> dict:
-    if type(token) is not str or not token.startswith(prefix) or len(token) > 32768:
+def verify_credential(token: str, prefix: str, *, now: int | None = None,
+                      require_signature: bool = False) -> dict:
+    if type(token) is not str or not token.startswith(prefix) or len(token) > MAX_CREDENTIAL_BYTES:
         raise ValueError("invalid credential")
-    try: value = json.loads(base64.urlsafe_b64decode(token[len(prefix):] + "==="))
+    try: value = json.loads(base64.urlsafe_b64decode(token[len(prefix):] + "==="), object_pairs_hook=_pairs, parse_float=_reject_float, parse_constant=_reject_float)
     except Exception as exc: raise ValueError("invalid credential encoding") from exc
-    if not isinstance(value, dict) or value.get("expires_at", 0) < int(time.time() if now is None else now):
+    schema = PASSPORT_SCHEMA if prefix == PASSPORT_PREFIX else VISA_SCHEMA if prefix == VISA_PREFIX else None
+    if schema is None or not isinstance(value, dict) or value.get("schema") != schema:
+        raise ValueError("invalid credential schema")
+    required = ({"schema", "subject", "components", "roles", "issued_at", "expires_at"}
+                if prefix == PASSPORT_PREFIX else
+                {"schema", "subject", "audience", "component", "passport_expires_at", "passport_digest", "issued_at", "expires_at"})
+    allowed = required | {"issuer", "signature"}
+    if set(value) - allowed or not required <= set(value):
+        raise ValueError("invalid credential fields")
+    current = int(time.time() if now is None else now)
+    if type(value["issued_at"]) is not int or type(value["expires_at"]) is not int or value["issued_at"] > value["expires_at"] or current >= value["expires_at"]:
         raise ValueError("expired credential")
     signature=value.get("signature"); issuer=value.get("issuer")
     if signature is not None or issuer is not None:
         if not isinstance(signature,str) or not isinstance(issuer,str): raise ValueError("incomplete credential signature")
         unsigned={k:v for k,v in value.items() if k != "signature"}
-        try: Ed25519PublicKey.from_public_bytes(bytes.fromhex(issuer)).verify(bytes.fromhex(signature), json.dumps(unsigned, sort_keys=True, separators=(",", ":")).encode())
+        try:
+            if not re.fullmatch(r"[0-9a-f]{64}", issuer) or not re.fullmatch(r"[0-9a-f]{128}", signature): raise ValueError("invalid signature encoding")
+            Ed25519PublicKey.from_public_bytes(bytes.fromhex(issuer)).verify(bytes.fromhex(signature), _credential_bytes(unsigned))
         except Exception as exc: raise ValueError("invalid credential signature") from exc
+    elif require_signature:
+        raise ValueError("unsigned credential is not accepted")
+    if prefix == VISA_PREFIX and value["expires_at"] > value["passport_expires_at"]:
+        raise ValueError("Visa outlives Passport")
     return value
 
-def resolve_credentials(credentials: dict, *, now: int | None = None) -> dict:
+def resolve_credentials(credentials: dict, *, now: int | None = None,
+                        require_signature: bool = True) -> dict:
     """Validate all standard S6P1 credentials and return typed claims."""
     if not isinstance(credentials, dict): raise ValueError("invalid credentials section")
     result = {}
     for name, prefix in (("passport", PASSPORT_PREFIX), ("visa", VISA_PREFIX)):
         token = credentials.get(name)
-        if token is not None: result[name] = verify_credential(token, prefix, now=now)
+        if token is not None: result[name] = verify_credential(token, prefix, now=now, require_signature=require_signature)
     invitation = credentials.get("public6_invitation")
     if invitation is not None: result["public6_invitation"] = unpack_invitation(invitation)
     return result
@@ -167,9 +230,9 @@ def require_credential_scope(claim: dict, *, component: str | None = None,
     """Enforce the optional Passport/Visa scope at every component boundary."""
     if not isinstance(claim, dict):
         raise ValueError("invalid credential claim")
-    if component is not None and component not in claim.get("components", [component]):
+    if component is not None and "component" not in claim and component not in claim.get("components", ()) and "all" not in claim.get("components", ()):
         raise ValueError("credential does not authorize this component")
-    if role is not None and role not in claim.get("roles", [role]):
+    if role is not None and role not in claim.get("roles", ()) and "all" not in claim.get("roles", ()):
         raise ValueError("credential does not authorize this role")
     if audience is not None and claim.get("audience") not in (None, audience):
         raise ValueError("credential audience mismatch")
@@ -179,12 +242,19 @@ def require_credential_scope(claim: dict, *, component: str | None = None,
 
 def resolve_protocol_envelope(token: str, *, component: str | None = None,
                               role: str | None = None, audience: str | None = None,
-                              allowed_communities=(), visa_free: bool = False) -> tuple[dict, dict]:
+                              allowed_communities=(), visa_free: bool = False,
+                              require_signature: bool = True, now: int | None = None) -> tuple[dict, dict]:
     """Decode S6P1 and enforce its community and Passport/Visa credentials."""
     envelope = unpack_protocol(token)
-    if not verify_passport_visa(envelope, allowed_communities=allowed_communities, visa_free=visa_free):
+    if component is not None:
+        advertised = envelope["components"].get(component)
+        if advertised is not None and advertised is not True:
+            raise ValueError("S6P1 envelope does not advertise this component")
+    if role is not None and envelope["role"] not in (role, "all"):
+        raise ValueError("S6P1 envelope role mismatch")
+    if not verify_passport_visa(envelope, allowed_communities=allowed_communities, visa_free=visa_free, require_signed=require_signature, now=now):
         raise ValueError("S6P1 community admission was rejected")
-    claims = resolve_credentials(envelope["credentials"])
+    claims = resolve_credentials(envelope["credentials"], now=now, require_signature=require_signature)
     passport = claims.get("passport")
     visa = claims.get("visa")
     if passport is not None:
@@ -193,8 +263,13 @@ def resolve_protocol_envelope(token: str, *, component: str | None = None,
         require_credential_scope(visa, component=component, audience=audience)
         if passport is not None and visa.get("subject") != passport.get("subject"):
             raise ValueError("Visa subject does not match Passport")
-        if passport is not None and visa.get("passport_expires_at", 0) > passport.get("expires_at", 0):
-            raise ValueError("Visa outlives Passport")
+        if passport is None:
+            raise ValueError("Visa requires its parent Passport")
+        if visa.get("issuer") != passport.get("issuer"):
+            raise ValueError("Visa issuer does not match Passport")
+        parent = {k:v for k,v in passport.items() if k != "signature"}
+        if visa.get("passport_digest") != hashlib.sha256(_credential_bytes(parent)).hexdigest():
+            raise ValueError("Visa is not derived from this Passport")
     return envelope, claims
 
 def pack_invitation(code: str, profile: dict, gate_public_key: str) -> str:

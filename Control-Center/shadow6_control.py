@@ -59,7 +59,7 @@ from shadow6_extensions import invoke as invoke_extension  # noqa: E402
 from shadow6_pkg import activate as package_activate, install_package, list_packages, verify_package  # noqa: E402
 from shadow6_public import negotiate as public6_negotiate, offer_from_feature_report, read_json as public6_read_json, read_offer as public6_read_offer, suite_profile as public6_profile  # noqa: E402
 from virtual_broker import load_config as virtual_broker_load_config  # noqa: E402
-from s6ar import unpack as unpack_s6ar, to_rpc as s6ar_to_rpc, response_for as s6ar_response_for  # noqa: E402
+from s6ar import unpack as unpack_s6ar, to_rpc as s6ar_to_rpc, response_for as s6ar_response_for, error_for as s6ar_error_for  # noqa: E402
 from join_code import resolve_protocol_envelope  # noqa: E402
 from shadow6_migrate import export as migration_export, import_bundle as migration_import, plan as migration_plan  # noqa: E402
 from shadow6_repo import build as repository_build, sync as repository_sync, verify as repository_verify, regular as repository_read  # noqa: E402
@@ -736,12 +736,20 @@ def _safe_error(exc: Exception) -> str:
 
 def response(request: Any, *, allow_mutations: bool = False) -> dict[str, Any]:
     if isinstance(request, dict) and (request.get("schema") == "shadow6.api-receiver-router.v1" or "s6ar1" in request):
+        envelope = None
         try:
             token = request.get("s6ar1", request.get("token", ""))
             envelope = unpack_s6ar(token)
+            context = envelope["payload"].get("context")
+            if context:
+                resolve_protocol_envelope(context, component=envelope["receiver"]["component"], audience=envelope["router"]["route"])
             rpc_result = response(s6ar_to_rpc(envelope), allow_mutations=allow_mutations)
-            return {"id": rpc_result.get("id"), "ok": rpc_result.get("ok", False), "result": {"s6ar1": s6ar_response_for(envelope, rpc_result)}} if rpc_result.get("ok") else rpc_result
+            if rpc_result.get("ok"):
+                return {"id": rpc_result.get("id"), "ok": True, "result": {"s6ar1": s6ar_response_for(envelope, rpc_result["result"])}}
+            return {"id": rpc_result.get("id"), "ok": False, "error": rpc_result.get("error"), "result": {"s6ar1": s6ar_error_for(envelope, "request-rejected", rpc_result.get("error", {}).get("message", "Request rejected."))}}
         except Exception as exc:
+            if envelope is not None:
+                return {"id": None, "ok": False, "error": {"code": type(exc).__name__, "message": _safe_error(exc)}, "result": {"s6ar1": s6ar_error_for(envelope, "request-rejected", _safe_error(exc))}}
             return {"id": None, "ok": False, "error": {"code": type(exc).__name__, "message": _safe_error(exc)}}
     request_id = request.get("id") if isinstance(request, dict) else None
     try:
