@@ -62,6 +62,9 @@ For role-by-role transport boundaries, see
 The two optional Network Adapter companions are described in
 [`docs/companions.md`](docs/companions.md), and the complete protocol index is
 in [`docs/protocols.md`](docs/protocols.md).
+The [Core-blind architecture note](Core-Blind.md) describes how Native Cores
+and their surrounding stacks can evolve independently, along with the local
+contract boundaries that are still incomplete.
 
 The dependency-free [Node IPC companion](Node-IPC/README.md) adds bounded local
 FastRPC and encrypted RawIPC for Control Center and C11Relay. It is available
@@ -294,7 +297,7 @@ periodic operational review.
 
 See the [network reliability and Python runtime review](docs/network-runtime-review-2026-09.md) for
 GIL-mode coverage, measured performance scope and remaining platform limits.
-# Security components without Cores
+## Security components without Cores
 
 Use `./configure --disable-cores` before `make install` to install Guard, Gate,
 Detector, Security Assistant, and the other selected components with zero Core
@@ -310,10 +313,24 @@ component's normal arguments. For an external installation prefix, run
 This mode checks only the selected executable entry points; use the regular
 `doctor` for a complete Shadow6 deployment audit. A copied CLI can also route
 to companion `shadow6-*` binaries beside it without a Shadow6 source tree.
-2026-09-30 第3次性能测试（CI 36732325902，commit 4cf9d7b） for the Linux iperf chain is recorded below. Base is the direct baseline; format is `Core Proto Dir(F/R) Base? Gbps Loss/Retrans CPU(s) Mem(MB)`.
 
-> 注：本组 UDP 测试早于 2026-10-01 的原生入口背压与 Micro-Mux credit 提交
->（`f16f7758`）。该提交后续可能改善 UDP Loss；当前数据尚未用新版本重测，不能据此推定改善幅度。
+## Linux iperf chain snapshot
+
+The third performance run on 2026-09-30 (CI 36732325902, commit `4cf9d7b`)
+is recorded below. `Base` is the direct baseline; rows use
+`Core Proto Dir(F/R) Base? Gbps Loss/Retrans CPU(s) Mem(MB)`.
+
+> **UDP loss measurement note:** These runs predate the 2026-10-01 native
+> ingress backpressure and Micro-Mux credit commit (`f16f7758`) and the
+> follow-up client runtime integration (`deb6b12c`). These changes could
+> improve measured UDP Loss in future runs that use flow-controlled ingress or
+> S6NA credit. Legacy UDP ingress remains the default and has no new producer
+> backpressure. The table has not been rerun on those revisions, so no
+> reduction in loss, increase in delivered goodput, or improvement magnitude
+> can be inferred from these older numbers. A new comparison should report
+> offered and admitted load,
+> delivered goodput, local drops, producer stalls/`EAGAIN`, and native retries
+> separately.
 
 ```text
 zig tcp F base 12.86 - 0 0.00 0
