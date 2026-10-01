@@ -136,7 +136,14 @@ S6P1 的 credentials section，由 CLI、Public6、Gate、Detector、Control Cen
 新增统一 API Receiver/Router 元协议 S6AR1，以严格的 receiver、router、payload
 section 承载请求、响应和事件；该接口属于无须重新编译原生 Core 的统一组件层。
 
-## 当前快照（`6e20c7a`，2026-10-01）
+## 2026-10-01：S6P1/S6AR1 生产级边界收紧
+
+`b29e3f2` 完善两项统一协议：S6P1 Passport 支持 Ed25519 issuer 签名验证，
+Visa 生命周期不再超过父 Passport；S6AR1 要求 receiver.component、router.route
+和 request/response correlation_id，新增统一 request 构造器，并保持严格大小与
+portable JSON 边界。两者继续位于组件层，不要求十二个原生 Core 重新编译。
+
+## 当前快照（`b29e3f2`，2026-10-01）
 
 - 十二个 Core 均有独立目录和 README；能力、协议和平台边界见能力矩阵。
 - 默认 `shadow6-*` 构建保持 `CROSED_LEVEL=0`、`APP_TRANSPORT=0`、
