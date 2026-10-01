@@ -391,3 +391,32 @@ S6NA 的 `application_credit()`/`applicationCredit()` 则提供组件层的另�
 是 S6NA 语义，不能当成 Gleam 原生 ACK。README 已将旧 UDP 性能注释改为英文：
 9 月 30 日数据早于 `f16f7758` 及后续运行时接入，尚未按新入口复测；任何 Loss
 或 goodput 改善幅度都不能从旧表推定。
+
+## 2026-10-01：应用边界机器合同与结构化发现
+
+实现提交 `c1b5b29d` 修复共享 feature-report validator 对 UDP 四核
+`app_transport_modes` 的拒绝，并将四核的 `seqpacket-fd` ingress 规范为严格
+`message` boundary：报告 client role、各自的最大 record、message-preserving、
+native-window admission、成功 `send()` 仅表示内核队列接收，以及 oversized record、
+`EAGAIN`/`EINTR`、硬错误、EOF 和 drain 行为。Pony、Hare、Carp、Idris 对应 runtime
+继续在 native window 满时停止读取；超长记录丢弃并继续，硬读错误 fail closed。
+
+Go、Rust、Gleam、Zig、Ada、D、Nim、C++ 八个 TCP proxy Core 的 feature report 现在
+使用统一 `stream` 描述，包含双向、有序、可靠字节流、TCP flow control、half-close、
+listener owner、连接上限、shutdown/EOF 及 local/native flow 映射。各客户端在
+loopback listener bind/listen 后写出 `shadow6.ready` JSONL endpoint；测试读取结构化
+事件，Gleam Micro-Mux 的独立 UDP proxy 也已加入对应 ready event。S6NA Python/Node
+credit 边界统一报告 `S6NA_BACKPRESSURE`、`S6NA_CLOSED` 与
+`S6NA_RETRY_EXHAUSTED`；Node 原有 credit 错误测试也改为检查稳定错误码。
+
+共享 validator 被 VCore inventory/discovery、`shadow6 --version`、audit、Security
+Assistants 和 `crosedctl` 共用。实现还加入 UDP source-contract 与本地
+`SOCK_SEQPACKET` 记录边界/队列饱和测试，并更新 `Core-Blind.md`、README 和能力矩阵，
+说明双向 Core-blind 的机器边界及尚未提供 admission ACK、统一 egress 和统一 bootstrap
+的限制。文档提交 `86754ae7` 详述当前合同；本历史更新单独提交并跳过 CI。
+
+本机运行 `Crosed/test_feature_contract.py`（12 项）、Network Adapter Python
+测试（11 项）和 Node 测试（10 项），均通过；`git diff --check` 通过。按要求没有
+本地编译任何 Core，也没有执行依赖已编译 Core 的端到端 runtime 测试；这些行为回归
+由共享 source-contract 测试覆盖，真实二进制接入仍需正常 CI 验证。README 中已有
+UDP 性能数据仍未使用本次新入口重测，不能据旧数据推定 Loss 改善幅度。
