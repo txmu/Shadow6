@@ -353,3 +353,13 @@ wire frame、MTU 或重传语义。该变化可能改善后续 UDP Loss 表现�
 - 默认 `shadow6-*` 构建仍保持 `CROSED_LEVEL=0`、`APP_TRANSPORT=0`、`QUBES_ISOLATION=0`；显式变体构建后恢复默认二进制。
 - 当前提交扩展 Node IPC 只读观测合同，并补充 Network Adapter credit 与部分 Core 的本地 flow ingress 能力声明；不表示各 Core 的远端协议或可靠性相同。
 - README 中的 Linux iperf chain 数据截至 2026-09-30；UDP Loss 在 10 月 1 日入口流控相关改动后可能改善，但尚无更新测量证实。
+
+## 2026-10-01：Windows Node IPC CI 回归修复
+
+`99dfb172` 的 Windows Node 22 与 Node 24 IPC job 都在 Control Center RPC 边界测试失败：
+测试将 Python 子进程命令固定为 `python3`，Windows 上未能得到有效的 `system.schema`
+结果。提交 `6e411efd` 让该测试按平台选择解释器（Windows 使用 `python`，其他平台使用
+`python3`），与生产入口已有的平台选择一致。
+
+本机 Node 22 验证通过：Network Adapter 10 项通过；Node IPC 19 项通过、1 项因未提供
+预编译 C11Relay 而跳过。本次没有编译组件。
