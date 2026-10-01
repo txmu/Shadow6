@@ -6,6 +6,7 @@
 #include <sodium.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/uio.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <unistd.h>
@@ -19,6 +20,7 @@
 #include <string.h>
 #include <stdint.h>
 #include <poll.h>
+#include <limits.h>
 #include <stdio.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -228,6 +230,38 @@ int idris_daemon_loop(unsigned short port, unsigned int max_packets) {
 #define IDRIS_NATIVE_MAX 1024u
 #define IDRIS_NATIVE_HEADER 34u
 #define IDRIS_NATIVE_FRAME (IDRIS_NATIVE_HEADER + IDRIS_NATIVE_MAX + crypto_aead_xchacha20poly1305_ietf_ABYTES)
+
+/* Shared application-ingress contract: unset keeps UDP; a configured value
+ * must name a nonblocking SOCK_SEQPACKET fd. recvmsg preserves boundaries and
+ * lets every native window stop reading when no credit is available. */
+static int idris_app_flow_fd(void) {
+    const char *value=getenv("SHADOW6_APP_FLOW_FD");
+    if(!value)return -1;
+    if(!*value)return -2;
+    unsigned long fd=0;
+    for(const unsigned char *p=(const unsigned char *)value;*p;++p){
+        if(*p<'0'||*p>'9')return -2;
+        unsigned digit=(unsigned)(*p-'0');
+        if(fd>((unsigned long)INT_MAX-digit)/10)return -2;
+        fd=fd*10+digit;
+    }
+    if(fd>=(unsigned long)FD_SETSIZE)return -2;
+    int kind=0; socklen_t kind_len=sizeof kind;
+    if(getsockopt((int)fd,SOL_SOCKET,SO_TYPE,&kind,&kind_len)||kind!=SOCK_SEQPACKET)return -2;
+    int flags=fcntl((int)fd,F_GETFL);
+    if(flags<0||fcntl((int)fd,F_SETFL,flags|O_NONBLOCK)<0)return -2;
+    return (int)fd;
+}
+
+static ssize_t idris_app_flow_recv(int fd,unsigned char *buffer,size_t capacity,int *truncated) {
+    struct iovec iov={.iov_base=buffer,.iov_len=capacity};
+    struct msghdr message={.msg_iov=&iov,.msg_iovlen=1};
+    ssize_t n=recvmsg(fd,&message,MSG_DONTWAIT);
+    if(n>=0){*truncated=(message.msg_flags&MSG_TRUNC)!=0;return n;}
+    if(errno==EAGAIN||errno==EWOULDBLOCK||errno==EINTR)return -1;
+    return -2;
+}
+
 static void put64(unsigned char *p, uint64_t n) { for (int i=7;i>=0;--i){p[i]=(unsigned char)n;n>>=8;} }
 static uint64_t get64(const unsigned char *p) { uint64_t n=0; for(int i=0;i<8;++i)n=(n<<8)|p[i]; return n; }
 static int load_native_keys(const char *path, unsigned char *key, size_t length) {
@@ -346,18 +380,21 @@ int idris_native_relay(int role,const char *bind_ip,unsigned int bind_port,const
     if(role<1||role>5||max_packets<1||max_packets>1000000||sodium_init()<0)return -1;
     unsigned char key[32]={0},config[96]={0},plain[IDRIS_NATIVE_MAX+1],frame[IDRIS_NATIVE_FRAME+1],send_session[16],receive_session[16]={0};struct sockaddr_in bind_sa,peer_sa,target_sa,from,app_peer={0};
     if(native_addr(bind_ip,bind_port,&bind_sa,1)||native_addr(peer_ip,peer_port,&peer_sa,0)||native_addr(target_ip,target_port,&target_sa,0)){sodium_memzero(key,sizeof key);return -1;}
-    if(role==3)return idris_chain_broker(&bind_sa,&peer_sa,&target_sa,key_path,max_packets);
+    if(role==3){if(getenv("SHADOW6_APP_FLOW_FD"))return -1;return idris_chain_broker(&bind_sa,&peer_sa,&target_sa,key_path,max_packets);}
     int chain=role>=4;
+    if(!chain&&getenv("SHADOW6_APP_FLOW_FD"))return -1;
+    if(chain&&role!=1&&getenv("SHADOW6_APP_FLOW_FD"))return -1;
     if(chain){if(load_native_keys(key_path,config,sizeof config))return -1;role-=3;}
     else if(load_native_keys(key_path,key,sizeof key))return -1;
     randombytes_buf(send_session,sizeof send_session);int receive_session_set=0;
-    int net=socket(AF_INET,SOCK_DGRAM,0),local=socket(AF_INET,SOCK_DGRAM,0),rc=-1;uint64_t received=0;unsigned int handled=0;socklen_t flen;
+    int net=socket(AF_INET,SOCK_DGRAM,0),local=socket(AF_INET,SOCK_DGRAM,0),rc=-1,flow_fd=-1,flow_eof=0;uint64_t received=0;unsigned int handled=0;socklen_t flen;
     struct idris_pending_packet pending[IDRIS_CHAIN_WINDOW]={0};
     struct idris_received_packet reordered[IDRIS_CHAIN_WINDOW]={0};
     uint64_t sent=0,next_deliver=1;
     unsigned pending_count=0;
     int64_t next_retry_scan=0;
     if(net<0||local<0)goto done;
+    if(chain){flow_fd=idris_app_flow_fd();if(flow_fd==-2){flow_fd=-1;goto done;}}
     native_socket_buffers(net);native_socket_buffers(local);
     struct timeval tv={.tv_sec=0,.tv_usec=100000};
     if(setsockopt(net,SOL_SOCKET,SO_RCVTIMEO,&tv,sizeof tv)||setsockopt(local,SOL_SOCKET,SO_RCVTIMEO,&tv,sizeof tv))goto done;
@@ -386,10 +423,11 @@ int idris_native_relay(int role,const char *bind_ip,unsigned int bind_port,const
         }
         unsigned next_slot=(unsigned)((sent+1)&(IDRIS_CHAIN_WINDOW-1));
         int can_send=!chain||(pending_count<IDRIS_CHAIN_WINDOW&&!pending[next_slot].used);
-        if(!can_send)FD_CLR(local,&set);
-        if(!burst||(!FD_ISSET(net,&set)&&!FD_ISSET(local,&set))){
-            FD_ZERO(&set);FD_SET(net,&set);if(can_send)FD_SET(local,&set);
-            int top=net>local?net:local;struct timeval wait={.tv_sec=0,.tv_usec=chain?1000:5000};
+        int ingress=flow_fd>=0?flow_fd:local;
+        if(!can_send)FD_CLR(ingress,&set);
+        if(!burst||(!FD_ISSET(net,&set)&&!FD_ISSET(ingress,&set))){
+            FD_ZERO(&set);FD_SET(net,&set);if(can_send&&!flow_eof)FD_SET(ingress,&set);
+            int top=net>ingress?net:ingress;struct timeval wait={.tv_sec=0,.tv_usec=chain?1000:5000};
             int ready=select(top+1,&set,NULL,NULL,&wait);if(ready<0&&errno==EINTR)continue;if(ready<0)goto done;
             burst=256;
         }
@@ -450,10 +488,15 @@ int idris_native_relay(int role,const char *bind_ip,unsigned int bind_port,const
                 }
             }
         }
-        if(FD_ISSET(local,&set)){
-            ssize_t n;if(role==1){flen=sizeof from;n=recvfrom(local,plain,sizeof plain,MSG_DONTWAIT,(struct sockaddr*)&from,&flen);if(n>0&&n<=IDRIS_NATIVE_MAX&&ntohl(from.sin_addr.s_addr)==INADDR_LOOPBACK&&(!app_peer.sin_port||same_addr(&from,&app_peer)))app_peer=from;else n=-1;}
+        if(!flow_eof&&FD_ISSET(ingress,&set)){
+            ssize_t n;int truncated=0;
+            if(flow_fd>=0)n=idris_app_flow_recv(flow_fd,plain,sizeof plain,&truncated);
+            else if(role==1){flen=sizeof from;n=recvfrom(local,plain,sizeof plain,MSG_DONTWAIT,(struct sockaddr*)&from,&flen);if(n>0&&n<=IDRIS_NATIVE_MAX&&ntohl(from.sin_addr.s_addr)==INADDR_LOOPBACK&&(!app_peer.sin_port||same_addr(&from,&app_peer)))app_peer=from;else n=-1;}
             else n=recv(local,plain,sizeof plain,MSG_DONTWAIT);
-            if(n<0)FD_CLR(local,&set);
+            if(flow_fd>=0&&n==0){close(flow_fd);flow_fd=-1;flow_eof=1;continue;}
+            if(flow_fd>=0&&n==-2)goto done;
+            if(n<0)FD_CLR(ingress,&set);
+            if(truncated||n>IDRIS_NATIVE_MAX)n=-1;
             if(n>0){
                 if(!chain){size_t wn=0;if(native_seal(frame,&wn,plain,(size_t)n,role==1?1:2,++sent,send_session,key)||sendto(net,frame,wn,0,(struct sockaddr*)&peer_sa,sizeof peer_sa)!=(ssize_t)wn)break;if(role==2)handled++;}
                 else{
@@ -471,9 +514,13 @@ int idris_native_relay(int role,const char *bind_ip,unsigned int bind_port,const
                 clock_gettime(CLOCK_MONOTONIC,&activity);
             }
         }
+        if(flow_eof&&pending_count==0)break;
     }
+    if(chain&&flow_fd>=0)goto done;
+    if(flow_eof&&pending_count!=0)goto done;
     rc=(int)handled;
 done:
+    if(flow_fd>=0)close(flow_fd);
     for(unsigned i=0;i<IDRIS_CHAIN_WINDOW;++i)sodium_memzero(&pending[i],sizeof pending[i]);
     for(unsigned i=0;i<IDRIS_CHAIN_WINDOW;++i)sodium_memzero(&reordered[i],sizeof reordered[i]);
     if(net>=0)close(net);

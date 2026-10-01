@@ -126,3 +126,16 @@ The native path stays native; Companion features are explicit and require both
 endpoints. The network-chain benchmark now has 39 combinations (12 cores,
 13 transport profiles, 3 backends). Component-only matrices with 12 families
 retain their own declared dimensions.
+
+`application_credit()` / `applicationCredit()` is measured in complete S6NA data
+frames that may be admitted within the configured window, including queued and
+in-flight messages. `send_flow_controlled()` / `sendFlowControlled()` accepts a
+message only when all of its fragments fit the currently available frame
+credit; ordinary `send()` retains bounded queueing behavior. ACKs restore one
+frame of credit. After close, available credit is zero and operations fail with
+`S6NA_CLOSED`; exhausted credit or bounded queue pressure uses
+`S6NA_BACKPRESSURE` in both language bindings; retry exhaustion is
+`S6NA_RETRY_EXHAUSTED`. Endpoint close is idempotent and
+clears endpoint timers, queues, pending frames, and reassembly state. This is local
+producer admission for the optional Gleam Micro-Mux companion path; it changes
+neither the Micro-Mux nor native Core wire format.

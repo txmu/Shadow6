@@ -2,10 +2,51 @@
  * Pony runtime calls. Outputs are initialized and cleared on authentication
  * failure. randombytes_buf uses the OS CSPRNG and belongs to the trusted FFI. */
 #include <sodium.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <limits.h>
+#include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
+#include <sys/socket.h>
+#include <sys/uio.h>
+#include <unistd.h>
 
 enum { HELLO = 140, RESPONSE = 172, STATE = 236, KEYS = 96, MAX_FRAME = 1200 };
+
+/* The caller owns the inherited endpoint. -1 means unset, -2 invalid. */
+int s6_app_flow_fd_from_env(void) {
+    const char *value = getenv("SHADOW6_APP_FLOW_FD");
+    if (!value) return -1;
+    if (!*value) return -2;
+    unsigned long fd = 0;
+    for (const unsigned char *p = (const unsigned char *)value; *p; ++p) {
+        if (*p < '0' || *p > '9') return -2;
+        unsigned digit = (unsigned)(*p - '0');
+        if (fd > ((unsigned long)INT_MAX - digit) / 10) return -2;
+        fd = fd * 10 + digit;
+    }
+    int kind = 0; socklen_t kind_len = sizeof kind;
+    if (getsockopt((int)fd, SOL_SOCKET, SO_TYPE, &kind, &kind_len) || kind != SOCK_SEQPACKET)
+        return -2;
+    int flags = fcntl((int)fd, F_GETFL);
+    if (flags < 0 || fcntl((int)fd, F_SETFL, flags | O_NONBLOCK) < 0) return -2;
+    return (int)fd;
+}
+
+/* 1..capacity: message; -1: would-block/interrupted; -2: empty-record EOF;
+ * -3: oversized message; -4: hard socket error. */
+int s6_app_flow_recv(int fd, unsigned char *out, size_t capacity) {
+    struct iovec iov = {.iov_base = out, .iov_len = capacity};
+    struct msghdr message = {.msg_iov = &iov, .msg_iovlen = 1};
+    ssize_t n = recvmsg(fd, &message, MSG_DONTWAIT);
+    if (n == 0) return -2;
+    if (n < 0) return (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) ? -1 : -4;
+    if ((message.msg_flags & MSG_TRUNC) || (size_t)n > capacity) return -3;
+    return (int)n;
+}
+
+void s6_app_flow_close(int fd) { if (fd >= 0) (void)close(fd); }
 
 static uint64_t read64(const unsigned char *p) {
     uint64_t n = 0;

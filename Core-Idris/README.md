@@ -97,3 +97,11 @@ Requirements: Idris 2 (CI uses 0.8), Chez, libsodium, a C11 compiler, pthreads, 
 The manually dispatched `Idris security regressions` GitHub Actions workflow checks modules, builds default and Crosed variants, and runs executable regressions on Linux and macOS. During the current audit, Idris compilation and execution are restricted to that job at the operator's request.
 
 `python3 Core-Idris/test_security.py` locally compiles only the C interface into a temporary directory and tests its failure paths plus a real encrypted client→agent→echo→client transaction. With `IDRIS_SECURITY_BINARIES=1`, the same harness additionally tests both Idris executables and signed authorization across process restarts. `--native-self-test` verifies framing, direction separation, replay and tamper rejection; `--security-test` exercises strict parsing, real timing proofs, replay capacity, SHA-256, allocation and buffer wiping.
+
+### Optional flow-controlled application ingress
+
+The chain client role accepts an inherited nonblocking `SOCK_SEQPACKET`
+descriptor in `SHADOW6_APP_FLOW_FD` (strict decimal descriptor syntax). One
+record is one application datagram; the runtime reads only while a native send
+window slot is available. Unset retains UDP ingress. An empty record (the EOF marker) stops admission and drains acknowledged in-flight frames; malformed/oversized records are rejected,
+and invalid descriptors or hard read errors fail closed. The existing application UDP delivery behavior is unchanged.

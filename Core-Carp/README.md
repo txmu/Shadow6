@@ -99,3 +99,12 @@ receive still consumes its original iteration budget and validates its source.
 `integration/stack_test.py --engine shadow6-carp --benchmark` evaluates all
 three backend paths through the real native trio, without stdin/stdout routing
 or an internal benchmark protocol.
+
+### Optional flow-controlled application ingress
+
+The chain client role accepts an inherited nonblocking `SOCK_SEQPACKET`
+descriptor through `SHADOW6_APP_FLOW_FD` (strict decimal descriptor syntax).
+Each record is one application datagram, and reads pause when the native send
+window has no credit. Unset retains UDP ingress. An empty record (the EOF marker) stops admission and drains
+the in-flight window; malformed/oversized records are rejected, while invalid
+descriptors and hard read errors fail closed. The existing UDP reverse path is otherwise unchanged.

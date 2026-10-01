@@ -201,6 +201,15 @@ def _synchronized(method):
             return method(self, *args, **kwargs)
     return call
 
+class AdapterBackpressure(BufferError):
+    code = "S6NA_BACKPRESSURE"
+
+class AdapterClosed(RuntimeError):
+    code = "S6NA_CLOSED"
+
+class AdapterRetryLimit(TimeoutError):
+    code = "S6NA_RETRY_EXHAUSTED"
+
 
 class ReliableAdapter:
     """Transport-neutral reliable messages; callers never split their data."""
@@ -219,16 +228,21 @@ class ReliableAdapter:
         self.completed=set(); self.completed_order=collections.deque()
         self.outgoing={}
         self.srtt=None; self.rttvar=None; self.rto=.2
+        self.closed=False
+    def _ensure_open(self):
+        if self.closed: raise AdapterClosed("S6NA adapter is closed")
     def _remember(self,key):
         self.completed.add(key); self.completed_order.append(key)
         if len(self.completed_order)>4096: self.completed.discard(self.completed_order.popleft())
     @_synchronized
     def send(self,stream,data):
+        self._ensure_open()
         if type(stream) is not int or not 0<=stream<self.limits.max_streams: raise ValueError("invalid stream")
         if not isinstance(data,bytes) or not data or len(data)>self.limits.max_message: raise ValueError("message is outside configured bounds")
         count=(len(data)+self.codec.payload-1)//self.codec.payload
-        if count>65535 or self.buffered+len(data)>self.limits.max_inflight or len(self.outgoing)>=4096:
-            raise BufferError("adapter backpressure limit reached")
+        if count>65535: raise ValueError("message exceeds chunk count")
+        if self.buffered+len(data)>self.limits.max_inflight or len(self.outgoing)>=4096:
+            raise AdapterBackpressure("adapter backpressure limit reached")
         message=self.next_message[stream]
         if message>=2**64-1: raise OverflowError("message sequence exhausted; rekey")
         self.next_message[stream]=message+1
@@ -239,6 +253,7 @@ class ReliableAdapter:
         self.buffered+=len(data); return self.outbound(now)
     @_synchronized
     def outbound(self,now=None):
+        self._ensure_open()
         now=self.clock() if now is None else now; frames=[]
         window=min(self.limits.window_frames or self.policy.window,self.limits.max_window)
         while len(self.pending)<window and self.active_streams:
@@ -252,19 +267,36 @@ class ReliableAdapter:
             if queue: self.active_streams.append(stream)
         return frames
 
+    @_synchronized
     def application_credit(self):
+        if self.closed: return 0
         window=min(self.limits.window_frames or self.policy.window,self.limits.max_window)
-        return max(0,min(window-len(self.pending),4096-len(self.outgoing)))
+        return max(0,min(window-sum(item[0] for item in self.outgoing.values()),4096-len(self.outgoing)))
 
+    @_synchronized
     def send_flow_controlled(self,stream,data):
-        if self.application_credit() <= 0: raise BufferError("application backpressure credit exhausted")
+        self._ensure_open()
+        if type(stream) is not int or not 0<=stream<self.limits.max_streams: raise ValueError("invalid stream")
+        if not isinstance(data,bytes) or not data or len(data)>self.limits.max_message: raise ValueError("message is outside configured bounds")
+        frames=(len(data)+self.codec.payload-1)//self.codec.payload
+        if frames>65535: raise ValueError("message exceeds chunk count")
+        if frames > self.application_credit(): raise AdapterBackpressure("S6NA application frame credit exhausted")
         return self.send(stream,data)
+    @_synchronized
+    def close(self):
+        if self.closed: return
+        self.closed=True
+        self.pending.clear(); self.outgoing.clear(); self.incoming.clear(); self.completed.clear()
+        self.completed_order.clear(); self.active_streams.clear()
+        for queue in self.queues: queue.clear()
+        self.incoming_bytes=0; self.buffered=0
     def _sample(self,rtt):
         if self.srtt is None: self.srtt,self.rttvar=rtt,rtt/2
         else: self.rttvar=.75*self.rttvar+.25*abs(self.srtt-rtt); self.srtt=.875*self.srtt+.125*rtt
         self.rto=max(.05,min(5.0,self.srtt+4*self.rttvar))
     @_synchronized
     def extension(self,stream,name,value):
+        self._ensure_open()
         if type(stream) is not int or not 0<=stream<self.limits.max_streams: raise ValueError("invalid stream")
         if name not in self.extensions: raise PermissionError("extension is not enabled")
         payload=_portable({"name":name,"value":value}); message=self.next_message[stream]
@@ -273,6 +305,7 @@ class ReliableAdapter:
         return self.codec.encode(EXTENSION,stream,message,0,1,payload)
     @_synchronized
     def receive(self,wire):
+        self._ensure_open()
         kind,stream,message,index,count,payload=self.codec.decode(wire)
         if kind==ACK:
             item=self.pending.pop((stream,message,index),None)
@@ -302,11 +335,11 @@ class ReliableAdapter:
         if not payload: raise ValueError("empty data chunk")
         state=self.incoming.get(key)
         if state is None:
-            if len(self.incoming)>=4096: raise BufferError("reassembly message limit reached")
+            if len(self.incoming)>=4096: raise AdapterBackpressure("reassembly message limit reached")
             state={"count":count,"parts":{},"bytes":0,"deadline":self.clock()+self.limits.reassembly_seconds}
         if state["count"]!=count: raise ValueError("contradictory chunk count")
         if index not in state["parts"]:
-            if self.incoming_bytes+len(payload)>self.limits.max_inflight: raise BufferError("reassembly limit reached")
+            if self.incoming_bytes+len(payload)>self.limits.max_inflight: raise AdapterBackpressure("reassembly limit reached")
             if state["bytes"]+len(payload)>self.limits.max_message: raise ValueError("reassembled message is oversized")
             state["parts"][index]=payload; state["bytes"]+=len(payload); self.incoming_bytes+=len(payload)
         self.incoming[key]=state
@@ -318,6 +351,7 @@ class ReliableAdapter:
         return [ack],completed,[]
     @_synchronized
     def retransmit(self):
+        self._ensure_open()
         now=self.clock(); frames=[]
         for key,state in list(self.incoming.items()):
             if now>=state["deadline"]: del self.incoming[key]; self.incoming_bytes-=state["bytes"]
@@ -325,7 +359,7 @@ class ReliableAdapter:
             wire,deadline,attempts,size,sent,retried=item
             if now<deadline: continue
             if attempts>=8:
-                raise TimeoutError(f"retransmission limit reached for stream {key[0]} message {key[1]}")
+                raise AdapterRetryLimit(f"retransmission limit reached for stream {key[0]} message {key[1]}")
             item[2]+=1; item[5]=True; item[1]=now+min(5.0,self.rto*(2**item[2])); frames.append(wire)
         return frames+self.outbound(now)
 
@@ -346,12 +380,17 @@ class DatagramEndpoint:
         self.socket.bind((str(local),lport)); self.peer=(str(remote),rport)
     @property
     def address(self): return self.socket.getsockname()[:2]
-    def close(self): self.socket.close()
+    def close(self):
+        self.adapter.close()
+        self.socket.close()
     def send(self,stream,data):
         for frame in self.adapter.send(stream,data): self.socket.sendto(frame,self.peer)
+    def send_flow_controlled(self,stream,data):
+        for frame in self.adapter.send_flow_controlled(stream,data): self.socket.sendto(frame,self.peer)
     def send_extension(self,stream,name,value):
         self.socket.sendto(self.adapter.extension(stream,name,value),self.peer)
     def poll(self,timeout=.2):
+        self.adapter._ensure_open()
         if not 0<=timeout<=5: raise ValueError("invalid poll timeout")
         self.socket.settimeout(timeout)
         completed=[]; events=[]

@@ -4,6 +4,7 @@ use io;
 use net;
 use net::ip;
 use net::udp;
+use os;
 use rt;
 use time;
 use unix::poll;
@@ -23,6 +24,34 @@ fn recv_available(sock: net::socket, buf: []u8, src: *ip::addr, port: *u16) (siz
 };
 
 const WINDOW: size = 256z;
+
+// SHADOW6_APP_FLOW_FD is an optional inherited SOCK_SEQPACKET message source.
+// Invalid configured descriptors fail closed; unset preserves the UDP path.
+fn flow_fd_from_env() int = {
+	const value = match (os::getenv("SHADOW6_APP_FLOW_FD")) {
+	case let value: str => yield value;
+	case void => return -1;
+	};
+	if (len(value) == 0) rt::exit(2);
+	let fd = 0;
+	for (let i = 0z; i < len(value); i += 1) {
+		const digit = value[i];
+		if (digit < '0' || digit > '9') rt::exit(2);
+		const number = (digit - '0'): int;
+		if (fd > (2147483647 - number) / 10) rt::exit(2);
+		fd = fd * 10 + number;
+	};
+	let kind = 0;
+	let kind_size = size(int): u32;
+	if (rt::getsockopt(fd, rt::SOL_SOCKET, rt::SO_TYPE, &kind: *opaque, &kind_size) is rt::errno ||
+		kind != rt::SOCK_SEQPACKET) rt::exit(2);
+	const flags = match (rt::fcntl(fd, rt::F_GETFL, void)) {
+	case let flags: int => yield flags;
+	case => rt::exit(2);
+	};
+	if (rt::fcntl(fd, rt::F_SETFL, flags | rt::O_NONBLOCK) is rt::errno) rt::exit(2);
+	return fd;
+};
 
 // The window plus ACKs needs more than the default UDP queue on some hosts.
 // Keep requests per-socket and bounded; FreeBSD may reject the largest size,
@@ -132,7 +161,15 @@ fn exchange(sock: net::socket, c: *configuration, tx: []u8, rx: []u8, addr: *ip:
 };
 
 fn runtime(c: *configuration) void = {
-	if (c.role == "broker") { broker_runtime(c); return; };
+	if (c.role == "broker") {
+		const configured_fd = flow_fd_from_env();
+		if (configured_fd >= 0) { rt::close(configured_fd); rt::exit(2); };
+		broker_runtime(c); return;
+	};
+	const owned_flow_fd = flow_fd_from_env();
+	if (owned_flow_fd >= 0 && c.role != "client") rt::exit(2);
+	let flow_fd = owned_flow_fd;
+	defer if (owned_flow_fd >= 0) rt::close(owned_flow_fd);
 	const sock = udp::listen(ip::LOCAL_V6, c.listen)!; defer io::close(sock)!;
 	socket_buffers(sock);
 	let addr: ip::addr = ip::LOCAL_V6; let port = c.target;
@@ -164,7 +201,7 @@ fn runtime(c: *configuration) void = {
 	let burst = 0z;
 	let poller = [
 		poll::pollfd { fd = sock, events = poll::event::POLLIN, ... },
-		poll::pollfd { fd = app, events = poll::event::POLLIN, ... },
+		poll::pollfd { fd = if (flow_fd >= 0) flow_fd else app, events = poll::event::POLLIN, ... },
 	];
 	for (let count = 0z; count < 1000000; count += 1) {
 		const now = monotonic_millis();
@@ -235,11 +272,25 @@ fn runtime(c: *configuration) void = {
 			};
 			wipe(&plain[0], 980);
 		};
-		if (poller[1].revents & poll::event::POLLIN != 0 && pending_count < WINDOW && pending_sequences[next_send_slot] == 0) {
+		if (flow_fd >= 0 && (poller[1].revents & (poll::event::POLLERR | poll::event::POLLNVAL)) != 0) {
+			fmt::errorln("application flow ingress failed")!; rt::exit(2);
+		};
+		if ((poller[1].revents & (poll::event::POLLIN | poll::event::POLLHUP)) != 0 && pending_count < WINDOW && pending_sequences[next_send_slot] == 0) {
 			let source: ip::addr = ip::LOCAL_V6; let source_port = 0u16;
-			const n = match (recv_available(app, packet, &source, &source_port)) { case let n: size => yield n; case => poller[1].revents = 0; continue; };
+			const n = if (flow_fd >= 0) {
+				match (rt::recv(flow_fd, &packet[0], len(packet), rt::MSG_DONTWAIT | rt::MSG_TRUNC)) {
+				case let n: size => yield n;
+				case (rt::EAGAIN | rt::EINTR) => { poller[1].revents = 0; continue; };
+				case => { fmt::errorln("application flow ingress read failed")!; rt::exit(2); };
+				}
+			} else match (recv_available(app, packet, &source, &source_port)) { case let n: size => yield n; case => poller[1].revents = 0; continue; };
+			if (flow_fd >= 0 && n == 0) {
+				flow_fd = -1; poller[1].fd = -1; poller[1].revents = 0;
+				if (pending_count == 0) break;
+				continue;
+			};
 			if (n > 978 || sent >= 1000000) continue;
-			if (c.role == "client") {
+			if (flow_fd < 0 && c.role == "client") {
 				if (local_port != 0 && (source_port != local_port || !ip::equal(source, local))) continue;
 				local = source; local_port = source_port;
 			};
@@ -254,7 +305,9 @@ fn runtime(c: *configuration) void = {
 			pending_at[slot] = monotonic_millis() + 100; pending_count += 1;
 			wipe(&plain[0], 980);
 		};
+		if (owned_flow_fd >= 0 && flow_fd < 0 && pending_count == 0) break;
 	};
+	if (owned_flow_fd >= 0 && (flow_fd >= 0 || pending_count != 0)) rt::exit(2);
 };
 
 // One fixed route, with end-to-end signed admission and no data-plane keys.

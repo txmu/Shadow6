@@ -2,6 +2,7 @@ use "net"
 use "files"
 use "lib:sodium"
 use @sodium_init[I32]()
+use @s6_app_flow_fd_from_env[I32]()
 
 actor Main
   let _env: Env
@@ -37,12 +38,20 @@ actor Main
   be configured(config: Configuration val, check: Bool, debug: Bool) =>
     if check then _env.out.print("configuration is valid")
     else
-      Runtime(NetAuth(_env.root), config, _env.out, _env.err, this, debug)
+      let flow_fd = @s6_app_flow_fd_from_env()
+      if (flow_fd == -2) or ((flow_fd >= 0) and not config.client) then
+        _env.err.print("shadow6-pony: invalid application flow ingress")
+        _env.exitcode(2)
+      else
+        Runtime(NetAuth(_env.root), config, _env.out, _env.err, this, debug, flow_fd)
+      end
     end
 
   be failed() =>
     _env.err.print("shadow6-pony: configuration, bind or handshake failed")
     _env.exitcode(2)
+
+  be finished() => _env.exitcode(0)
 
   be plugin_done(bytes: Array[U8] iso) =>
     _env.out.write(consume bytes)

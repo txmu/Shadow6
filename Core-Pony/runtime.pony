@@ -1,6 +1,8 @@
 use "net"
 use "time"
 use "collections"
+use @s6_app_flow_recv[I32](fd: I32, out: Pointer[U8] tag, capacity: USize)
+use @s6_app_flow_close[None](fd: I32)
 
 interface tag DatagramReceiver
   be received(data: Array[U8] iso, from: NetAddress val, application: Bool, source: SocketActor)
@@ -22,15 +24,17 @@ actor SocketActor is (UDPSocketActor & UDPLifecycleEventReceiver)
   var _udp: UDPSocket = UDPSocket.none()
   let _receiver: DatagramReceiver
   let _application: Bool
+  let _ingress: Bool
   var _inflight: USize = 0
   var _admitting: USize = 0
   var _batch: Array[InboundDatagram iso] iso = recover iso Array[InboundDatagram iso](64) end
   var _batch_receiver: (DatagramReceiver | None) = None
   var _flush_pending: Bool = false
   let _routes: Map[U64, DatagramReceiver] = Map[U64, DatagramReceiver]
-  new create(auth: NetAuth, host: String, port: String, receiver: DatagramReceiver, application: Bool) =>
+  new create(auth: NetAuth, host: String, port: String, receiver: DatagramReceiver, application: Bool, ingress: Bool = true) =>
     _receiver = receiver
     _application = application
+    _ingress = ingress
     _udp = UDPSocket(UDPAuth(auth), host, port, this, this,
       DefaultReadBufferSize(), IP4, 16)
   fun ref _socket(): UDPSocket => _udp
@@ -41,6 +45,7 @@ actor SocketActor is (UDPSocketActor & UDPLifecycleEventReceiver)
     _udp.set_so_sndbuf(1_048_576)
     _receiver.bound(_application)
   fun ref _on_received(data: Array[U8] iso, from: NetAddress val): ReadAction =>
+    if _application and not _ingress then return KeepReading end
     if _inflight >= 1024 then return YieldReading end
     if data.size() > ProtocolLimits.max_frame() then return KeepReading end
     if not _application then
@@ -142,21 +147,29 @@ actor Runtime is DatagramReceiver
   var _credits: U64 = 256
   var _refilled: U64 = Time.nanos()
   var _closed: Bool = false
+  var _flow_fd: I32 = -1
+  var _flow_done: Bool = false
   var _reconnect_at: U64 = 0
   var _reconnect_attempt: U8 = 0
-  new create(auth: NetAuth, config: Configuration, out: OutStream, err: OutStream, main: Main, debug: Bool) =>
+  new create(auth: NetAuth, config: Configuration, out: OutStream, err: OutStream, main: Main, debug: Bool, flow_fd: I32 = -1) =>
     _auth = auth; _cfg = config; _main = main; _out = out
+    _flow_fd = flow_fd
     try
       let peers: Array[NetAddress] val = DNS.ip4(DNSAuth(auth), config.peer_host, config.peer_port.string())
       _peer = peers(0)?
       let targets: Array[NetAddress] val = DNS.ip4(DNSAuth(auth), config.application_host, config.application_port.string())
       _target = targets(0)?
-    else _closed = true; _main.failed() end
-    _network = SocketActor(auth, config.bind_host, config.listen_port.string(), this, false)
+    else
+      _closed = true
+      if _flow_fd >= 0 then @s6_app_flow_close(_flow_fd); _flow_fd = -1 end
+      _main.failed()
+    end
+    _network = SocketActor(auth, config.bind_host, config.listen_port.string(), this, false, true)
     _timers(Timer(_Tick(this), 1_000_000, 1_000_000))
   be failed() =>
     if not _closed then
       _closed = true; _network.dispose(); _timers.dispose(); _main.failed()
+      if _flow_fd >= 0 then @s6_app_flow_close(_flow_fd); _flow_fd = -1 end
       for session in _sessions.values() do session.close() end
       for relay in _relays.values() do relay.close() end
     end
@@ -165,7 +178,7 @@ actor Runtime is DatagramReceiver
     if _cfg.client then
       try
         let id = PeerID(_peer)?
-        _sessions(id) = ClientSession.client(_auth, _cfg, this, _network, _peer, id, _out)
+        _sessions(id) = ClientSession.client(_auth, _cfg, this, _network, _peer, _target, id, _out, _flow_fd)
         _network.route(_peer, _sessions(id)?)
       else failed() end
     else _out.print(if _cfg.broker then "ready: broker" else "ready: listener" end) end
@@ -175,7 +188,7 @@ actor Runtime is DatagramReceiver
     if _cfg.client and (_sessions.size() == 0) and (_reconnect_at != 0) and (now >= _reconnect_at) then
       try
         let id = PeerID(_peer)?
-        _sessions(id) = ClientSession.client(_auth, _cfg, this, _network, _peer, id, _out)
+        _sessions(id) = ClientSession.client(_auth, _cfg, this, _network, _peer, _target, id, _out, _flow_fd)
         _network.route(_peer, _sessions(id)?)
         _reconnect_at = 0
       end
@@ -189,13 +202,19 @@ actor Runtime is DatagramReceiver
     try
       if _sessions(id)? is session then
         _sessions.remove(id)?
-        if _cfg.client then
+        if _cfg.client and not _flow_done then
           _reconnect_at = Time.nanos() + SessionLimits.reconnect_delay(_reconnect_attempt)
           _reconnect_attempt = (_reconnect_attempt + 1).min(6)
+        elseif _flow_done then
+          _closed = true; _network.dispose(); _timers.dispose(); _main.finished()
         end
       end
     end
   be established() => _reconnect_attempt = 0
+  be flow_closed() =>
+    if _flow_fd >= 0 then @s6_app_flow_close(_flow_fd); _flow_fd = -1 end
+  be flow_drained() => _flow_done = true
+  be flow_failed() => failed()
   be relay_retired(id: String, relay: RelaySession) =>
     try if _relays(id)? is relay then _relays.remove(id)? end end
   fun ref _admit(): Bool =>
@@ -339,13 +358,18 @@ actor ClientSession is DatagramReceiver
   var _last_activity: U64 = Time.nanos()
   var _handshake_sent: U64 = 0
   var _closed: Bool = false
+  var _flow_fd: I32 = -1
+  var _flow_eof: Bool = false
+  var _flow_drained: Bool = false
   var _network_output: Array[Array[U8] val] iso = recover iso Array[Array[U8] val](16) end
   var _app_output: Array[Array[U8] val] iso = recover iso Array[Array[U8] val](16) end
   new client(auth: NetAuth, cfg: Configuration, owner: Runtime, network: SocketActor,
-    peer: NetAddress val, id: String, out: OutStream)
+    peer: NetAddress val, target: NetAddress val, id: String, out: OutStream, flow_fd: I32)
   =>
     _owner = owner; _network = network; _peer = peer; _id = id; _out = out; _client = true
-    _app = SocketActor(auth, cfg.bind_host, cfg.application_port.string(), this, true)
+    if flow_fd >= 0 then _local = target end
+    _flow_fd = flow_fd
+    _app = SocketActor(auth, cfg.bind_host, cfg.application_port.string(), this, true, flow_fd < 0)
     try
       _hello = _handshake.start(cfg.seed, cfg.peer_key, Time.now()._1.u64())?
       _retry = _hello; _stage = 1
@@ -356,13 +380,19 @@ actor ClientSession is DatagramReceiver
   =>
     _owner = owner; _network = network; _peer = peer; _id = id; _out = out; _client = false
     _local = target; _hello = hello; _retry = consume response; _token = token; _stage = 2
-    _app = SocketActor(auth, host, "0", this, true)
+    _app = SocketActor(auth, host, "0", this, true, true)
   be bound(application: Bool) =>
     if not _closed then _network.send(_retry, _peer); _handshake_sent = Time.nanos() end
   be failed() => _close()
   be close() => _close()
   fun ref _close() =>
     if not _closed then
+      if _flow_fd >= 0 then
+        _flow_fd = -1
+        _owner.flow_failed()
+      elseif _flow_eof and not _flow_drained then
+        _owner.flow_failed()
+      end
       _closed = true; _handshake.clear(); _token = None; _session.clear()
       _network.unroute(_peer, this)
       _app.dispose(); _owner.retired(_id, this)
@@ -380,6 +410,11 @@ actor ClientSession is DatagramReceiver
     try
       for wire in _session.retransmit(now)?.values() do _send(wire) end
       _flush_output()
+      _read_flow()
+      if _flow_eof and (_session.pending_count() == 0) then
+        _flow_drained = true
+        _owner.flow_drained(); _close()
+      end
     else _close() end
   be received(data: Array[U8] iso, from: NetAddress val, application: Bool, source: SocketActor) =>
     _receive(consume data, from, application)
@@ -417,6 +452,37 @@ actor ClientSession is DatagramReceiver
     _session.sent(sequence, wire, Time.nanos())
     _send(wire)
     _last_activity = Time.nanos()
+  fun ref _send_flow_message(data: Array[U8] iso) ? =>
+    if (_stage != 3) or (data.size() > 1172) or (not _session.can_send()) then return end
+    let token = _token as OCapToken
+    let sequence = _session.next_sequence()?
+    let packet = Frame.payload(consume data)
+    let wire: Array[U8] val = token.seal(consume packet, sequence, 2)?
+    _session.sent(sequence, wire, Time.nanos())
+    _send(wire)
+    _last_activity = Time.nanos()
+  fun ref _read_flow() ? =>
+    if (_flow_fd < 0) or (_stage != 3) then return end
+    var count: USize = 0
+    while (count < 16) and _session.can_send() do
+      let input = recover iso Array[U8](1173) end
+      input.undefined(1173)
+      let result = @s6_app_flow_recv(_flow_fd, input.cpointer(), input.size())
+      if result == -1 then return end
+      if result == -2 then
+        _flow_fd = -1; _flow_eof = true
+        _owner.flow_closed()
+        return
+      elseif result == -3 then
+        count = count + 1
+      elseif result < 0 then
+        _owner.failed(); _close(); return
+      else
+        input.truncate(result.usize())
+        _send_flow_message(consume input)?
+        count = count + 1
+      end
+    end
   fun ref _encrypted(data: Array[U8] iso) ? =>
     if _client and (_stage == 1) then
       if data.size() != 172 then return end

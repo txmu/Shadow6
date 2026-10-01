@@ -36,14 +36,25 @@ static int endpoint_mode;
 static int application_fd = -1, chain_role;
 /* Optional inherited SOCK_SEQPACKET ingress; UDP remains the default. */
 static int application_flow_fd = -1;
+static int application_flow_enabled, application_flow_eof;
 static void enable_flow_ingress(void) {
     const char *value = getenv("SHADOW6_APP_FLOW_FD");
-    if (!value || !*value) return;
-    char *end = NULL; long fd = strtol(value, &end, 10);
-    if (*end || fd < 0 || fd > 2147483647L) exit(2);
+    if (!value) return;
+    if (!*value) exit(2);
+    unsigned long fd = 0;
+    for (const unsigned char *p = (const unsigned char *)value; *p; ++p) {
+        if (*p < '0' || *p > '9') exit(2);
+        unsigned digit = (unsigned)(*p - '0');
+        if (fd > (2147483647UL - digit) / 10) exit(2);
+        fd = fd * 10 + digit;
+    }
     application_flow_fd = (int)fd;
+    int kind = 0; socklen_t kind_len = sizeof kind;
+    if (getsockopt(application_flow_fd, SOL_SOCKET, SO_TYPE, &kind, &kind_len) ||
+        kind != SOCK_SEQPACKET) exit(2);
     int flags = fcntl(application_flow_fd, F_GETFL, 0);
     if (flags < 0 || fcntl(application_flow_fd, F_SETFL, flags | O_NONBLOCK) < 0) exit(2);
+    application_flow_enabled = 1;
 }
 static struct sockaddr_in application_peer;
 static unsigned char receive_keys[96];
@@ -321,7 +332,7 @@ static struct packet chain_receive(void) {
     if (!can_send) f[1].revents = 0;
     if (!burst || !(f[0].revents | f[1].revents)) {
         f[0] = (struct pollfd){.fd=udp_fd,.events=POLLIN};
-        f[1] = (struct pollfd){.fd=application_flow_fd >= 0 ? application_flow_fd : application_fd,.events=can_send ? POLLIN : 0};
+        f[1] = (struct pollfd){.fd=application_flow_enabled ? application_flow_fd : application_fd,.events=(can_send && !application_flow_eof) ? POLLIN : 0};
         int timeout = chain_inflight ? 1 : 5;
         if (poll(f, 2, timeout) <= 0) return p;
         burst = 256;
@@ -331,12 +342,24 @@ static struct packet chain_receive(void) {
         unsigned char *body = p.bytes + 3 * HEADER;
         unsigned char input[BODY - COMMAND - 10 + 1];
         struct sockaddr_in source = {0}; socklen_t sl = sizeof source;
-        ssize_t n = application_flow_fd >= 0
-            ? recv(application_flow_fd, input, sizeof input, MSG_DONTWAIT)
-            : recvfrom(application_fd, input, sizeof input, MSG_DONTWAIT, (struct sockaddr *)&source, &sl);
-        if (n < 0) { f[1].revents = 0; return p; }
-        if (n > BODY - COMMAND - 10) return p;
-        if (chain_role == 1) {
+        ssize_t n;
+        if (application_flow_enabled) {
+            struct iovec iov = {.iov_base=input,.iov_len=sizeof input};
+            struct msghdr message = {.msg_iov=&iov,.msg_iovlen=1};
+            n = recvmsg(application_flow_fd, &message, MSG_DONTWAIT);
+            if (n == 0) {
+                application_flow_eof = 1; close(application_flow_fd); application_flow_fd = -1; f[1].fd = -1;
+                sodium_memzero(input, sizeof input); return p;
+            }
+            if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)) { f[1].revents = 0; return p; }
+            if (n < 0) exit(2);
+            if ((message.msg_flags & MSG_TRUNC) || n > BODY - COMMAND - 10) { sodium_memzero(input, sizeof input); return p; }
+        } else {
+            n = recvfrom(application_fd, input, sizeof input, MSG_DONTWAIT, (struct sockaddr *)&source, &sl);
+            if (n < 0) { f[1].revents = 0; return p; }
+            if (n > BODY - COMMAND - 10) return p;
+        }
+        if (chain_role == 1 && !application_flow_enabled) {
             if (source.sin_addr.s_addr != htonl(INADDR_LOOPBACK) ||
                 (application_peer.sin_port && (application_peer.sin_port != source.sin_port ||
                  application_peer.sin_addr.s_addr != source.sin_addr.s_addr))) return p;
@@ -419,14 +442,26 @@ static struct packet packet_receive(void) {
     struct packet p = {0};
     if (endpoint_mode) {
         if (++packets > 1000000 || monotonic_seconds() >= session_deadline) {
+            int status = application_flow_enabled && (!application_flow_eof || chain_inflight != 0) ? 2 : 0;
             sodium_memzero(session_keys, sizeof session_keys);
             sodium_memzero(receive_keys, sizeof receive_keys);
             sodium_memzero(chain_pending, sizeof chain_pending);
             sodium_memzero(chain_reordered, sizeof chain_reordered);
             if (application_fd >= 0) close(application_fd);
-            close(udp_fd); exit(0);
+            if (application_flow_fd >= 0) close(application_flow_fd);
+            close(udp_fd); exit(status);
         }
-        if (chain_role) return chain_receive();
+        if (chain_role) {
+            if (application_flow_enabled && application_flow_eof && chain_inflight == 0) {
+                sodium_memzero(session_keys, sizeof session_keys);
+                sodium_memzero(receive_keys, sizeof receive_keys);
+                sodium_memzero(chain_pending, sizeof chain_pending);
+                sodium_memzero(chain_reordered, sizeof chain_reordered);
+                if (application_fd >= 0) close(application_fd);
+                close(udp_fd); exit(0);
+            }
+            return chain_receive();
+        }
         unsigned char incoming[WIRE + 1];
         int n = receive_timeout(udp_fd, incoming, sizeof incoming, 1000);
         if (n == WIRE) { memcpy(p.bytes, incoming, WIRE); memcpy(p.keys, session_keys, 96); p.valid = 1; }
@@ -438,11 +473,14 @@ static struct packet packet_receive(void) {
     setvbuf(stdin, NULL, _IONBF, 0);
     setvbuf(stdout, NULL, _IONBF, 0);
     alarm(300);
+    if (getenv("SHADOW6_APP_FLOW_FD") &&
+        !(argc == 6 && (!strcmp(argv[1], "--agent") || !strcmp(argv[1], "--client")))) exit(2);
     if (argc == 6 && (!strcmp(argv[1], "--broker") || !strcmp(argv[1], "--agent") || !strcmp(argv[1], "--client"))) {
         int local = port_number(argv[3]), peer = port_number(argv[4]), application = port_number(argv[5]);
         if (local < 0 || peer < 0 || application < 0 || local == peer || local == application || peer == application) exit(2);
         if (!strcmp(argv[1], "--broker")) exit(chain_broker(argv[2], local, peer, application));
         chain_role = !strcmp(argv[1], "--client") ? 1 : 2;
+        if (chain_role != 1 && getenv("SHADOW6_APP_FLOW_FD")) exit(2);
         link_mode = 'T'; /* Separate contract; legacy A/B/C remains unchanged. */
         if (secure_keys(argv[2], p.keys)) exit(2);
         udp_fd = udp_open(local, peer);

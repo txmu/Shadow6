@@ -92,8 +92,16 @@ class ref ReliableSession
   fun ref disconnected() => _connected = false; _attempt = (_attempt + 1).min(6)
   fun ref clear() => _connected = false; _sent.clear(); _received.clear(); _retry_at = 0
   fun can_send(): Bool =>
-    _connected and (_next < U64.max_value()) and
-      ((_next - _send_base) < SessionLimits.max_pending().u64())
+    application_credit() > 0
+  fun application_credit(): USize =>
+    if not _connected or (_next >= U64.max_value()) then 0
+    else
+      let window = SessionLimits.max_pending()
+      let pending_credit = window - _sent.size()
+      let sequence_credit = (window.u64() - (_next - _send_base)).usize()
+      pending_credit.min(sequence_credit)
+    end
+  fun pending_count(): USize => _sent.size()
   fun ref acknowledge(sequence: U64, now: U64): Bool =>
     try
       let packet = _sent(sequence)?
