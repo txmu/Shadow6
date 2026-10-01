@@ -129,7 +129,14 @@ S6P1 的 credentials section，由 CLI、Public6、Gate、Detector、Control Cen
 和其它无须重新编译的组件验证。Visa-free 仍由接收策略显式允许，过期和格式错误
 凭据默认拒绝。新增回归测试覆盖签发、验证、过期和组件范围。
 
-## 当前快照（`e4b28d5`，2026-10-01）
+## 2026-10-01：可配置打包与 S6AR1
+
+`6e20c7a` 让发布脚本支持 `--tar`、`--zip`、`--both`、`--root` 和
+`--output-dir`，不再依赖硬编码工程路径或必须同时生成两种归档。Control Center
+新增统一 API Receiver/Router 元协议 S6AR1，以严格的 receiver、router、payload
+section 承载请求、响应和事件；该接口属于无须重新编译原生 Core 的统一组件层。
+
+## 当前快照（`6e20c7a`，2026-10-01）
 
 - 十二个 Core 均有独立目录和 README；能力、协议和平台边界见能力矩阵。
 - 默认 `shadow6-*` 构建保持 `CROSED_LEVEL=0`、`APP_TRANSPORT=0`、
