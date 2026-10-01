@@ -109,5 +109,6 @@ the same OS user with access to the key.
 Control Center bridge tests without compiling anything. Set
 `SHADOW6_RELAY_BINARY` to an existing relay executable to exercise normal and
 high-speed native relay chains. CI tests Node 22/24 on Linux, macOS, and Windows;
-POSIX runners also build and test the native C11Relay companion. Optional
+the Linux runner additionally builds and tests the native C11Relay companion.
+Optional
 tests report explicit skips when their prerequisites are absent.

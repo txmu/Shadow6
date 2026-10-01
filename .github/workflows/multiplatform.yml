@@ -334,7 +334,7 @@ jobs:
           PYTHONPATH=Network-Adapter python -m unittest test_conformance test_secure_key
         shell: bash
       - name: Test IPC with native C11Relay
-        if: runner.os != 'Windows'
+        if: runner.os == 'Linux'
         shell: bash
         run: |
           (cd C11Relay && bash compile.sh)

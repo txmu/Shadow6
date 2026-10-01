@@ -27,6 +27,15 @@ The relay bounds peers, mapping lifetime, packet rate, and burst size. Run
 `bash test.sh` for sanitizer self-tests and a real local UDP echo integration
 test.
 
+`compile.sh` uses opportunity-based hardening. It always keeps the portable C11
+warning baseline, then probes each compiler and linker enhancement independently:
+Fortify, stack protection, format checks, LTO, PIE, control-flow and stack-clash
+protection, automatic variable initialization, and available
+RELRO/NOW/no-exec-stack/undefined-symbol checks. Unsupported options are
+omitted for that platform while supported options remain enabled. The source's
+own platform guards still determine whether Linux high-speed APIs are compiled;
+the script never substitutes a different relay implementation.
+
 ## Node FastRPC and RawIPC companion
 
 The dependency-free `Node-IPC/c11relay.mjs` companion exposes the existing
