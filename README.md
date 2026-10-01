@@ -63,8 +63,8 @@ The two optional Network Adapter companions are described in
 [`docs/companions.md`](docs/companions.md), and the complete protocol index is
 in [`docs/protocols.md`](docs/protocols.md).
 The [Core-blind architecture note](Core-Blind.md) describes how Native Cores
-and their surrounding stacks can evolve independently, along with the local
-contract boundaries that are still incomplete.
+and their surrounding stacks can evolve independently, and documents the
+machine-readable stream, message, and credited application boundaries.
 
 The dependency-free [Node IPC companion](Node-IPC/README.md) adds bounded local
 FastRPC and encrypted RawIPC for Control Center and C11Relay. It is available

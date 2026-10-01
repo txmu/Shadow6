@@ -104,26 +104,53 @@ Both bindings report `S6NA_BACKPRESSURE` when capacity is exhausted,
 These signals belong to S6NA; the native Gleam Micro-Mux wire
 protocol did not gain an ACK or retransmission scheme.
 
-## What still needs a stable contract
+## Machine-readable application boundary
 
-An independently replaceable Core boundary needs more than a mode name in a
-feature report. Future versions should state, in machine-readable form where
-practical:
+The current shared feature-report validator requires one exact boundary
+descriptor per Core. UDP Pony, Hare, Carp, and Idris declare a bounded
+`message` boundary with `seqpacket-fd`, client role, per-Core `max_record`,
+message preservation, native-window backpressure, and explicit send, oversize,
+transient-error, hard-error, EOF, and drain semantics. A successful producer
+`send()` means only that the kernel queued the record. Oversized records are
+discarded while the flow continues; `EAGAIN`/`EINTR` are transient; hard read
+errors fail closed; EOF stops new reads and drains accepted native work.
+
+The eight localhost TCP proxy Cores declare a `stream` boundary: full-duplex,
+ordered, reliable byte streams with TCP flow control, half-close, Core-owned
+listeners, one-local-connection-per-native-flow mapping, bounded local
+connection counts, and explicit shutdown/EOF behavior. Their client runtimes
+emit a versioned `shadow6.ready` JSONL event containing the actual loopback
+endpoint after bind/listen; callers no longer need to scrape human log text.
+Gleam Micro-Mux has a separate UDP proxy ready event. The Network Adapter
+catalog describes its optional S6NA path as a `credited` boundary with bounded
+data-frame credit and explicit close/retry errors.
+
+The shared validator is used by VCore inventory and discovery, `shadow6
+--version`, the audit, Security Assistants, and `crosedctl`. It accepts
+`app_transport_modes` only for the four UDP ingress Cores and rejects unknown,
+missing, or contradictory boundary fields. Per-Core tests validate emitted
+reports when CI supplies the binaries; the source-contract suite also checks
+the runtime window, EOF, oversize, and structured-ready paths.
+
+## Remaining boundary work
+
+The contracts make these modes machine-readable, but they are not yet a
+universal cross-language ABI. Important limits remain:
 
 | Area | Required meaning |
 | --- | --- |
-| Scope | Which binary, role, and platform actually accepts each ingress mode? |
-| Messages | Maximum record size, framing, ordering, and malformed-record behavior. |
-| Pressure | Credit unit, queue bound, blocking and `EAGAIN` behavior, and whether an accepted write has reached the Core. |
-| Lifetime | Descriptor ownership, half-close, drain, restart, and failure signaling. |
-| Egress | Destination, message boundaries, output pressure, and completion semantics. |
-| Bootstrap | Credential encoding, native peer compatibility, route setup, and strict configuration versioning. |
+| Scope | The current UDP descriptor mode is client-only; each Core retains its own native role and platform limits. |
+| Pressure | The descriptor declares the Core's native window, while the OS socket queue has platform-specific capacity. A successful write is not a Core admission acknowledgment. |
+| Lifetime | Empty-record EOF and drain are described, but producer restart and post-crash recovery are not. |
+| Egress | Reverse application delivery remains Core-specific and is not a shared FD ABI. |
+| Bootstrap | Credential encoding, native peer compatibility, route setup, and configuration remain Core-specific. |
 
 The `app_transport` build flag and `app_transport_modes` list are different
 concepts; a caller must not infer that `app_transport: false` disables a
-separately reported local ingress mode. The mode list also does not express
-client-only scope. Those ambiguities should be resolved before third parties
-treat the vocabulary as a frozen ecosystem ABI.
+separately reported local ingress mode. `app_transport_modes` is a legacy
+mode list; the `application_boundaries` descriptor is the authoritative
+machine contract, including role scope and lifecycle. Neither is a promise of
+cross-Core native wire compatibility or a frozen third-party ABI.
 
 The long-term shape is three independently replaceable layers: policy and
 identity, adapter or reliability companion, and Native Core. Shadow6 ships a

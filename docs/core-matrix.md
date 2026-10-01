@@ -27,6 +27,17 @@ wire format. The optional Network Adapter supplies uniform authenticated
 message semantics for callers that need them; it is never a prerequisite for a
 Core's native network capability.
 
+Every Core feature report carries one strict `application_boundaries`
+descriptor. The eight TCP proxy Cores report a bounded client `stream` endpoint
+with JSONL ready discovery, half-close, connection limits, and shutdown
+semantics. Pony, Hare, Carp, and Idris report a client `message` ingress via
+`seqpacket-fd`, including maximum record size, native-window backpressure,
+kernel-queue-only send success, oversize handling, transient and hard errors,
+EOF, and drain behavior. S6NA reports its optional `credited` companion
+boundary separately. See [Core-Blind](../Core-Blind.md) for the precise
+semantics and limits; these descriptors do not make native protocols
+interoperable.
+
 The default build keeps Crosed, application transport and Qubes-inspired
 domain policy disabled. Explicit `*-crosed` or Public6 variants are separate
 build products. Optional toolchains may be unavailable on a given host; use
