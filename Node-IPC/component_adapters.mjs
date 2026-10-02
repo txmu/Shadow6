@@ -20,6 +20,11 @@ const COMPONENTS = Object.freeze({
     schema: 'shadow6.app-flow-ipc.v1',
     description: 'bounded loopback application ingress shim; client-only and read-only over IPC',
   },
+  capsule: {
+    methods: ['capsule.capabilities', 'capsule.status', 'capsule.metrics', 'capsule.sessions.summary'],
+    schema: 'shadow6.capability-capsule-ipc.v1',
+    description: 'read-only observations for short-lived registered Core/application capsules',
+  },
 });
 
 export function componentCatalog(component) {

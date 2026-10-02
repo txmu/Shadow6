@@ -153,7 +153,7 @@ test('C11Relay FastRPC/RawIPC share peer-isolated UDP channels, batches and metr
 });
 
 test('Virtual Broker, Detector, S6NA and app-flow expose bounded read-only contracts', {skip: !posix}, async t => {
-  for (const component of ['virtual-broker', 'detector', 's6na', 'app-flow']) {
+  for (const component of ['virtual-broker', 'detector', 's6na', 'app-flow', 'capsule']) {
     const o = fixture(t), key = o.key;
     const server = new FastRPCServer({key, socketPath: o.socketPath, handler: component === 'virtual-broker'
       ? (method, params) => import('./component_adapters.mjs').then(({componentHandler}) => componentHandler(component)(method, params))

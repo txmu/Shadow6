@@ -11,6 +11,17 @@ CORES = {
     "carp": ROOT / "Core-Carp" / "shadow6-carp",
     "idris": ROOT / "Core-Idris" / "shadow6-idris",
 }
+CAPSULE_REGISTRY = {
+    **{name: {"binary": path, "mode": "seqpacket-fd", "max_record": 1172} for name, path in CORES.items()},
+    "go": {"binary": ROOT / "Core-Go" / "shadow6-go", "mode": "stream", "max_record": 65536},
+    "rust": {"binary": ROOT / "Core-Rust" / "shadow6-rust", "mode": "stream", "max_record": 65536},
+    "gleam": {"binary": ROOT / "Core-Gleam" / "shadow6-gleam", "mode": "stream", "max_record": 65536},
+    "nim": {"binary": ROOT / "Core-Nim" / "shadow6-nim", "mode": "stream", "max_record": 65536},
+    "cpp": {"binary": ROOT / "Core-Cpp" / "shadow6-cpp", "mode": "stream", "max_record": 65536},
+    "zig": {"binary": ROOT / "Core-Zig" / "shadow6-zig", "mode": "stream", "max_record": 65536},
+    "ada": {"binary": ROOT / "Core-Ada" / "shadow6-ada", "mode": "stream", "max_record": 65536},
+    "d": {"binary": ROOT / "Core-D" / "shadow6-d", "mode": "stream", "max_record": 65536},
+}
 PROXY = ROOT / "Tools" / "app_flow_proxy.py"
 
 @dataclass
@@ -38,12 +49,13 @@ def _safe_config(path: str) -> Path:
     return config
 
 def start(core: str, config: str, protocol: str, host: str, port: int, max_record: int = 1172, ttl: int = 300) -> dict:
-    if core not in CORES or protocol not in {"tcp", "udp"} or host not in {"127.0.0.1", "::1"}:
+    spec = CAPSULE_REGISTRY.get(core)
+    if spec is None or spec["mode"] != "seqpacket-fd" or protocol not in {"tcp", "udp"} or host not in {"127.0.0.1", "::1"}:
         raise ValueError("unsupported capsule parameters")
-    if not 1 <= port <= 65535 or not 1 <= max_record <= 1172 or not 30 <= ttl <= 300:
+    if not 1 <= port <= 65535 or not 1 <= max_record <= spec["max_record"] or not 30 <= ttl <= 300:
         raise ValueError("capsule bounds exceeded")
     config_path = _safe_config(config)
-    binary = CORES[core]
+    binary = spec["binary"]
     if not binary.is_file() or not os.access(binary, os.X_OK): raise FileNotFoundError("Core executable unavailable")
     import socket
     producer, consumer = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)

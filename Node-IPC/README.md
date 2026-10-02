@@ -116,7 +116,7 @@ tests report explicit skips when their prerequisites are absent.
 ## Candidate component contracts
 
 The dependency-free service also supports `virtual-broker`, `detector`, `s6na`,
-and `app-flow` as read-only component identities. Each exposes capabilities, status,
+and `app-flow`, plus the `capsule` registry observer, as read-only component identities. Each exposes capabilities, status,
 bounded metrics, and component-specific summary/snapshot observations. Mutation, packet
 injection, configuration reload, and credential bypass are unavailable; each
 component keeps its own authentication and lifecycle rules. Configure one of
@@ -125,6 +125,8 @@ These are contract-level observations; they do not impersonate a running
 component or replace its admission, policy, or transport authentication.
 For `app-flow`, the contract reports the bounded loopback shim and its
 intentional client-only scope; IPC does not start or mutate the shim.
+`capsule` reports registered capsule kinds and aggregate lifecycle state; it
+does not accept executable paths or arbitrary process arguments.
 
 ```sh
 shadow6 ipc call --config /tmp/shadow6-ipc-local/config.json \

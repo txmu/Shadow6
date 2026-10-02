@@ -124,7 +124,7 @@ METHOD_SPECS: dict[str, dict[str, Any]] = {
     "ipc.raw": _method("Exchange bounded authenticated binary IPC with an operator-configured component.",
         {"type": {"type":"integer", "minimum":1, "maximum":255}, "payload_base64": {"type":"string", "maxLength":60000}},
         ("type", "payload_base64"), mutating=True),
-    "capsule.start": _method("Start one fixed client Core and loopback application-flow capsule.", {"core":{"type":"string","enum":["pony","hare","carp","idris"]},"config":_PATH,"protocol":{"type":"string","enum":["tcp","udp"]},"host":{"type":"string","enum":["127.0.0.1","::1"]},"port":{"type":"integer","minimum":1,"maximum":65535},"max_record":{"type":"integer","minimum":1,"maximum":1172},"ttl":{"type":"integer","minimum":30,"maximum":300}}, ("core","config","protocol","port"), mutating=True),
+    "capsule.start": _method("Start one registered client Core and loopback application-flow capsule.", {"core":{"type":"string","enum":["pony","hare","carp","idris","go","rust","gleam","nim","cpp","zig","ada","d"]},"config":_PATH,"protocol":{"type":"string","enum":["tcp","udp"]},"host":{"type":"string","enum":["127.0.0.1","::1"]},"port":{"type":"integer","minimum":1,"maximum":65535},"max_record":{"type":"integer","minimum":1,"maximum":65536},"ttl":{"type":"integer","minimum":30,"maximum":300}}, ("core","config","protocol","port"), mutating=True),
     "capsule.status": _method("Read one capability capsule status.", {"token":_STRING}, ("token",)),
     "capsule.stop": _method("Stop one capability capsule.", {"token":_STRING}, ("token",), mutating=True),
     "c11relay.ipc.status": _method("Read companion relay metrics over authenticated FastRPC; does not send a datagram."),
