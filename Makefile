@@ -518,6 +518,8 @@ endif
 	@install -d -m 0755 "$(DESTDIR)$(PREFIX)/share/shadow6/modules"
 	@install -m 0644 CLI/shadow6_vcore.py CLI/vcore_adapters.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/"
 	@install -m 0644 Tools/python_runtime.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/"
+	@install -d -m 0755 "$(DESTDIR)$(PREFIX)/share/shadow6/libshadow6"
+	@install -m 0644 libshadow6/__init__.py "$(DESTDIR)$(PREFIX)/share/shadow6/libshadow6/"
 	@install -m 0644 Network-Adapter/shadow6_network.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/"
 	@install -m 0644 Network-Adapter/shadow6_network.mjs "$(DESTDIR)$(PREFIX)/share/shadow6/modules/"
 	@install -m 0644 Network-Adapter/secure_key_windows.ps1 "$(DESTDIR)$(PREFIX)/share/shadow6/modules/"
