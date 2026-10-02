@@ -10,6 +10,10 @@ report = run("--feature-report")
 assert report.returncode == 0, report.stderr
 value = json.loads(report.stdout)
 assert value["core"] == "shadow6-gleam" and value["transport"] == "secure-stream"
+assert [boundary["mode"] for boundary in value["application_boundaries"]] == [
+    "localhost-tcp-proxy", "localhost-udp-datagram-proxy"]
+assert value["application_boundaries"][1]["reliable"] is False
+assert value["application_boundaries"][1]["ordered"] is False
 
 packet_security = run("--test-packet-security")
 assert packet_security.returncode == 0, packet_security.stderr

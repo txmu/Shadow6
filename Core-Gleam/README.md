@@ -47,8 +47,15 @@ broker authenticate each other with Ed25519 challenges. Config, trust, and
 private-key files are opened with `O_NOFOLLOW | O_CLOEXEC`, then checked twice
 for ownership, regular-file type, exact mode `0600`, identity, and size.
 
+`--feature-report` publishes both client application boundaries: the default
+reliable ordered TCP stream and the optional local UDP datagram proxy used when
+`transport` is configured as `micro-mux`. Micro-Mux is message-preserving but
+best-effort; its feature contract explicitly reports no reliability or ordering
+guarantee. Control Center capsule discovery exposes both choices, and
+`libshadow6` can request the UDP boundary by its declared requirements.
+
 The orchestrator accepts `global.gleam_transport: micro-mux` (default:
 `secure-stream`). **Micro-Mux transport itself provides no availability
- guarantees whatsoever**, including delivery, ordering, recovery or uptime.
+guarantees whatsoever**, including delivery, ordering, recovery or uptime.
 Optional Python/Node S6NA `gleam-mux` profiles add bounded recovery; they do not
 provide an availability guarantee. See [native tooling](../docs/native-tooling.md).

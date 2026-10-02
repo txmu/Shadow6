@@ -104,7 +104,7 @@ def _safe_config(path: str) -> Path:
     return config
 
 
-def _client_application_boundary(binary: Path) -> dict[str, Any]:
+def _client_application_boundaries(binary: Path) -> list[dict[str, Any]]:
     try:
         result = subprocess.run([str(binary), "--feature-report"], capture_output=True,
                                 timeout=5, check=False, close_fds=True)
@@ -117,7 +117,8 @@ def _client_application_boundary(binary: Path) -> dict[str, Any]:
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
         raise ValueError("Core feature report is invalid") from error
     raw_boundaries = report.get("application_boundaries") if isinstance(report, dict) else None
-    if not isinstance(raw_boundaries, list) or not isinstance(report.get("core"), str):
+    if (not isinstance(raw_boundaries, list) or len(raw_boundaries) > 8
+            or not isinstance(report.get("core"), str)):
         raise ValueError("Core does not declare application boundaries")
     choices = []
     for boundary in raw_boundaries:
@@ -134,11 +135,29 @@ def _client_application_boundary(binary: Path) -> dict[str, Any]:
         elif mode == "localhost-tcp-proxy" and boundary.get("listener_ownership") == "core":
             if boundary.get("endpoint_discovery") == "stdout-ready-jsonl-v1":
                 choices.append(dict(boundary))
+        elif (mode == "localhost-udp-datagram-proxy" and report["core"] == "shadow6-gleam"
+              and boundary.get("kind") == "message" and boundary.get("roles") == ["client"]
+              and boundary.get("message_preserving") is True and boundary.get("ordered") is False
+              and boundary.get("reliable") is False and boundary.get("delivery") == "best-effort"
+              and boundary.get("max_record") == 65465 and boundary.get("listener_ownership") == "core"
+              and boundary.get("endpoint_discovery") == "stdout-ready-jsonl-v1"
+              and boundary.get("listener_ready") == "bound-and-listening"):
+            choices.append(dict(boundary))
     if not choices:
         raise ValueError("Core declares no supported client application boundary")
-    # Prefer the Core-owned stream listener when a family advertises both.
-    selected = next((item for item in choices if item["mode"] == "localhost-tcp-proxy"), choices[0])
-    return {**selected, "core": report["core"]}
+    return [{**choice, "core": report["core"]} for choice in choices]
+
+
+def _client_application_boundary(binary: Path, mode: str | None = None) -> dict[str, Any]:
+    choices = _client_application_boundaries(binary)
+    if mode is not None:
+        selected = next((item for item in choices if item["mode"] == mode), None)
+    else:
+        # Keep the existing Core-owned stream as the default when it is declared.
+        selected = next((item for item in choices if item["mode"] == "localhost-tcp-proxy"), choices[0])
+    if selected is None:
+        raise ValueError("requested application boundary is not declared by Core")
+    return selected
 
 
 def candidates() -> dict[str, Any]:
@@ -148,15 +167,18 @@ def candidates() -> dict[str, Any]:
     for name, spec in registered.items():
         try:
             binary = _resolved_executable(spec["binary"], "Core")
-            boundary = _client_application_boundary(binary)
+            boundaries = _client_application_boundaries(binary)
         except (OSError, ValueError, TimeoutError):
             continue
-        available.append({"core": name, "identity": boundary["core"],
-                          "boundary": boundary})
+        available.extend({"core": name, "identity": boundary["core"], "boundary": boundary}
+                         for boundary in boundaries)
+        if len(available) > 64:
+            raise ValueError("capsule candidate catalog exceeds its bound")
     return {"schema": "shadow6.capability-capsule-candidates.v1", "candidates": available}
 
 
-def _stream_ready(process: subprocess.Popen, expected_core: str, timeout: float = 15) -> dict[str, Any]:
+def _boundary_ready(process: subprocess.Popen, expected_core: str, mode: str,
+                    timeout: float = 15) -> dict[str, Any]:
     if process.stdout is None:
         raise ValueError("Core readiness stream unavailable")
     first_line: queue.Queue[bytes | None] = queue.Queue(maxsize=1)
@@ -183,14 +205,15 @@ def _stream_ready(process: subprocess.Popen, expected_core: str, timeout: float 
         event = _strict_json(line)
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
         raise ValueError("Core readiness event is invalid") from error
+    expected_kind = "stream" if mode == "localhost-tcp-proxy" else "message"
     if (not isinstance(event, dict) or event.get("event") != "shadow6.ready"
             or type(event.get("schema")) is not int or event["schema"] != 1
             or event.get("core") != expected_core or event.get("role") != "client"):
         raise ValueError("Core readiness event does not match its feature report")
     boundary = event.get("application_boundary")
     endpoint = boundary.get("endpoint") if isinstance(boundary, dict) else None
-    if (not isinstance(boundary, dict) or boundary.get("kind") != "stream"
-            or boundary.get("mode") != "localhost-tcp-proxy" or not isinstance(endpoint, dict)
+    if (not isinstance(boundary, dict) or boundary.get("kind") != expected_kind
+            or boundary.get("mode") != mode or not isinstance(endpoint, dict)
             or endpoint.get("host") not in {"127.0.0.1", "::1"}
             or type(endpoint.get("port")) is not int or not 1 <= endpoint["port"] <= 65535):
         raise ValueError("Core readiness endpoint is invalid")
@@ -313,7 +336,8 @@ def _ensure_reaper() -> None:
 
 def start(core: str, config: str, protocol: str | None = None, host: str | None = None,
           port: int | None = None,
-          max_record: int | None = None, ttl: int = 300) -> dict[str, Any]:
+          max_record: int | None = None, ttl: int = 300,
+          boundary_mode: str | None = None) -> dict[str, Any]:
     registry = capsule_registry()
     spec = registry.get(core)
     if spec is None:
@@ -321,7 +345,7 @@ def start(core: str, config: str, protocol: str | None = None, host: str | None 
     if type(ttl) is not int or not 30 <= ttl <= 300:
         raise ValueError("capsule bounds exceeded")
     binary = _resolved_executable(spec["binary"], "Core")
-    boundary = _client_application_boundary(binary)
+    boundary = _client_application_boundary(binary, boundary_mode)
     proxy: Path | None = None
     if boundary["mode"] == "seqpacket-fd":
         protocol = protocol or "tcp"
@@ -346,7 +370,7 @@ def start(core: str, config: str, protocol: str | None = None, host: str | None 
             raise ValueError("max-record exceeds the Core application boundary")
     else:
         if any(value is not None for value in (protocol, host, port, max_record)):
-            raise ValueError("Core-owned stream capsules do not accept proxy parameters")
+            raise ValueError("Core-owned application boundaries do not accept proxy parameters")
         requested_limit = None
     if boundary["mode"] == "seqpacket-fd" and not hasattr(socket, "SOCK_SEQPACKET"):
         raise ValueError("SOCK_SEQPACKET is unavailable on this platform")
@@ -393,7 +417,7 @@ def start(core: str, config: str, protocol: str | None = None, host: str | None 
                                      stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                                      stderr=subprocess.DEVNULL, close_fds=True, start_new_session=True)
         try:
-            endpoint = _stream_ready(core_proc, boundary["core"])
+            endpoint = _boundary_ready(core_proc, boundary["core"], boundary["mode"])
         except BaseException:
             Capsule("", core, (core_proc,), time.monotonic(), 1).close()
             if core_proc.stdout:

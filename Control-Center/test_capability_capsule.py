@@ -72,8 +72,8 @@ class CapabilityCapsuleTests(unittest.TestCase):
         self.registry_patch.stop()
         self.temp.cleanup()
 
-    def _write_core(self, mode: str, max_record: int = 1172):
-        core_name = f"shadow6-{mode}"
+    def _write_core(self, mode: str, max_record: int = 1172, core_name: str | None = None):
+        core_name = core_name or f"shadow6-{mode}"
         if mode == "seqpacket-fd":
             runtime = (
                 "if os.environ.get('SHADOW6_RUNTIME_MARKER'):\n"
@@ -99,6 +99,22 @@ class CapabilityCapsuleTests(unittest.TestCase):
             )
             boundary = {"kind": "stream", "mode": "localhost-tcp-proxy", "roles": ["client"],
                         "listener_ownership": "core", "endpoint_discovery": "stdout-ready-jsonl-v1"}
+        elif mode == "localhost-udp-datagram-proxy":
+            runtime = (
+                "listener = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)\n"
+                "listener.bind(('127.0.0.1', 0))\n"
+                "print(json.dumps({'event':'shadow6.ready','schema':1,'core':core,'role':'client',"
+                "'application_boundary':{'kind':'message','mode':'localhost-udp-datagram-proxy',"
+                "'endpoint':{'host':'127.0.0.1','port':listener.getsockname()[1]}}}), flush=True)\n"
+                "while True:\n"
+                " listener.recvfrom(65535)\n"
+            )
+            boundary = {"kind": "message", "mode": "localhost-udp-datagram-proxy", "roles": ["client"],
+                        "message_preserving": True, "ordered": False, "reliable": False,
+                        "delivery": "best-effort", "backpressure": "udp-datagram-loss",
+                        "max_record": 65465, "listener_ownership": "core",
+                        "endpoint_discovery": "stdout-ready-jsonl-v1", "listener_ready": "bound-and-listening",
+                        "local_peer_limit": 1, "oversize": "discard-datagram"}
         else:
             runtime = "time.sleep(120)\n"
             boundary = {"kind": "message", "mode": "unrecognized", "roles": ["client"]}
@@ -111,8 +127,8 @@ class CapabilityCapsuleTests(unittest.TestCase):
         self.core.write_text(script, encoding="utf-8")
         self.core.chmod(0o700)
 
-    def _write_registry(self, max_record: int = 1172):
-        self.registry.write_text(json.dumps({"synthetic-core": {
+    def _write_registry(self, max_record: int = 1172, name: str = "synthetic-core"):
+        self.registry.write_text(json.dumps({name: {
             "binary": str(self.core), "max_record": max_record,
         }}), encoding="utf-8")
         self.registry.chmod(0o600)
@@ -200,6 +216,27 @@ class CapabilityCapsuleTests(unittest.TestCase):
         self.assertEqual(entry["core"], "synthetic-core")
         self.assertEqual(entry["boundary"]["mode"], "localhost-tcp-proxy")
         self.assertEqual(entry["boundary"]["kind"], "stream")
+
+    def test_micro_mux_udp_boundary_is_discovered_and_capsule_returns_endpoint(self):
+        self._write_core("localhost-udp-datagram-proxy", core_name="shadow6-gleam")
+        self._write_registry(name="gleam")
+        result = capsule.candidates()
+        entries = [item for item in result["candidates"]
+                   if item["boundary"]["mode"] == "localhost-udp-datagram-proxy"]
+        self.assertEqual(len(entries), 1)
+        with patch.dict(os.environ, {"SHADOW6_APP_FLOW_PROXY": ""}), \
+             patch.object(capsule.shutil, "which", return_value=None):
+            started = capsule.start("gleam", str(self.config), ttl=60,
+                                    boundary_mode="localhost-udp-datagram-proxy")
+        token = started["token"]
+        self.tokens.append(token)
+        self.assertEqual(started["mode"], "localhost-udp-datagram-proxy")
+        self.assertEqual(started["endpoint"]["host"], "127.0.0.1")
+        self.assertNotIn("proxy_pid", started)
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as peer:
+            peer.sendto(b"datagram", (started["endpoint"]["host"], started["endpoint"]["port"]))
+        capsule.stop(token)
+        self.tokens.remove(token)
 
     def test_missing_proxy_and_unsupported_boundary_fail_before_core_runtime_launch(self):
         runtime_marker = self.base / "runtime-started"

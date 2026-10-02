@@ -79,6 +79,11 @@ STREAM_BOUNDARY_FIELDS = {
     "endpoint_discovery", "listener_ready", "local_connection_limit",
     "shutdown", "eof", "connection_mapping",
 }
+UDP_PROXY_BOUNDARY_FIELDS = {
+    "kind", "mode", "roles", "message_preserving", "ordered", "reliable",
+    "delivery", "backpressure", "max_record", "listener_ownership",
+    "endpoint_discovery", "listener_ready", "local_peer_limit", "oversize",
+}
 CREDITED_BOUNDARY_FIELDS = {
     "kind", "mode", "credit_unit", "max_window", "backpressure",
     "backpressure_error", "close", "closed_error", "retry_exhaustion",
@@ -135,8 +140,34 @@ def validate_feature_report(report, expected_core=None):
     elif modes != expected_modes:
         raise ValueError("invalid application transport modes")
     boundaries = report.get("application_boundaries")
-    if not isinstance(boundaries, list) or len(boundaries) != 1 or not isinstance(boundaries[0], dict):
-        raise ValueError("exactly one application boundary must be declared")
+    expected_count = 2 if core == "shadow6-gleam" else 1
+    if (not isinstance(boundaries, list) or len(boundaries) != expected_count or
+            any(not isinstance(boundary, dict) for boundary in boundaries)):
+        raise ValueError("invalid application boundary list")
+    if core == "shadow6-gleam":
+        stream, datagram = boundaries
+        if set(stream) != STREAM_BOUNDARY_FIELDS or stream != {
+            "kind": "stream", "mode": "localhost-tcp-proxy", "roles": ["client"],
+            "full_duplex": True, "ordered": True, "reliable": True,
+            "backpressure": "tcp-flow-control", "half_close": True,
+            "listener_ownership": "core", "endpoint_discovery": "stdout-ready-jsonl-v1",
+            "listener_ready": "bound-and-listening", "local_connection_limit": 1,
+            "shutdown": "close-active-flows", "eof": "propagate-half-close",
+            "connection_mapping": "one-local-connection-per-native-flow",
+        }:
+            raise ValueError("invalid Gleam stream application boundary")
+        if set(datagram) != UDP_PROXY_BOUNDARY_FIELDS or datagram != {
+            "kind": "message", "mode": "localhost-udp-datagram-proxy", "roles": ["client"],
+            "message_preserving": True, "ordered": False, "reliable": False,
+            "delivery": "best-effort", "backpressure": "udp-datagram-loss",
+            "max_record": 65465, "listener_ownership": "core",
+            "endpoint_discovery": "stdout-ready-jsonl-v1", "listener_ready": "bound-and-listening",
+            "local_peer_limit": 1, "oversize": "discard-datagram",
+        }:
+            raise ValueError("invalid Gleam Micro-Mux application boundary")
+        if "transport" in report and report["transport"] != TRANSPORTS[core]:
+            raise ValueError("incorrect Core transport")
+        return report
     boundary = boundaries[0]
     if core in SEQPACKET_MAX_RECORD:
         if set(boundary) != MESSAGE_BOUNDARY_FIELDS or boundary != {

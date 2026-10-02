@@ -36,8 +36,11 @@ and do not modify process-global environment variables. The package fails
 closed when no installed CLI is available. `open()` selects only Control Center
 registered Core entries whose client boundary matches every key in `require`;
 matching metadata does not mean the Core wire protocols are interchangeable.
-Stream Core families provide a listener endpoint. A `seqpacket-fd` message
-boundary requires an explicit `port`, `protocol`, and loopback `host`. Pass the
+Core-owned stream and UDP datagram boundaries provide their actual listener
+endpoint. Gleam Micro-Mux is advertised as best-effort, unordered UDP; request
+it explicitly with `kind="message"`, `mode="localhost-udp-datagram-proxy"`,
+and `reliable=False`. A `seqpacket-fd` message boundary requires an explicit
+`port`, `protocol`, and loopback `host`. Pass the
 Core config as `config` or set `SHADOW6_CONFIG`. Capsule start requires the
 local Control Center registry and its explicit mutation authorization. Closing
 the session or leaving the facade context stops its capsule; Control Center TTL

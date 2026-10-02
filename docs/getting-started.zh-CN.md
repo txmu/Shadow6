@@ -60,7 +60,7 @@ Doctor 只观察本地项目，不会改服务、防火墙或路由。日常快�
 流程见[验证与发布指南](verification.md)。慢慢来，每一步都有明确的失败提示。
 
 功能报告里的 `application_boundaries` 描述可选应用调用入口，例如有界 TCP stream、
-本地 seqpacket message 或 adapter credit。它不是 Core wire protocol 的协商结果，也不
+本地 seqpacket message、Gleam Micro-Mux best-effort UDP datagram 或 adapter credit。它不是 Core wire protocol 的协商结果，也不
 代表十二种实现可以混合组成一条原生隧道。部署时仍须沿整条路径使用同一 Core 家族。
 
 [Read this guide in English](getting-started.en.md)

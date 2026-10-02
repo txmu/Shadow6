@@ -124,7 +124,7 @@ METHOD_SPECS: dict[str, dict[str, Any]] = {
     "ipc.raw": _method("Exchange bounded authenticated binary IPC with an operator-configured component.",
         {"type": {"type":"integer", "minimum":1, "maximum":255}, "payload_base64": {"type":"string", "maxLength":60000}},
         ("type", "payload_base64"), mutating=True),
-    "capsule.start": _method("Start a registered Core selected from its client application-boundary feature report. Seqpacket boundaries require loopback proxy settings; Core-owned stream boundaries announce their endpoint.", {"core":{"type":"string","maxLength":64},"config":_PATH,"protocol":{"type":"string","enum":["tcp","udp"]},"host":{"type":"string","enum":["127.0.0.1","::1"]},"port":{"type":"integer","minimum":1,"maximum":65535},"max_record":{"type":"integer","minimum":1,"maximum":1172},"ttl":{"type":"integer","minimum":30,"maximum":300}}, ("core","config"), mutating=True),
+    "capsule.start": _method("Start a registered Core selected from its client application-boundary feature report. Seqpacket boundaries use a loopback proxy; Core-owned TCP/UDP boundaries announce their endpoint.", {"core":{"type":"string","maxLength":64},"config":_PATH,"protocol":{"type":"string","enum":["tcp","udp"]},"host":{"type":"string","enum":["127.0.0.1","::1"]},"port":{"type":"integer","minimum":1,"maximum":65535},"max_record":{"type":"integer","minimum":1,"maximum":1172},"ttl":{"type":"integer","minimum":30,"maximum":300},"boundary_mode":{"type":"string","enum":["seqpacket-fd","localhost-tcp-proxy","localhost-udp-datagram-proxy"]}}, ("core","config"), mutating=True),
     "capsule.status": _method("Read one capability capsule status.", {"token":_STRING}, ("token",)),
     "capsule.stop": _method("Stop one capability capsule.", {"token":_STRING}, ("token",), mutating=True),
     "capsule.pause": _method("Suspend every process in one capability capsule process group.", {"token":_STRING}, ("token",), mutating=True),
@@ -429,8 +429,8 @@ def dispatch(method: str, raw_params: Any = None) -> Any:
     if method.startswith("capsule."):
         from capability_capsule import start as capsule_start, status as capsule_status, stop as capsule_stop, pause as capsule_pause, resume as capsule_resume, list_capsules, candidates as capsule_candidates
         if method == "capsule.start":
-            _only(params, {"core","config","protocol","host","port","max_record","ttl"})
-            return capsule_start(params["core"], params["config"], params.get("protocol"), params.get("host"), params.get("port"), params.get("max_record"), params.get("ttl", 300))
+            _only(params, {"core","config","protocol","host","port","max_record","ttl","boundary_mode"})
+            return capsule_start(params["core"], params["config"], params.get("protocol"), params.get("host"), params.get("port"), params.get("max_record"), params.get("ttl", 300), params.get("boundary_mode"))
         if method == "capsule.list":
             _only(params, set())
             return list_capsules()

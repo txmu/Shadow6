@@ -21,12 +21,13 @@ class Session:
     """A capsule owned by a Shadow6 facade, with its application endpoint."""
 
     def __init__(self, owner: "Shadow6", token: str, core: str,
-                 endpoint: dict, mode: str):
+                 endpoint: dict, mode: str, protocol: str):
         self._owner = owner
         self.token = token
         self.core = core
         self.endpoint = endpoint
         self.mode = mode
+        self.protocol = protocol
         self._closed = False
 
     def status(self) -> dict:
@@ -141,7 +142,7 @@ class Shadow6:
         if not isinstance(require, dict) or not require:
             raise ValueError("require must be a non-empty boundary constraint object")
         allowed = {"kind", "mode", "ordered", "reliable", "full_duplex",
-                   "message_preserving", "roles"}
+                   "message_preserving", "roles", "delivery"}
         if set(require) - allowed:
             raise ValueError("unsupported application-boundary requirement")
         config_path = os.fspath(config) if config is not None else os.environ.get("SHADOW6_CONFIG")
@@ -169,12 +170,14 @@ class Shadow6:
             raise Shadow6Error("no available Core satisfies the application boundary requirements")
 
         name, boundary = selected
-        params = {"core": name, "config": config_path, "ttl": ttl}
+        mode = boundary.get("mode")
+        params = {"core": name, "config": config_path, "ttl": ttl,
+                  "boundary_mode": mode}
         if boundary.get("mode") == "seqpacket-fd":
             if port is None:
                 raise ValueError("seqpacket-fd boundary requires a loopback listener port")
             params.update(protocol=protocol, host=host, port=port)
-        elif boundary.get("mode") != "localhost-tcp-proxy":
+        elif mode not in {"localhost-tcp-proxy", "localhost-udp-datagram-proxy"}:
             raise Shadow6Error("selected boundary has no supported capsule transport")
         response = self._control("capsule.start", params)
         token, endpoint = response.get("token"), response.get("endpoint")
@@ -191,7 +194,10 @@ class Shadow6:
                 except Shadow6Error:
                     pass
             raise Shadow6Error("Control Center returned an invalid capsule endpoint")
-        session = Session(self, token, name, endpoint, response.get("mode", boundary.get("mode")))
+        actual_mode = response.get("mode", mode)
+        actual_protocol = protocol if actual_mode == "seqpacket-fd" else (
+            "udp" if actual_mode == "localhost-udp-datagram-proxy" else "tcp")
+        session = Session(self, token, name, endpoint, actual_mode, actual_protocol)
         self._sessions.add(session)
         return session
 

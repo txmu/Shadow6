@@ -492,3 +492,11 @@ Node IPC 的八个通用 adapter identity 现为
 seqpacket message boundary 要求显式 listener port；stream boundary 使用 Core readiness
 事件提供的 endpoint。它把发现和 capsule 生命周期收进 Python 入口，但仍不抽象 Core wire
 protocol，也不代表外围边界相同的 Core 可以互换通信。
+
+### 10 月 2 日后续：Gleam Micro-Mux boundary 纳入统一合同
+
+Gleam feature report 现在同时声明 `localhost-tcp-proxy` stream 与
+`localhost-udp-datagram-proxy` message boundary。后者明确标记 best-effort、无顺序和
+可靠性保证。共享 feature validator 对两种合同分别严格校验；Control Center 候选目录
+逐项列出它们，capsule 按请求的 boundary mode 等待对应 readiness event，
+`libshadow6` 可选择 UDP 并通过 `Session.protocol` 和 endpoint 暴露其本地入口。

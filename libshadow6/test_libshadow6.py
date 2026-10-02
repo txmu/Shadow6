@@ -36,6 +36,7 @@ class LibShadow6Tests(unittest.TestCase):
                          config="/tmp/core.json") as session:
                 self.assertEqual(session.core, "pony")
                 self.assertEqual(session.endpoint, {"host": "127.0.0.1", "port": 43210})
+                self.assertEqual(session.protocol, "tcp")
                 self.assertEqual(session.status(), {"state": "stopped"})
                 session.pause()
                 session.resume()
@@ -70,6 +71,36 @@ class LibShadow6Tests(unittest.TestCase):
             runtime.open({"kind": "message", "message_preserving": True},
                          config="/tmp/core.json", candidates=["hare"])
 
+    def test_open_can_select_best_effort_micro_mux_udp_endpoint(self):
+        class Runtime(libshadow6.Shadow6):
+            def __init__(self):
+                self.cli = "unused"
+                self._sessions = set()
+                self._closed = False
+                self.start_params = None
+
+            def _control(self, method, params):
+                if method == "capsule.candidates":
+                    return {"schema": "shadow6.capability-capsule-candidates.v1", "candidates": [
+                        {"core": "gleam", "boundary": {"kind": "message",
+                         "mode": "localhost-udp-datagram-proxy", "roles": ["client"],
+                         "ordered": False, "reliable": False, "delivery": "best-effort"}}]}
+                if method == "capsule.start":
+                    self.start_params = params
+                    return {"state": "running", "token": "mux-token",
+                            "mode": params["boundary_mode"],
+                            "endpoint": {"host": "127.0.0.1", "port": 50123}}
+                return {}
+
+        runtime = Runtime()
+        session = runtime.open({"kind": "message", "reliable": False, "ordered": False,
+                                "delivery": "best-effort"}, config="/tmp/gleam.json")
+        self.assertEqual(session.core, "gleam")
+        self.assertEqual(session.protocol, "udp")
+        self.assertEqual(session.endpoint["port"], 50123)
+        self.assertEqual(runtime.start_params["boundary_mode"], "localhost-udp-datagram-proxy")
+        session.close()
+
     def test_facade_close_stops_all_owned_sessions(self):
         class Runtime(libshadow6.Shadow6):
             def __init__(self):
@@ -84,8 +115,8 @@ class LibShadow6Tests(unittest.TestCase):
                 return {}
 
         runtime = Runtime()
-        one = libshadow6.Session(runtime, "one", "go", {"host": "127.0.0.1", "port": 1}, "stream")
-        two = libshadow6.Session(runtime, "two", "rust", {"host": "127.0.0.1", "port": 2}, "stream")
+        one = libshadow6.Session(runtime, "one", "go", {"host": "127.0.0.1", "port": 1}, "stream", "tcp")
+        two = libshadow6.Session(runtime, "two", "rust", {"host": "127.0.0.1", "port": 2}, "stream", "tcp")
         runtime._sessions.update((one, two))
         runtime.close()
         runtime.close()

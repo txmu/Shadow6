@@ -35,6 +35,15 @@ class FeatureContractTests(unittest.TestCase):
                 "shutdown": "close-active-flows", "eof": "propagate-half-close",
                 "connection_mapping": "one-local-connection-per-native-flow",
             }]
+            if core == "shadow6-gleam":
+                report["application_boundaries"].append({
+                    "kind": "message", "mode": "localhost-udp-datagram-proxy", "roles": ["client"],
+                    "message_preserving": True, "ordered": False, "reliable": False,
+                    "delivery": "best-effort", "backpressure": "udp-datagram-loss",
+                    "max_record": 65465, "listener_ownership": "core",
+                    "endpoint_discovery": "stdout-ready-jsonl-v1", "listener_ready": "bound-and-listening",
+                    "local_peer_limit": 1, "oversize": "discard-datagram",
+                })
         return report
 
     def test_every_core_and_its_specific_fields(self):
@@ -67,6 +76,15 @@ class FeatureContractTests(unittest.TestCase):
                 report = self.with_modes(core)
                 self.assertEqual(report["app_transport_modes"], modes)
                 self.assertIs(validate_feature_report(report, core), report)
+
+    def test_gleam_contract_publishes_both_stream_and_micro_mux_boundaries(self):
+        report = self.with_modes("shadow6-gleam")
+        self.assertEqual([item["mode"] for item in report["application_boundaries"]],
+                         ["localhost-tcp-proxy", "localhost-udp-datagram-proxy"])
+        self.assertIs(validate_feature_report(report, "shadow6-gleam"), report)
+        report["application_boundaries"][1]["reliable"] = True
+        with self.assertRaisesRegex(ValueError, "Micro-Mux"):
+            validate_feature_report(report, "shadow6-gleam")
 
     def test_boundary_schema_is_required_and_strict(self):
         report = self.with_modes("shadow6-hare")

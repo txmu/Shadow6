@@ -34,7 +34,14 @@ feature_report() ->
         listener_ownership => <<"core">>, endpoint_discovery => <<"stdout-ready-jsonl-v1">>,
         listener_ready => <<"bound-and-listening">>, local_connection_limit => 1,
         shutdown => <<"close-active-flows">>, eof => <<"propagate-half-close">>,
-        connection_mapping => <<"one-local-connection-per-native-flow">>}],
+        connection_mapping => <<"one-local-connection-per-native-flow">>},
+        #{kind => <<"message">>, mode => <<"localhost-udp-datagram-proxy">>,
+          roles => [<<"client">>], message_preserving => true, ordered => false,
+          reliable => false, delivery => <<"best-effort">>,
+          backpressure => <<"udp-datagram-loss">>, max_record => 65465,
+          listener_ownership => <<"core">>, endpoint_discovery => <<"stdout-ready-jsonl-v1">>,
+          listener_ready => <<"bound-and-listening">>, local_peer_limit => 1,
+          oversize => <<"discard-datagram">>}],
       crosed_capabilities => Caps}.
 
 request(RequestPath, TrustPath) ->
