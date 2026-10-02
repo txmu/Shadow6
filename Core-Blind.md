@@ -94,6 +94,19 @@ ownership guarantee would require an explicit admission acknowledgment and
 defined recovery semantics. The reverse application path also retains
 Core-specific UDP behavior; `seqpacket-fd` is not yet a universal egress ABI.
 
+The client-only scope is intentional: the local application is the producer
+and the Core owns admission into the authenticated native path. Broker and
+agent processes do not accept this descriptor, so they cannot accidentally
+turn an inherited local FD into an uncontrolled forwarding or egress hook.
+
+`Tools/app_flow_proxy.py` is the reference external shim for unmodified local
+applications. It accepts loopback TCP or UDP, emits one bounded seqpacket per
+read/datagram, and pauses its listener after 64 queued records until the Core
+FD accepts more. Start it with an explicitly inherited `--fd`; it does not
+create public listeners, and it does not claim end-to-end TCP semantics for a
+UDP sender such as iperf3. The shim is opt-in and preserves the client-only
+boundary.
+
 For Gleam Micro-Mux, local producer credit lives in the optional S6NA
 companion. Python `application_credit()` and Node `applicationCredit()` count
 available S6NA data-frame slots after accounting for queued and in-flight
