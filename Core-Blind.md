@@ -107,6 +107,11 @@ create public listeners, and it does not claim end-to-end TCP semantics for a
 UDP sender such as iperf3. The shim is opt-in and preserves the client-only
 boundary.
 
+The control plane exposes the shim as the read-only `app-flow` Node-IPC
+component (`app-flow.capabilities`, `.status`, `.metrics`, and
+`.queue.summary`). These methods describe an operator-configured instance;
+they do not accept a listener address, FD, command, or restart request.
+
 For Gleam Micro-Mux, local producer credit lives in the optional S6NA
 companion. Python `application_credit()` and Node `applicationCredit()` count
 available S6NA data-frame slots after accounting for queued and in-flight

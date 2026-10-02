@@ -15,6 +15,11 @@ const COMPONENTS = Object.freeze({
     schema: 'shadow6.s6na-ipc.v1',
     description: 'adapter profile and limit observability; transport remains separately authenticated',
   },
+  'app-flow': {
+    methods: ['app-flow.capabilities', 'app-flow.status', 'app-flow.metrics', 'app-flow.queue.summary'],
+    schema: 'shadow6.app-flow-ipc.v1',
+    description: 'bounded loopback application ingress shim; client-only and read-only over IPC',
+  },
 });
 
 export function componentCatalog(component) {
