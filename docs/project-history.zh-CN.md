@@ -456,3 +456,7 @@ UDP 性能数据仍未使用本次新入口重测，不能据旧数据推定 Los
 client-only ingress 是正式架构边界：本地应用是 producer，client 负责把记录
 纳入认证 native path，broker/agent 不消费继承 FD。shim 保持这一边界，采用显式
 FD 传递和 opt-in 启动，不通过全局环境变量制造不存在的 egress 或 admission ACK。
+
+同日推出 `libshadow6` 薄壳。它依赖本机已安装的 `shadow6` CLI，只提供命令转发和
+JSON 结果读取，不内置 Core 名称、默认核心、协议栈或第二套策略。调用方通过安装
+环境决定可用功能；`SHADOW6_CLI` 仅用于指定已安装命令的位置。

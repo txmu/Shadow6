@@ -57,3 +57,7 @@ Doctor 只观察本地项目，不会改服务、防火墙或路由。日常快�
 [Read this guide in English](getting-started.en.md)
 
 分享诊断前，看看[隐私与接口说明](privacy-interfaces.md)中的适用范围和排错建议。
+
+需要从 Python 调用本机 Shadow6 时，可使用 `libshadow6` 薄壳。它只寻找已安装的
+`shadow6` 命令并转发固定参数，不选择或假定任何 Core；Core、策略和凭据仍由本机
+安装负责。通过 `SHADOW6_CLI` 可指定已安装命令的位置。

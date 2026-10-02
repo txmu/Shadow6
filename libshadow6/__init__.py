@@ -11,7 +11,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-__all__ = ["Shadow6", "Shadow6Error", "feature_report", "run"]
+__all__ = ["Shadow6", "Shadow6Error", "run"]
 
 
 class Shadow6Error(RuntimeError):
@@ -34,20 +34,6 @@ def run(*args: str, input: str | None = None, timeout: float = 30) -> subprocess
     if result.returncode:
         raise Shadow6Error(result.stderr.strip() or f"shadow6 exited {result.returncode}")
     return result
-
-
-def feature_report(core: str) -> dict:
-    """Read and validate a locally installed Core feature report."""
-    if core not in {"go", "rust", "gleam", "ada", "nim", "pony", "zig", "d", "cpp", "idris", "hare", "carp"}:
-        raise ValueError("unknown Core")
-    result = run(core, "--feature-report")
-    try:
-        document = json.loads(result.stdout)
-    except json.JSONDecodeError as exc:
-        raise Shadow6Error("Core returned invalid feature JSON") from exc
-    if not isinstance(document, dict) or document.get("core") != f"shadow6-{core}":
-        raise Shadow6Error("unexpected Core feature report")
-    return document
 
 
 class Shadow6:

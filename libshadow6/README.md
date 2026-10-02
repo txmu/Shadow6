@@ -6,11 +6,10 @@ the installed `shadow6` executable. There is no parallel protocol implementation
 or compatibility layer.
 
 ```python
-from libshadow6 import Shadow6, feature_report
+from libshadow6 import Shadow6
 
 s6 = Shadow6()
 print(s6.features())
-print(feature_report("go"))
 print(s6.call("guide", "--lang", "en"))
 ```
 
