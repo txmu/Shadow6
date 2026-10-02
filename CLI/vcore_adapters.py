@@ -1,4 +1,8 @@
-"""Twelve fixed native CLI adapters for the version-1 control protocol."""
+"""Native CLI adapters with a generic feature-report fallback.
+
+Known Cores retain their precise config spelling; separately shipped Cores can
+participate in Core-Blind discovery through the common read-only contract.
+"""
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -39,6 +43,13 @@ ADAPTERS = {
 
 
 def translate(core, operation, config=None):
-    if core not in ADAPTERS:
-        raise ValueError("unknown core")
-    return ADAPTERS[core].argv(operation, config)
+    adapter = ADAPTERS.get(core)
+    if adapter is None:
+        if operation in ("feature-report", "version", "status") and config is None:
+            return ["--feature-report"]
+        raise ValueError("external Core does not declare a safe config adapter")
+    return adapter.argv(operation, config)
+
+
+def description(core):
+    return ADAPTERS.get(core, Adapter("unsupported", "external Core selected by feature-report contract")).description

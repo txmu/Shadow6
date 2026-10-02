@@ -115,9 +115,9 @@ tests report explicit skips when their prerequisites are absent.
 
 ## Candidate component contracts
 
-The dependency-free service also supports eight read-only component identities:
+The dependency-free service also supports read-only component identities:
 `virtual-broker`, `detector`, `s6na`, `app-flow`, `capsule-observer`, `plugins`,
-`slots`, and `gate`. Configure one of these identities in `node-ipc-config.v1`
+`slots`, `gate`, and `abi`. Configure one of these identities in `node-ipc-config.v1`
 with a dedicated owner-only key. The generic adapters expose only observation
 methods; they do not keep shadow `paused` flags or mutate another process.
 
@@ -145,7 +145,7 @@ shadow6 ipc call --config /tmp/shadow6-ipc-local/config.json \
   --method s6na.status
 ```
 
-The CLI catalog lists all eight supported component identities. Unsupported
+The CLI catalog lists all supported component identities. Unsupported
 identities fail closed during configuration loading. RawIPC type 1 for these
 components is limited to the same canonical status calls; other types are
 rejected.

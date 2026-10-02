@@ -37,7 +37,7 @@ DESTDIR ?=
 PYTHON ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python3)
 PYTHON_SITE_PACKAGES ?= $(shell $(PYTHON) -c 'import sysconfig; print(sysconfig.get_path("purelib", vars={"base":"$(PREFIX)","platbase":"$(PREFIX)"}))')
 
-.PHONY: all build benchmark performance-matrix benchmark-test network-adapter-test node-ipc-test network-adapter-benchmark core-go core-rust core-gleam test-gleam core-cpp core-hare test-hare core-carp test-carp core-pony test-pony pony-crosed-variant gate migration i18n crosed-variants public6 public6-variants public6-contract relay guard service-init auto detector plugins package-manager easybuild crosed app-layer extension-system assistants slots control-center android-preflight android-cores android-apk integration-test test check audit package install install-tree clean distclean
+.PHONY: all build benchmark performance-matrix benchmark-test network-adapter-test node-ipc-test network-adapter-benchmark core-go core-rust core-gleam test-gleam core-cpp core-hare test-hare core-carp test-carp core-pony test-pony pony-crosed-variant gate migration i18n crosed-variants public6 public6-variants public6-contract relay guard service-init auto detector plugins package-manager easybuild crosed app-layer extension-system assistants slots control-center android-preflight android-cores android-apk integration-test deployment-test ocaml-control-test acceptance test check audit package install install-tree clean distclean
 
 all: build
 
@@ -365,6 +365,7 @@ ifeq ($(BUILD_GO)$(BUILD_RUST)$(BUILD_AUTO),111)
 endif
 
 test:
+	@$(MAKE) deployment-test
 	@$(PYTHON) -m unittest -v test_compliance.py
 	@PYTHONPATH=Tools $(PYTHON) -m unittest discover -s Tools -p 'test_*.py' -v
 	@$(PYTHON) -m unittest -v libshadow6/test_libshadow6.py
@@ -437,7 +438,8 @@ endif
 	@$(MAKE) integration-test BUILD_GO=$(BUILD_GO) BUILD_RUST=$(BUILD_RUST) BUILD_AUTO=$(BUILD_AUTO)
 
 check:
-	@PYTHONPATH=CLI:Online-Repository:Gate $(PYTHON) -m py_compile CLI/*.py Online-Repository/*.py Gate/*.py
+	@PYTHONPATH=CLI:Deployment:Online-Repository:Gate $(PYTHON) -m py_compile CLI/*.py Deployment/*.py Online-Repository/*.py Gate/*.py
+	@$(MAKE) ocaml-control-test
 ifeq ($(BUILD_GO),1)
 	@cd Core-Go && go vet -buildvcs=false ./...
 endif
@@ -462,6 +464,21 @@ ifeq ($(BUILD_RELAY),1)
 	fi
 endif
 	@PYTHONPATH=Control-Center:Slot-System:Service-Init:Package-Manager:Public6:Migration:I18n $(PYTHON) -m py_compile Service-Init/*.py Auto-Orchestrator/shadow6_auto.py integration/stack_test.py Detector/*.py Plugin-System/*.py Package-Manager/*.py EasyBuild/*.py Android/*.py plugins/*/main.py Crosed/*.py Application-Layer/*.py Security-Assistants/*.py Infrastructure-Assistants/*.py Slot-System/*.py Control-Center/*.py Public6/*.py Migration/*.py I18n/*.py shadow6_audit.py
+
+deployment-test:
+	@PYTHONPATH=Deployment:Control-Center $(PYTHON) -m unittest -v Deployment/test_deployment.py
+	@d=$$(mktemp -d /tmp/shadow6-acceptance.XXXXXX); trap 'rm -rf "$$d"' EXIT; PYTHONPATH=CLI:Deployment $(PYTHON) CLI/shadow6.py acceptance --manifest Deployment/example.deployment.json --source-only --output "$$d" >/dev/null
+
+acceptance: deployment-test
+
+ocaml-control-test:
+	@if command -v ocamlc >/dev/null 2>&1; then \
+		d=$$(mktemp -d /tmp/shadow6-ocaml.XXXXXX); trap 'rm -rf "$$d"' EXIT; \
+		ocamlc -c -o "$$d/shadow6_abi.cmi" Deployment/shadow6_abi.mli; \
+		ocamlc -I "$$d" -c -o "$$d/shadow6_abi.cmo" Deployment/shadow6_abi.ml; \
+		ocamlc -I "$$d" -c -o "$$d/shadow6_control.cmo" Deployment/shadow6_control.ml; \
+		echo 'OCaml control verifier compiled'; \
+	else echo 'OCaml unavailable; optional control verifier compilation unavailable'; fi
 
 audit:
 	@$(PYTHON) shadow6_audit.py
@@ -521,6 +538,9 @@ endif
 	@install -m 0644 CLI/shadow6_vcore.py CLI/vcore_adapters.py "$(DESTDIR)$(PREFIX)/bin/"
 	@install -d -m 0755 "$(DESTDIR)$(PREFIX)/share/shadow6/modules"
 	@install -m 0644 CLI/shadow6_vcore.py CLI/vcore_adapters.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/"
+	@install -d -m 0755 "$(DESTDIR)$(PREFIX)/share/shadow6/deployment"
+	@install -m 0644 Deployment/__init__.py Deployment/shadow6_deployment.py Deployment/shadow6_abi.py Deployment/shadow6_driver.py Deployment/shadow6_acceptance.py "$(DESTDIR)$(PREFIX)/share/shadow6/deployment/"
+	@install -m 0644 Deployment/shadow6_deployment.py Deployment/shadow6_abi.py Deployment/shadow6_driver.py Deployment/shadow6_acceptance.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/"
 	@install -m 0644 Tools/python_runtime.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/"
 	@install -d -m 0755 "$(DESTDIR)$(PYTHON_SITE_PACKAGES)/libshadow6"
 	@install -m 0644 libshadow6/__init__.py "$(DESTDIR)$(PYTHON_SITE_PACKAGES)/libshadow6/"

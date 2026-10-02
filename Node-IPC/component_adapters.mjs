@@ -28,6 +28,7 @@ const COMPONENTS = Object.freeze({
   plugins: { methods: ['plugins.capabilities','plugins.status','plugins.metrics','plugins.catalog'], schema: 'shadow6.plugins-ipc.v1', description: 'signed isolated plugin inventory observations' },
   slots: { methods: ['slots.capabilities','slots.status','slots.metrics','slots.catalog'], schema: 'shadow6.slots-ipc.v1', description: 'typed slot catalog observations without invocation' },
   gate: { methods: ['gate.capabilities','gate.status','gate.metrics','gate.sessions.summary'], schema: 'shadow6.gate-ipc.v1', description: 'authenticated Gate runtime observations without enablement or mutation' },
+  abi: { methods: ['abi.capabilities','abi.status','abi.metrics','abi.catalog'], schema: 'shadow6.abi-ipc.v1', description: 'Core-Blind S6ABI/1 and deployment contract observations; no Core execution or mutation' },
 });
 
 export function componentCatalog(component) {

@@ -1,0 +1,17 @@
+{
+  "apiVersion": "shadow6.deployment.v1",
+  "kind": "Deployment",
+  "metadata": {"name": "home-lab", "labels": {"owner": "operator"}},
+  "spec": {
+    "artifact": {"version": "10-2", "platform": "linux-x86_64"},
+    "brokerSets": [{"id": "public-east", "identity": "broker-main", "endpoints": ["wss://broker.example.invalid/ws"], "core": "rust", "mode": "replica"}],
+    "nodes": [
+      {"id": "broker-01", "role": "broker", "core": "rust", "brokerSet": "public-east", "identityRef": "node/broker-01"},
+      {"id": "home-nas", "role": "agent", "core": "rust", "brokerSet": "public-east", "identityRef": "node/home-nas"},
+      {"id": "admin-laptop", "role": "client", "core": "rust", "brokerSet": "public-east", "identityRef": "node/admin-laptop"}
+    ],
+    "services": [{"id": "nas-ssh", "node": "home-nas", "name": "ssh", "protocol": "stream", "listen": "127.0.0.1:22", "target": "127.0.0.1:22", "boundary": "stream"}],
+    "policies": [{"id": "admin-nas-ssh", "subject": "node/admin-laptop", "service": "nas-ssh", "effect": "allow"}],
+    "applications": [{"id": "ssh-client", "subject": "node/admin-laptop", "requirements": {"boundary": "stream", "ordered": true, "reliable": true, "fullDuplex": true}}]
+  }
+}

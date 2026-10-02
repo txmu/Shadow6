@@ -520,3 +520,16 @@ Gleam feature report 现在同时声明 `localhost-tcp-proxy` stream 与
 
 对应修复均有针对性本地测试；Gleam 和 Hare 还运行了各自的 Core 测试目标。跨平台
 Actions 在 `8cb6439e` 后重新触发，最终平台结果应以该次 workflow run 为准。
+## 2026-10-02：Deployment v1、S6ABI/1 与 Core-Blind 验收入口
+
+本轮新增严格 `shadow6.deployment.v1` 清单、逻辑 Broker 身份的 replica/standby
+多入口语义、`shadow6 deployment validate/lock/plan` 与统一
+`shadow6 acceptance`。应用侧新增有界 `S6ABI/1` control/data framing 和
+stream/message/credited 边界，继续复用 S6P1 admission 与 S6AR1 signed request，
+不修改 native Core wire protocol。
+
+VCore、driver 与 `libshadow6` 按 feature-report/application boundary 发现外部 Core，
+不再把十二个内置名称当成 ABI 前提；Node IPC 增加只读 `abi` contract adapter，接入
+最新 Node IPC、Control Center 与 strict schema。OCaml 控制面模块提供无外部依赖的有界
+类型检查器，Python strict parser 仍是权威解析器。native 矩阵和跨架构构建交给 CI，
+本机 acceptance 明确区分 source-only 与 native runtime 验证。

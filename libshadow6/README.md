@@ -46,3 +46,10 @@ local Control Center registry and its explicit mutation authorization. Closing
 the session or leaving the facade context stops its capsule; Control Center TTL
 cleanup is the abandoned-client backstop. Sessions also expose `status()`,
 `pause()`, and `resume()` through the same Control Center lifecycle methods.
+
+Keep deployment in a strict `shadow6.deployment.v1` manifest and run
+`shadow6 deployment validate` and `shadow6 deployment plan` before opening an
+application session. The facade consumes the Core's declared boundary through
+`S6ABI/1`; separately shipped Core names are accepted when their signed report
+declares a compatible boundary. This is capability selection, not native wire
+protocol negotiation.

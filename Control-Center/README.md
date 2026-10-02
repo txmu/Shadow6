@@ -46,6 +46,12 @@ curl --fail --header "Authorization: Bearer $(< /etc/shadow6/control.token)" \
 
 中文说明见 [README.zh-CN.md](README.zh-CN.md)。
 
+Deployment and application contracts are available through bounded read-only
+methods: `deployment.validate`, `deployment.plan`, `deployment.lock`, and
+`abi.catalog`. They reuse `shadow6.deployment.v1`, S6P1, S6AR1, and Core-Blind
+`S6ABI/1`; native Core selection is driven by feature reports rather than a
+hard-coded list. Node IPC's `abi` adapter exposes contract observation only.
+
 ## Component IPC
 
 `ipc.catalog` reports the dependency-free Node FastRPC/RawIPC contract;

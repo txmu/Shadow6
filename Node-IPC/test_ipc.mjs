@@ -152,8 +152,8 @@ test('C11Relay FastRPC/RawIPC share peer-isolated UDP channels, batches and metr
   assert.ok((await rpc.call('c11relay.shell', {})).error);
 });
 
-test('all eight component adapters expose read-only bounded contracts and live capsule observations', {skip: !posix}, async t => {
-  const names = ['virtual-broker', 'detector', 's6na', 'app-flow', 'capsule-observer', 'plugins', 'slots', 'gate'];
+test('component adapters expose read-only bounded contracts and live capsule observations', {skip: !posix}, async t => {
+  const names = ['virtual-broker', 'detector', 's6na', 'app-flow', 'capsule-observer', 'plugins', 'slots', 'gate', 'abi'];
   assert.deepEqual((await import('./component_adapters.mjs')).IPC_COMPONENTS, names);
   for (const component of names) {
     const o = fixture(t), key = o.key;

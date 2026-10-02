@@ -31,6 +31,8 @@ COMPONENTS.update({
  "audit": ROOT/"shadow6_audit.py", "python-runtime": ROOT/"Tools/python_runtime.py",
  "performance": ROOT/"Benchmark/component_benchmark.py", "collect-performance": ROOT/"Tools/collect_performance.py",
  "ipc": ROOT/"Node-IPC/cli.mjs",
+ "deployment": ROOT/"Deployment/shadow6_deployment.py",
+ "acceptance": ROOT/"Deployment/shadow6_acceptance.py",
 
 })
 CORE_NAMES=("go","rust","gleam","ada","nim","pony","zig","d","cpp","idris","hare","carp")
@@ -130,7 +132,7 @@ def main():
  raw=sys.argv[1:]
  events=bool(raw and raw[0]=="--json-events")
  if events:raw=raw[1:]
- if raw and raw[0] in COMPONENTS and raw[0] not in {"virtual-broker","virtual-client","virtual-agent"}:
+ if raw and raw[0] in COMPONENTS and raw[0] not in {"virtual-broker","virtual-client","virtual-agent","deployment","acceptance"}:
   args=raw[1:];return run(raw[0],args[1:] if args[:1]==["--"] else args,events)
  p=argparse.ArgumentParser(prog="shadow6");p.add_argument("--json-events",action="store_true");sub=p.add_subparsers(dest="command",required=True)
  q=sub.add_parser("tools",help="list all fixed tool routes and availability")
@@ -139,7 +141,7 @@ def main():
  c=sub.add_parser("standalone",help="run a fixed security component without any Core");c.add_argument("name",choices=STANDALONE);c.add_argument("args",nargs=argparse.REMAINDER)
  for name in sorted(TRANSPORTS):q=sub.add_parser(name);q.add_argument("args",nargs=argparse.REMAINDER)
  for name in sorted(COMPONENTS):
-  if name in {"virtual-broker","virtual-client","virtual-agent"}:continue
+  if name in {"virtual-broker","virtual-client","virtual-agent","deployment","acceptance"}:continue
   q=sub.add_parser(name);q.add_argument("args",nargs=argparse.REMAINDER)
  q=sub.add_parser("virtual-broker",help="run or validate a configured Virtual Broker")
  q.add_argument("--config",type=Path,required=True)
@@ -170,11 +172,34 @@ def main():
  q.add_argument("--format",choices=("json","txt"),default="json")
  q=sub.add_parser("sign");ss=q.add_subparsers(dest="kind",required=True);sp=ss.add_parser("plugin");sp.add_argument("manifest");sp.add_argument("--private-key",required=True);sp.add_argument("--signer",required=True)
  q=sub.add_parser("workflow");q.add_argument("stage",choices=("build","test","check","audit","crosed-variants","android-apk","package","release"));q.add_argument("args",nargs=argparse.REMAINDER)
+ q=sub.add_parser("deployment",help="validate, lock and plan a Core-neutral deployment manifest")
+ q.add_argument("action",choices=("validate","lock","plan"));q.add_argument("manifest",type=Path)
+ q=sub.add_parser("acceptance",help="run the single source/artifact acceptance gate")
+ q.add_argument("--manifest",required=True,type=Path);q.add_argument("--artifact-dir",type=Path);q.add_argument("--output",type=Path,default=Path("acceptance"));q.add_argument("--source-only",action="store_true")
+ q=sub.add_parser("abi",help="inspect the Core-neutral S6ABI/1 contract")
+ q.add_argument("action",choices=("catalog",))
  a=p.parse_args();tail=lambda v:v[1:] if v[:1]==["--"] else v
  if a.command=="tools":
   print(json.dumps({"schema":"shadow6.tools.v1","tools":[{"name":n,"path":str(path),"available":path.is_file()} for n,path in sorted(COMPONENTS.items())]},indent=2));return 0
  if a.command=="guide":return run("control",["guide","--lang",a.lang],a.json_events)
  if a.command=="hands":return run_hands(a)
+ if a.command=="deployment":
+  deployment_dir = ROOT / "Deployment" if (ROOT / "Deployment").is_dir() else ROOT / "share" / "shadow6" / "deployment"
+  sys.path.insert(0, str(deployment_dir))
+  from shadow6_deployment import load_manifest, manifest_lock, plan_manifest
+  manifest = load_manifest(a.manifest)
+  result = manifest if a.action == "validate" else manifest_lock(manifest) if a.action == "lock" else plan_manifest(manifest)
+  print(json.dumps(result, ensure_ascii=True, sort_keys=True, indent=2)); return 0
+ if a.command=="acceptance":
+  deployment_dir = ROOT / "Deployment" if (ROOT / "Deployment").is_dir() else ROOT / "share" / "shadow6" / "deployment"
+  sys.path.insert(0, str(deployment_dir))
+  from shadow6_acceptance import run_acceptance
+  result = run_acceptance(a.manifest, artifact_dir=a.artifact_dir, output=a.output, source_only=a.source_only)
+  print(json.dumps(result, ensure_ascii=True, sort_keys=True, indent=2)); return 0 if result["status"] == "pass" else 1
+ if a.command=="abi":
+  sys.path.insert(0, str(ROOT / "Deployment" if (ROOT / "Deployment").is_dir() else ROOT / "share" / "shadow6" / "deployment"))
+  from shadow6_abi import ABI_VERSION, METHODS, STATES, MAX_CONTROL, MAX_DATA
+  print(json.dumps({"schema":"shadow6.abi-catalog.v1","abi":ABI_VERSION,"methods":sorted(METHODS),"states":sorted(STATES),"maxControl":MAX_CONTROL,"maxData":MAX_DATA,"transports":["unix-stream","named-pipe","loopback-tcp"]}, indent=2)); return 0
  if a.command=="component":return run(a.name,tail(a.args),a.json_events)
  if a.command=="standalone":return run(a.name,tail(a.args),a.json_events)
  if a.command=="virtual-broker":return run("virtual-broker",["--config",str(a.config)]+(["--check"] if a.check else []),a.json_events)

@@ -9,6 +9,30 @@ on:
   pull_request:
   workflow_dispatch:
 jobs:
+  deployment-abi-acceptance:
+    name: Deployment manifest, S6ABI and OCaml control boundary
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install source-only dependencies
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install -r requirements.txt
+      - name: Run one acceptance gate without compiling native Cores
+        run: |
+          set -euo pipefail
+          .venv/bin/python -m unittest -v Deployment/test_deployment.py
+          .venv/bin/python CLI/shadow6.py acceptance \
+            --manifest Deployment/example.deployment.json \
+            --source-only --output acceptance
+      - name: Compile optional OCaml control verifier when available
+        run: make ocaml-control-test PYTHON=.venv/bin/python
+      - name: Upload acceptance reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: shadow6-deployment-acceptance
+          path: acceptance/
   standalone-coreless:
     name: Zero-Core security components and protocol adapters
     runs-on: ubuntu-24.04

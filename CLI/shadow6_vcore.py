@@ -32,7 +32,7 @@ for directory in (ROOT / "Security-Assistants", ROOT / "Crosed",
 from shadow6_security import (SecurityError, atomic_write, bounded_run, canonical,
                              load_private, load_public, secure_read, strict_json_loads)
 from feature_contract import CORE_PATHS as FAMILY_PATHS, CAPABILITY_LEVELS, validate_feature_report
-from vcore_adapters import ADAPTERS, translate
+from vcore_adapters import translate, description
 
 CORE_PATHS = {name.removeprefix("shadow6-"): path for name, path in FAMILY_PATHS.items()}
 MAX_REPORT = 131072
@@ -46,9 +46,39 @@ def _identity(info):
 
 
 def core_path(root, name):
-    if (root / "Makefile").is_file() or (root / CORE_PATHS[name]).exists():
-        return root / CORE_PATHS[name]
+    relative = CORE_PATHS.get(name)
+    if relative is None:
+        for directory in sorted(root.glob("Core-*")):
+            candidate = directory / ("shadow6-" + name)
+            if candidate.is_file():
+                return candidate
+        relative = "bin/shadow6-" + name
+    if (root / "Makefile").is_file() or (root / relative).exists():
+        return root / relative
     return root / "bin" / ("shadow6-" + name)
+
+
+def discover_core_names(root):
+    """Find installed binaries by capability identity; CORE_PATHS is only a compatibility fallback."""
+    result = dict(CORE_PATHS)
+    for path in list((root / "bin").glob("shadow6-*") if (root / "bin").is_dir() else []) + list(root.glob("Core-*/shadow6-*")):
+        if path.is_file() and not path.name.endswith(("-crosed", "-public6")):
+            result.setdefault(path.name.removeprefix("shadow6-"), str(path.relative_to(root)))
+    return result
+
+
+def _validate_report(report, expected):
+    try:
+        return validate_feature_report(report, expected)
+    except ValueError:
+        # A separately shipped Core can register through the common vocabulary
+        # before this tree has a transport-specific entry for it.
+        required = {"core", "version", "crosed_compiled", "app_transport", "qubes_isolation", "gate_compiled", "gate_enabled_by_default", "utf8", "crosed_max_level", "crosed_capabilities"}
+        if not isinstance(report, dict) or report.get("core") != expected or set(report) - required or not required <= set(report):
+            raise
+        if not isinstance(report["crosed_capabilities"], list) or len(report["crosed_capabilities"]) > 10:
+            raise ValueError("invalid external Core feature report")
+        return report
 
 
 def _only(value, fields):
@@ -137,7 +167,7 @@ def sign_inventory(root, private_key, output, timeout=5):
         raise ValueError("inventory output exists")
     private, key_id = load_private(private_key)
     entries = {}
-    for name, relative in CORE_PATHS.items():
+    for name, relative in discover_core_names(root).items():
         path = core_path(root, name)
         if not path.exists() and not path.is_symlink():
             continue
@@ -145,7 +175,7 @@ def sign_inventory(root, private_key, output, timeout=5):
             result = _run(path, fd, ["--feature-report"], timeout)
             if result.returncode:
                 raise ValueError(name + ": feature-report failed: " + result.stderr[:256])
-            report = validate_feature_report(strict_json_loads(result.stdout, MAX_REPORT), "shadow6-" + name)
+            report = _validate_report(strict_json_loads(result.stdout, MAX_REPORT), "shadow6-" + name)
             if _identity(os.fstat(fd)) != _identity(metadata) or _identity(path.lstat()) != _identity(metadata):
                 raise ValueError("core changed during attestation")
             entries[name] = {"sha256": digest, "report": report, "bundle": _bundle(root, name)}
@@ -178,13 +208,13 @@ def _inventory(manifest, public_key):
         public.verify(bytes.fromhex(doc["signature"]), canonical({k: v for k, v in doc.items() if k != "signature"}))
     except InvalidSignature as exc:
         raise ValueError("invalid inventory signature") from exc
-    if not isinstance(doc["cores"], dict) or set(doc["cores"]) - set(CORE_PATHS):
+    if not isinstance(doc["cores"], dict) or any(not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", name) for name in doc["cores"]):
         raise ValueError("unknown inventory core")
     for name, entry in doc["cores"].items():
         _only(entry, ("sha256", "report", "bundle"))
         if not isinstance(entry["sha256"], str) or not re.fullmatch("[0-9a-f]{64}", entry["sha256"]):
             raise ValueError("invalid core digest")
-        validate_feature_report(entry["report"], "shadow6-" + name)
+        _validate_report(entry["report"], "shadow6-" + name)
         if not isinstance(entry["bundle"], dict) or len(entry["bundle"]) > 128:
             raise ValueError("invalid core bundle")
     return doc
@@ -193,7 +223,7 @@ def _inventory(manifest, public_key):
 def discover(root: Path, timeout: int = 5, manifest=None, public_key=None) -> dict:
     _timeout(timeout)
     root = root.absolute()
-    installed = [n for n in CORE_PATHS if core_path(root, n).is_file()]
+    installed = [n for n in discover_core_names(root) if core_path(root, n).is_file()]
     reports, errors = {}, {}
     if (manifest is None) != (public_key is None):
         raise ValueError("manifest and public_key must be provided together")
@@ -215,14 +245,20 @@ def discover(root: Path, timeout: int = 5, manifest=None, public_key=None) -> di
 
 
 def select(discovery, cores=None, priority=None, capabilities=None):
-    cores = list(CORE_PATHS) if cores is None else cores
+    known = set(discovery.get("cores", {})) | set(discovery.get("installed", {}))
+    cores = sorted(known) if cores is None else cores
     priority = [] if priority is None else priority
     capabilities = [] if capabilities is None else capabilities
-    for values, allowed in ((cores, CORE_PATHS), (priority, CORE_PATHS), (capabilities, CAPABILITY_LEVELS)):
-        if (not isinstance(values, list) or len(values) > 12
-                or any(not isinstance(x, str) or x not in allowed for x in values)
+    def core_names(values):
+        return all(isinstance(x, str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", x) for x in values)
+    for values, allowed in ((cores, core_names), (priority, core_names), (capabilities, CAPABILITY_LEVELS)):
+        if (not isinstance(values, list) or len(values) > 64
+                or (allowed is CAPABILITY_LEVELS and any(not isinstance(x, str) or x not in allowed for x in values))
+                or (allowed is not CAPABILITY_LEVELS and not allowed(values))
                 or len(set(values)) != len(values)):
             raise ValueError("invalid selection or capability constraint")
+    if any(name not in known for name in cores):
+        raise ValueError("selection names an undiscovered Core")
     order = [n for n in priority if n in cores] + [n for n in cores if n not in priority]
     eligible = [n for n in order if n in discovery["cores"]
                 and set(capabilities) <= set(discovery["cores"][n]["crosed_capabilities"])]
@@ -261,12 +297,12 @@ def invoke(root, request, manifest, public_key):
             if request["operation"] == "check-config":
                 value = {"valid": True}
             else:
-                report = validate_feature_report(strict_json_loads(result.stdout, MAX_REPORT), "shadow6-" + name)
+                report = _validate_report(strict_json_loads(result.stdout, MAX_REPORT), "shadow6-" + name)
                 if report != entry["report"]:
                     raise ValueError("feature report differs from signed inventory")
                 value = report if request["operation"] == "feature-report" else (
                     {"version": report["version"]} if request["operation"] == "version" else
-                    {"state": "probe_completed", "running": False, "adapter": ADAPTERS[name].description})
+                    {"state": "probe_completed", "running": False, "adapter": description(name)})
             return {"version": 1, "ok": True, "core": name, "result": value, "attempts": attempts}
         except subprocess.TimeoutExpired:
             attempts.append({"core": name, "error": "timeout"})

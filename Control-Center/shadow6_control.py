@@ -118,6 +118,11 @@ METHOD_SPECS: dict[str, dict[str, Any]] = {
         {"envelope": {"type": "string", "maxLength": 262144},
          "component": _STRING, "role": {"type": "string", "enum": ["broker", "agent", "client", "gate", "relay", "plugin", "all"]},
          "audience": _STRING, "community": _STRING, "allow_visa_free": _BOOL}, ("envelope",)),
+    "deployment.validate": _method("Validate a strict Core-neutral deployment manifest.", {"manifest": _PATH}, ("manifest",)),
+    "deployment.plan": _method("Render a bounded deployment plan and capability requirements.", {"manifest": _PATH}, ("manifest",)),
+    "deployment.lock": _method("Create a canonical deployment lock document without generating secrets.", {"manifest": _PATH}, ("manifest",)),
+    "abi.catalog": _method("Return the S6ABI/1 application boundary and bounded state contract."),
+    "acceptance.run": _method("Run the single source/artifact acceptance gate.", {"manifest": _PATH, "artifact_dir": _PATH, "output": _PATH, "source_only": _BOOL}, ("manifest",)),
     "ipc.catalog": _method("Return the built-in Node FastRPC, RawIPC and C11Relay bridge contract."),
     "ipc.call": _method("Call an authenticated operator-configured FastRPC component; requires mutation permission.",
         {"method": _STRING, "params": _OBJECT}, ("method",), mutating=True),
@@ -422,6 +427,24 @@ def dispatch(method: str, raw_params: Any = None) -> Any:
             audience=params.get("audience"), allowed_communities=communities,
             visa_free=params.get("allow_visa_free", False))
         return {"envelope": envelope, "credentials": claims}
+    if method.startswith("deployment.") or method == "acceptance.run" or method == "abi.catalog":
+        import sys
+        deployment_root = ROOT / "Deployment"
+        modules_root = ROOT / "share" / "shadow6" / "deployment"
+        sys.path.insert(0, str(deployment_root if deployment_root.is_dir() else modules_root))
+        if method == "abi.catalog":
+            from shadow6_abi import ABI_VERSION, METHODS, STATES, MAX_CONTROL, MAX_DATA
+            return {"schema": "shadow6.abi-catalog.v1", "abi": ABI_VERSION, "methods": sorted(METHODS), "states": sorted(STATES), "maxControl": MAX_CONTROL, "maxData": MAX_DATA, "transport": ["unix-stream", "named-pipe", "loopback-tcp"]}
+        if method == "acceptance.run":
+            from shadow6_acceptance import run_acceptance
+            return run_acceptance(params["manifest"], artifact_dir=params.get("artifact_dir"), output=params.get("output", str(ROOT / "acceptance")), source_only=params.get("source_only", False))
+        from shadow6_deployment import load_manifest, manifest_lock, plan_manifest
+        manifest = load_manifest(params["manifest"])
+        if method == "deployment.validate":
+            return manifest
+        if method == "deployment.lock":
+            return manifest_lock(manifest)
+        return plan_manifest(manifest)
     if method == "ipc.catalog":
         _only(params, set())
         from ipc_client import invoke

@@ -58,4 +58,30 @@ rules or routes. For a quick check or the full release sequence, follow the
 
 [阅读中文指南](getting-started.zh-CN.md)
 
+## Deployment and application entry
+
+Use a strict `shadow6.deployment.v1` manifest for multi-node installations.
+A broker set is one logical Broker identity with bounded physical endpoints;
+independent Broker authorities in one topology are rejected. Validate without
+building a Core:
+
+```sh
+shadow6 deployment validate Deployment/example.deployment.json
+shadow6 deployment lock Deployment/example.deployment.json
+shadow6 deployment plan Deployment/example.deployment.json
+shadow6 acceptance --source-only --manifest Deployment/example.deployment.json
+```
+
+The acceptance command distinguishes source-only results from CI native
+feature-report and loopback verification. `shadow6 abi catalog` prints the
+bounded `S6ABI/1` contract. It reuses S6P1 admission and S6AR1 signed control
+requests; native Core wire protocols remain independent.
+
+Applications request `stream`, `message`, or `credited` boundaries through
+`libshadow6`. Feature reports select a compatible boundary and a bounded
+capability capsule returns a loopback endpoint. VCore and the driver accept
+separately shipped Core names that satisfy the common contract, so applications
+do not enumerate the twelve built-in names. Node IPC exposes a read-only `abi`
+contract adapter; Control Center mutations remain explicitly gated.
+
 Before sharing diagnostics, read [privacy across interfaces](privacy-interfaces.md).
