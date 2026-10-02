@@ -63,7 +63,7 @@ export function controlHandler({python = process.env.SHADOW6_PYTHON ?? (process.
 }
 export async function serve(config, options = {}) {
   const key = loadKey(config.key_file), adapter = config.component === 'c11relay' ? new C11RelayAdapter(config.relay) : null;
-  const control = adapter ? null : config.component === 'control-center' ? controlHandler(options) : componentHandler(config.component), servers = [];
+  const control = adapter ? null : config.component === 'control-center' ? controlHandler(options) : componentHandler(config.component, options), servers = [];
   const common = {key, timeoutMs: config.timeout_ms, maxConnections: config.max_connections ?? 8};
   try {
     if (config.fastrpc) {

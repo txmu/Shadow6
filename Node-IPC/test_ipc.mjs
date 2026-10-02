@@ -163,12 +163,15 @@ test('Virtual Broker, Detector, S6NA and app-flow expose bounded read-only contr
     const capabilities = (await client.call(`${component}.capabilities`)).result;
     assert.equal(capabilities.read_only, true);
     assert.ok((await client.call(`${component}.status`)).result.state === 'available');
-    for (const method of capabilities.methods.filter(name => !name.endsWith('.capabilities') && !name.endsWith('.status'))) {
+    for (const method of capabilities.methods.filter(name => !name.endsWith('.capabilities') && !name.endsWith('.status') && !name.endsWith('.pause') && !name.endsWith('.resume'))) {
       const result = (await client.call(method)).result;
       assert.equal(result.read_only, true);
       assert.ok(result.schema.startsWith('shadow6.'));
     }
     assert.ok((await client.call(`${component}.reload`, {})).error);
+    if (component === 'app-flow') {
+      assert.ok((await client.call('app-flow.pause', {})).error);
+    }
     await server.close();
   }
 });

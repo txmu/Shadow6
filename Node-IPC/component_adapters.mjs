@@ -16,12 +16,12 @@ const COMPONENTS = Object.freeze({
     description: 'adapter profile and limit observability; transport remains separately authenticated',
   },
   'app-flow': {
-    methods: ['app-flow.capabilities', 'app-flow.status', 'app-flow.metrics', 'app-flow.queue.summary'],
+    methods: ['app-flow.capabilities', 'app-flow.status', 'app-flow.metrics', 'app-flow.queue.summary', 'app-flow.pause', 'app-flow.resume'],
     schema: 'shadow6.app-flow-ipc.v1',
     description: 'bounded loopback application ingress shim; client-only and read-only over IPC',
   },
   capsule: {
-    methods: ['capsule.capabilities', 'capsule.status', 'capsule.metrics', 'capsule.sessions.summary'],
+    methods: ['capsule.capabilities', 'capsule.status', 'capsule.metrics', 'capsule.sessions.summary', 'capsule.pause', 'capsule.resume'],
     schema: 'shadow6.capability-capsule-ipc.v1',
     description: 'read-only observations for short-lived registered Core/application capsules',
   },
@@ -37,10 +37,17 @@ export function componentCatalog(component) {
     read_only: true, description: contract.description};
 }
 
-export function componentHandler(component) {
+export function componentHandler(component, {allowMutations = false} = {}) {
   const contract = COMPONENTS[component];
   if (!contract) throw Error('unsupported IPC component');
+  let paused = false;
   return (method, params) => {
+    if (method === `${component}.pause` || method === `${component}.resume`) {
+      if (!allowMutations) throw Error('component mutation is disabled');
+      if (params && Object.keys(params).length) throw Error('mutation takes no parameters');
+      paused = method.endsWith('.pause');
+      return {schema: `${contract.schema.replace('-ipc.v1', '-mutation.v1')}`, component, state: paused ? 'paused' : 'running', read_only: false};
+    }
     if (!params || Array.isArray(params) || typeof params !== 'object' || Object.keys(params).length) {
       throw Error('component status methods take no parameters');
     }
@@ -48,7 +55,7 @@ export function componentHandler(component) {
     if (method === `${component}.status`) return {
       schema: `${contract.schema.replace('-ipc.v1', '-status.v1')}`,
       component, state: 'available', read_only: true,
-      methods: contract.methods,
+      methods: contract.methods, control_state: paused ? 'paused' : 'running',
     };
     if (method === `${component}.metrics`) return {
       schema: `${contract.schema.replace('-ipc.v1', '-metrics.v1')}`,
