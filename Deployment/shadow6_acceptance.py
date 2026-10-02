@@ -12,8 +12,8 @@ import time
 from pathlib import Path
 from typing import Any
 
-from shadow6_deployment import load_manifest, manifest_lock, plan_manifest
-from shadow6_abi import decode_control, encode_control
+from .shadow6_deployment import load_manifest, manifest_lock, plan_manifest
+from .shadow6_abi import decode_control, encode_control
 
 
 def _case(name: str, status: str, detail: str = "") -> dict:
