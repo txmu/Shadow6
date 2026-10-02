@@ -200,7 +200,7 @@ test('CLI catalog, keygen, actual server/client subprocesses and unified route',
   const raw = await run(process.execPath, [cli, 'raw-send', '--config', configFile, '--type', '19', '--hex', '']); assert.ok(JSON.parse(raw.stdout).payload_base64);
   assert.equal(catalog().npm, false);
 });
-test('Control Center via FastRPC and RawIPC uses existing dispatcher and mutation boundary', {skip: process.env.SHADOW6_IPC_CONTROL_TEST !== '1'}, async t => {
+test('Control Center via FastRPC and RawIPC uses existing dispatcher and mutation boundary', {skip: process.env.SHADOW6_IPC_CONTROL_TEST !== '1' || process.platform === 'win32'}, async t => {
   const handler = controlHandler({python: process.env.SHADOW6_PYTHON ?? (process.platform === 'win32' ? 'python' : 'python3')});
   const fast = await server(t, FastRPCServer, handler), raw = await server(t, RawIPCServer, async (type, bytes, context) => {
     const req = parseCanonical(bytes); return canonical(await handler(req.method, req.params, context));

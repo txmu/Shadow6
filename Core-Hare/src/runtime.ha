@@ -282,12 +282,12 @@ fn runtime(c: *configuration) void = {
 				case let n: size => yield n;
 				case (rt::EAGAIN | rt::EINTR) => { poller[1].revents = 0; continue; };
 				case => { fmt::errorln("application flow ingress read failed")!; rt::exit(2); };
-				}
+				};
 			} else {
 				match (recv_available(app, packet, &source, &source_port)) {
 				case let n: size => yield n;
 				case => poller[1].revents = 0; continue;
-				}
+				};
 			};
 			if (flow_fd >= 0 && n == 0) {
 				flow_fd = -1; poller[1].fd = -1; poller[1].revents = 0;
