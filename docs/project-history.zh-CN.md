@@ -444,3 +444,15 @@ Assistants 和 `crosedctl` 共用。实现还加入 UDP source-contract 与本�
 本地编译任何 Core，也没有执行依赖已编译 Core 的端到端 runtime 测试；这些行为回归
 由共享 source-contract 测试覆盖，真实二进制接入仍需正常 CI 验证。README 中已有
 UDP 性能数据仍未使用本次新入口重测，不能据旧数据推定 Loss 改善幅度。
+
+## 2026-10-02：无感应用入口 shim 与 client-only 边界
+
+新增 `Tools/app_flow_proxy.py`，把无需修改的本机 TCP/UDP 应用接到
+`SHADOW6_APP_FLOW_FD`。代理只绑定 loopback，以 64 条记录为上限；Core 窗口
+耗尽时暂停 listener 读取，避免 producer 侧无限缓存。它改善的是本地 admission
+和排队行为，不会把 UDP 应用（包括 iperf3）变成具备端到端确认的 TCP，也不宣称
+能够单独消除远端丢包。
+
+client-only ingress 是正式架构边界：本地应用是 producer，client 负责把记录
+纳入认证 native path，broker/agent 不消费继承 FD。shim 保持这一边界，采用显式
+FD 传递和 opt-in 启动，不通过全局环境变量制造不存在的 egress 或 admission ACK。
