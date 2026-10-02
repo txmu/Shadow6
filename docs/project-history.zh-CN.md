@@ -3,7 +3,7 @@
 ## 说明与范围
 
 本文根据当前 Git 仓库和前期考古材料整理，覆盖从 Shadow6 开始开发的
-2026-05-31 到 2026-10-01。5.31—9.5 的内容主要来自尚未提交的历史材料；
+2026-05-31 到 2026-10-02。5.31—9.5 的内容主要来自尚未提交的历史材料；
 9.6 起进入可直接追踪的 Git 信史阶段。因此，最早可见提交 `deb56a8a`
 （2026-09-06）不是项目起点，只是公开提交时间线的起点。
 
@@ -111,6 +111,30 @@ Core-Pony 于 9 月 13 日加入，补齐第十二个独立实现，并逐步增
 批量发送、Ada/Go/Rust 缓冲区复用、高延迟窗口和 Idris broker admission
 测试。当前顶端提交还补充了 Android VPN 控制、QEMU 组件脚本、Hare 编译
 入口和虚拟接口“计划后显式应用”工具。
+
+## 2026-10-02：应用边界、跨平台回归与文档基线
+
+10 月 1 日至 2 日的工作把“Core 能否被外围组件安全调用”从约定推进为机器可读合同。
+每个 Core 的 feature report 现在包含 `application_boundaries`：TCP 代理 Core
+声明有界的 JSONL stream 入口，Hare、Carp、Idris、Pony 声明带顺序号和窗口背压的
+`seqpacket-fd` message 入口，Network Adapter 单独声明 credited companion 边界。
+这些入口描述调用语义，不改变各 Core 的原生线缆协议，也不把 Network Adapter 变成部署前置。
+
+Node-IPC 在此阶段完成 FastRPC、RawIPC、C11Relay 和 Control Center 的只读边界，
+并增加候选组件观测、批量请求、每 peer 队列/速率/burst 限制和 Windows 运行时适配。
+Control Center 的变更入口仍需显式授权；未知字段、递归 IPC 调用和超出帧/响应预算的请求
+继续失败关闭。Windows 不执行依赖 POSIX Control Center 运行时的跨进程测试，避免把平台
+限制误报为协议回归。
+
+同一时间，Go/Rust/Hare/Pony 的本地应用 ingress 增加有界背压或 Micro-Mux credit，
+保留每次 poll 的 drain 上限和总工作预算。Hare 的两个 `match` 语句补齐严格语法后，
+Linux、Linux ARM64 和 FreeBSD 的 Hare 构建路径重新共享同一源码状态。CI 仍会分别验证
+FreeBSD、NetBSD、OpenBSD、Windows、macOS、QEMU 和 Android；失败日志只代表对应平台
+或工具链，不应推导出所有 Core 的互操作性。
+
+10 月 2 日的文档基线因此明确三件事：Core 独立部署仍是默认模型，应用边界是调用合同而
+不是新 wire protocol，发布 ZIP 是纯文本交换包而 tar 才是包含已构建产物的发行包。性能
+报告继续区分 loopback 上限、原生三角色链路和应用入口吞吐，历史数字不自动代表当前提交。
 
 ## Core 首次出现顺序
 

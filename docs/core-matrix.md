@@ -1,5 +1,9 @@
 # Core capability matrix
 
+> **Updated 2026-10-02.** This table describes the checked-in source contracts.
+> A listed toolchain may still be unavailable on a particular host; inspect
+> `shadow6 features` and the component doctor for the effective build matrix.
+
 Shadow6 has twelve independently compiled Core implementations. They share
 feature-report and security-contract vocabulary, but their native protocols
 are independent and are not implicitly wire-compatible. A topology must use
@@ -37,6 +41,12 @@ EOF, and drain behavior. S6NA reports its optional `credited` companion
 boundary separately. See [Core-Blind](../Core-Blind.md) for the precise
 semantics and limits; these descriptors do not make native protocols
 interoperable.
+
+The descriptor is an application ingress contract, not a transport upgrade.
+`seqpacket-fd` providers preserve record boundaries and report kernel-queue
+acceptance; `stream` providers implement bounded JSONL discovery and half-close
+behavior. Network Adapter's `credited` boundary is optional and does not grant
+a Core a different native reliability or multiplexing model.
 
 The default build keeps Crosed, application transport and Qubes-inspired
 domain policy disabled. Explicit `*-crosed` or Public6 variants are separate

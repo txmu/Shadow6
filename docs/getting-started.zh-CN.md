@@ -25,10 +25,11 @@ Idris、Hare、Carp 的三角色路径采用签名握手及有界固定路由 UD
 默认构建关闭 Crosed、应用传输和域策略；在该 Core 支持的范围内，带 `-crosed`
 后缀的独立二进制才启用 L5 功能契约。某些 Core 还需要额外的可选工具链。
 
-统一网络适配器提供地位相同、线缆兼容的 Python 与 Node.js 后端，并隐藏报文大小限制。运行 `shadow6 network catalog`
-可查看各 Core 的原生传输边界，以及可选 Network Adapter 提供的统一分块、可靠性和
-多路复用语义。十二个 Core 均可脱离 adapter 独立部署；任何 Core 都不需要 adapter
-或其它 Companion 才能获得原生网络能力。安全与部署要求见
+可选网络适配器提供线缆兼容的 Python 与 Node.js 后端，为接入的调用方提供分块、确认、
+重传、去重和多路复用语义。它不会隐藏 Core 自身的数据报上限，也不替代 Core 的原生
+认证和传输。运行 `shadow6 network catalog` 可查看各 Core 与适配器 profile 的边界。
+十二个 Core 均可脱离 adapter 独立部署；任何 Core 都不需要 adapter 或其它 Companion
+才能获得原生网络能力。安全与部署要求见
 `Network-Adapter/README.md`。
 两种后端都必须遵循 `Network-Adapter/SPEC.md`；可分别运行
 `shadow6 network catalog` 与 `shadow6 network-node catalog` 明确选择。
@@ -48,6 +49,10 @@ shadow6 control -- --help
 
 Doctor 只观察本地项目，不会改服务、防火墙或路由。日常快速检查和完整发布
 流程见[验证与发布指南](verification.md)。慢慢来，每一步都有明确的失败提示。
+
+功能报告里的 `application_boundaries` 描述可选应用调用入口，例如有界 TCP stream、
+本地 seqpacket message 或 adapter credit。它不是 Core wire protocol 的协商结果，也不
+代表十二种实现可以混合组成一条原生隧道。部署时仍须沿整条路径使用同一 Core 家族。
 
 [Read this guide in English](getting-started.en.md)
 

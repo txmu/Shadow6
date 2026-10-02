@@ -1,5 +1,9 @@
 # Verification and release paths
 
+> **Operational baseline (2026-10-02):** documentation-only changes should use
+> the read-only checks below. Do not rebuild Core binaries merely to produce the
+> source ZIP; the ZIP is intentionally independent of compiled artifacts.
+
 Shadow6 has two useful verification modes. A quick check answers whether the
 working tree still builds and passes local tests. A full release proves the
 exact variant matrix, assistant reports, staged installation, and package
@@ -77,6 +81,15 @@ repository-root `work/` directory.
 The benchmark source and documentation remain in the ZIP; raw measurements
 are distributed through CI's separate performance artifact bundle. This
 exclusion also applies to local packaging and does not remove working files.
+
+To create only the source exchange archive after a documentation change:
+
+```sh
+bash Tools/package_release.sh --zip --output-dir "$HOME"
+```
+
+This runs the text-only archive preflight and does not invoke `make`, a Core
+compiler, or an Android build.
 
 ## Feature contracts
 

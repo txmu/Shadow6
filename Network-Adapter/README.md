@@ -1,5 +1,9 @@
 # Unified network adapter
 
+> **Current contract (2026-10-02).** S6NA is an optional companion and
+> normalization layer. It is not required to deploy or interconnect a native
+> Core, and it never changes that Core's wire format.
+
 Python and Node.js are equal, wire-compatible backends for one bounded message
 API. They automatically
 segment, encrypt, number, acknowledge, retransmit, deduplicate and
