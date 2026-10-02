@@ -16,7 +16,7 @@ import unittest
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "Crosed"))
-from feature_contract import validate_ready_event
+from feature_contract import validate_feature_report, validate_ready_event
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat, PrivateFormat, NoEncryption
@@ -167,10 +167,23 @@ class CoreTests(unittest.TestCase):
     def test_feature_key_and_l0_contract(self):
         report = json.loads(subprocess.check_output([str(BIN), "--feature-report"]))
         self.assertEqual(report["core"], "shadow6-zig")
+        reports = [report]
         for binary in [ROOT / "Core-Go/shadow6-go", ROOT / "Core-Rust/shadow6-rust"]:
             expected = json.loads(subprocess.check_output([str(binary), "--feature-report"]))
-            expected["core"] = "shadow6-zig"
-            self.assertEqual(report, expected)
+            validate_feature_report(expected, expected["core"])
+            reports.append(expected)
+        validate_feature_report(report, "shadow6-zig")
+        shared_l0_fields = ("crosed_compiled", "crosed_max_level", "app_transport",
+                            "qubes_isolation", "gate_compiled", "gate_enabled_by_default",
+                            "utf8", "crosed_capabilities")
+        self.assertEqual({key: report[key] for key in shared_l0_fields}, {
+            "crosed_compiled": False, "crosed_max_level": 0, "app_transport": False,
+            "qubes_isolation": False, "gate_compiled": True,
+            "gate_enabled_by_default": False, "utf8": True, "crosed_capabilities": [],
+        })
+        for expected in reports[1:]:
+            self.assertEqual({key: report[key] for key in shared_l0_fields},
+                             {key: expected[key] for key in shared_l0_fields})
         key = subprocess.check_output([str(BIN), "--gen-key"], text=True)
         private = bytes.fromhex(re.search(r"Private Key \(Hex\):\s*(\w+)", key)[1])
         public = bytes.fromhex(re.search(r"Public Key \(Hex\):\s*(\w+)", key)[1])
