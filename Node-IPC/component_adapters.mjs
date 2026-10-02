@@ -25,6 +25,9 @@ const COMPONENTS = Object.freeze({
     schema: 'shadow6.capability-capsule-ipc.v1',
     description: 'read-only observations for short-lived registered Core/application capsules',
   },
+  plugins: { methods: ['plugins.capabilities','plugins.status','plugins.metrics','plugins.catalog'], schema: 'shadow6.plugins-ipc.v1', description: 'signed isolated plugin inventory observations' },
+  slots: { methods: ['slots.capabilities','slots.status','slots.metrics','slots.catalog'], schema: 'shadow6.slots-ipc.v1', description: 'typed slot catalog observations without invocation' },
+  gate: { methods: ['gate.capabilities','gate.status','gate.metrics','gate.sessions.summary'], schema: 'shadow6.gate-ipc.v1', description: 'authenticated Gate runtime observations without enablement or mutation' },
 });
 
 export function componentCatalog(component) {
@@ -51,7 +54,7 @@ export function componentHandler(component) {
       schema: `${contract.schema.replace('-ipc.v1', '-metrics.v1')}`,
       component, read_only: true, counters: {}, limits: {}, source: 'local-contract',
     };
-    if (method.endsWith('.summary') || method.endsWith('.snapshot')) return {
+    if (method.endsWith('.summary') || method.endsWith('.snapshot') || method.endsWith('.catalog')) return {
       schema: `${contract.schema.replace('-ipc.v1', '-observation.v1')}`,
       component, read_only: true, items: [], truncated: false, source: 'local-contract',
     };
