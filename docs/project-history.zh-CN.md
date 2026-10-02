@@ -500,3 +500,23 @@ Gleam feature report 现在同时声明 `localhost-tcp-proxy` stream 与
 可靠性保证。共享 feature validator 对两种合同分别严格校验；Control Center 候选目录
 逐项列出它们，capsule 按请求的 boundary mode 等待对应 readiness event，
 `libshadow6` 可选择 UDP 并通过 `Session.protocol` 和 endpoint 暴露其本地入口。
+
+### 10 月 2 日后续：近期实现与打包修正
+
+近期提交按时间顺序收口了以下工作：
+
+- `636b17e9`：修复 Hare 0.24.2 运行时兼容问题，并保留 FreeBSD 可用的动态 PIE hardening。
+- `f1b53040`：修复 libshadow6 聚合 JSON、Python 安装与并发调用；修正 app-flow 背压；
+  让 capability capsule 按 boundary 选择 Core、主动执行 TTL 并提供真实 pause/resume；
+  收敛 Node IPC capsule observer，并补充独立测试与 CI。
+- `17564da7`：加入 Python 应用 session facade，负责从注册 boundary 选择 Core、启动
+  capsule、返回 endpoint 并管理 session 生命周期。
+- `b3582098`：将 Gleam Micro-Mux UDP datagram boundary 加入 feature contract、capsule
+  候选发现与 libshadow6，且明确声明 best-effort、不保证顺序或可靠交付。
+- `8cb6439e`：修复 Hare 接收分支的语法与类型错误，及 Windows iperf3 TCP/UDP 联合端口
+  探测失败。
+- `c5bfe01d`：取消 tar 预检对 Go/Rust 默认与 Crosed 二进制必须存在的要求。发布目录有
+  编译产物时仍会随 tar 收入；没有这些产物时，源码包也可通过预检并完成打包。
+
+对应修复均有针对性本地测试；Gleam 和 Hare 还运行了各自的 Core 测试目标。跨平台
+Actions 在 `8cb6439e` 后重新触发，最终平台结果应以该次 workflow run 为准。
