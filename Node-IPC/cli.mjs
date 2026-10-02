@@ -7,7 +7,7 @@ import {spawn} from 'node:child_process';
 import {parseArgs} from 'node:util';
 import {FastRPCClient, FastRPCServer, RawIPCClient, RawIPCServer, loadKey, readPrivate, canonical, parseCanonical, LIMITS} from './shadow6_ipc.mjs';
 import {C11RelayAdapter, RELAY_IPC_TYPES} from './c11relay.mjs';
-import {IPC_COMPONENTS, componentCatalog, componentHandler} from './component_adapters.mjs';
+import {IPC_COMPONENTS, componentCatalog, componentHandler, capsuleObserverHandler} from './component_adapters.mjs';
 
 export function catalog() {
   return {schema: 'shadow6.node-ipc.v1', backend: 'node-builtin', node: '>=22', npm: false,
@@ -63,7 +63,8 @@ export function controlHandler({python = process.env.SHADOW6_PYTHON ?? (process.
 }
 export async function serve(config, options = {}) {
   const key = loadKey(config.key_file), adapter = config.component === 'c11relay' ? new C11RelayAdapter(config.relay) : null;
-  const control = adapter ? null : config.component === 'control-center' ? controlHandler(options) : componentHandler(config.component, options), servers = [];
+  const control = adapter ? null : config.component === 'control-center' ? controlHandler(options) :
+    config.component === 'capsule-observer' ? capsuleObserverHandler(controlHandler(options)) : componentHandler(config.component), servers = [];
   const common = {key, timeoutMs: config.timeout_ms, maxConnections: config.max_connections ?? 8};
   try {
     if (config.fastrpc) {

@@ -14,6 +14,15 @@ shadow6 control -- status
 `.venv/bin/python CLI/shadow6.py` 即可。若提示组件缺失，请在仓库根目录运行
 `make build`，完成后再试。
 
+`shadow6 features` 输出一个聚合 JSON 对象；需要单个 Core 时可运行
+`shadow6 features --component pony`。Python facade 安装到所选 Python 的
+`site-packages`：
+
+```sh
+make install PREFIX=/usr/local
+python3 -c 'from libshadow6 import Shadow6; print(Shadow6().features())'
+```
+
 Shadow6 现有十二套独立编译的 Core：Go、Rust、Gleam、Ada、Nim、Pony、Idris、
 Zig、D、C++、Hare 和 Carp。十二套均提供原生 broker/agent/client 路径；
 Idris、Hare、Carp 的三角色路径采用签名握手及有界固定路由 UDP，同时保留原有

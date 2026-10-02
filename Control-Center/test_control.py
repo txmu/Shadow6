@@ -20,6 +20,16 @@ CONTROL = Path(__file__).with_name("shadow6_control.py")
 
 
 class ControlCenterTests(unittest.TestCase):
+    def test_capsule_schema_uses_registry_selected_cores_and_real_mutation_gate(self):
+        spec = control.METHOD_SPECS["capsule.start"]["input_schema"]["properties"]["core"]
+        self.assertNotIn("enum", spec)
+        self.assertTrue(control.METHOD_SPECS["capsule.pause"]["mutating"])
+        self.assertTrue(control.METHOD_SPECS["capsule.resume"]["mutating"])
+        self.assertFalse(control.METHOD_SPECS["capsule.list"]["mutating"])
+        result = dispatch("capsule.list", {})
+        self.assertEqual(result["schema"], "shadow6.capability-capsule-catalog.v1")
+        self.assertIsInstance(result["capsules"], list)
+
     def test_interface_plan_is_read_only(self):
         self.assertFalse(control.METHOD_SPECS["network.interface_plan"]["mutating"])
         result=dispatch("network.interface_plan", {"name":"tun90","owner":1000})

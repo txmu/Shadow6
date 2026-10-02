@@ -115,18 +115,26 @@ tests report explicit skips when their prerequisites are absent.
 
 ## Candidate component contracts
 
-The dependency-free service also supports `virtual-broker`, `detector`, `s6na`,
-and `app-flow`, plus the `capsule` registry observer, as read-only component identities. Each exposes capabilities, status,
-bounded metrics, and component-specific summary/snapshot observations. Mutation, packet
-injection, configuration reload, and credential bypass are unavailable; each
-component keeps its own authentication and lifecycle rules. Configure one of
-these identities in `node-ipc-config.v1` with a dedicated owner-only key.
-These are contract-level observations; they do not impersonate a running
-component or replace its admission, policy, or transport authentication.
-For `app-flow`, the contract reports the bounded loopback shim and its
-intentional client-only scope; IPC does not start or mutate the shim.
-`capsule` reports registered capsule kinds and aggregate lifecycle state; it
-does not accept executable paths or arbitrary process arguments.
+The dependency-free service also supports eight read-only component identities:
+`virtual-broker`, `detector`, `s6na`, `app-flow`, `capsule-observer`, `plugins`,
+`slots`, and `gate`. Configure one of these identities in `node-ipc-config.v1`
+with a dedicated owner-only key. The generic adapters expose only observation
+methods; they do not keep shadow `paused` flags or mutate another process.
+
+`app-flow` describes the bounded loopback shim but does not control it.
+`capsule-observer` is bound to Control Center's live `capsule.list` result and
+reports active Core-owned capsule states without exposing bearer tokens. The
+Control Center lifecycle methods are named `capsule.start/status/list/stop/
+pause/resume`; they operate on the actual Core and proxy process groups. They
+are available through the Node `control-center` adapter only when the service
+was explicitly started with `--allow-mutations`. A read-only observer never
+pretends that its own local state has paused a Core or stopped FD reads.
+
+Capsule startup reads each registered executable's `--feature-report`. A
+`seqpacket-fd` client boundary uses the loopback `app_flow_proxy`; a
+`localhost-tcp-proxy` boundary launches the Core and accepts its bounded
+`shadow6.ready` JSONL endpoint event directly. A Core without either declared
+client boundary is rejected. Capsule TTLs are enforced by a background reaper.
 
 ```sh
 shadow6 ipc call --config /tmp/shadow6-ipc-local/config.json \
@@ -137,7 +145,7 @@ shadow6 ipc call --config /tmp/shadow6-ipc-local/config.json \
   --method s6na.status
 ```
 
-The CLI catalog lists all five supported component identities. Unsupported
+The CLI catalog lists all eight supported component identities. Unsupported
 identities fail closed during configuration loading. RawIPC type 1 for these
 components is limited to the same canonical status calls; other types are
 rejected.

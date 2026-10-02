@@ -25,11 +25,13 @@ def _cli() -> str:
     return value
 
 
-def run(*args: str, input: str | None = None, timeout: float = 30) -> subprocess.CompletedProcess[str]:
+def run(*args: str, input: str | None = None, timeout: float = 30,
+        cli: str | os.PathLike[str] | None = None) -> subprocess.CompletedProcess[str]:
     """Run one fixed local Shadow6 CLI route and return its text result."""
     if any(not isinstance(arg, str) or not arg or "\x00" in arg for arg in args):
         raise ValueError("arguments must be non-empty strings without NUL")
-    result = subprocess.run([_cli(), *args], input=input, text=True,
+    executable = str(cli) if cli is not None else _cli()
+    result = subprocess.run([executable, *args], input=input, text=True,
                             capture_output=True, timeout=timeout, check=False)
     if result.returncode:
         raise Shadow6Error(result.stderr.strip() or f"shadow6 exited {result.returncode}")
@@ -48,13 +50,7 @@ class Shadow6:
             self.cli = _cli()
 
     def call(self, *args: str, input: str | None = None, timeout: float = 30) -> str:
-        old = os.environ.get("SHADOW6_CLI")
-        os.environ["SHADOW6_CLI"] = self.cli
-        try:
-            return run(*args, input=input, timeout=timeout).stdout
-        finally:
-            if old is None: os.environ.pop("SHADOW6_CLI", None)
-            else: os.environ["SHADOW6_CLI"] = old
+        return run(*args, input=input, timeout=timeout, cli=self.cli).stdout
 
     def json(self, *args: str, input: str | None = None, timeout: float = 30) -> dict:
         try: value = json.loads(self.call(*args, input=input, timeout=timeout))
@@ -62,5 +58,16 @@ class Shadow6:
         if not isinstance(value, dict): raise Shadow6Error("expected JSON object")
         return value
 
-    def features(self) -> dict:
-        return self.json("features")
+    def features(self, component: str | None = None) -> dict:
+        args = ("features", "--format", "json")
+        if component is not None:
+            if not isinstance(component, str) or not component:
+                raise ValueError("component must be a non-empty string")
+            args += ("--component", component)
+        result = self.json(*args)
+        if component is None:
+            return result
+        reports = result.get("components")
+        if not isinstance(reports, list) or len(reports) != 1 or not isinstance(reports[0], dict):
+            raise Shadow6Error("invalid aggregate feature response")
+        return reports[0]

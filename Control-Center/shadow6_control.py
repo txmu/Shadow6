@@ -124,9 +124,12 @@ METHOD_SPECS: dict[str, dict[str, Any]] = {
     "ipc.raw": _method("Exchange bounded authenticated binary IPC with an operator-configured component.",
         {"type": {"type":"integer", "minimum":1, "maximum":255}, "payload_base64": {"type":"string", "maxLength":60000}},
         ("type", "payload_base64"), mutating=True),
-    "capsule.start": _method("Start one registered client Core and loopback application-flow capsule.", {"core":{"type":"string","enum":["pony","hare","carp","idris","go","rust","gleam","nim","cpp","zig","ada","d"]},"config":_PATH,"protocol":{"type":"string","enum":["tcp","udp"]},"host":{"type":"string","enum":["127.0.0.1","::1"]},"port":{"type":"integer","minimum":1,"maximum":65535},"max_record":{"type":"integer","minimum":1,"maximum":65536},"ttl":{"type":"integer","minimum":30,"maximum":300}}, ("core","config","protocol","port"), mutating=True),
+    "capsule.start": _method("Start a registered Core selected from its client application-boundary feature report. Seqpacket boundaries require loopback proxy settings; Core-owned stream boundaries announce their endpoint.", {"core":{"type":"string","maxLength":64},"config":_PATH,"protocol":{"type":"string","enum":["tcp","udp"]},"host":{"type":"string","enum":["127.0.0.1","::1"]},"port":{"type":"integer","minimum":1,"maximum":65535},"max_record":{"type":"integer","minimum":1,"maximum":1172},"ttl":{"type":"integer","minimum":30,"maximum":300}}, ("core","config"), mutating=True),
     "capsule.status": _method("Read one capability capsule status.", {"token":_STRING}, ("token",)),
     "capsule.stop": _method("Stop one capability capsule.", {"token":_STRING}, ("token",), mutating=True),
+    "capsule.pause": _method("Suspend every process in one capability capsule process group.", {"token":_STRING}, ("token",), mutating=True),
+    "capsule.resume": _method("Resume every process in one paused capability capsule.", {"token":_STRING}, ("token",), mutating=True),
+    "capsule.list": _method("List active capsule states without exposing bearer tokens."),
     "c11relay.ipc.status": _method("Read companion relay metrics over authenticated FastRPC; does not send a datagram."),
     "c11relay.ipc.schema": _method("Return the bounded C11Relay RawIPC datagram contract."),
     "system.guide": _method("Read a bilingual guide to safe operations and privacy.", {"lang": {"type": "string", "enum": ["en", "zh"]}}),
@@ -423,12 +426,18 @@ def dispatch(method: str, raw_params: Any = None) -> Any:
         from ipc_client import invoke
         return invoke(ROOT, "catalog", {})
     if method.startswith("capsule."):
-        from capability_capsule import start as capsule_start, status as capsule_status, stop as capsule_stop
+        from capability_capsule import start as capsule_start, status as capsule_status, stop as capsule_stop, pause as capsule_pause, resume as capsule_resume, list_capsules
         if method == "capsule.start":
             _only(params, {"core","config","protocol","host","port","max_record","ttl"})
-            return capsule_start(params["core"], params["config"], params["protocol"], params.get("host", "127.0.0.1"), params["port"], params.get("max_record", 1172), params.get("ttl", 300))
+            return capsule_start(params["core"], params["config"], params.get("protocol"), params.get("host"), params.get("port"), params.get("max_record"), params.get("ttl", 300))
+        if method == "capsule.list":
+            _only(params, set())
+            return list_capsules()
         _only(params, {"token"})
-        return capsule_status(params["token"]) if method == "capsule.status" else capsule_stop(params["token"])
+        if method == "capsule.status": return capsule_status(params["token"])
+        if method == "capsule.stop": return capsule_stop(params["token"])
+        if method == "capsule.pause": return capsule_pause(params["token"])
+        if method == "capsule.resume": return capsule_resume(params["token"])
     if method in {"ipc.call", "ipc.raw", "c11relay.ipc.status"}:
         from ipc_client import invoke
         if method == "ipc.call":

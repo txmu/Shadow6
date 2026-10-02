@@ -460,3 +460,26 @@ FD 传递和 opt-in 启动，不通过全局环境变量制造不存在的 egres
 同日推出 `libshadow6` 薄壳。它依赖本机已安装的 `shadow6` CLI，只提供命令转发和
 JSON 结果读取，不内置 Core 名称、默认核心、协议栈或第二套策略。调用方通过安装
 环境决定可用功能；`SHADOW6_CLI` 仅用于指定已安装命令的位置。
+
+### 10 月 2 日后续：Facade、胶囊生命周期与 Node IPC 收口
+
+CLI 的 `shadow6 features` 现在输出单个 `shadow6.features.v1` 聚合 JSON 文档，
+`--component` 用于筛选单一 Core；`libshadow6.features()` 直接消费该合同。Facade
+安装到所选 Python 解释器的标准 `site-packages`，实例调用不再临时修改进程级环境变量。
+
+`app_flow_proxy` 将 TCP peer 数限制为 64。待发记录达到 64 条时，它暂停 listener 和
+所有已接入 peer 的读事件；队列降到 32 条后恢复，并监听 seqpacket FD 的可写事件，
+让背压解除及时唤醒发送。UDP 超长报文也会在截断后被拒绝。
+
+Control Center capability capsule 从注册 Core 的 feature report 选择 client boundary：
+`seqpacket-fd` 使用 socketpair、proxy 与启动就绪握手；`localhost-tcp-proxy` 则等待
+Core 自己发出的 `shadow6.ready` 事件并使用 Core listener。相关 executable、配置、
+proxy 和上限在启动常驻进程前完成校验。后台 reaper 到期即关闭进程组；受授权的
+`capsule.pause/resume` 会实际暂停或恢复 Core 与 proxy。只有具备 client boundary 的
+注册 Core 可启动，这不会声明不同 Core 的原生 wire 互通。
+
+Node IPC 的八个通用 adapter identity 现为
+`virtual-broker`、`detector`、`s6na`、`app-flow`、`capsule-observer`、`plugins`、
+`slots`、`gate`。`capsule-observer` 读取 Control Center 的真实胶囊目录且不暴露 token；
+通用只读 adapter 不再伪造本地 `paused` 状态。app-flow 的通用 IPC 也不再宣传 pause/resume；
+进程生命周期操作集中在 Control Center 的受限 capsule API。

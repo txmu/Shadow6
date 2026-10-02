@@ -847,6 +847,11 @@ jobs:
           shellcheck configure Core-Cpp/*.sh C11Relay/*.sh Guard/*.sh Tools/*.sh Core-Carp/*.sh Core-Gleam/*.sh
       - run: make crosed-variants BUILD_PONY=1
       - run: make test
+      - name: Test Node IPC adapter identities and capsule lifecycle binding
+        env:
+          SHADOW6_IPC_CONTROL_TEST: '1'
+          SHADOW6_PYTHON: ${{ github.workspace }}/.venv/bin/python
+        run: node --test Node-IPC/test_ipc.mjs
       - name: Benchmark both S6NA backends
         run: |
           set -euo pipefail
@@ -877,6 +882,10 @@ jobs:
           stage_dir="$(mktemp -d /tmp/shadow6-install.XXXXXX)"
           trap 'rm -rf -- "$stage_dir"' EXIT
           make install DESTDIR="$stage_dir" PREFIX=/usr/local
+          python_site="$(.venv/bin/python -c 'import sysconfig; print(sysconfig.get_path("purelib", vars={"base":"/usr/local","platbase":"/usr/local"}))')"
+          staged_python_site="$stage_dir$python_site"
+          test -f "$staged_python_site/libshadow6/__init__.py"
+          PYTHONPATH="$staged_python_site" .venv/bin/python -c 'from libshadow6 import Shadow6; assert callable(Shadow6.features)'
           "$stage_dir/usr/local/bin/shadow6-hare" --feature-report
           "$stage_dir/usr/local/bin/shadow6-plugins" list
           "$stage_dir/usr/local/bin/shadow6-security" list >/dev/null

@@ -155,7 +155,7 @@ def main():
   q.add_argument("--max-connections",type=int,default=32); q.add_argument("--idle-seconds",type=int,default=120)
   q.add_argument("--check",action="store_true")
  add_hands_parser(sub)
- q=sub.add_parser("features");q.add_argument("--component",choices=(*CORE_NAMES,"gate"),action="append",default=[])
+ q=sub.add_parser("features");q.add_argument("--component",choices=(*CORE_NAMES,"gate"),action="append",default=[]);q.add_argument("--format",choices=("json","lines"),default="json")
  q=sub.add_parser("vcore",help="discover installed cores and capability intersection");q.add_argument("args",nargs=argparse.REMAINDER)
  q=sub.add_parser("benchmark",help="run real native benchmarks for selected cores")
  q.add_argument("--core",dest="cores",action="append",choices=sorted((*CORE_NAMES,"gleam-mux")))
@@ -188,7 +188,21 @@ def main():
   return run(a.command,args,a.json_events)
  if a.command in COMPONENTS:return run(a.command,tail(a.args),a.json_events)
  if a.command in TRANSPORTS:return run("control",[a.command]+tail(a.args),a.json_events)
- if a.command=="features":return max(run(n,["--feature-report"],a.json_events) for n in (a.component or ["go","rust","gate"]))
+ if a.command=="features":
+  names=a.component or ["go","rust","gate"]
+  if a.format=="lines":return max(run(n,["--feature-report"],a.json_events) for n in names)
+  reports=[]
+  for name in names:
+   if a.json_events:print(json.dumps({"event":"process.started","component":name,"argument_count":1}),file=sys.stderr,flush=True)
+   result=subprocess.run(command_for(name,["--feature-report"]),capture_output=True,text=True,timeout=10,check=False)
+   if a.json_events:print(json.dumps({"event":"process.finished","component":name,"exit_code":result.returncode}),file=sys.stderr,flush=True)
+   if result.returncode:raise SystemExit(result.returncode)
+   try: report=json.loads(result.stdout)
+   except json.JSONDecodeError as error:raise SystemExit(f"{name}: invalid feature report JSON: {error}") from error
+   if not isinstance(report,dict) or report.get("core")!="shadow6-"+name:raise SystemExit(f"{name}: unexpected feature report")
+   reports.append(report)
+  print(json.dumps({"schema":"shadow6.features.v1","components":reports},ensure_ascii=False,separators=(",",":")))
+  return 0
  if a.command=="vcore":
   import shadow6_vcore
   return subprocess.run([sys.executable, shadow6_vcore.__file__]+tail(a.args), check=False).returncode

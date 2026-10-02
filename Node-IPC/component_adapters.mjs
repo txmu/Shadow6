@@ -16,14 +16,14 @@ const COMPONENTS = Object.freeze({
     description: 'adapter profile and limit observability; transport remains separately authenticated',
   },
   'app-flow': {
-    methods: ['app-flow.capabilities', 'app-flow.status', 'app-flow.metrics', 'app-flow.queue.summary', 'app-flow.pause', 'app-flow.resume'],
+    methods: ['app-flow.capabilities', 'app-flow.status', 'app-flow.metrics', 'app-flow.queue.summary'],
     schema: 'shadow6.app-flow-ipc.v1',
     description: 'bounded loopback application ingress shim; client-only and read-only over IPC',
   },
-  capsule: {
-    methods: ['capsule.capabilities', 'capsule.status', 'capsule.metrics', 'capsule.sessions.summary', 'capsule.pause', 'capsule.resume'],
-    schema: 'shadow6.capability-capsule-ipc.v1',
-    description: 'read-only observations for short-lived registered Core/application capsules',
+  'capsule-observer': {
+    methods: ['capsule-observer.capabilities', 'capsule-observer.status', 'capsule-observer.metrics', 'capsule-observer.sessions.summary'],
+    schema: 'shadow6.capability-capsule-observer-ipc.v1',
+    description: 'read-only view of Control Center managed capability capsules; lifecycle control uses capsule.* methods',
   },
   plugins: { methods: ['plugins.capabilities','plugins.status','plugins.metrics','plugins.catalog'], schema: 'shadow6.plugins-ipc.v1', description: 'signed isolated plugin inventory observations' },
   slots: { methods: ['slots.capabilities','slots.status','slots.metrics','slots.catalog'], schema: 'shadow6.slots-ipc.v1', description: 'typed slot catalog observations without invocation' },
@@ -37,17 +37,10 @@ export function componentCatalog(component) {
     read_only: true, description: contract.description};
 }
 
-export function componentHandler(component, {allowMutations = false} = {}) {
+export function componentHandler(component) {
   const contract = COMPONENTS[component];
   if (!contract) throw Error('unsupported IPC component');
-  let paused = false;
   return (method, params) => {
-    if (method === `${component}.pause` || method === `${component}.resume`) {
-      if (!allowMutations) throw Error('component mutation is disabled');
-      if (params && Object.keys(params).length) throw Error('mutation takes no parameters');
-      paused = method.endsWith('.pause');
-      return {schema: `${contract.schema.replace('-ipc.v1', '-mutation.v1')}`, component, state: paused ? 'paused' : 'running', read_only: false};
-    }
     if (!params || Array.isArray(params) || typeof params !== 'object' || Object.keys(params).length) {
       throw Error('component status methods take no parameters');
     }
@@ -55,7 +48,7 @@ export function componentHandler(component, {allowMutations = false} = {}) {
     if (method === `${component}.status`) return {
       schema: `${contract.schema.replace('-ipc.v1', '-status.v1')}`,
       component, state: 'available', read_only: true,
-      methods: contract.methods, control_state: paused ? 'paused' : 'running',
+      methods: contract.methods,
     };
     if (method === `${component}.metrics`) return {
       schema: `${contract.schema.replace('-ipc.v1', '-metrics.v1')}`,
@@ -70,3 +63,35 @@ export function componentHandler(component, {allowMutations = false} = {}) {
 }
 
 export const IPC_COMPONENTS = Object.freeze(Object.keys(COMPONENTS));
+
+export function capsuleObserverHandler(control) {
+  if (typeof control !== 'function') throw Error('Control Center capsule observer binding required');
+  const component = 'capsule-observer', contract = COMPONENTS[component];
+  return async (method, params) => {
+    if (!params || Array.isArray(params) || typeof params !== 'object' || Object.keys(params).length) {
+      throw Error('capsule observer methods take no parameters');
+    }
+    if (method === `${component}.capabilities`) return componentCatalog(component);
+    if (![`${component}.status`, `${component}.metrics`, `${component}.sessions.summary`].includes(method)) {
+      throw Error('unknown component method');
+    }
+    const catalog = await control('capsule.list', {});
+    if (!catalog || catalog.schema !== 'shadow6.capability-capsule-catalog.v1' ||
+        !Array.isArray(catalog.capsules) || catalog.capsules.length > 256) {
+      throw Error('invalid Control Center capsule catalog');
+    }
+    if (method === `${component}.sessions.summary`) {
+      return {schema: 'shadow6.capability-capsule-observation.v1', component,
+        read_only: true, items: catalog.capsules, truncated: false, source: 'control-center'};
+    }
+    if (method === `${component}.metrics`) {
+      return {schema: 'shadow6.capability-capsule-metrics.v1', component, read_only: true,
+        counters: {active: catalog.capsules.length,
+          paused: catalog.capsules.filter(item => item.state === 'paused').length},
+        limits: {capsules: 256}, source: 'control-center'};
+    }
+    return {schema: 'shadow6.capability-capsule-observer-status.v1', component,
+      state: 'available', read_only: true, methods: contract.methods,
+      active: catalog.capsules.length, source: 'control-center'};
+  };
+}

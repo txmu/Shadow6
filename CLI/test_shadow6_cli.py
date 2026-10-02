@@ -42,5 +42,19 @@ class CLITests(unittest.TestCase):
     self.assertEqual(shadow6.main(),0)
    self.assertTrue(private.is_file());self.assertTrue(public.is_file())
  def test_known_component_without_shell(self):self.assertEqual(command_for("gate",["--feature-report"])[-1],"--feature-report")
+ def test_features_default_to_one_aggregate_json_document(self):
+  reports={name:{"core":"shadow6-"+name} for name in ("go","rust","gate")}
+  def command(name,args):return [sys.executable,"-c",f"import json; print(json.dumps({reports[name]!r}))"]
+  output=io.StringIO()
+  with mock.patch.object(sys,"argv",["shadow6","features"]),mock.patch.object(shadow6,"command_for",side_effect=command),contextlib.redirect_stdout(output):
+   self.assertEqual(shadow6.main(),0)
+  result=json.loads(output.getvalue())
+  self.assertEqual(result["schema"],"shadow6.features.v1")
+  self.assertEqual(result["components"],[reports[name] for name in ("go","rust","gate")])
+ def test_features_component_filter_aggregates_only_selected_report(self):
+  report={"core":"shadow6-pony"};output=io.StringIO()
+  with mock.patch.object(sys,"argv",["shadow6","features","--component","pony","--format","json"]),mock.patch.object(shadow6,"command_for",return_value=[sys.executable,"-c",f"import json; print(json.dumps({report!r}))"]),contextlib.redirect_stdout(output):
+   self.assertEqual(shadow6.main(),0)
+  self.assertEqual(json.loads(output.getvalue())["components"],[report])
  def test_api_transports_integrated(self):self.assertTrue({"mcp","lsp","openai-rpc","serve","rpc"}<=TRANSPORTS);self.assertIn("migrate",COMPONENTS)
 if __name__=="__main__":unittest.main()

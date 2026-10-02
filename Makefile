@@ -35,6 +35,7 @@ export CROSED_LEVEL APP_TRANSPORT QUBES_ISOLATION
 PREFIX ?= /usr/local
 DESTDIR ?=
 PYTHON ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python3)
+PYTHON_SITE_PACKAGES ?= $(shell $(PYTHON) -c 'import sysconfig; print(sysconfig.get_path("purelib", vars={"base":"$(PREFIX)","platbase":"$(PREFIX)"}))')
 
 .PHONY: all build benchmark performance-matrix benchmark-test network-adapter-test node-ipc-test network-adapter-benchmark core-go core-rust core-gleam test-gleam core-cpp core-hare test-hare core-carp test-carp core-pony test-pony pony-crosed-variant gate migration i18n crosed-variants public6 public6-variants public6-contract relay guard service-init auto detector plugins package-manager easybuild crosed app-layer extension-system assistants slots control-center android-preflight android-cores android-apk integration-test test check audit package install install-tree clean distclean
 
@@ -366,6 +367,8 @@ endif
 test:
 	@$(PYTHON) -m unittest -v test_compliance.py
 	@PYTHONPATH=Tools $(PYTHON) -m unittest discover -s Tools -p 'test_*.py' -v
+	@$(PYTHON) -m unittest -v libshadow6/test_libshadow6.py
+	@PYTHONPATH=Tools $(PYTHON) -m unittest -v Tools/test_app_flow_proxy.py
 ifeq ($(BUILD_HARE),1)
 	@$(MAKE) test-hare
 endif
@@ -420,6 +423,7 @@ ifeq ($(BUILD_ASSISTANTS),1)
 endif
 ifeq ($(BUILD_CONTROL),1)
 	@PYTHONPATH=Control-Center $(PYTHON) -m unittest -v Control-Center/test_control.py
+	@PYTHONPATH=Control-Center $(PYTHON) -m unittest -v Control-Center/test_capability_capsule.py
 endif
 ifeq ($(BUILD_SLOTS),1)
 	@PYTHONPATH=Plugin-System:Security-Assistants:Slot-System $(PYTHON) -m unittest -v Slot-System/test_slots.py
@@ -518,8 +522,8 @@ endif
 	@install -d -m 0755 "$(DESTDIR)$(PREFIX)/share/shadow6/modules"
 	@install -m 0644 CLI/shadow6_vcore.py CLI/vcore_adapters.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/"
 	@install -m 0644 Tools/python_runtime.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/"
-	@install -d -m 0755 "$(DESTDIR)$(PREFIX)/share/shadow6/libshadow6"
-	@install -m 0644 libshadow6/__init__.py "$(DESTDIR)$(PREFIX)/share/shadow6/libshadow6/"
+	@install -d -m 0755 "$(DESTDIR)$(PYTHON_SITE_PACKAGES)/libshadow6"
+	@install -m 0644 libshadow6/__init__.py "$(DESTDIR)$(PYTHON_SITE_PACKAGES)/libshadow6/"
 	@install -m 0644 Network-Adapter/shadow6_network.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/"
 	@install -m 0644 Network-Adapter/shadow6_network.mjs "$(DESTDIR)$(PREFIX)/share/shadow6/modules/"
 	@install -m 0644 Network-Adapter/secure_key_windows.ps1 "$(DESTDIR)$(PREFIX)/share/shadow6/modules/"

@@ -34,6 +34,28 @@ API 只监听回环地址，并拒绝异常 Host、重复认证头、跨站浏�
 本机地址和端口；收到 `415`，请添加 `Content-Type: application/json` 并发送
 未压缩的 UTF-8 JSON。这样的错误信息是路标，不必靠猜。
 
+## Capability capsule
+
+胶囊注册表由运维者通过 `SHADOW6_CAPSULE_REGISTRY` 指定，JSON 文件必须由当前用户
+拥有且权限为 `0600`。每个条目只登记 Core 名称、可执行文件和可选的记录上限：
+
+```json
+{"hare":{"binary":"/usr/local/bin/shadow6-hare","max_record":978}}
+```
+
+`capsule.start` 会读取已登记 Core 的 `--feature-report`，按 client
+`application_boundaries` 选择入口：`seqpacket-fd` 使用 socketpair 和 loopback
+`app_flow_proxy`；`localhost-tcp-proxy` 由 Core 自己创建 listener，并通过
+`shadow6.ready` JSONL 事件报告实际地址。stream Core 不接收 proxy 参数。没有声明
+受支持入口的 Core 会被拒绝。
+
+seqpacket 胶囊需要设置 `SHADOW6_APP_FLOW_PROXY`，并在 `capsule.start` 提供监听端口；
+协议默认 TCP，回环地址默认 `127.0.0.1`。Core 与 proxy 都确认启动后，API 才返回成功。
+TTL 由后台 reaper 主动执行；
+`capsule.pause/resume` 会实际暂停或继续胶囊的 Core 和 proxy 进程组。
+`capsule.list` 只返回不含 bearer token 的运行摘要。所有变更仍受默认关闭的 mutation
+授权控制。
+
 ## 组件 IPC
 
 `ipc.catalog` 返回无 npm 依赖的 Node FastRPC/RawIPC 契约；`ipc.call`、

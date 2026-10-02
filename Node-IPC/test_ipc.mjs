@@ -152,12 +152,22 @@ test('C11Relay FastRPC/RawIPC share peer-isolated UDP channels, batches and metr
   assert.ok((await rpc.call('c11relay.shell', {})).error);
 });
 
-test('Virtual Broker, Detector, S6NA and app-flow expose bounded read-only contracts', {skip: !posix}, async t => {
-  for (const component of ['virtual-broker', 'detector', 's6na', 'app-flow', 'capsule', 'plugins', 'slots', 'gate']) {
+test('all eight component adapters expose read-only bounded contracts and live capsule observations', {skip: !posix}, async t => {
+  const names = ['virtual-broker', 'detector', 's6na', 'app-flow', 'capsule-observer', 'plugins', 'slots', 'gate'];
+  assert.deepEqual((await import('./component_adapters.mjs')).IPC_COMPONENTS, names);
+  for (const component of names) {
     const o = fixture(t), key = o.key;
-    const server = new FastRPCServer({key, socketPath: o.socketPath, handler: component === 'virtual-broker'
-      ? (method, params) => import('./component_adapters.mjs').then(({componentHandler}) => componentHandler(component)(method, params))
-      : (method, params) => import('./component_adapters.mjs').then(({componentHandler}) => componentHandler(component)(method, params))});
+    const server = new FastRPCServer({key, socketPath: o.socketPath, handler: async (method, params) => {
+      const adapters = await import('./component_adapters.mjs');
+      if (component === 'capsule-observer') {
+        const handler = adapters.capsuleObserverHandler(async name => {
+          assert.equal(name, 'capsule.list');
+          return {schema: 'shadow6.capability-capsule-catalog.v1', capsules: [{core: 'hare', mode: 'seqpacket-fd', state: 'paused', pids: [123], expires_in: 30}]};
+        });
+        return handler(method, params);
+      }
+      return adapters.componentHandler(component)(method, params);
+    }});
     t.after(() => server.close()); await server.listen();
     const client = new FastRPCClient({key, socketPath: o.socketPath});
     const capabilities = (await client.call(`${component}.capabilities`)).result;
@@ -169,8 +179,13 @@ test('Virtual Broker, Detector, S6NA and app-flow expose bounded read-only contr
       assert.ok(result.schema.startsWith('shadow6.'));
     }
     assert.ok((await client.call(`${component}.reload`, {})).error);
-    if (component === 'app-flow') {
-      assert.ok((await client.call('app-flow.pause', {})).error);
+    if (component === 'app-flow' || component === 'capsule-observer') {
+      assert.ok((await client.call(`${component}.pause`, {})).error);
+    }
+    if (component === 'capsule-observer') {
+      const summary = (await client.call('capsule-observer.sessions.summary')).result;
+      assert.equal(summary.items[0].state, 'paused');
+      assert.equal((await client.call('capsule-observer.metrics')).result.counters.paused, 1);
     }
     await server.close();
   }
@@ -210,6 +225,10 @@ test('Control Center via FastRPC and RawIPC uses existing dispatcher and mutatio
   });
   const result = (await new FastRPCClient(fast).call('system.schema')).result; assert.ok(result.methods['ipc.raw']);
   assert.ok((await new FastRPCClient(fast).call('config.render', {})).error);
+  const capsuleCatalog = (await new FastRPCClient(fast).call('capsule.list')).result;
+  assert.equal(capsuleCatalog.schema, 'shadow6.capability-capsule-catalog.v1');
+  assert.ok(Array.isArray(capsuleCatalog.capsules));
+  assert.ok((await new FastRPCClient(fast).call('capsule.pause', {token: 'not-a-token'})).error);
   const bytes = await new RawIPCClient(raw).call(canonical({method: 'system.guide', params: {lang: 'en'}})); assert.equal(parseCanonical(bytes).lang, 'en');
 });
 test('real prebuilt C11Relay normal/high-speed through both IPC paths', {skip: !process.env.SHADOW6_RELAY_BINARY, timeout: 15000}, async t => {
