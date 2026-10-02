@@ -26,9 +26,12 @@ class ControlCenterTests(unittest.TestCase):
         self.assertTrue(control.METHOD_SPECS["capsule.pause"]["mutating"])
         self.assertTrue(control.METHOD_SPECS["capsule.resume"]["mutating"])
         self.assertFalse(control.METHOD_SPECS["capsule.list"]["mutating"])
+        self.assertFalse(control.METHOD_SPECS["capsule.candidates"]["mutating"])
         result = dispatch("capsule.list", {})
         self.assertEqual(result["schema"], "shadow6.capability-capsule-catalog.v1")
         self.assertIsInstance(result["capsules"], list)
+        candidates = dispatch("capsule.candidates", {})
+        self.assertEqual(candidates["schema"], "shadow6.capability-capsule-candidates.v1")
 
     def test_interface_plan_is_read_only(self):
         self.assertFalse(control.METHOD_SPECS["network.interface_plan"]["mutating"])

@@ -130,15 +130,30 @@ def _client_application_boundary(binary: Path) -> dict[str, Any]:
         if mode == "seqpacket-fd":
             maximum = boundary.get("max_record")
             if type(maximum) is int and 1 <= maximum <= MAX_RECORD:
-                choices.append({"mode": mode, "max_record": maximum})
+                choices.append(dict(boundary))
         elif mode == "localhost-tcp-proxy" and boundary.get("listener_ownership") == "core":
             if boundary.get("endpoint_discovery") == "stdout-ready-jsonl-v1":
-                choices.append({"mode": mode})
+                choices.append(dict(boundary))
     if not choices:
         raise ValueError("Core declares no supported client application boundary")
     # Prefer the Core-owned stream listener when a family advertises both.
     selected = next((item for item in choices if item["mode"] == "localhost-tcp-proxy"), choices[0])
     return {**selected, "core": report["core"]}
+
+
+def candidates() -> dict[str, Any]:
+    """Report only registered Cores with a supported client boundary."""
+    registered = capsule_registry()
+    available = []
+    for name, spec in registered.items():
+        try:
+            binary = _resolved_executable(spec["binary"], "Core")
+            boundary = _client_application_boundary(binary)
+        except (OSError, ValueError, TimeoutError):
+            continue
+        available.append({"core": name, "identity": boundary["core"],
+                          "boundary": boundary})
+    return {"schema": "shadow6.capability-capsule-candidates.v1", "candidates": available}
 
 
 def _stream_ready(process: subprocess.Popen, expected_core: str, timeout: float = 15) -> dict[str, Any]:

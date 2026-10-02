@@ -67,6 +67,8 @@ Doctor 只观察本地项目，不会改服务、防火墙或路由。日常快�
 
 分享诊断前，看看[隐私与接口说明](privacy-interfaces.md)中的适用范围和排错建议。
 
-需要从 Python 调用本机 Shadow6 时，可使用 `libshadow6` 薄壳。它只寻找已安装的
-`shadow6` 命令并转发固定参数，不选择或假定任何 Core；Core、策略和凭据仍由本机
-安装负责。通过 `SHADOW6_CLI` 可指定已安装命令的位置。
+Python 应用可通过 `libshadow6` 请求已注册 Core 提供的应用入口。`open()` 根据
+Control Center 候选表中的 `application_boundaries` 匹配需求，启动胶囊并返回
+loopback endpoint；离开 `Shadow6` 或 `Session` context 时停止所拥有的胶囊。示例和
+配置要求见 [`libshadow6` 文档](../libshadow6/README.md)。这个选择只验证外围入口合同，
+不会把不同 Core 的 wire protocol 视为兼容。

@@ -56,6 +56,13 @@ TTL 由后台 reaper 主动执行；
 `capsule.list` 只返回不含 bearer token 的运行摘要。所有变更仍受默认关闭的 mutation
 授权控制。
 
+`capsule.candidates` 是只读发现接口：它只列注册表中的 Core，并附上 feature report
+声明的 client boundary。Python `libshadow6.open(require, config=...)` 用它匹配
+`kind`、`reliable`、`ordered` 等约束，再调用 `capsule.start`；应用得到实际 loopback
+endpoint。`Session.close()` 或退出 `Shadow6` context 会停止所拥有的 capsule。配置文件
+可通过 `SHADOW6_CONFIG` 提供默认值。候选选择只判断外围 boundary，不会推断 Core wire
+兼容性。
+
 ## 组件 IPC
 
 `ipc.catalog` 返回无 npm 依赖的 Node FastRPC/RawIPC 契约；`ipc.call`、

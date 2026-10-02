@@ -11,6 +11,86 @@ import libshadow6
 
 
 class LibShadow6Tests(unittest.TestCase):
+    def test_open_selects_matching_boundary_and_context_stops_capsule(self):
+        class Runtime(libshadow6.Shadow6):
+            def __init__(self):
+                self.cli = "unused"
+                self._sessions = set()
+                self._closed = False
+                self.calls = []
+
+            def _control(self, method, params):
+                self.calls.append((method, params))
+                if method == "capsule.candidates":
+                    return {"schema": "shadow6.capability-capsule-candidates.v1", "candidates": [
+                        {"core": "pony", "boundary": {"kind": "stream", "mode": "localhost-tcp-proxy",
+                         "roles": ["client"], "ordered": True, "reliable": True}}]}
+                if method == "capsule.start":
+                    return {"state": "running", "token": "secret-token", "mode": "localhost-tcp-proxy",
+                            "endpoint": {"host": "127.0.0.1", "port": 43210}}
+                return {"state": "stopped"}
+
+        runtime = Runtime()
+        with runtime as s6:
+            with s6.open({"kind": "stream", "reliable": True, "ordered": True},
+                         config="/tmp/core.json") as session:
+                self.assertEqual(session.core, "pony")
+                self.assertEqual(session.endpoint, {"host": "127.0.0.1", "port": 43210})
+                self.assertEqual(session.status(), {"state": "stopped"})
+                session.pause()
+                session.resume()
+            self.assertEqual(runtime.calls[-1][0], "capsule.stop")
+        self.assertEqual([call[0] for call in runtime.calls],
+                         ["capsule.candidates", "capsule.start", "capsule.status", "capsule.pause",
+                          "capsule.resume", "capsule.stop"])
+
+    def test_open_requires_config_and_seqpacket_port(self):
+        with tempfile.TemporaryDirectory() as directory:
+            cli = Path(directory) / "shadow6"
+            cli.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            cli.chmod(0o700)
+            client = libshadow6.Shadow6(cli)
+            with self.assertRaisesRegex(ValueError, "config is required"):
+                client.open({"kind": "stream"})
+
+    def test_open_requires_port_for_seqpacket_boundary(self):
+        class Runtime(libshadow6.Shadow6):
+            def __init__(self):
+                self.cli = "unused"
+                self._sessions = set()
+                self._closed = False
+
+            def _control(self, method, params):
+                return {"schema": "shadow6.capability-capsule-candidates.v1", "candidates": [
+                    {"core": "hare", "boundary": {"kind": "message", "mode": "seqpacket-fd",
+                     "roles": ["client"], "message_preserving": True}}]}
+
+        runtime = Runtime()
+        with self.assertRaisesRegex(ValueError, "requires a loopback listener port"):
+            runtime.open({"kind": "message", "message_preserving": True},
+                         config="/tmp/core.json", candidates=["hare"])
+
+    def test_facade_close_stops_all_owned_sessions(self):
+        class Runtime(libshadow6.Shadow6):
+            def __init__(self):
+                self.cli = "unused"
+                self._sessions = set()
+                self._closed = False
+                self.stopped = []
+
+            def _control(self, method, params):
+                if method == "capsule.stop":
+                    self.stopped.append(params["token"])
+                return {}
+
+        runtime = Runtime()
+        one = libshadow6.Session(runtime, "one", "go", {"host": "127.0.0.1", "port": 1}, "stream")
+        two = libshadow6.Session(runtime, "two", "rust", {"host": "127.0.0.1", "port": 2}, "stream")
+        runtime._sessions.update((one, two))
+        runtime.close()
+        runtime.close()
+        self.assertCountEqual(runtime.stopped, ["one", "two"])
+
     def test_run_uses_argument_vector_and_reports_failure(self):
         completed = subprocess.CompletedProcess(["shadow6", "features"], 0, "{}\n", "")
         with patch.object(libshadow6, "_cli", return_value="/opt/shadow6") as find_cli, \

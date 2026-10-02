@@ -130,6 +130,7 @@ METHOD_SPECS: dict[str, dict[str, Any]] = {
     "capsule.pause": _method("Suspend every process in one capability capsule process group.", {"token":_STRING}, ("token",), mutating=True),
     "capsule.resume": _method("Resume every process in one paused capability capsule.", {"token":_STRING}, ("token",), mutating=True),
     "capsule.list": _method("List active capsule states without exposing bearer tokens."),
+    "capsule.candidates": _method("List registered Cores whose feature reports declare a supported client application boundary."),
     "c11relay.ipc.status": _method("Read companion relay metrics over authenticated FastRPC; does not send a datagram."),
     "c11relay.ipc.schema": _method("Return the bounded C11Relay RawIPC datagram contract."),
     "system.guide": _method("Read a bilingual guide to safe operations and privacy.", {"lang": {"type": "string", "enum": ["en", "zh"]}}),
@@ -426,13 +427,16 @@ def dispatch(method: str, raw_params: Any = None) -> Any:
         from ipc_client import invoke
         return invoke(ROOT, "catalog", {})
     if method.startswith("capsule."):
-        from capability_capsule import start as capsule_start, status as capsule_status, stop as capsule_stop, pause as capsule_pause, resume as capsule_resume, list_capsules
+        from capability_capsule import start as capsule_start, status as capsule_status, stop as capsule_stop, pause as capsule_pause, resume as capsule_resume, list_capsules, candidates as capsule_candidates
         if method == "capsule.start":
             _only(params, {"core","config","protocol","host","port","max_record","ttl"})
             return capsule_start(params["core"], params["config"], params.get("protocol"), params.get("host"), params.get("port"), params.get("max_record"), params.get("ttl", 300))
         if method == "capsule.list":
             _only(params, set())
             return list_capsules()
+        if method == "capsule.candidates":
+            _only(params, set())
+            return capsule_candidates()
         _only(params, {"token"})
         if method == "capsule.status": return capsule_status(params["token"])
         if method == "capsule.stop": return capsule_stop(params["token"])

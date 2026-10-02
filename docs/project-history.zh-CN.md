@@ -483,3 +483,12 @@ Node IPC 的八个通用 adapter identity 现为
 `slots`、`gate`。`capsule-observer` 读取 Control Center 的真实胶囊目录且不暴露 token；
 通用只读 adapter 不再伪造本地 `paused` 状态。app-flow 的通用 IPC 也不再宣传 pause/resume；
 进程生命周期操作集中在 Control Center 的受限 capsule API。
+
+### 10 月 2 日后续：Python 应用会话入口
+
+`libshadow6.open(require, config=...)` 从 Control Center 的只读
+`capsule.candidates` 清单选择注册 Core，并逐项匹配 client application boundary，随后
+启动 capsule、返回 loopback endpoint，并通过 `Session` / `Shadow6` context 管理停止。
+seqpacket message boundary 要求显式 listener port；stream boundary 使用 Core readiness
+事件提供的 endpoint。它把发现和 capsule 生命周期收进 Python 入口，但仍不抽象 Core wire
+protocol，也不代表外围边界相同的 Core 可以互换通信。

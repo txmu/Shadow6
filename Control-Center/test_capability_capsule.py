@@ -190,6 +190,17 @@ class CapabilityCapsuleTests(unittest.TestCase):
         capsule.stop(token)
         self.tokens.remove(token)
 
+    def test_candidate_discovery_only_returns_registered_boundary_contracts(self):
+        self._write_core("localhost-tcp-proxy")
+        self._write_registry()
+        result = capsule.candidates()
+        self.assertEqual(result["schema"], "shadow6.capability-capsule-candidates.v1")
+        self.assertEqual(len(result["candidates"]), 1)
+        entry = result["candidates"][0]
+        self.assertEqual(entry["core"], "synthetic-core")
+        self.assertEqual(entry["boundary"]["mode"], "localhost-tcp-proxy")
+        self.assertEqual(entry["boundary"]["kind"], "stream")
+
     def test_missing_proxy_and_unsupported_boundary_fail_before_core_runtime_launch(self):
         runtime_marker = self.base / "runtime-started"
         runtime_marker.unlink(missing_ok=True)
