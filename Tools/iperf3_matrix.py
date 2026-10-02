@@ -47,22 +47,25 @@ def family_available(family: int) -> bool:
 
 def free_port(family: int, udp: bool = False) -> int:
     af, host = loopback(family)
-    # iperf uses the same numeric port for TCP control and UDP data. A free
-    # TCP port may be reserved/unbindable for UDP on Windows/MSYS2. Hold the
-    # TCP reservation while checking UDP; never change host exclusion ranges.
+    # iperf uses the same numeric port for TCP control and UDP data. Windows
+    # can reject a TCP-selected ephemeral port when it is reserved for UDP;
+    # allocate UDP first, then verify TCP can bind that exact port. Keep both
+    # reservations alive during the joint check and never alter OS exclusions.
     last_error = None
     for _ in range(32):
-        with socket.socket(af, socket.SOCK_STREAM) as sock:
-            sock.bind((host, 0))
-            port = sock.getsockname()[1]
-            if not udp:
-                return port
-            try:
-                with socket.socket(af, socket.SOCK_DGRAM) as datagram:
-                    datagram.bind((host, port))
+        if not udp:
+            with socket.socket(af, socket.SOCK_STREAM) as sock:
+                sock.bind((host, 0))
+                return sock.getsockname()[1]
+        try:
+            with socket.socket(af, socket.SOCK_DGRAM) as datagram:
+                datagram.bind((host, 0))
+                port = datagram.getsockname()[1]
+                with socket.socket(af, socket.SOCK_STREAM) as stream:
+                    stream.bind((host, port))
                     return port
-            except OSError as error:
-                last_error = error
+        except OSError as error:
+            last_error = error
     raise OSError("no jointly bindable TCP/UDP loopback port after 32 attempts") from last_error
 
 

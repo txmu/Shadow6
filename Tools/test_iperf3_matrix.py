@@ -1,11 +1,19 @@
+import socket
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from iperf3_matrix import metric, run_case_with_timeout_retry, specs, udp_rate
+from iperf3_matrix import free_port, metric, run_case_with_timeout_retry, specs, udp_rate
 
 
 class MatrixTests(unittest.TestCase):
+    def test_udp_matrix_port_is_bindable_by_both_tcp_and_udp(self):
+        port = free_port(4, udp=True)
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as stream, \
+             socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as datagram:
+            stream.bind(("127.0.0.1", port))
+            datagram.bind(("127.0.0.1", port))
+
     def test_full_matrix_and_stream_bound(self):
         rows = specs(12, (4, 6))
         self.assertEqual(len(rows), 32)

@@ -24,6 +24,23 @@ fn recv_available(sock: net::socket, buf: []u8, src: *ip::addr, port: *u16) (siz
 	return n;
 };
 
+fn recv_application(flow_fd: int, app: net::socket, packet: []u8,
+	source: *ip::addr, source_port: *u16) (size | void) = {
+	if (flow_fd >= 0) {
+		match (rt::recv(flow_fd, &packet[0], len(packet), rt::MSG_DONTWAIT | rt::MSG_TRUNC)) {
+		case let n: size => return n;
+		case let err: rt::errno => {
+			if (err == rt::EAGAIN || err == rt::EINTR) return void;
+			fmt::errorln("application flow ingress read failed")!; rt::exit(2);
+		};
+		};
+	};
+	match (recv_available(app, packet, source, source_port)) {
+	case let n: size => return n;
+	case => return void;
+	};
+};
+
 const WINDOW: size = 256z;
 // POSIX POLLNVAL is 0x20; Hare 0.24.2 does not expose it in unix::poll.
 const POLLNVAL: i16 = 0x20;
@@ -281,21 +298,9 @@ fn runtime(c: *configuration) void = {
 		};
 		if ((poller[1].revents & (poll::event::POLLIN | poll::event::POLLHUP)) != 0 && pending_count < WINDOW && pending_sequences[next_send_slot] == 0) {
 			let source: ip::addr = ip::LOCAL_V6; let source_port = 0u16;
-			const n = if (flow_fd >= 0) {
-				match (rt::recv(flow_fd, &packet[0], len(packet), rt::MSG_DONTWAIT | rt::MSG_TRUNC)) {
-				case let n: size => yield n;
-				case let err: rt::errno => {
-					if (err == rt::EAGAIN || err == rt::EINTR) {
-						poller[1].revents = 0; continue;
-					};
-					fmt::errorln("application flow ingress read failed")!; rt::exit(2);
-				};
-				}
-			} else {
-				match (recv_available(app, packet, &source, &source_port)) {
-				case let n: size => yield n;
-				case => poller[1].revents = 0; continue;
-				};
+			const n = match (recv_application(flow_fd, app, packet, &source, &source_port)) {
+			case let n: size => yield n;
+			case => poller[1].revents = 0; continue;
 			};
 			if (flow_fd >= 0 && n == 0) {
 				flow_fd = -1; poller[1].fd = -1; poller[1].revents = 0;
