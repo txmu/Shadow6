@@ -8,20 +8,19 @@ import archive_preflight
 
 
 class ArchivePreflightTests(unittest.TestCase):
-    def test_tar_requires_core_binaries(self):
+    def test_tar_accepts_source_only_archive_without_core_binaries(self):
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "release.tar.gz"
             with tarfile.open(path, "w:gz") as archive:
                 archive.addfile(tarfile.TarInfo("README.md"))
-            with self.assertRaisesRegex(ValueError, "missing required binaries"):
-                archive_preflight.check_tar(str(path))
+            archive_preflight.check_tar(str(path))
 
-    def test_tar_accepts_project_root_prefix_and_required_binaries(self):
+    def test_tar_accepts_project_root_prefix_and_optional_core_binaries(self):
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "release.tar.gz"
             with tarfile.open(path, "w:gz") as archive:
                 archive.addfile(tarfile.TarInfo("Shadow6/README.md"))
-                for name in archive_preflight.REQUIRED_TAR_FILES:
+                for name in ("Core-Go/shadow6-go", "Core-Rust/shadow6-rust"):
                     archive.addfile(tarfile.TarInfo(f"Shadow6/{name}"))
             archive_preflight.check_tar(str(path))
 

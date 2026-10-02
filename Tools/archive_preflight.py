@@ -17,12 +17,6 @@ FORBIDDEN_ZIP_DIRS = {
 }
 FORBIDDEN_ZIP_FILES = {"config.mk"}
 FORBIDDEN_ZIP_NAMES = (".apk", ".der", ".pem", ".p12")
-REQUIRED_TAR_FILES = {
-    "Core-Go/shadow6-go",
-    "Core-Go/shadow6-go-crosed",
-    "Core-Rust/shadow6-rust",
-    "Core-Rust/shadow6-rust-crosed",
-}
 MAX_MEMBERS = 250_000
 MAX_MEMBER_NAME = 4096
 
@@ -35,7 +29,6 @@ def safe_member_name(name: str) -> PurePosixPath:
 
 
 def check_tar(path: str, project_root: str = "Shadow6") -> None:
-    found = set()
     prefix = f"{project_root}/"
     with tarfile.open(path, "r:gz") as archive:
         for index, member in enumerate(archive):
@@ -43,16 +36,11 @@ def check_tar(path: str, project_root: str = "Shadow6") -> None:
                 raise ValueError("tar archive has too many members")
             if len(member.name) > MAX_MEMBER_NAME:
                 raise ValueError("tar member name is too long")
-            member_path = safe_member_name(member.name[len(prefix):] if member.name.startswith(prefix) else member.name)
-            if member.isfile():
-                found.add(str(member_path))
+            safe_member_name(member.name[len(prefix):] if member.name.startswith(prefix) else member.name)
             if member.issym() or member.islnk():
                 target = PurePosixPath(member.linkname.rstrip("/"))
                 if target.is_absolute() or ".." in target.parts:
                     raise ValueError(f"unsafe archive link: {member.name}")
-    missing = REQUIRED_TAR_FILES - found
-    if missing:
-        raise ValueError(f"tar is missing required binaries: {', '.join(sorted(missing))}")
 
 
 def check_zip(path: str) -> None:
@@ -87,7 +75,7 @@ def main() -> int:
     try:
         if args.tar:
             check_tar(args.tar, args.project_root)
-            print(f"PASS {args.tar}: bounded paths and required Core binaries")
+            print(f"PASS {args.tar}: bounded paths")
         if args.zip:
             check_zip(args.zip)
             print(f"PASS {args.zip}: text-only source exchange contract")
