@@ -8,6 +8,9 @@ on:
   push:
   pull_request:
   workflow_dispatch:
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ startsWith(github.ref, 'refs/heads/') || startsWith(github.ref, 'refs/pull/') }}
 jobs:
   privacy-envelope-contract:
     name: OCaml external privacy envelope contract

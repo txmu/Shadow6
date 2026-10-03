@@ -215,3 +215,11 @@ row and 64 owned listeners. Exceeding these budgets produces an explicit error;
 results are not silently truncated into a claim of private exposure or readiness.
 Transport authentication readiness remains unknown until a supported proof
 contract exists; a socket alone does not establish it.
+
+Explicit `connect --role` enters the same role/admission/capability resolver for
+Named Service, S6P1 and Public6 sources. A role-neutral S6P1 context can constrain
+a request without being rewritten; its context digest stays unchanged. Named
+Service role requests must match the locked native realization; an opaque or
+unspecified native role returns capability unavailable. Named connection inputs
+are captured and checked under one registry transaction, and failed connection
+to a stopped service leaves it stopped.

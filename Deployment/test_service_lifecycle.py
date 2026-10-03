@@ -324,4 +324,56 @@ class ObservationTruthTests(unittest.TestCase):
         self.assertEqual(item['runtime']['readiness'],'unavailable')
 
 
+class ConnectionSnapshotTests(unittest.TestCase):
+    setUp = ServiceLifecycleTests.setUp
+    cleanup_process = ServiceLifecycleTests.cleanup_process
+
+    def test_connection_inputs_recheck_lock_inside_one_transaction(self):
+        self.registry.run('home/nas')
+        original=self.registry._material;calls=[]
+        def material(name):
+            self.assertEqual(self.registry._depth,1)
+            calls.append(name)
+            if len(calls)==2:atomic_write(self.config,b'{"changed_during_resolution":true}')
+            return original(name)
+        with patch.object(self.registry,'_material',side_effect=material):
+            with self.assertRaisesRegex(ValueError,'deployment drift'):
+                self.registry.connect('home/nas')
+        self.assertEqual(len(calls),2)
+
+    def test_same_registry_threads_cannot_bypass_nested_transaction_lock(self):
+        import threading
+        self.registry.run('home/nas')
+        entered=threading.Event();release=threading.Event();attempted=threading.Event();finished=threading.Event()
+        errors=[];original=self.registry._material
+        def material(name):
+            entered.set()
+            if not release.wait(3):raise ValueError('test transaction timed out')
+            return original(name)
+        def first():
+            try:self.registry.connection_inputs('home/nas')
+            except Exception as error:errors.append(error)
+        def second():
+            attempted.set()
+            try:self.registry.list()
+            except Exception as error:errors.append(error)
+            finally:finished.set()
+        with patch.object(self.registry,'_material',side_effect=material):
+            worker=threading.Thread(target=first);other=threading.Thread(target=second)
+            worker.start()
+            try:
+                self.assertTrue(entered.wait(2));other.start()
+                self.assertTrue(attempted.wait(2))
+                self.assertFalse(finished.wait(.2))
+            finally:
+                release.set();worker.join(4)
+                if other.ident is not None:other.join(4)
+        self.assertFalse(worker.is_alive());self.assertFalse(other.is_alive());self.assertEqual(errors,[])
+
+    def test_failed_connect_does_not_apply_a_stopped_service(self):
+        self.registry.run('home/nas');self.registry.stop('home/nas')
+        with self.assertRaisesRegex(ValueError,'not running'):self.registry.connect('home/nas')
+        self.assertEqual(self.registry.inspect('home/nas')['state'],'stopped')
+
+
 if __name__ == '__main__': unittest.main()

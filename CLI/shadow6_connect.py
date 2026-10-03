@@ -51,7 +51,7 @@ def connect(code: str, core: str, role: str, output_dir: Path, carrier: str,
     resolved = resolve(code, directory=directory, manual_profile=profile, manual_pin=pin)
     if not any(route['core'] == core for route in resolved['routes']):
         raise ValueError("Core family is not offered by this node")
-    plan = resolve_connection(catalog=CoreCatalog(ROOT), context=context, core=core, source='public6', adapter=adapter)
+    plan = resolve_connection(catalog=CoreCatalog(ROOT), context=context, core=core, source='public6', adapter=adapter, role=role)
     if check:
         result = {"valid": True, "core": core, "role": role, "carrier": carrier, "connectionPlan":plan}
         print(json.dumps(result))
@@ -120,7 +120,7 @@ def main():
             if any((args.invitation,args.protocol_envelope,args.protocol_file,args.code_file,args.profile)):
                 raise ValueError('choose one connection resolve source')
             catalog = CoreCatalog(ROOT)
-            result = resolve_connection(service=args.code, registry=ServiceRegistry(catalog=catalog), catalog=catalog, core=args.core, adapter=args.adapter)
+            result = resolve_connection(service=args.code, registry=ServiceRegistry(catalog=catalog), catalog=catalog, core=args.core, adapter=args.adapter, role=args.role)
             if args.stdio:
                 stream_session(result); return
             print(json.dumps(result,sort_keys=True)); return
@@ -140,7 +140,7 @@ def main():
             args.role = args.role or (envelope["role"] if envelope["role"] in ("client", "agent") else None)
             embedded = envelope.get("credentials", {}).get("public6_invitation")
             if not isinstance(embedded, str):
-                result = resolve_connection(context=envelope,catalog=CoreCatalog(ROOT),core=args.core,adapter=args.adapter)
+                result = resolve_connection(context=envelope,catalog=CoreCatalog(ROOT),core=args.core,adapter=args.adapter,role=args.role)
                 print(json.dumps(result,sort_keys=True)); return
             args.invitation = embedded
         if args.invitation:

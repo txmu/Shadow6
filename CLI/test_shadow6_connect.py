@@ -41,6 +41,7 @@ class UnifiedConnectTests(unittest.TestCase):
             result=module.connect('x'*40,'go','client',Path(directory),'gate',1086,1087,False,check=True)
             self.assertTrue(result['valid']);self.assertFalse(result['connectionPlan']['connected'])
             resolver.assert_called_once()
+            self.assertEqual(resolver.call_args.kwargs['role'],'client')
 
     def test_public6_gate_provisioning_cannot_override_component_disable(self):
         import tempfile
@@ -63,5 +64,20 @@ class UnifiedConnectTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,'role'):
                 module.connect('x'*40,'go','client',Path(directory),'gate',1086,1087,False,context=context)
             lookup.assert_not_called()
+
+    def test_s6p1_role_option_is_checked_by_the_shared_pipeline(self):
+        import subprocess,json
+        from join_code import pack_protocol,issue_passport
+        from protocol_context import minimal_context
+        context=minimal_context('go')
+        argv=[sys.executable,str(ROOT/'CLI/shadow6.py'),'connect','--protocol-envelope',pack_protocol(context),'--role','client']
+        result=subprocess.run(argv,capture_output=True,text=True,timeout=10)
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertEqual(json.loads(result.stdout)['role'],'client')
+        context['credentials']={'passport':issue_passport('nas',components=('all',),roles=('agent',),issuer_key=b'r'*32)}
+        argv[4]=pack_protocol(context)
+        result=subprocess.run(argv,capture_output=True,text=True,timeout=10)
+        self.assertEqual(result.returncode,2);self.assertIn('role',result.stderr)
+
 
 if __name__ == '__main__':unittest.main()

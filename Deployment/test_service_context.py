@@ -306,7 +306,7 @@ class BrokerRuntimeRealizationTests(unittest.TestCase):
         item={'state':'running','protocolContext':context,'coreBinding':{'core':'go'},'runtime':{'readiness':'process-alive','endpoint':None}}
         with patch('Deployment.connection_plan.connection_plan',wraps=__import__('Deployment.connection_plan',fromlist=['connection_plan']).connection_plan) as planner:
             from unittest.mock import Mock
-            registry=Mock();registry.status.return_value=item;registry._material.return_value={'brokerRealization':{'adapter':'gate'}}
+            registry=Mock();registry.connection_inputs.return_value=(item,{'brokerRealization':{'adapter':'gate'}})
             result=resolve_connection(service='home/nas',registry=registry,catalog=CoreCatalog(ROOT))
             self.assertEqual(result['brokerSets'][0]['adapter'],'gate')
             planner.assert_called_once()
@@ -418,6 +418,43 @@ time.sleep(60)
             self.assertEqual(item['runtimeObservation']['applicationReadiness'],'unknown')
             self.assertEqual(registry.connect('home/udp')['capability']['sessionLaunch'],'unavailable')
         finally:registry.stop('home/udp')
+
+
+class ConnectionRoleTests(unittest.TestCase):
+    setUp = ContextTests.setUp
+    create = ContextTests.create
+
+    def test_requested_role_filters_capability_and_preserves_context_digest(self):
+        context=minimal_context('go');original=context_digest(context)
+        plan=resolve_connection(context=context,catalog=self.catalog,role='client')
+        self.assertEqual(plan['role'],'client');self.assertEqual(plan['contextDigest'],original)
+        self.assertEqual(context['role'],'all')
+        self.catalog._items['go']['roles']=['broker']
+        with self.assertRaises(ValueError):resolve_connection(context=context,catalog=self.catalog,role='client')
+        with self.assertRaisesRegex(ValueError,'invalid requested role'):
+            resolve_connection(context=context,catalog=self.catalog,role=['client'])
+
+    def test_requested_role_must_match_context_and_passport_scope(self):
+        from join_code import issue_passport
+        context=minimal_context('go');context['role']='agent'
+        with self.assertRaisesRegex(ValueError,'role mismatch'):
+            resolve_connection(context=context,catalog=self.catalog,role='client')
+        context['role']='all';context['credentials']={'passport':issue_passport('nas',components=('all',),roles=('agent',),issuer_key=b'r'*32)}
+        with self.assertRaisesRegex(ValueError,'role'):
+            resolve_connection(context=context,catalog=self.catalog,role='client')
+
+    def test_named_role_request_matches_locked_native_realization(self):
+        binary=self.directory/'fixture-core';binary.write_text('#!/usr/bin/env python3\nimport time\ntime.sleep(60)\n');binary.chmod(0o700)
+        self.catalog._items['go']['executable']=str(binary)
+        atomic_write(self.config,b'{"role":"client"}')
+        self.create(minimal_context('go'))
+        try:
+            self.registry.run('home/nas')
+            plan=resolve_connection(service='home/nas',registry=self.registry,catalog=self.catalog,role='client')
+            self.assertEqual(plan['role'],'client')
+            with self.assertRaisesRegex(ValueError,'locked native realization'):
+                resolve_connection(service='home/nas',registry=self.registry,catalog=self.catalog,role='agent')
+        finally:self.registry.stop('home/nas')
 
 
 if __name__ == '__main__':unittest.main()

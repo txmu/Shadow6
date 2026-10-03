@@ -7,6 +7,7 @@ import os
 import platform
 import re
 import time
+import threading
 from pathlib import Path
 try:
     from .core_catalog import CoreCatalog
@@ -36,6 +37,13 @@ def digest(value):
 def transaction(method):
     @functools.wraps(method)
     def call(self, *args, **kwargs):
+        if not self._thread_lock.acquire(timeout=12):
+            raise ValueError('service registry busy')
+        try:
+            return invoke(self, *args, **kwargs)
+        finally:
+            self._thread_lock.release()
+    def invoke(self, *args, **kwargs):
         if self._depth:
             return method(self, *args, **kwargs)
         import fcntl
@@ -68,6 +76,7 @@ class ServiceRegistry:
         self.catalog = catalog or CoreCatalog()
         self.services = {}
         self._depth = 0
+        self._thread_lock = threading.RLock()
         self._load()
 
     def _load(self):
@@ -315,11 +324,23 @@ class ServiceRegistry:
         return result
 
     @transaction
-    def connect(self, name):
+    def connection_inputs(self, name):
+        item = self.inspect(name)
+        if item['state'] != 'running' or not runtime.alive(item.get('runtime', {})):
+            raise ValueError('service is not running')
+        self.apply(name)
         item = self.status(name)
         if item['state'] != 'running' or not runtime.alive(item.get('runtime', {})):
             raise ValueError('service is not running')
-        return resolve_connection(service=name, registry=self, catalog=self.catalog)
+        material = self._material(name)
+        if digest(encoded(material)) != item['deploymentLock']['digest']:
+            raise ValueError('deployment drift; explicitly reconfigure and apply')
+        return item, material
+
+    @transaction
+    def connect(self, name, *, core=None, role=None, adapter=None):
+        return resolve_connection(service=name, registry=self, catalog=self.catalog,
+                                  core=core, role=role, adapter=adapter)
 
     @transaction
     def stop(self, name):

@@ -193,3 +193,26 @@ also passed after the final transport-readiness validation change. Changed
 Python AST/compile, workflow YAML and diff checks passed. No shell/workflow edit,
 heavy build or package command ran. The concrete run 37106654298 was polled and
 remained queued with no completed jobs; full-matrix/OCaml success remains unproven.
+
+## Unified role resolution and transaction snapshots
+
+All connect sources now pass the requested role through shared admission and
+capability filtering. S6P1 scope is retained without rewriting its digest; named
+requests also match the locked native realization. Context/binding/runtime/lock
+inputs are captured under one registry transaction with a second material digest
+check. Failed connection to a stopped service leaves it stopped. An instance
+RLock with a timeout prevents another API thread from treating the first
+thread's nesting depth as its own transaction.
+
+Tests cover role-neutral requests, signed role rejection, capability filtering,
+actual named role realization, drift during connection input capture, stopped
+state preservation and two-thread serialization. The multiplatform workflow has
+workflow/ref concurrency for superseded branch/PR runs. Its complete jobs,
+matrices and validation steps are unchanged (24 job definitions). Six unfinished
+older main runs were observed before the change; their status is not a pass.
+
+94 focused Python tests passed without skips, including isolated staged imports
+and existing-binary EPE lifecycle. AST/compile, all workflow YAML and diff checks
+passed. Static comparison confirms all 24 multiplatform job definitions and their
+matrix/step contents are unchanged. No heavy build/package command ran. Full
+source-built matrix completion remains a remote verification gate.
