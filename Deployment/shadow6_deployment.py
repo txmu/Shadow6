@@ -12,12 +12,15 @@ import json
 import re
 from pathlib import Path
 from typing import Any
+try:
+    from .core_catalog import default_catalog
+except ImportError:
+    from core_catalog import default_catalog
 
 MAX_BYTES = 1024 * 1024
 MAX_NODES = 256
 MAX_SERVICES = 1024
 MAX_POLICIES = 2048
-CORES = frozenset(("go", "rust", "gleam", "ada", "nim", "pony", "zig", "d", "cpp", "idris", "hare", "carp"))
 ROLES = frozenset(("broker", "agent", "client", "gate"))
 SCHEMA = "shadow6.deployment.v1"
 _ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
@@ -114,8 +117,8 @@ def validate_manifest(value: dict) -> dict:
             raise ValueError("duplicate broker set id")
         broker_ids.add(bid)
         _id(broker["identity"], "broker identity")
-        if broker["core"] not in CORES:
-            raise ValueError("unknown Broker Core")
+        try: default_catalog().inspect(broker["core"])
+        except (KeyError, ValueError): raise ValueError("unknown Broker Core") from None
         endpoints = broker["endpoints"]
         if not isinstance(endpoints, list) or not 1 <= len(endpoints) <= 16 or not all(isinstance(x, str) and 1 <= len(x) <= 512 for x in endpoints):
             raise ValueError("broker endpoints must contain 1..16 URLs")
@@ -133,7 +136,9 @@ def validate_manifest(value: dict) -> dict:
         if nid in node_ids:
             raise ValueError("duplicate node id")
         node_ids.add(nid)
-        if node["role"] not in ROLES or node["core"] not in CORES or node["brokerSet"] not in broker_ids:
+        try: default_catalog().inspect(node["core"])
+        except (KeyError, ValueError): raise ValueError("invalid node Core") from None
+        if node["role"] not in ROLES or node["brokerSet"] not in broker_ids:
             raise ValueError("invalid node role, Core or brokerSet")
         if not isinstance(node["identityRef"], str) or not _REF.fullmatch(node["identityRef"]):
             raise ValueError("invalid node identityRef")

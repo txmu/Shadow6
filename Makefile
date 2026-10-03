@@ -467,6 +467,7 @@ endif
 
 deployment-test:
 	@PYTHONPATH=Deployment:Control-Center $(PYTHON) -m unittest -v Deployment/test_deployment.py
+	@PYTHONPATH=Deployment:Control-Center $(PYTHON) -m unittest -v Deployment/test_core_explicit.py
 	@d=$$(mktemp -d /tmp/shadow6-acceptance.XXXXXX); trap 'rm -rf "$$d"' EXIT; PYTHONPATH=CLI:Deployment $(PYTHON) CLI/shadow6.py acceptance --manifest Deployment/example.deployment.json --source-only --output "$$d" >/dev/null
 
 acceptance: deployment-test
@@ -539,7 +540,7 @@ endif
 	@install -d -m 0755 "$(DESTDIR)$(PREFIX)/share/shadow6/modules"
 	@install -m 0644 CLI/shadow6_vcore.py CLI/vcore_adapters.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/"
 	@install -d -m 0755 "$(DESTDIR)$(PREFIX)/share/shadow6/deployment"
-	@install -m 0644 Deployment/__init__.py Deployment/shadow6_deployment.py Deployment/shadow6_abi.py Deployment/shadow6_driver.py Deployment/shadow6_acceptance.py "$(DESTDIR)$(PREFIX)/share/shadow6/deployment/"
+	@install -m 0644 Deployment/__init__.py Deployment/core_catalog.py Deployment/service_registry.py Deployment/shadow6_deployment.py Deployment/shadow6_abi.py Deployment/shadow6_driver.py Deployment/shadow6_acceptance.py "$(DESTDIR)$(PREFIX)/share/shadow6/deployment/"
 	@install -m 0644 Deployment/shadow6_deployment.py Deployment/shadow6_abi.py Deployment/shadow6_driver.py Deployment/shadow6_acceptance.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/"
 	@install -m 0644 Tools/python_runtime.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/"
 	@install -d -m 0755 "$(DESTDIR)$(PYTHON_SITE_PACKAGES)/libshadow6"

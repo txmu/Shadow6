@@ -4,12 +4,17 @@ from __future__ import annotations
 import argparse,json,os,subprocess,sys
 from pathlib import Path
 _HERE = Path(__file__).resolve().parent
+if (_HERE.parent / "Deployment").is_dir():
+    sys.path.insert(0, str(_HERE.parent / "Deployment"))
 for _candidate in (_HERE, _HERE.parent / "Crosed", _HERE.parent / "share" / "shadow6" / "modules", _HERE.parent / "modules"):
     if (_candidate / "install_layout.py").is_file():
         sys.path.insert(0, str(_candidate))
         break
 else:
     pass
+for _deployment in (_HERE.parent / "Deployment", _HERE.parent / "share" / "shadow6" / "deployment"):
+    if _deployment.is_dir():
+        sys.path.insert(0, str(_deployment))
 try:
  from install_layout import tree_root  # noqa: E402
  ROOT=tree_root(__file__)
@@ -35,7 +40,11 @@ COMPONENTS.update({
  "acceptance": ROOT/"Deployment/shadow6_acceptance.py",
 
 })
-CORE_NAMES=("go","rust","gleam","ada","nim","pony","zig","d","cpp","idris","hare","carp")
+try:
+ from core_catalog import CoreCatalog, CORE_IDS
+ from service_registry import ServiceRegistry
+except ImportError:
+ CoreCatalog = ServiceRegistry = None
 if not (ROOT/"Makefile").is_file():
  bin_dir=Path(sys.argv[0]).resolve().parent
  COMPONENTS={name:bin_dir/("shadow6-"+name) for name in COMPONENTS}
@@ -149,7 +158,7 @@ def main():
  for name in ("virtual-client","virtual-agent"):
   q=sub.add_parser(name,help="run or validate a configured Virtual Peer")
   q.add_argument("--config",type=Path)
-  q.add_argument("--init",action="store_true"); q.add_argument("--core",choices=CORE_NAMES)
+  q.add_argument("--init",action="store_true"); q.add_argument("--core")
   q.add_argument("--output",type=Path); q.add_argument("--private-key-output",type=Path)
   q.add_argument("--tenant",default="default"); q.add_argument("--identity",default="peer-01")
   q.add_argument("--listen",default="127.0.0.1:1087"); q.add_argument("--gate",default="127.0.0.1:1086")
@@ -157,10 +166,10 @@ def main():
   q.add_argument("--max-connections",type=int,default=32); q.add_argument("--idle-seconds",type=int,default=120)
   q.add_argument("--check",action="store_true")
  add_hands_parser(sub)
- q=sub.add_parser("features");q.add_argument("--component",choices=(*CORE_NAMES,"gate"),action="append",default=[]);q.add_argument("--format",choices=("json","lines"),default="json")
+ q=sub.add_parser("features");q.add_argument("--component",action="append",default=[]);q.add_argument("--format",choices=("json","lines"),default="json")
  q=sub.add_parser("vcore",help="discover installed cores and capability intersection");q.add_argument("args",nargs=argparse.REMAINDER)
  q=sub.add_parser("benchmark",help="run real native benchmarks for selected cores")
- q.add_argument("--core",dest="cores",action="append",choices=sorted((*CORE_NAMES,"gleam-mux")))
+ q.add_argument("--core",dest="cores",action="append")
  q.add_argument("--all",action="store_true",help="benchmark all twelve cores and all three backend paths (default)")
  q.add_argument("--backend",dest="backends",action="append",choices=("native","python","node"))
  q.add_argument("--payload-bytes",type=int,default=4096)
@@ -178,6 +187,20 @@ def main():
  q.add_argument("--manifest",required=True,type=Path);q.add_argument("--artifact-dir",type=Path);q.add_argument("--output",type=Path,default=Path("acceptance"));q.add_argument("--source-only",action="store_true")
  q=sub.add_parser("abi",help="inspect the Core-neutral S6ABI/1 contract")
  q.add_argument("action",choices=("catalog",))
+ q=sub.add_parser("core",help="inspect and validate explicit Core descriptors")
+ core_sub=q.add_subparsers(dest="core_action",required=True)
+ core_sub.add_parser("list")
+ for action in ("inspect","config-schema"):
+  x=core_sub.add_parser(action); x.add_argument("core")
+ x=core_sub.add_parser("validate-config"); x.add_argument("core"); x.add_argument("config",type=Path)
+ x=core_sub.add_parser("import"); x.add_argument("descriptor",type=Path)
+ q=sub.add_parser("service",help="manage named explicitly-bound services")
+ ss=q.add_subparsers(dest="service_action",required=True); ss.add_parser("list")
+ x=ss.add_parser("inspect"); x.add_argument("name")
+ x=ss.add_parser("create"); x.add_argument("name"); x.add_argument("--core"); x.add_argument("--config",type=Path)
+ x=ss.add_parser("configure"); x.add_argument("name"); x.add_argument("--core",required=True); x.add_argument("--config",type=Path,required=True)
+ for action in ("run","connect"):
+  x=ss.add_parser(action); x.add_argument("name")
  a=p.parse_args();tail=lambda v:v[1:] if v[:1]==["--"] else v
  if a.command=="tools":
   print(json.dumps({"schema":"shadow6.tools.v1","tools":[{"name":n,"path":str(path),"available":path.is_file()} for n,path in sorted(COMPONENTS.items())]},indent=2));return 0
@@ -190,6 +213,23 @@ def main():
   manifest = load_manifest(a.manifest)
   result = manifest if a.action == "validate" else manifest_lock(manifest) if a.action == "lock" else plan_manifest(manifest)
   print(json.dumps(result, ensure_ascii=True, sort_keys=True, indent=2)); return 0
+ if a.command=="core":
+  catalog=CoreCatalog(ROOT)
+  if a.core_action=="list": result={"schema":"shadow6.core-catalog.v1","cores":catalog.list()}
+  elif a.core_action=="inspect": result=catalog.inspect(a.core)
+  elif a.core_action=="config-schema": result=catalog.inspect(a.core)["configurationSchema"]
+  elif a.core_action=="validate-config": result={"valid":True,"core":a.core,"config":catalog.binding(a.core,json.loads(a.config.read_text()))["config"]}
+  else: result=catalog.import_file(a.descriptor)
+  print(json.dumps(result,ensure_ascii=True,sort_keys=True,indent=2)); return 0
+ if a.command=="service":
+  registry=ServiceRegistry()
+  if a.service_action=="list": result={"schema":"shadow6.service-registry.v1","services":registry.list()}
+  elif a.service_action=="inspect": result=registry.inspect(a.name)
+  elif a.service_action in {"create","configure"}:
+   config=json.loads(a.config.read_text()) if a.config else None
+   result=(registry.create(a.name,core=a.core,config=config) if a.service_action=="create" else registry.configure(a.name,core=a.core,config=config))
+  else: result={"service":a.name,"coreBinding":registry.require_binding(a.name),"state":"ready"}
+  print(json.dumps(result,ensure_ascii=True,sort_keys=True,indent=2)); return 0
  if a.command=="acceptance":
   deployment_dir = ROOT / "Deployment" if (ROOT / "Deployment").is_dir() else ROOT / "share" / "shadow6" / "deployment"
   sys.path.insert(0, str(deployment_dir))
@@ -236,7 +276,7 @@ def main():
   from benchmark import run as benchmark_run, write as benchmark_write
   core_names = {"go","rust","zig","ada","d","nim","cpp","pony","hare","carp","gleam","idris"}
   core_names.add("gleam-mux")
-  cores = [*CORE_NAMES,"gleam-mux"] if a.all or not a.cores else a.cores
+  cores = [*CORE_IDS,"gleam-mux"] if a.all or not a.cores else a.cores
   cores = [c for c in cores if c in core_names]
   if not cores: raise SystemExit("benchmark requires --core or --all")
   if not 1 <= a.repeats <= 100: raise SystemExit("--repeats must be 1..100")

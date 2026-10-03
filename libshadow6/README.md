@@ -6,6 +6,10 @@ matching client boundary, starts a capability capsule, returns its loopback
 endpoint, and owns the capsule until the session or facade closes. It does not
 implement a Core wire protocol.
 
+The reference facade is Core-explicit. Call `resolve()` to inspect candidates,
+then call `open(core=..., config=..., require=...)`; multiple compatible Cores
+produce `AmbiguousCoreSelection` and are never resolved by ordering.
+
 ```python
 from libshadow6 import Shadow6
 

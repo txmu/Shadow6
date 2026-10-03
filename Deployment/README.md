@@ -14,6 +14,13 @@ requests and S6P1 carries admission context.
 
 Use the single acceptance gate:
 
+Reference deployments are Core-explicit. Core-Blind means the data path does
+not need to know the control UI; it does not make Core identity invisible.
+There is no implicit Core selection: automation may eliminate incompatible
+candidates, but it must not choose among multiple compatible Core families.
+Every locked deployment and named service carries a CoreBinding and normalized
+configuration digest.
+
 ```sh
 shadow6 acceptance --manifest Deployment/example.deployment.json --source-only
 ```

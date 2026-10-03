@@ -9,8 +9,10 @@ from pathlib import Path
 
 __all__ = ["Shadow6", "Shadow6Error", "Session", "run"]
 
-_CORE_NAMES = ("go", "rust", "gleam", "ada", "nim", "pony", "zig", "d",
-               "cpp", "idris", "hare", "carp")
+try:
+    from Deployment.core_catalog import CoreCatalog
+except ImportError:
+    from core_catalog import CoreCatalog
 
 
 class Shadow6Error(RuntimeError):
@@ -128,7 +130,17 @@ class Shadow6:
     def _matches(boundary: dict, require: dict) -> bool:
         return all(boundary.get(key) == value for key, value in require.items())
 
-    def open(self, require: dict, *, config: str | os.PathLike[str] | None = None,
+    def resolve(self, require: dict, *, candidates: tuple[str, ...] | list[str] | None = None) -> dict:
+        catalog = self._control("capsule.candidates", {})
+        entries = catalog.get("candidates")
+        if not isinstance(entries, list): raise Shadow6Error("invalid Core candidate catalog")
+        allowed = set(candidates) if candidates is not None else None
+        matches = [e for e in entries if isinstance(e, dict) and (allowed is None or e.get("core") in allowed)
+                   and isinstance(e.get("boundary"), dict) and self._matches(e["boundary"], require)]
+        if len(matches) > 1: raise Shadow6Error(json.dumps({"error":"AmbiguousCoreSelection","candidates":[e.get("core") for e in matches]}))
+        return {"schema":"shadow6.core-resolution.v1", "candidates":matches}
+
+    def open(self, require: dict, *, core: str | None = None, config: str | os.PathLike[str] | None = None,
              candidates: tuple[str, ...] | list[str] | None = None,
              protocol: str = "tcp", host: str = "127.0.0.1", port: int | None = None,
              ttl: int = 300) -> Session:
@@ -148,28 +160,15 @@ class Shadow6:
         config_path = os.fspath(config) if config is not None else os.environ.get("SHADOW6_CONFIG")
         if not config_path:
             raise ValueError("config is required (or set SHADOW6_CONFIG)")
-        names = tuple(candidates) if candidates is not None else _CORE_NAMES
-        if not names or any(name not in _CORE_NAMES for name in names):
-            raise ValueError("candidates must contain supported Core identities")
-
-        catalog = self._control("capsule.candidates", {})
-        entries = catalog.get("candidates")
-        if catalog.get("schema") != "shadow6.capability-capsule-candidates.v1" or not isinstance(entries, list):
-            raise Shadow6Error("Control Center returned an invalid capsule candidate catalog")
-        selected = None
-        for entry in entries:
-            if not isinstance(entry, dict) or entry.get("core") not in names:
-                continue
-            boundary = entry.get("boundary")
-            if (isinstance(boundary, dict) and isinstance(boundary.get("roles"), list)
-                    and "client" in boundary["roles"]
-                    and self._matches(boundary, require)):
-                selected = (entry["core"], boundary)
-                break
-        if selected is None:
+        result = self.resolve(require, candidates=candidates)
+        entries = result["candidates"]
+        if core is not None:
+            entries = [e for e in entries if e.get("core") == core]
+        if len(entries) > 1:
+            raise Shadow6Error(json.dumps({"error":"AmbiguousCoreSelection","candidates":[e.get("core") for e in entries]}))
+        if not entries:
             raise Shadow6Error("no available Core satisfies the application boundary requirements")
-
-        name, boundary = selected
+        name, boundary = entries[0]["core"], entries[0]["boundary"]
         mode = boundary.get("mode")
         params = {"core": name, "config": config_path, "ttl": ttl,
                   "boundary_mode": mode}
