@@ -120,8 +120,18 @@ Gate realizes TCP/UDP pools through its existing `remote_hosts`/`upstreams` and
 port and an explicit common trust key; it produces actual Gate config fields,
 including a fixed MTD range for that declared port. Different per-endpoint trust
 identities and priority policy remain unavailable through this Gate adapter.
-It does not fabricate endpoint health checks, quorum, state replication or
-seamless migration of existing sessions.
+Named Service locking validates this Gate configuration against S6P1 and checks
+that the native broker address targets the explicit private Gate listener.
+Named connection resolution derives its adapter from that locked realization;
+an incompatible explicit adapter is rejected. Neither pool selection nor
+short-lived health observations enter the deployment digest.
+
+TCP paths try the selected member first, then each remaining explicit member on
+connection failure, within a shared ten-second budget. Retries stop when a TCP
+connection is established; authentication failures fail closed, and established
+sessions are never replayed or migrated. UDP retains per-path selection without
+retrying application datagrams. This does not fabricate endpoint health checks,
+quorum, state replication or seamless migration of existing sessions.
 
 Legacy Deployment `brokerSets` and single-Broker topologies remain accepted.
 `node_context` projects their existing intent into S6P1; an explicit node context

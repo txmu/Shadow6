@@ -74,3 +74,31 @@ realizations, supported observed stream attachment, Gate pool trust/policy limit
 and native-only remote activation. EPE v2 remains an admission model, not complete
 outer encrypted cover traffic or anonymity. The new remote run's result must be
 observed after submission; local tests cannot certify that matrix.
+
+## Broker realization follow-up
+
+Named Service now locks deterministic BrokerSet realization: route-derived Gate
+hosts/trust/policy must match its explicit config, and native broker addresses
+must point to its private listener. The shared named resolver derives the adapter
+from that realization and rejects conflicting overrides. Tests cover real
+registry locking and mismatch rejection, not only planner mocks.
+
+Gate TCP selection retries remaining explicit pool members after dial failure
+within a ten-second budget. It never retries authentication failures or migrates
+established sessions; UDP datagrams are not replayed. Explicit remote-host pools
+no longer require an unused fallback host. The small offline Gate package suite
+passed, including a loopback encrypted application path whose first address was
+unavailable. No Core or deployment binary was rebuilt.
+
+Remote run [37105054349](https://github.com/txmu/Shadow6/actions/runs/37105054349)
+for commit 5b9a85c was read directly. Its previously failing Ubuntu Node 24 job,
+Deployment/S6ABI/OCaml job, zero-Core protocol job and OCaml EPE contract job
+succeeded. Remaining matrix jobs were queued/running at observation time;
+this is not evidence that the entire run has passed or that this follow-up has
+already been verified remotely.
+
+Follow-up validation: 67 focused Python tests passed with the existing EPE binary
+explicitly supplied, including lifecycle and isolated staged imports; no skips.
+The full small Gate package tests passed with `GOTOOLCHAIN=local GOPROXY=off`.
+Changed Python AST/bytecode compilation, all workflow YAML parsing and
+`git diff --check` passed. No shell or workflow file changed in this follow-up.

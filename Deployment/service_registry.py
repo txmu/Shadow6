@@ -229,9 +229,10 @@ class ServiceRegistry:
                 extra[component + 'ConfigDigest'] = digest(private_read(path))
                 extra[component + 'BinaryDigest'] = digest(Path(runtime.executable(self.catalog.component_binary(component))).read_bytes())
         try:
-            from .service_composition import validate_composition
+            from .service_composition import validate_composition, broker_realization
         except ImportError:
-            from service_composition import validate_composition
+            from service_composition import validate_composition, broker_realization
+        extra['brokerRealization'] = broker_realization(context,native=native,gate=components.get('gate'))
         extra['composition'] = validate_composition(privacy=item['privacy'], envelope=fields, gate=components.get('gate'), guard=components.get('guard'))
         return {'contextDigest':context_digest(item['protocolContext']), 'name': name, 'spec': item['spec'], 'privacy': item['privacy'], 'binding': binding, 'nativeConfigDigest': config_hash, **extra}
 

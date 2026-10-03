@@ -7,7 +7,8 @@ except ImportError:
     from broker_set import realize, gate_patch
 
 
-def connection_plan(context, *, catalog, core=None, binding=None, runtime=None, source='s6p1', adapter='native-single'):
+def connection_plan(context, *, catalog, core=None, binding=None, runtime=None, source='s6p1', adapter=None):
+    adapter = adapter or 'native-single'
     context = validate_context(context)
     context = admit(context, component='public6' if context['credentials'].get('public6_invitation') else None)
     if core and binding and binding['core'] != core: raise ValueError('explicit Core differs from locked CoreBinding')
@@ -46,19 +47,25 @@ def connection_plan(context, *, catalog, core=None, binding=None, runtime=None, 
             'contextDigest':context_digest(context), 'role':context['role'],
             'binding':binding, 'runtimeIdentity':{k:observed[k] for k in ('pid','processIdentity') if k in observed}, 'endpoint':endpoint, 'readiness':readiness,
             'applicationBoundary':boundary, 'abi':'S6ABI/1' if boundary else None,
+            'endpointFraming':'native-application-bytes' if attach else 'core-native' if endpoint else None,
             'brokerSets':pools, 'state':'planned', 'connected':False,
             'capability':{'available':boundary is not None and boundary in descriptor['applicationBoundaries'],
                           'sessionLaunch':'local-application-stream' if attach else 'unavailable', 'reason':'Use --stdio or libshadow6.connect to attach to the observed client proxy' if attach else 'Native endpoint needs its declared application adapter; no uniform session launcher is advertised'},
-            'provisioning':{'public6':isinstance(context['credentials'].get('public6_invitation'),str)}}
+            'provisioning':{'public6':source == 'public6' or isinstance(context['credentials'].get('public6_invitation'),str)}}
 
 
-def resolve_connection(*, catalog, service=None, registry=None, context=None, core=None, binding=None, runtime=None, source='s6p1', adapter='native-single'):
+def resolve_connection(*, catalog, service=None, registry=None, context=None, core=None, binding=None, runtime=None, source='s6p1', adapter=None):
     if service is not None:
         if context is not None: raise ValueError('choose one connection resolve source')
         item = registry.status(service)
         if item['state'] != 'running': raise ValueError('service is not running')
         registry.apply(service)  # lock/context/config drift must fail closed
         context, binding, runtime = item['protocolContext'], item['coreBinding'], item['runtime']
+        material = registry._material(service)
+        deployed_adapter = material['brokerRealization']['adapter']
+        if adapter is not None and adapter != deployed_adapter:
+            raise ValueError('requested connection adapter differs from locked service realization')
+        adapter = deployed_adapter
         source = 'named-service'
     if context is None: raise ValueError('S6P1 context required')
     return connection_plan(context, catalog=catalog, core=core, binding=binding, runtime=runtime, source=source, adapter=adapter)

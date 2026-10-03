@@ -38,7 +38,12 @@ Use `role:client` as a stable loopback Client pre-proxy, `role:server` as the
 Agent/Broker rear proxy, and one or more `role:relay` nodes for authenticated
 middle hops. `remote_hosts` and `upstreams` accept up to 16 endpoints with
 `round_robin` or cryptographically randomized selection, providing multi-Gate
-and multi-Broker load distribution/failover without changing Core wire formats.
+and multi-Broker load distribution without changing Core wire formats.
+TCP dial failure tries the remaining explicit members within a ten-second total
+budget (two seconds per attempt for pools). Authentication failures are not
+retried, and established sessions never migrate. UDP selects a destination but
+does not retry application datagrams. Explicit remote-host pools do not require
+an unused fallback `remote_host`.
 
 `portmap.py` generates strict one-to-one logical maps from ports to addresses
 inside `240.0.0.0/4`. These addresses are Gate identifiers only: Shadow6 never

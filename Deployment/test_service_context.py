@@ -80,6 +80,7 @@ class ContextTests(unittest.TestCase):
         item=self.create(); first=self.registry.lock('home/nas')
         self.assertEqual(first['contextDigest'],context_digest(item['protocolContext']))
         context=minimal_context('go');context['routes']=[pool()]
+        atomic_write(self.config,json.dumps({'broker_addr':pool()['members'][0]['endpoint']}).encode())
         self.registry.configure('home/nas',core='go',config={'config_path':str(self.config)},context=context)
         second=self.registry.lock('home/nas')
         self.assertNotEqual(first['digest'],second['digest'])
@@ -258,5 +259,58 @@ class ContextDriftAndScope(unittest.TestCase):
         with patch.dict(os.environ,{'SHADOW6_CORE_DESCRIPTORS':str(path)}):
             CoreCatalog(ROOT).import_file(source)
             self.assertEqual(CoreCatalog(ROOT).inspect('vendor-x')['id'],'vendor-x')
+
+
+class BrokerRuntimeRealizationTests(unittest.TestCase):
+    setUp = ContextTests.setUp
+    create = ContextTests.create
+
+    def test_registry_locks_realization_and_rejects_native_and_gate_drift(self):
+        context=minimal_context('go');context['role']='client';context['routes']=[pool(2)]
+        gate={'enabled':True,'role':'client','listen_host':'127.0.0.1','listen_port':14434,**gate_patch(context['routes'][0])}
+        path=self.directory/'gate.json';atomic_write(path,json.dumps(gate).encode())
+        binary=self.directory/'fixture-gate';binary.write_text('#!/bin/false\n');binary.chmod(0o700)
+        self.catalog.component_binary=lambda component:binary
+        atomic_write(self.config,b'{"role":"client","broker_addr":"127.0.0.1:14434"}')
+        self.create(context,spec={'gate_config':str(path)})
+        first=self.registry.lock('home/nas')
+        self.registry.apply('home/nas')
+        self.assertEqual(self.registry._material('home/nas')['brokerRealization']['adapter'],'gate')
+        atomic_write(path,json.dumps({**gate,'remote_hosts':['127.0.0.99']}).encode())
+        with self.assertRaisesRegex(ValueError,'S6P1 BrokerSet'):self.registry.apply('home/nas')
+        atomic_write(path,json.dumps(gate).encode())
+        atomic_write(self.config,b'{"role":"client","broker_addr":"127.0.0.1:14435"}')
+        with self.assertRaisesRegex(ValueError,'native broker endpoint'):self.registry.lock('home/nas')
+        self.assertEqual(self.registry.inspect('home/nas')['deploymentLock'],first)
+
+    def test_gate_route_matches_native_endpoint_and_lock_is_deterministic(self):
+        from Deployment.service_composition import broker_realization
+        context=minimal_context('go');context['role']='client';context['routes']=[pool(2)]
+        context['routes'][0]['policy']='random'
+        gate={'enabled':True,'role':'client','listen_host':'127.0.0.1','listen_port':14434,**gate_patch(context['routes'][0])}
+        native={'role':'client','client':{'broker_addrs':['wss://127.0.0.1:14434/ws']}}
+        first=broker_realization(context,native=native,gate=gate)
+        for _ in range(5):self.assertEqual(broker_realization(context,native=native,gate=gate),first)
+        self.assertNotIn('selected',first);self.assertNotIn('health',first)
+        with self.assertRaisesRegex(ValueError,'S6P1 BrokerSet'):
+            broker_realization(context,native=native,gate={**gate,'remote_hosts':['127.0.0.99']})
+        with self.assertRaisesRegex(ValueError,'native broker endpoint'):
+            broker_realization(context,native={'broker_addr':'127.0.0.1:1'},gate=gate)
+        with self.assertRaisesRegex(ValueError,'native-single'):
+            broker_realization(context,native=native)
+
+    def test_named_multi_broker_connection_uses_explicit_deployed_gate(self):
+        from unittest.mock import patch
+        from Deployment.connection_plan import resolve_connection
+        context=minimal_context('go');context['role']='client';context['routes']=[pool(2)]
+        item={'state':'running','protocolContext':context,'coreBinding':{'core':'go'},'runtime':{'readiness':'process-alive','endpoint':None}}
+        with patch('Deployment.connection_plan.connection_plan',wraps=__import__('Deployment.connection_plan',fromlist=['connection_plan']).connection_plan) as planner:
+            from unittest.mock import Mock
+            registry=Mock();registry.status.return_value=item;registry._material.return_value={'brokerRealization':{'adapter':'gate'}}
+            result=resolve_connection(service='home/nas',registry=registry,catalog=CoreCatalog(ROOT))
+            self.assertEqual(result['brokerSets'][0]['adapter'],'gate')
+            planner.assert_called_once()
+            with self.assertRaisesRegex(ValueError,'locked service realization'):
+                resolve_connection(service='home/nas',registry=registry,catalog=CoreCatalog(ROOT),adapter='native-single')
 
 if __name__ == '__main__':unittest.main()

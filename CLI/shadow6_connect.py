@@ -93,7 +93,7 @@ def main():
     p.add_argument("--core", help="explicit Core Catalog identity")
     p.add_argument("--stdio",action="store_true",help="attach an observed local application stream to stdin/stdout, bounded to 300s/16MiB")
     p.add_argument("--json", action="store_true", help="structured connection plan")
-    p.add_argument("--adapter", choices=("native-single","gate","broker-set-selector"), default="native-single")
+    p.add_argument("--adapter", choices=("native-single","gate","broker-set-selector"), default=None)
     p.add_argument("--role", choices=["client", "agent"])
     p.add_argument("--output", type=Path, default=Path.cwd() / "shadow6-public")
     p.add_argument("--carrier", choices=["gate", "s6na"], default="gate")

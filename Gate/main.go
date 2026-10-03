@@ -92,10 +92,9 @@ func runTCP(ctx context.Context, c Config, localPort int, until time.Time, state
 					secure, e = handshake(raw, privateKey(c), peerKeys(c), false, c.Limits.MaxFrameBytes)
 					if e == nil {
 						if c.Role == "server" {
-							remote, e = net.DialTimeout("tcp", pick(c.Upstreams, c.Upstream, c.LoadBalance == "random"), 10*time.Second)
+							remote, e = dialTCPPool(ctx, c.Upstreams, c.Upstream, c.LoadBalance == "random")
 						} else {
-							host := pick(c.RemoteHosts, c.RemoteHost, c.LoadBalance == "random")
-							remote, e = net.DialTimeout("tcp", net.JoinHostPort(host, fmt.Sprint(activePort(c, time.Now()))), 10*time.Second)
+							remote, e = dialRemotePool(ctx, c)
 							if e == nil {
 								var outbound *secureConn
 								outbound, e = handshake(remote, privateKey(c), peerKeys(c), true, c.Limits.MaxFrameBytes)
@@ -107,8 +106,7 @@ func runTCP(ctx context.Context, c Config, localPort int, until time.Time, state
 						}
 					}
 				} else {
-					host := pick(c.RemoteHosts, c.RemoteHost, c.LoadBalance == "random")
-					remote, e = net.DialTimeout("tcp", net.JoinHostPort(host, fmt.Sprint(activePort(c, time.Now()))), 10*time.Second)
+					remote, e = dialRemotePool(ctx, c)
 					if e == nil {
 						secure, e = handshake(remote, privateKey(c), peerKeys(c), true, c.Limits.MaxFrameBytes)
 					}

@@ -103,7 +103,7 @@ func validateConfig(c Config) error {
 	if c.LoadBalance != "round_robin" && c.LoadBalance != "random" {
 		return errors.New("load_balance must be round_robin or random")
 	}
-	if c.Role == "client" || c.Role == "relay" {
+	if (c.Role == "client" || c.Role == "relay") && len(c.RemoteHosts) == 0 {
 		if net.ParseIP(c.RemoteHost) == nil {
 			return errors.New("remote_host must be an IP address")
 		}

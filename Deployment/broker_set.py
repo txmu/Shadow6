@@ -85,11 +85,11 @@ def gate_patch(route, *, side='remote'):
     parsed = [endpoint(e) for e in result['endpoints']]
     if side == 'remote':
         if len({p.port for p in parsed}) != 1 or any(p.scheme not in {'tcp','udp'} for p in parsed) or len({p.scheme for p in parsed}) != 1:
-            raise ValueError('capability unavailable: Gate remote hosts require UDP and a shared port')
+            raise ValueError('capability unavailable: Gate remote hosts require one TCP/UDP transport and a shared port')
         for p in parsed:
             try: ipaddress.ip_address(p.hostname)
             except ValueError: raise ValueError('Gate remote hosts require IP addresses') from None
         return {'protocol':[parsed[0].scheme], 'remote_hosts':[p.hostname for p in parsed], 'mtd':{'enabled':False,'period_seconds':300,'min_port':parsed[0].port,'max_port':parsed[0].port,'grace_seconds':15},
                 'peer_public_keys':[route['members'][0]['public_key']], 'load_balance':route['policy']}
-    if side != 'upstream' or any(p.scheme not in {'tcp','udp'} for p in parsed) or len({p.scheme for p in parsed}) != 1: raise ValueError('Gate upstreams require UDP')
+    if side != 'upstream' or any(p.scheme not in {'tcp','udp'} for p in parsed) or len({p.scheme for p in parsed}) != 1: raise ValueError('Gate upstreams require one TCP/UDP transport')
     return {'protocol':[parsed[0].scheme], 'upstreams':[p.netloc for p in parsed], 'load_balance':route['policy']}

@@ -42,3 +42,54 @@ def validate_composition(*, privacy, envelope=None, gate=None, guard=None):
         layers.insert(0,'Guard')
     return {'layers':layers, 'sessionAdmission':'S6EPE' if privacy=='envelope' else 'native',
             'outerEncryptedCamouflage':False}
+
+
+def broker_realization(context, *, native, gate=None):
+    """Check desired BrokerSet against explicit peripheral/native realization.
+
+    Only deterministic intent/realization material is returned for locking;
+    selection and observed health are runtime facts.
+    """
+    try:
+        from .broker_set import gate_patch, realize
+    except ImportError:
+        from broker_set import gate_patch, realize
+    pools = [r for r in context['routes'] if r.get('kind') == 'broker_set']
+    if not pools:
+        return {'adapter':'native-single','brokerSets':[]}
+    if len(pools) > 1:
+        raise ValueError('capability unavailable: one native broker control endpoint cannot realize multiple BrokerSets')
+    route = pools[0]
+    targets = []
+    def collect(value):
+        if isinstance(value,dict):
+            for key, child in value.items():
+                if key in {'broker_addr','broker_address'}:
+                    if not isinstance(child,str): raise ValueError('invalid native broker endpoint')
+                    targets.append(child)
+                elif key == 'broker_addrs':
+                    if not isinstance(child,list) or not child or not all(isinstance(e,str) for e in child): raise ValueError('invalid native broker endpoints')
+                    targets.extend(child)
+                else: collect(child)
+        elif isinstance(value,list):
+            for child in value: collect(child)
+    collect(native)
+    if gate is None or gate.get('role') != 'client':
+        realize(route)  # native-single capability validation
+        if context['role'] != 'broker':
+            if targets != [route['members'][0]['endpoint']]:
+                raise ValueError('capability unavailable: native broker endpoint does not realize the S6P1 route')
+        return {'adapter':'native-single', 'brokerSets':[route['id']]}
+    patch = gate_patch(route)
+    if gate.get('enabled') is not True or any(gate.get(key) != value for key,value in patch.items()):
+        raise ValueError('Gate realization differs from S6P1 BrokerSet routes/trust/policy')
+    host,port = gate.get('listen_host'),gate.get('listen_port')
+    if not isinstance(host,str) or type(port) is not int:
+        raise ValueError('Gate BrokerSet requires an explicit private local endpoint')
+    local = f'[{host}]:{port}' if ':' in host else f'{host}:{port}'
+    if not private_endpoint(local):
+        raise ValueError('Gate BrokerSet native-facing endpoint must be loopback')
+    if len(targets) != 1 or not same_endpoint(targets[0],local):
+        raise ValueError('capability unavailable: native broker endpoint must explicitly target the Gate BrokerSet listener')
+    return {'adapter':'gate','brokerSets':[route['id']], 'gatePatch':patch,
+            'nativeEndpoint':targets[0]}
