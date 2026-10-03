@@ -790,3 +790,9 @@ build: core-idris
 test: test-idris
 crosed-variants: idris-crosed-variant
 endif
+
+package-zip:
+	@bash Tools/package_release.sh --zip
+
+package-tar:
+	@bash Tools/package_release.sh --tar
