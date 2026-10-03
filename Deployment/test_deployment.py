@@ -4,9 +4,9 @@ import unittest
 from pathlib import Path
 
 from Deployment.shadow6_abi import decode_control, decode_data, encode_control, encode_data, s6ar_request
-from shadow6_deployment import load_manifest, manifest_lock, plan_manifest
+from Deployment.shadow6_deployment import load_manifest, manifest_lock, plan_manifest
 from Deployment.shadow6_acceptance import run_acceptance
-from shadow6_driver import application_capability, ready_event, select_boundary
+from Deployment.shadow6_driver import application_capability, ready_event, select_boundary
 
 
 ROOT = Path(__file__).parent
