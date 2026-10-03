@@ -69,6 +69,8 @@ def select_boundary(report: dict, requirements: dict) -> dict:
         candidates.append(item)
     if not candidates:
         raise ValueError(f"Core does not provide a compatible {boundary} application boundary")
+    if len(candidates) > 1:
+        raise ValueError("AmbiguousApplicationBoundary: Core declares multiple compatible boundaries")
     selected = dict(candidates[0])
     selected.setdefault("kind", boundary)
     return selected
