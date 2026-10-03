@@ -140,6 +140,7 @@ METHOD_SPECS: dict[str, dict[str, Any]] = {
     "c11relay.ipc.schema": _method("Return the bounded C11Relay RawIPC datagram contract."),
     "system.guide": _method("Read a bilingual guide to safe operations and privacy.", {"lang": {"type": "string", "enum": ["en", "zh"]}}),
     "privacy.report": _method("Return only aggregate health counts, without paths, identifiers or diagnostic details."),
+    "privacy-envelope.status": _method("Return bounded envelope telemetry without payloads or credentials."),
     "system.status": _method("Run bounded read-only component health and observation checks.", {"root": _PATH}),
     "config.render": _method(
         "Render a strict Shadow6 build configuration, optionally to a file.",
@@ -508,6 +509,9 @@ def dispatch(method: str, raw_params: Any = None) -> Any:
         passed = sum(item.get("passed") is True for item in checks)
         return {"profile": "aggregate-only", "checks": len(checks), "passed": passed,
                 "failed": len(checks) - passed, "network_anonymity": False}
+    if method == "privacy-envelope.status":
+        from privacy_envelope import EnvelopeMetrics
+        return EnvelopeMetrics().public()
     if method == "system.status":
         _only(params, {"root"})
         root = _root(params)

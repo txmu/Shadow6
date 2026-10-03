@@ -1,0 +1,1 @@
+let report () = "{\"schema\":\"shadow6.privacy-envelope.v1\",\"implementation\":\"ocaml\",\"mode\":\"authenticated-envelope\",\"native_protocol_unchanged\":true,\"preauth_identity_disclosure\":false,\"public_core_listener_required\":false}"

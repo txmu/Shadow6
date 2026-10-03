@@ -112,11 +112,18 @@ def validate_feature_report(report, expected_core=None):
     core = report["core"]
     if core not in TRANSPORTS or expected_core is not None and core != expected_core:
         raise ValueError("unknown or mismatched Core identity")
-    allowed = COMMON_FIELDS | {"transport", "app_transport_modes", "application_boundaries"} | EXTRA_FIELDS.get(core, set())
+    allowed = COMMON_FIELDS | {"transport", "app_transport_modes", "application_boundaries", "privacy_envelope"} | EXTRA_FIELDS.get(core, set())
     if not COMMON_FIELDS <= set(report) or set(report) - allowed:
         raise ValueError("unknown or missing feature-report fields")
     if any(type(report[field]) is not bool for field in BOOLEAN_FIELDS):
         raise ValueError("feature flags must be booleans")
+    envelope = report.get("privacy_envelope")
+    if envelope is not None:
+        if (not isinstance(envelope, dict) or set(envelope) != {"available", "implementation", "mode", "native_protocol_unchanged", "preauth_identity_disclosure", "public_core_listener_required"} or
+                type(envelope["available"]) is not bool or envelope["implementation"] != "ocaml" or
+                envelope["mode"] != "authenticated-envelope" or type(envelope["native_protocol_unchanged"]) is not bool or
+                type(envelope["preauth_identity_disclosure"]) is not bool or type(envelope["public_core_listener_required"]) is not bool):
+            raise ValueError("invalid privacy envelope capability")
     if not isinstance(report["version"], str) or not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+(?:[-+][a-zA-Z0-9.-]{1,32})?", report["version"]):
         raise ValueError("invalid Core version")
     level, caps = report["crosed_max_level"], report["crosed_capabilities"]

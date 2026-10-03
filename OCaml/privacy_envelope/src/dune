@@ -1,0 +1,5 @@
+(executable
+ (name main)
+ (public_name shadow6-privacy-envelope)
+ (modules main config envelope crypto session forward rate_limit metrics feature_report)
+ (libraries unix threads))

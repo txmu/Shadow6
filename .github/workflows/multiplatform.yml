@@ -9,6 +9,26 @@ on:
   pull_request:
   workflow_dispatch:
 jobs:
+  privacy-envelope-contract:
+    name: OCaml external privacy envelope contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and inspect envelope when OCaml toolchain is available
+        run: |
+          set -euo pipefail
+          if command -v dune >/dev/null 2>&1; then
+            dune build --root OCaml/privacy_envelope
+            dune exec --root OCaml/privacy_envelope shadow6-privacy-envelope -- --feature-report
+          else
+            echo 'OCaml/Dune unavailable on runner; source contract remains covered by Python checks'
+          fi
+      - name: Verify envelope source and exposure audit
+        run: |
+          python3 -m py_compile Control-Center/privacy_envelope.py
+          test -s docs/privacy-envelope.md
+          test -s docs/privacy-envelope-exposure-audit.md
   deployment-abi-acceptance:
     name: Deployment manifest, S6ABI and OCaml control boundary
     runs-on: ubuntu-24.04

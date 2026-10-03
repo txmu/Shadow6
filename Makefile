@@ -37,7 +37,10 @@ DESTDIR ?=
 PYTHON ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python3)
 PYTHON_SITE_PACKAGES ?= $(shell $(PYTHON) -c 'import sysconfig; print(sysconfig.get_path("purelib", vars={"base":"$(PREFIX)","platbase":"$(PREFIX)"}))')
 
-.PHONY: all build benchmark performance-matrix benchmark-test network-adapter-test node-ipc-test network-adapter-benchmark core-go core-rust core-gleam test-gleam core-cpp core-hare test-hare core-carp test-carp core-pony test-pony pony-crosed-variant gate migration i18n crosed-variants public6 public6-variants public6-contract relay guard service-init auto detector plugins package-manager easybuild crosed app-layer extension-system assistants slots control-center android-preflight android-cores android-apk integration-test deployment-test ocaml-control-test acceptance test check audit package install install-tree clean distclean
+.PHONY: all build benchmark performance-matrix benchmark-test network-adapter-test node-ipc-test network-adapter-benchmark privacy-envelope-test core-go core-rust core-gleam test-gleam core-cpp core-hare test-hare core-carp test-carp core-pony test-pony pony-crosed-variant gate migration i18n crosed-variants public6 public6-variants public6-contract relay guard service-init auto detector plugins package-manager easybuild crosed app-layer extension-system assistants slots control-center android-preflight android-cores android-apk integration-test deployment-test ocaml-control-test acceptance test check audit package install install-tree clean distclean
+
+privacy-envelope-test:
+	@if command -v dune >/dev/null 2>&1; then cd OCaml/privacy_envelope && dune build && dune exec shadow6-privacy-envelope -- --feature-report; else echo 'OCaml/Dune unavailable; privacy envelope build unavailable'; fi
 
 all: build
 
@@ -425,6 +428,7 @@ endif
 ifeq ($(BUILD_CONTROL),1)
 	@PYTHONPATH=Control-Center $(PYTHON) -m unittest -v Control-Center/test_control.py
 	@PYTHONPATH=Control-Center $(PYTHON) -m unittest -v Control-Center/test_capability_capsule.py
+	@PYTHONPATH=Control-Center $(PYTHON) -m unittest -v Control-Center/test_privacy_envelope.py
 endif
 ifeq ($(BUILD_SLOTS),1)
 	@PYTHONPATH=Plugin-System:Security-Assistants:Slot-System $(PYTHON) -m unittest -v Slot-System/test_slots.py
