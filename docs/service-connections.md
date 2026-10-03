@@ -202,3 +202,16 @@ closes ordinary drift between apply and launch without adding local paths or
 binary digests to S6P1. Files remain owner-controlled deployment inputs; these
 checks do not claim protection against a malicious process with the operator's
 own privileges continuously racing file replacement.
+
+Runtime observations have an exact bounded schema: nonempty unique critical PID
+identities, socket facts and defined readiness levels. Status rechecks child
+ownership and actual listener ownership; stale/missing observations and stopped
+processes expose unavailable readiness. A fresh file alone cannot turn a desired
+route or another live process into a ready endpoint. Envelope observations keep
+EPE as the public endpoint and cannot substitute a native application endpoint.
+
+The observer bounds 4096 FDs, 65536 rows per proc socket table, 4096 bytes per
+row and 64 owned listeners. Exceeding these budgets produces an explicit error;
+results are not silently truncated into a claim of private exposure or readiness.
+Transport authentication readiness remains unknown until a supported proof
+contract exists; a socket alone does not establish it.

@@ -234,4 +234,94 @@ class LaunchLockTests(unittest.TestCase):
                 service_runtime.verify_launch_material(plan)
 
 
+class ObservationTruthTests(unittest.TestCase):
+    setUp = ServiceLifecycleTests.setUp
+    cleanup_process = ServiceLifecycleTests.cleanup_process
+
+    def test_proc_observation_budget_does_not_silently_truncate(self):
+        import io, socket
+        from Deployment import runtime_observation as observation
+        with patch.object(observation,'MAX_ROWS',1):
+            self.assertEqual(list(observation.proc_rows(io.StringIO('header\nrow\n'))),['row\n'])
+            with self.assertRaisesRegex(ValueError,'table limit'):
+                list(observation.proc_rows(io.StringIO('header\nrow\nsecond\n')))
+        with self.assertRaisesRegex(ValueError,'row limit'):
+            list(observation.proc_rows(io.StringIO('header\n'+'x'*5000)))
+        with patch.object(observation,'MAX_FDS',0):
+            with self.assertRaisesRegex(ValueError,'FD observation limit'):
+                observation.sockets(os.getpid())
+        with socket.socket() as listener, patch.object(observation,'MAX_SOCKETS',0):
+            listener.bind(('127.0.0.1',0));listener.listen()
+            with self.assertRaisesRegex(ValueError,'listener observation limit'):
+                observation.sockets(os.getpid())
+
+    def test_observation_schema_rejects_empty_foreign_and_unknown_claims(self):
+        import copy
+        from Deployment.runtime_observation import validate_observation
+        item=self.registry.run('home/nas');value=item['runtimeObservation']
+        validate_observation(value)
+        for changed in ({**value,'extra':True},{**value,'processes':[]},
+                        {**value,'processes':value['processes']*2},
+                        {**value,'readiness':'connected'},
+                        {**value,'transportReadiness':'ready'}):
+            with self.assertRaises(ValueError):validate_observation(changed)
+        changed=copy.deepcopy(value)
+        changed.update(readiness='application-ready',applicationReadiness='ready',endpoint={
+            'host':'127.0.0.1','port':14433,'boundary':'stream','mode':'localhost-tcp-proxy',
+            'observation':'structured-ready-event','owner':{'pid':os.getpid(),'processIdentity':service_runtime.identity(os.getpid())}})
+        with self.assertRaisesRegex(ValueError,'native process'):validate_observation(changed)
+
+    def test_missing_sidecar_and_stopped_process_do_not_reuse_readiness(self):
+        import hashlib
+        item=self.registry.run('home/nas')
+        path=self.registry.path.parent/(hashlib.sha256(b'home/nas').hexdigest()+'.runtime.json')
+        item['runtime'].update(readiness='application-ready',endpoint={'host':'127.0.0.1','port':14433})
+        with patch('Deployment.service_runtime.private_read',side_effect=FileNotFoundError):
+            service_runtime.observe(item,path)
+        self.assertIsNone(item['runtime']['endpoint'])
+        self.assertEqual(item['runtime']['readiness'],'unavailable')
+        stopped=self.registry.stop('home/nas')
+        self.assertEqual(stopped['runtime']['readiness'],'unavailable')
+        self.assertIsNone(stopped['runtime']['endpoint'])
+
+    def test_fresh_sidecar_cannot_turn_nonexistent_socket_into_ready_endpoint(self):
+        import copy,hashlib
+        item=self.registry.run('home/nas');value=copy.deepcopy(item['runtimeObservation'])
+        socket_claim={'host':'127.0.0.1','port':14433,'transport':'tcp','observation':'process-owned-socket'}
+        value.update(readiness='listener-ready',endpoints=[socket_claim],nativeEndpoints=[socket_claim],endpoint=socket_claim)
+        path=self.registry.path.parent/(hashlib.sha256(b'home/nas').hexdigest()+'.runtime.json')
+        original=service_runtime.private_read
+        def read(target,*args):
+            if str(target).endswith('.observed'):return json.dumps(value).encode()
+            return original(target,*args)
+        with patch('Deployment.service_runtime.private_read',side_effect=read):service_runtime.observe(item,path)
+        self.assertEqual(item['runtime']['readiness'],'unavailable')
+        self.assertIsNone(item['runtime']['endpoint'])
+
+    def test_critical_component_cannot_be_omitted_from_fresh_observation(self):
+        import hashlib
+        item=self.registry.run('home/nas');value=item['runtimeObservation']
+        path=self.registry.path.parent/(hashlib.sha256(b'home/nas').hexdigest()+'.runtime.json')
+        original=service_runtime.private_read
+        def read(target,*args):
+            if str(target).endswith('.observed'):return json.dumps(value).encode()
+            plan=json.loads(original(target,*args));plan['gateConfig']='/unused/gate.json'
+            return json.dumps(plan).encode()
+        with patch('Deployment.service_runtime.private_read',side_effect=read):
+            with self.assertRaisesRegex(ValueError,'critical processes differ'):
+                service_runtime.observe(item,path)
+
+    def test_other_live_process_is_not_a_supervised_core(self):
+        import copy,hashlib
+        item=self.registry.run('home/nas');value=copy.deepcopy(item['runtimeObservation'])
+        value['processes']=[{'pid':os.getpid(),'processIdentity':service_runtime.identity(os.getpid())}]
+        path=self.registry.path.parent/(hashlib.sha256(b'home/nas').hexdigest()+'.runtime.json')
+        original=service_runtime.private_read
+        def read(target,*args):
+            if str(target).endswith('.observed'):return json.dumps(value).encode()
+            return original(target,*args)
+        with patch('Deployment.service_runtime.private_read',side_effect=read):service_runtime.observe(item,path)
+        self.assertEqual(item['runtime']['readiness'],'unavailable')
+
+
 if __name__ == '__main__': unittest.main()

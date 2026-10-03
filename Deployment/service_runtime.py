@@ -11,10 +11,10 @@ from pathlib import Path
 
 try:
     from .service_storage import private_read, strict_json, atomic_write
-    from .runtime_observation import sockets, private_socket, ready
+    from .runtime_observation import sockets, private_socket, ready, validate_observation
 except ImportError:
     from service_storage import private_read, strict_json, atomic_write
-    from runtime_observation import sockets, private_socket, ready
+    from runtime_observation import sockets, private_socket, ready, validate_observation
 
 
 _CHILDREN = {}
@@ -345,12 +345,45 @@ def validate_envelope(fields):
 
 def observe(item, plan_path):
     process = item.get('runtime')
-    if not process or not alive(process): return
-    try: value = strict_json(private_read(str(plan_path) + '.observed'))
-    except FileNotFoundError: return
+    if not process:return
+    if not alive(process):
+        process['endpoint']=None;process['readiness']='unavailable';return
+    try:
+        value = strict_json(private_read(str(plan_path) + '.observed'))
+        plan = strict_json(private_read(plan_path))
+    except FileNotFoundError:
+        process['endpoint']=None;process['readiness']='unavailable';return
+    if not isinstance(plan,dict):raise ValueError('invalid runtime launch plan')
+    value = validate_observation(value)
     if value.get('pid') != process['pid'] or value.get('processIdentity') != process['processIdentity']:
         raise ValueError('runtime observation identity mismatch')
     if type(value.get('observedAt')) is not int or not 0 <= int(time.time())-value['observedAt'] <= 2 or not all(alive(p) for p in value.get('processes',[])):
+        process['endpoint']=None;process['readiness']='unavailable';return
+    def direct_child(pid):
+        try:
+            stat_fields=Path(f'/proc/{pid}/stat').read_text().rsplit(')',1)[1].split()
+            return int(stat_fields[1]) == process['pid']
+        except (OSError,ValueError,IndexError):return False
+    if not all(direct_child(p['pid']) for p in value['processes']):
+        process['endpoint']=None;process['readiness']='unavailable';return
+    children=value['processes']
+    if len(children) != 1 + sum(component + 'Config' in plan for component in ('envelope','gate','guard')):
+        raise ValueError('observed critical processes differ from deployment realization')
+    native=sockets(children[0]['pid'])
+    if process['privacy'] == 'envelope' and value['readiness'] == 'application-ready':
+        raise ValueError('envelope public endpoint must denote the admission listener')
+    if process['privacy'] == 'envelope' and len(children) < 2:
+        raise ValueError('envelope observation requires its critical admission process')
+    public=sockets(children[1]['pid']) if process['privacy'] == 'envelope' else native
+    target=value['endpoint']
+    if process['privacy'] == 'envelope' and any(not private_socket(e) for e in native):
+        process['endpoint']=None;process['readiness']='unavailable';return
+    actual = (all(e in native for e in value['nativeEndpoints'])
+              and all(e in public for e in value['endpoints']))
+    if target is not None and value['readiness'] == 'application-ready':
+        actual = actual and any(e['host']==target['host'] and e['port']==target['port']
+                                and (target['boundary'] != 'stream' or e['transport']=='tcp') for e in native)
+    if not actual:
         process['endpoint']=None;process['readiness']='unavailable';return
     process['endpoint'] = value['endpoint']
     process['readiness'] = value['readiness']

@@ -325,7 +325,7 @@ class ServiceRegistry:
     def stop(self, name):
         item = self.inspect(name); runtime.stop(item.get('runtime', {}))
         if item.get('runtime'):
-            item['runtime']['state'] = 'stopped'
+            item['runtime'].update(state='stopped',endpoint=None,readiness='unavailable')
         item['state'] = 'stopped'; self._save(); return item
 
     @transaction

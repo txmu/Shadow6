@@ -172,3 +172,24 @@ real lifecycle and launch drift regressions, and existing-binary EPE tests.
 Changed Python AST/compile, all workflow YAML and diff checks passed. No shell
 or workflow was modified, no heavyweight build/package was run, and the concrete
 latest CI run 37106440035 remained queued with no completed jobs when re-read.
+
+## Runtime observation truth and bounds
+
+Observation reading now rejects unknown fields, empty/duplicate critical PID
+lists and foreign application owners. Freshness is necessary but not sufficient:
+status rechecks supervisor-child relationships, deployment component count and
+actual owned listener sockets. Missing observations and stopped processes clear
+readiness/endpoint. Envelope public observations cannot substitute the native
+application endpoint. Unsupported transport-ready claims are rejected.
+
+FD scanning and proc table parsing are bounded without whole-directory or
+whole-table reads. Capacity overflow raises explicitly rather than hiding
+listeners beyond the report limit. Regression tests cover forged socket claims,
+foreign live processes, missing critical components, missing/stopped readiness
+and FD/row/listener capacity limits. No Core wire or privilege default changed.
+
+87 focused Python tests passed without skips; the six observation-specific tests
+also passed after the final transport-readiness validation change. Changed
+Python AST/compile, workflow YAML and diff checks passed. No shell/workflow edit,
+heavy build or package command ran. The concrete run 37106654298 was polled and
+remained queued with no completed jobs; full-matrix/OCaml success remains unproven.
