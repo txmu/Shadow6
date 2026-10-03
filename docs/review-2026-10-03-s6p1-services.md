@@ -137,3 +137,19 @@ including existing-binary EPE lifecycle and isolated staged imports; six privacy
 telemetry tests passed, including the future-timestamp regression. Changed Python
 AST/compile, workflow YAML parsing and diff checks passed. The new OCaml formatter
 regression has source/static review here and awaits the existing CI build.
+
+## Observed application boundary follow-up
+
+The shared planner rejects observed application readiness when the selected Core
+has not declared the client role or boundary, or when it conflicts with S6P1
+role/routes. The supervisor only accepts stream readiness backed by the native
+process's TCP listener; a loopback UDP fixture reporting stream-ready remains
+listener-ready with application readiness unknown. Owned socket address decoding
+now respects host byte order; IPv4/IPv6 little- and big-endian cases are covered.
+No native protocol or feature report was changed.
+
+77 focused Python tests passed without skips, including the real supervisor UDP
+negative case, EPE lifecycle using the existing binary, and isolated staged
+imports. AST/compile, all workflow YAML parsing and diff checks passed. Run
+37106295322 and its concrete OCaml/Deployment job handles were re-read and remain
+queued; no source-built OCaml or full-matrix success is inferred from that state.

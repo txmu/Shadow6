@@ -186,7 +186,7 @@ def supervise(plan_path, ack):
                           'readiness':'listener-ready' if public else 'process-alive',
                           'transportReadiness':'unknown','applicationReadiness':'unknown'}
                 candidate = ready_state.get('endpoint',{})
-                if ready_state and any(e['host'] == candidate.get('host') and e['port'] == candidate.get('port') for e in native):
+                if ready_state and any(e['host'] == candidate.get('host') and e['port'] == candidate.get('port') and (candidate.get('boundary') != 'stream' or e['transport'] == 'tcp') for e in native):
                     result.update(ready_state)
                     result['endpoint']['owner']={'pid':children[0].pid,'processIdentity':identity(children[0].pid)}
                     result['applicationReadiness'] = 'ready'

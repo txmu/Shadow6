@@ -369,4 +369,55 @@ class RealizationAdmissionTests(unittest.TestCase):
             admit_realization(context,components=('gate',))
 
 
+class ObservedBoundaryContractTests(unittest.TestCase):
+    def test_owned_socket_address_decoding_respects_host_byte_order(self):
+        from Deployment.runtime_observation import proc_address
+        self.assertEqual(proc_address('0100007F',byteorder='little'),'127.0.0.1')
+        self.assertEqual(proc_address('7F000001',byteorder='big'),'127.0.0.1')
+        self.assertEqual(proc_address('00000000000000000000000001000000',ipv6=True,byteorder='little'),'::1')
+        self.assertEqual(proc_address('00000000000000000000000000000001',ipv6=True,byteorder='big'),'::1')
+        with self.assertRaisesRegex(ValueError,'invalid proc socket address'):proc_address('00')
+
+    def test_observed_application_boundary_must_match_descriptor_and_intent(self):
+        from Deployment.connection_plan import connection_plan
+        catalog=CoreCatalog(ROOT)
+        catalog._items['go']['applicationBoundaries']=['stream','message']
+        context=minimal_context('go');context['role']='client'
+        runtime={'readiness':'application-ready','endpoint':{'host':'127.0.0.1','port':14433,'boundary':'stream','mode':'localhost-tcp-proxy','observation':'structured-ready-event'}}
+        plan=connection_plan(context,catalog=catalog,runtime=runtime)
+        self.assertEqual(plan['capability']['sessionLaunch'],'local-application-stream')
+        context['routes']=[{'boundary':'message'}]
+        with self.assertRaisesRegex(ValueError,'S6P1 routes'):
+            connection_plan(context,catalog=catalog,runtime=runtime)
+        context['routes']=[];context['role']='broker'
+        with self.assertRaisesRegex(ValueError,'S6P1 role'):
+            connection_plan(context,catalog=catalog,runtime=runtime)
+        context['role']='client';catalog._items['go']['applicationBoundaries']=['message']
+        with self.assertRaisesRegex(ValueError,'not declared by Core'):
+            connection_plan(context,catalog=catalog,runtime=runtime)
+        context['role']='all';catalog._items['go']['applicationBoundaries']=['stream'];catalog._items['go']['roles']=['broker']
+        with self.assertRaisesRegex(ValueError,'client role is not declared'):
+            connection_plan(context,catalog=catalog,runtime=runtime)
+
+    def test_udp_listener_cannot_prove_stream_application_readiness(self):
+        temp=tempfile.TemporaryDirectory(prefix='shadow6-ready-udp-');self.addCleanup(temp.cleanup)
+        directory=Path(temp.name)
+        binary=directory/'fixture';binary.write_text("""#!/usr/bin/env python3
+import socket,json,time
+s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM);s.bind(('127.0.0.1',0))
+print(json.dumps({'event':'ready','schema':1,'core':'go','role':'client','application_boundary':{'kind':'stream','mode':'localhost-tcp-proxy','endpoint':{'host':'127.0.0.1','port':s.getsockname()[1]}}}),flush=True)
+time.sleep(60)
+""");binary.chmod(0o700)
+        config=directory/'native.json';atomic_write(config,b'{"role":"client"}')
+        catalog=CoreCatalog(ROOT);catalog._items['go']['executable']=str(binary)
+        registry=ServiceRegistry(directory/'registry.json',catalog)
+        registry.create('home/udp',core='go',config={'config_path':str(config)},context={**minimal_context('go'),'role':'client'})
+        try:
+            item=registry.run('home/udp')
+            self.assertEqual(item['runtime']['readiness'],'listener-ready')
+            self.assertEqual(item['runtimeObservation']['applicationReadiness'],'unknown')
+            self.assertEqual(registry.connect('home/udp')['capability']['sessionLaunch'],'unavailable')
+        finally:registry.stop('home/udp')
+
+
 if __name__ == '__main__':unittest.main()

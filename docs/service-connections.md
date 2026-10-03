@@ -187,3 +187,9 @@ may predate current source contracts; no fabricated feature report is used to
 make them pass. Native rebuilding, all-Core audits and platform matrices run in
 GitHub Actions. Passing local source/fixture tests is not evidence that stale
 native binaries implement the new source contract.
+
+Observed application readiness is checked against the selected Core descriptor
+and S6P1 role/boundary intent before a session launcher is advertised. A stream
+ready event must match a process-owned TCP listener; a UDP socket cannot prove
+stream readiness. Linux socket observations decode native-endian address words
+on both little- and big-endian hosts. These checks do not change native protocols.

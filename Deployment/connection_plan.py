@@ -38,9 +38,18 @@ def connection_plan(context, *, catalog, core=None, binding=None, runtime=None, 
     observed = runtime or {}
     endpoint = observed.get('endpoint')
     readiness = observed.get('readiness','unavailable')
+    if readiness == 'application-ready':
+        if 'client' not in descriptor['roles']:
+            raise ValueError('capability unavailable: observed client role is not declared by Core')
+        if not isinstance(endpoint,dict) or endpoint.get('boundary') not in descriptor['applicationBoundaries']:
+            raise ValueError('capability unavailable: observed application boundary is not declared by Core')
+        if context['role'] not in ('all','client'):
+            raise ValueError('observed client application endpoint conflicts with S6P1 role')
+        observed_boundary = endpoint['boundary']
+        if boundary and boundary != observed_boundary:
+            raise ValueError('observed application boundary conflicts with S6P1 routes')
+        boundary = observed_boundary
     attach = (readiness == 'application-ready' and isinstance(endpoint,dict) and endpoint.get('boundary') == 'stream' and endpoint.get('mode') == 'localhost-tcp-proxy' and endpoint.get('observation') == 'structured-ready-event')
-    if not boundary and readiness == 'application-ready' and isinstance(endpoint,dict):
-        boundary = endpoint.get('boundary')
     # No socket open is invented from native wire data. A ready process is not
     # an application session. Existing Public6 provisioning happens afterward.
     return {'schema':'shadow6.connection-plan.v1', 'source':source, 'core':requested,

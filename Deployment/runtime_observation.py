@@ -3,11 +3,23 @@ import ipaddress
 import json
 import os
 import socket
+import sys
 from pathlib import Path
 try:
     from .service_storage import strict_json
 except ImportError:
     from service_storage import strict_json
+
+
+def proc_address(encoded, *, ipv6=False, byteorder=None):
+    """Linux proc socket addresses print native-endian 32-bit words."""
+    order = sys.byteorder if byteorder is None else byteorder
+    if order not in ('little','big'): raise ValueError('invalid proc socket byte order')
+    raw = bytes.fromhex(encoded)
+    if len(raw) != (16 if ipv6 else 4): raise ValueError('invalid proc socket address')
+    if order == 'little':
+        raw = b''.join(raw[n:n+4][::-1] for n in range(0,len(raw),4))
+    return socket.inet_ntop(socket.AF_INET6 if ipv6 else socket.AF_INET, raw)
 
 
 def sockets(pid):
@@ -28,9 +40,7 @@ def sockets(pid):
             if len(fields) < 10 or fields[9] not in inodes or table.startswith('tcp') and fields[3] != '0A': continue
             if table.startswith('udp') and int(fields[2].split(':')[1],16) != 0: continue
             host, port = fields[1].split(':')
-            raw = bytes.fromhex(host)
-            raw = b''.join(raw[n:n+4][::-1] for n in range(0,len(raw),4))
-            address = socket.inet_ntop(socket.AF_INET6 if table.endswith('6') else socket.AF_INET, raw)
+            address = proc_address(host, ipv6=table.endswith('6'))
             found.append({'host':address, 'port':int(port,16), 'transport':'tcp' if table.startswith('tcp') else 'udp', 'observation':'process-owned-socket'})
     return sorted(found, key=lambda x:(x['transport'],x['host'],x['port']))[:64]
 
