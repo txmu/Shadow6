@@ -1,3 +1,11 @@
 (test
  (name test_datagram)
+ (modules test_datagram)
  (libraries unix))
+
+(copy_files ../src/config.ml)
+(copy_files ../src/metrics.ml)
+(test
+ (name test_metrics_clock)
+ (modules test_metrics_clock config metrics)
+ (libraries unix threads))

@@ -313,4 +313,60 @@ class BrokerRuntimeRealizationTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,'locked service realization'):
                 resolve_connection(service='home/nas',registry=registry,catalog=CoreCatalog(ROOT),adapter='native-single')
 
+class RealizationAdmissionTests(unittest.TestCase):
+    setUp = ContextTests.setUp
+    create = ContextTests.create
+
+    def gate_service(self, context):
+        path=self.directory/'gate.json'
+        atomic_write(path,b'{"enabled":true,"role":"client"}')
+        binary=self.directory/'fixture-gate';binary.write_text('#!/bin/false\n');binary.chmod(0o700)
+        self.catalog.component_binary=lambda component:binary
+        atomic_write(self.config,b'{"role":"client"}')
+        return self.create(context,spec={'gate_config':str(path)})
+
+    def test_explicit_component_disable_cannot_be_overridden_by_config(self):
+        context=minimal_context('go');context['role']='client';context['components']={'gate':False}
+        self.gate_service(context)
+        with self.assertRaisesRegex(ValueError,'does not advertise'):self.registry.lock('home/nas')
+        from unittest.mock import patch
+        with patch('Deployment.service_registry.runtime.start') as start:
+            with self.assertRaisesRegex(ValueError,'does not advertise'):self.registry.run('home/nas')
+            start.assert_not_called()
+
+    def test_required_component_needs_local_realization(self):
+        for component in ('gate','guard','s6epe'):
+            context=minimal_context('go');context['components']={component:True}
+            from Deployment.protocol_context import admit_realization
+            with self.assertRaisesRegex(ValueError,'explicit local realization'):
+                admit_realization(context)
+        context['components']={}
+        self.assertEqual(admit_realization(context),context)
+
+    def test_passport_role_scope_is_enforced_before_registry_creation(self):
+        from join_code import issue_passport
+        context=minimal_context('go');context['role']='client'
+        context['credentials']={'passport':issue_passport('nas',components=('all',),roles=('agent',),issuer_key=b'r'*32)}
+        with self.assertRaisesRegex(ValueError,'role'):self.create(context)
+        self.assertEqual(self.registry.services,{})
+
+    def test_passport_component_scope_is_enforced_before_lock(self):
+        from join_code import issue_passport
+        context=minimal_context('go');context['role']='client';context['components']={'gate':True}
+        context['credentials']={'passport':issue_passport('nas',components=('guard',),roles=('client',),issuer_key=b'r'*32)}
+        self.gate_service(context)
+        with self.assertRaisesRegex(ValueError,'component'):self.registry.lock('home/nas')
+        self.assertNotIn('deploymentLock',self.registry.inspect('home/nas'))
+
+    def test_unspecified_context_role_cannot_bypass_actual_native_role_scope(self):
+        from join_code import issue_passport
+        from Deployment.protocol_context import admit_realization
+        context=minimal_context('go')
+        context['credentials']={'passport':issue_passport('nas',components=('gate',),roles=('agent',),issuer_key=b'r'*32)}
+        with self.assertRaisesRegex(ValueError,'role'):
+            admit_realization(context,native_role='client',components=('gate',))
+        with self.assertRaisesRegex(ValueError,'explicit logical or native role'):
+            admit_realization(context,components=('gate',))
+
+
 if __name__ == '__main__':unittest.main()

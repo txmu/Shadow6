@@ -12,13 +12,13 @@ try:
     from .core_catalog import CoreCatalog
     from .service_storage import private_read, strict_json, private_directory, atomic_write
     from . import service_runtime as runtime
-    from .protocol_context import validate_context, minimal_context, check_binding, context_digest, admit
+    from .protocol_context import validate_context, minimal_context, check_binding, context_digest, admit, admit_realization
     from .connection_plan import resolve_connection
 except ImportError:
     from core_catalog import CoreCatalog
     from service_storage import private_read, strict_json, private_directory, atomic_write
     import service_runtime as runtime
-    from protocol_context import validate_context, minimal_context, check_binding, context_digest, admit
+    from protocol_context import validate_context, minimal_context, check_binding, context_digest, admit, admit_realization
     from connection_plan import resolve_connection
 
 NAME = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._-]{0,63}/[A-Za-z0-9][A-Za-z0-9._-]{0,63}$')
@@ -232,6 +232,9 @@ class ServiceRegistry:
             from .service_composition import validate_composition, broker_realization
         except ImportError:
             from service_composition import validate_composition, broker_realization
+        realized = set(components)
+        if item['privacy'] == 'envelope': realized.add('s6epe')
+        admit_realization(context, native_role=native.get('role') if isinstance(native,dict) else None, components=realized)
         extra['brokerRealization'] = broker_realization(context,native=native,gate=components.get('gate'))
         extra['composition'] = validate_composition(privacy=item['privacy'], envelope=fields, gate=components.get('gate'), guard=components.get('guard'))
         return {'contextDigest':context_digest(item['protocolContext']), 'name': name, 'spec': item['spec'], 'privacy': item['privacy'], 'binding': binding, 'nativeConfigDigest': config_hash, **extra}

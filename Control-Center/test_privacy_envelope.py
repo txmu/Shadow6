@@ -36,6 +36,20 @@ class ObservationTests(unittest.TestCase):
             path.chmod(0o644)
             with self.assertRaises(ValueError): read_metrics(path)
 
+    def test_future_timestamp_remains_stale_without_clock_tolerance(self):
+        import json, tempfile
+        from pathlib import Path
+        from unittest.mock import patch
+        from privacy_envelope import read_metrics
+        with tempfile.TemporaryDirectory(prefix='shadow6-clock-') as directory:
+            path=Path(directory)/'metrics'
+            value={**EnvelopeMetrics().public(),'observed_at':1791010001}
+            path.write_text(json.dumps(value));path.chmod(0o600)
+            with patch('privacy_envelope.time.time',return_value=1791010000.9):
+                self.assertEqual(read_metrics(path)['observation'],'stale')
+                value['observed_at']=1791010000;path.write_text(json.dumps(value))
+                self.assertEqual(read_metrics(path)['observation'],'current')
+
     def test_unsupported_or_unknown_core_does_not_claim_compatibility(self):
         self.assertFalse(compatibility('nim')['supported'])
         with self.assertRaises(ValueError): compatibility('unknown')

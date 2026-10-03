@@ -161,7 +161,7 @@ class ServiceLifecycleTests(unittest.TestCase):
         deadline=time.monotonic()+3
         while time.monotonic()<deadline:
             value=self.registry.status('home/nas')['privacyTelemetry']
-            if value['authenticated_sessions']==1: break
+            if value.get('authenticated_sessions')==1 and value['observation']=='current': break
             time.sleep(.1)
         self.assertEqual(value['authenticated_sessions'],1)
         self.assertEqual(value['observation'],'current')

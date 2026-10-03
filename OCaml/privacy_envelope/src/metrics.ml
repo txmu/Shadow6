@@ -3,11 +3,11 @@ type t = { mutable sessions:int; mutable authenticated:int; mutable rejected:int
 let create () = {sessions=0;authenticated=0;rejected=0;replay=0;resource=0;bytes_in=0;bytes_out=0;lock=Mutex.create ()}
 let update m f = Mutex.lock m.lock; Fun.protect ~finally:(fun () -> Mutex.unlock m.lock) (fun () -> f m)
 let add value count = min 9007199254740991 (value + count)
-let snapshot m =
+let snapshot ?(now=Unix.gettimeofday ()) m =
   let result = ref "" in
   update m (fun m -> result := Printf.sprintf
     "{\"schema\":\"shadow6.privacy-envelope-status.v1\",\"observed_at\":%.0f,\"sessions\":%d,\"authenticated_sessions\":%d,\"preauth_rejection_count\":%d,\"replay_rejection_count\":%d,\"resource_limit_rejection_count\":%d,\"bytes_in\":%d,\"bytes_out\":%d}\n"
-    (Unix.gettimeofday ()) m.sessions m.authenticated m.rejected m.replay m.resource m.bytes_in m.bytes_out);
+    (floor now) m.sessions m.authenticated m.rejected m.replay m.resource m.bytes_in m.bytes_out);
   !result
 let last_published = ref 0.
 let publish path m = match path with None -> () | Some _ when Unix.gettimeofday () -. !last_published < 0.5 -> () | Some path ->

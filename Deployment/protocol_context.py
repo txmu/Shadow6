@@ -69,4 +69,30 @@ def check_binding(context, core, catalog):
 
 
 def admit(context, *, component=None, role=None):
-    return resolve_protocol_envelope(pack_protocol(validate_context(context)), component=component, role=role)[0]
+    context = validate_context(context)
+    if role is None and context['role'] != 'all': role = context['role']
+    return resolve_protocol_envelope(pack_protocol(context), component=component, role=role)[0]
+
+
+def admit_realization(context, *, native_role=None, components=()):
+    """Authorize actual local consumers using the existing S6P1 scope validator.
+
+    Empty component intent remains unspecified for legacy local configurations;
+    explicit true/false intent must match realization. Local paths are never
+    projected back into the portable component model.
+    """
+    context = validate_context(context)
+    if context['role'] == 'all' and native_role is None and any(k in context['credentials'] for k in ('passport','visa')):
+        raise ValueError('capability unavailable: credential-bearing deployment requires an explicit logical or native role')
+    context = admit(context, role=native_role)
+    actual = set(components)
+    managed = {'gate', 'guard', 's6epe'}
+    if actual - managed: raise ValueError('unknown managed component realization')
+    for component in sorted(managed):
+        desired = context['components'].get(component)
+        if desired is True and component not in actual:
+            raise ValueError(f'capability unavailable: S6P1 {component} requires an explicit local realization')
+        if component in actual:
+            # Enforces explicit disablement and signed Passport/Visa scope.
+            admit(context, component=component, role=native_role)
+    return context

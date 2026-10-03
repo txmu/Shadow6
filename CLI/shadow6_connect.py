@@ -14,7 +14,7 @@ sys.path.insert(0, str(ROOT / "Public6"))
 sys.path.insert(0, str(ROOT / "Deployment"))
 from core_catalog import CoreCatalog
 from connection_plan import resolve_connection, open_local_session
-from protocol_context import minimal_context, core_allowed
+from protocol_context import minimal_context, core_allowed, admit
 from service_registry import ServiceRegistry
 from join_code import resolve, install_peer, unpack_invitation, resolve_protocol_envelope
 
@@ -45,11 +45,12 @@ def connect(code: str, core: str, role: str, output_dir: Path, carrier: str,
     
     if carrier == "s6na":
         raise ValueError("Connect Virtual Peer currently supports Gate only; use shadow6 network for S6NA configuration")
+    if context is None:
+        context = minimal_context(core);context['role']=role
+    context = admit(context, component='gate', role=role)
     resolved = resolve(code, directory=directory, manual_profile=profile, manual_pin=pin)
     if not any(route['core'] == core for route in resolved['routes']):
         raise ValueError("Core family is not offered by this node")
-    if context is None:
-        context = minimal_context(core);context['role']=role
     plan = resolve_connection(catalog=CoreCatalog(ROOT), context=context, core=core, source='public6', adapter=adapter)
     if check:
         result = {"valid": True, "core": core, "role": role, "carrier": carrier, "connectionPlan":plan}

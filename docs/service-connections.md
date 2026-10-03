@@ -17,6 +17,15 @@ privacy and optional EPE/Gate/Guard configuration/binary digests. Runtime holds
 PID/process identity, actual sockets, ready events and observations. None of
 those local facts belongs in S6P1, and telemetry is excluded from the lock.
 
+S6P1 component intent constrains local realization: `gate`, `guard` and `s6epe`
+set to `false` cannot be enabled by local config references; `true` requires the
+corresponding explicit realization (`s6epe` requires envelope privacy). Omitted
+flags retain unspecified legacy intent. Lock/apply/run validate Passport/Visa
+scope for the actual role and each deployed component using the existing S6P1
+admission validator. Credential-bearing deployment with neither a logical nor an
+observable native role is rejected. Public6 Gate provisioning enforces the same
+Gate component and requested-role admission before lookup or file generation.
+
 Legacy intent-free registries migrate automatically on the next transaction.
 Records with ambiguous native intent, declared endpoint addresses or simulated
 runtime state fail closed with an explicit recreation error. They never become

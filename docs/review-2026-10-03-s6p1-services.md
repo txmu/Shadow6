@@ -102,3 +102,38 @@ explicitly supplied, including lifecycle and isolated staged imports; no skips.
 The full small Gate package tests passed with `GOTOOLCHAIN=local GOPROXY=off`.
 Changed Python AST/bytecode compilation, all workflow YAML parsing and
 `git diff --check` passed. No shell or workflow file changed in this follow-up.
+
+## Component admission and latest EPE CI failure
+
+Lock/apply/run now enforce S6P1 Gate/Guard/S6EPE intent and signed credential
+scope against actual local component/role realization. Explicit disablement
+cannot be overridden by local config; declared required components need a
+realization. Public6 Gate provisioning applies the same admission before lookup
+or generation. A role-neutral credential-bearing service needs an explicit
+logical or verifiable native role. No second component or credential model was
+introduced.
+
+The latest run 37105836493 failed its OCaml EPE job (job 111154049319) at
+`test_named_envelope_starts_real_runtime_and_reads_observed_metrics`: the counter
+was observed but freshness was `stale`. The job log was fetched through the
+GitHub API. The metrics writer formatted `Unix.gettimeofday()` with `%.0f`,
+rounding timestamps into the next second while the reader floors its current
+time. Metrics now floors the timestamp; the real formatter has deterministic
+OCaml coverage for six fractional-second phases. Python regression keeps future
+timestamps stale; freshness validation was not relaxed. The lifecycle test waits
+for both the measured counter and a current observation within its existing
+three-second deadline. No local OCaml compiler/Dune was available; the existing
+Actions `dune runtest` stage runs the new source test.
+
+A second failed job in the same run, macOS Python 3.14t/GIL=0
+(job 111154049510), failed in `actions/setup-python` before project commands:
+`getaddrinfo ENOTFOUND raw.githubusercontent.com`. Its log was also fetched.
+This is runner DNS/toolchain acquisition failure, not a project test exception;
+no tests or failure propagation were disabled to hide it. Verification needs a
+runner with working DNS.
+
+Local admission/CI follow-up: 74 focused Python tests passed without skips,
+including existing-binary EPE lifecycle and isolated staged imports; six privacy
+telemetry tests passed, including the future-timestamp regression. Changed Python
+AST/compile, workflow YAML parsing and diff checks passed. The new OCaml formatter
+regression has source/static review here and awaits the existing CI build.

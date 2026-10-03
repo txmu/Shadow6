@@ -18,8 +18,6 @@ class TestShadow6Connect(unittest.TestCase):
         expected = {"go", "rust", "gleam", "ada", "nim", "pony", "zig", "d", "cpp", "idris", "hare", "carp"}
         self.assertEqual(set(CORE_NAMES), expected)
 
-if __name__ == "__main__":
-    unittest.main()
 
 class UnifiedConnectTests(unittest.TestCase):
     def test_s6p1_plan_without_invitation_and_ambiguous_scope(self):
@@ -43,3 +41,27 @@ class UnifiedConnectTests(unittest.TestCase):
             result=module.connect('x'*40,'go','client',Path(directory),'gate',1086,1087,False,check=True)
             self.assertTrue(result['valid']);self.assertFalse(result['connectionPlan']['connected'])
             resolver.assert_called_once()
+
+    def test_public6_gate_provisioning_cannot_override_component_disable(self):
+        import tempfile
+        from unittest.mock import patch
+        import shadow6_connect as module
+        context=module.minimal_context('go');context['components']={'gate':False}
+        with tempfile.TemporaryDirectory() as directory, patch.object(module,'resolve') as lookup, patch.object(module,'install_peer') as install:
+            with self.assertRaisesRegex(ValueError,'does not advertise'):
+                module.connect('x'*40,'go','client',Path(directory),'gate',1086,1087,False,context=context)
+            lookup.assert_not_called();install.assert_not_called()
+
+    def test_public6_role_argument_cannot_bypass_passport_scope(self):
+        import tempfile
+        from unittest.mock import patch
+        import shadow6_connect as module
+        from join_code import issue_passport
+        context=module.minimal_context('go')
+        context['credentials']={'passport':issue_passport('nas',components=('gate',),roles=('agent',),issuer_key=b'r'*32)}
+        with tempfile.TemporaryDirectory() as directory, patch.object(module,'resolve') as lookup:
+            with self.assertRaisesRegex(ValueError,'role'):
+                module.connect('x'*40,'go','client',Path(directory),'gate',1086,1087,False,context=context)
+            lookup.assert_not_called()
+
+if __name__ == '__main__':unittest.main()
