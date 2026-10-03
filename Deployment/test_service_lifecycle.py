@@ -172,4 +172,66 @@ class ServiceLifecycleTests(unittest.TestCase):
         self.assertIn('--invitation', result.stdout)
 
 
+class LaunchLockTests(unittest.TestCase):
+    setUp = ServiceLifecycleTests.setUp
+    cleanup_process = ServiceLifecycleTests.cleanup_process
+    def plan(self):
+        import hashlib
+        return {'root':str(ROOT),'core':'go','binary':str(self.binary),'config':str(self.config),'ttl':30,
+                'launchDigests':{'binary':service_runtime.executable_digest(self.binary),
+                                'config':'sha256:'+hashlib.sha256(self.config.read_bytes()).hexdigest()}}
+
+    def test_locked_launch_rejects_config_change_after_registry_apply(self):
+        marker=self.root/'started'
+        self.binary.write_text(f'#!/usr/bin/env python3\nfrom pathlib import Path\nimport time\nPath({str(marker)!r}).write_text("started")\ntime.sleep(120)\n')
+        self.registry.configure('home/nas',core='go',config={'config_path':str(self.config)})
+        original=service_runtime.start
+        def changed_start(plan):
+            atomic_write(self.config,b'{"changed_after_apply":true}')
+            return original(plan)
+        with patch('Deployment.service_runtime.start',side_effect=changed_start):
+            with self.assertRaisesRegex(ValueError,'failed to start'):self.registry.run('home/nas')
+        self.assertFalse(marker.exists())
+        self.assertNotEqual(self.registry.status('home/nas')['state'],'running')
+
+    def test_config_mutation_during_startup_never_receives_success_ack(self):
+        marker=self.root/'child-pid'
+        self.binary.write_text(f'#!/usr/bin/env python3\nfrom pathlib import Path\nimport os,time\nPath({str(marker)!r}).write_text(str(os.getpid()))\nPath({str(self.config)!r}).write_text("{{}}\\n")\ntime.sleep(120)\n')
+        self.registry.configure('home/nas',core='go',config={'config_path':str(self.config)})
+        with self.assertRaisesRegex(ValueError,'failed to start'):self.registry.run('home/nas')
+        self.assertTrue(marker.exists())
+        self.assertIsNone(service_runtime.identity(int(marker.read_text())))
+        self.assertNotEqual(self.registry.status('home/nas')['state'],'running')
+
+    def test_launch_digest_contract_rejects_drift_and_unknown_fields(self):
+        plan=self.plan();service_runtime.verify_launch_material(plan)
+        with self.assertRaisesRegex(ValueError,'fields'):
+            service_runtime.verify_launch_material({**plan,'arbitraryCommand':['false']})
+        with self.assertRaisesRegex(ValueError,'exact locked'):
+            service_runtime.verify_launch_material({**plan,'launchDigests':{}})
+        with self.assertRaisesRegex(ValueError,'incomplete'):
+            service_runtime.verify_launch_material({**plan,'gateBinary':str(self.binary)})
+        with self.assertRaisesRegex(ValueError,'lifetime'):
+            service_runtime.verify_launch_material({**plan,'ttl':True})
+        self.binary.write_text('#!/bin/false\n')
+        with self.assertRaisesRegex(ValueError,'drift before launch: binary'):
+            service_runtime.verify_launch_material(plan)
+
+    def test_all_critical_peripheral_digests_are_checked(self):
+        import hashlib
+        for component in ('envelope','gate','guard'):
+            plan=self.plan();config=self.root/(component+'.json');atomic_write(config,b'{}')
+            binary=self.root/(component+'-binary');binary.write_bytes(self.binary.read_bytes());binary.chmod(0o700)
+            plan[component+'Config']=str(config);plan[component+'Binary']=str(binary)
+            plan['launchDigests'][component+'Config']='sha256:'+hashlib.sha256(config.read_bytes()).hexdigest()
+            plan['launchDigests'][component+'Binary']=service_runtime.executable_digest(binary)
+            service_runtime.verify_launch_material(plan)
+            atomic_write(config,b'{"drift":true}')
+            with self.assertRaisesRegex(ValueError,'drift before launch: '+component+'Config'):
+                service_runtime.verify_launch_material(plan)
+            atomic_write(config,b'{}');binary.write_text('#!/bin/false\n')
+            with self.assertRaisesRegex(ValueError,'drift before launch: '+component+'Binary'):
+                service_runtime.verify_launch_material(plan)
+
+
 if __name__ == '__main__': unittest.main()

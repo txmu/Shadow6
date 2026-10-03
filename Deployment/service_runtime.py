@@ -1,5 +1,7 @@
 """Linux local service supervision: fixed Core argv, bounded lifetime, PID identity."""
 import os
+import hashlib
+import re
 import signal
 import stat
 import subprocess
@@ -73,6 +75,69 @@ def executable(path):
     return str(path.absolute())
 
 
+def executable_digest(path):
+    """Hash a stable, bounded executable through a rechecked file descriptor."""
+    path = Path(executable(path))
+    before = path.lstat()
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    def token(info):
+        return (info.st_dev,info.st_ino,info.st_mode,info.st_uid,info.st_nlink,
+                info.st_size,info.st_mtime_ns,info.st_ctime_ns)
+    try:
+        opened = os.fstat(fd)
+        if (not stat.S_ISREG(opened.st_mode) or opened.st_size > 536870912
+                or opened.st_mode & 0o022 or opened.st_uid not in (0,os.geteuid())
+                or not opened.st_mode & 0o111):
+            raise ValueError('executable descriptor must remain owner-controlled and bounded')
+        if token(before) != token(opened) or token(path.lstat()) != token(opened):
+            raise ValueError('executable changed while opening')
+        digest = hashlib.sha256()
+        remaining = opened.st_size
+        while remaining:
+            data = os.read(fd,min(65536,remaining))
+            if not data: raise ValueError('executable changed while reading')
+            digest.update(data);remaining -= len(data)
+        if os.read(fd,1) or token(opened) != token(os.fstat(fd)) or token(path.lstat()) != token(opened):
+            raise ValueError('executable changed while reading')
+        return 'sha256:' + digest.hexdigest()
+    finally:
+        os.close(fd)
+
+
+def verify_launch_material(plan):
+    required = {'root','core','binary','config','ttl','launchDigests'}
+    allowed = required | {'launchAdapter'} | {c + k for c in ('envelope','gate','guard') for k in ('Config','Binary')}
+    if not isinstance(plan,dict) or not required <= set(plan) or set(plan) - allowed:
+        raise ValueError('invalid launch plan fields')
+    if not isinstance(plan['core'],str) or re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._:-]{0,63}',plan['core']) is None:
+        raise ValueError('invalid launch Core identity')
+    if type(plan['ttl']) is not int or not 30 <= plan['ttl'] <= 86400:
+        raise ValueError('invalid launch lifetime')
+    if plan.get('launchAdapter','native-config') not in ('native-config','native-files'):
+        raise ValueError('capability unavailable: Core launch adapter')
+    for component in ('envelope','gate','guard'):
+        if (component + 'Config' in plan) != (component + 'Binary' in plan):
+            raise ValueError('incomplete launch component realization')
+    for key in ('root','binary','config') + tuple(k for k in plan if k.endswith(('Config','Binary'))):
+        if not isinstance(plan[key],str) or not Path(plan[key]).is_absolute():
+            raise ValueError('absolute launch paths required')
+    expected = plan.get('launchDigests')
+    files = {'binary':'executable','config':'private'}
+    for component in ('envelope','gate','guard'):
+        if component + 'Config' in plan:
+            files[component + 'Config'] = 'private'
+            files[component + 'Binary'] = 'executable'
+    if not isinstance(expected,dict) or set(expected) != set(files):
+        raise ValueError('launch plan requires exact locked file digests')
+    for key,kind in files.items():
+        digest = expected[key]
+        if not isinstance(digest,str) or re.fullmatch(r'sha256:[0-9a-f]{64}',digest) is None:
+            raise ValueError('invalid locked launch digest')
+        actual = executable_digest(plan[key]) if kind == 'executable' else 'sha256:' + hashlib.sha256(private_read(plan[key])).hexdigest()
+        if actual != digest:
+            raise ValueError(f'deployment drift before launch: {key}; explicitly reconfigure')
+
+
 def start(plan):
     if sys.platform != 'linux' or not hasattr(os, 'pidfd_open'):
         raise ValueError('named service supervision requires Linux pidfd; use native CLI on this platform')
@@ -102,6 +167,7 @@ def start(plan):
 
 def supervise(plan_path, ack):
     plan = strict_json(private_read(plan_path))
+    verify_launch_material(plan)
     root = Path(plan['root'])
     sys.path.insert(0, str(root / 'CLI'))
     from native_config import load, prepare
@@ -207,6 +273,9 @@ def supervise(plan_path, ack):
                 except ValueError as error:
                     if 'not an observed deployment listener' not in str(error) or time.monotonic() >= startup_deadline or any(p.poll() is not None for p in children): raise
                     time.sleep(.1)
+            verify_launch_material(plan)
+            if stopping or any(p.poll() is not None for p in children):
+                raise ValueError('critical process exited during startup')
             os.write(ack, b'OK'); os.close(ack); ack = -1
             while not stopping and time.monotonic() < deadline and all(p.poll() is None for p in children):
                 observe_children()

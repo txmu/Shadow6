@@ -268,6 +268,9 @@ class ServiceRegistry:
             if not existing.get('runtimeObservation') or existing['runtime']['readiness'] == 'unavailable':
                 raise ValueError('runtime health unavailable; explicitly restart')
             return existing
+        material = self._material(name)
+        if digest(encoded(material)) != item['deploymentLock']['digest']:
+            raise ValueError('deployment drift; explicitly reconfigure and apply')
         binary = runtime.executable(self.catalog.inspect(binding['core'])['executable'])
         plan = {'root': str(self.catalog.root), 'core': binding['core'], 'binary': binary,
                 'config': binding['config']['config_path'], 'launchAdapter':self.catalog.inspect(binding['core']).get('launchAdapter','native-config'), 'ttl': item['spec'].get('ttl', 3600)}
@@ -277,6 +280,11 @@ class ServiceRegistry:
             if item['spec'].get(component + '_config'):
                 plan[component + 'Config'] = item['spec'][component + '_config']
                 plan[component + 'Binary'] = str(self.catalog.component_binary(component))
+        plan['launchDigests'] = {'binary':binding['binaryDigest'], 'config':material['nativeConfigDigest']}
+        for component in ('envelope','gate','guard'):
+            if component + 'Config' in plan:
+                plan['launchDigests'][component + 'Config'] = material[component + 'ConfigDigest']
+                plan['launchDigests'][component + 'Binary'] = material[component + 'BinaryDigest']
         path = self.path.parent / (hashlib.sha256(name.encode()).hexdigest() + '.runtime.json')
         atomic_write(path, encoded(plan))
         process = runtime.start(path)

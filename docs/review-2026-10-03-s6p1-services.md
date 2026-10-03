@@ -153,3 +153,22 @@ negative case, EPE lifecycle using the existing binary, and isolated staged
 imports. AST/compile, all workflow YAML parsing and diff checks passed. Run
 37106295322 and its concrete OCaml/Deployment job handles were re-read and remain
 queued; no source-built OCaml or full-matrix success is inferred from that state.
+
+## Locked supervisor launch material
+
+The supervisor now verifies exact native and peripheral config/binary digests
+from the existing lock before spawning and before success acknowledgement.
+Executable hashing uses a bounded open descriptor with metadata/path rechecks;
+config hashing uses the existing strict private reader. Launch fields, component
+pairs and TTL are validated; no arbitrary command input was introduced.
+Regression tests mutate config after apply but before start (Core never starts),
+and from the fixture Core during startup (Core is stopped and no success is
+reported). EPE/Gate/Guard digest drift and malformed launch material are covered.
+Same-owner malicious replacement races remain an operator trust assumption;
+these checks do not introduce an in-Core loader or change native protocols.
+
+81 focused Python tests passed without skips, including source/staged imports,
+real lifecycle and launch drift regressions, and existing-binary EPE tests.
+Changed Python AST/compile, all workflow YAML and diff checks passed. No shell
+or workflow was modified, no heavyweight build/package was run, and the concrete
+latest CI run 37106440035 remained queued with no completed jobs when re-read.

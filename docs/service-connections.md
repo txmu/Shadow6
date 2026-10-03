@@ -193,3 +193,12 @@ and S6P1 role/boundary intent before a session launcher is advertised. A stream
 ready event must match a process-owned TCP listener; a UDP socket cannot prove
 stream readiness. Linux socket observations decode native-endian address words
 on both little- and big-endian hosts. These checks do not change native protocols.
+
+The local supervisor launch plan carries only the file digests already committed
+by CoreBinding/DeploymentLock. It rechecks native and all deployed EPE/Gate/Guard
+configuration and executable bytes before spawning, and again before startup
+success. Launch schema, component pairs and lifetime bounds are strict. This
+closes ordinary drift between apply and launch without adding local paths or
+binary digests to S6P1. Files remain owner-controlled deployment inputs; these
+checks do not claim protection against a malicious process with the operator's
+own privileges continuously racing file replacement.
