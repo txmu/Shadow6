@@ -11,6 +11,11 @@ from python_runtime import bootstrap
 if __name__ == "__main__":
     bootstrap(ROOT, Path(__file__).resolve())
 sys.path.insert(0, str(ROOT / "Public6"))
+sys.path.insert(0, str(ROOT / "Deployment"))
+from core_catalog import CoreCatalog
+from connection_plan import resolve_connection, open_local_session
+from protocol_context import minimal_context, core_allowed
+from service_registry import ServiceRegistry
 from join_code import resolve, install_peer, unpack_invitation, resolve_protocol_envelope
 
 CORE_NAMES = ("go", "rust", "gleam", "ada", "nim", "pony", "zig", "d", "cpp", "idris", "hare", "carp")
@@ -19,7 +24,7 @@ from native_key import generate_native_key
 from native_config import secure_read, load as load_native, prepare, native_binary, write_new
 
 def connect(code: str, core: str, role: str, output_dir: Path, carrier: str,
-            gate_port: int, peer_port: int, interactive: bool, directory: str = None, profile: Path = None, pin: str = None, check: bool = False):
+            gate_port: int, peer_port: int, interactive: bool, directory: str = None, profile: Path = None, pin: str = None, check: bool = False, context: dict = None, adapter: str = "native-single"):
     """One-click connect: resolve join-code, install peer configs."""
     if not 1024 <= gate_port <= 65535 or not 1024 <= peer_port <= 65535 or gate_port == peer_port:
         raise ValueError("Gate and peer ports must be distinct and in 1024..65535")
@@ -43,12 +48,16 @@ def connect(code: str, core: str, role: str, output_dir: Path, carrier: str,
     resolved = resolve(code, directory=directory, manual_profile=profile, manual_pin=pin)
     if not any(route['core'] == core for route in resolved['routes']):
         raise ValueError("Core family is not offered by this node")
+    if context is None:
+        context = minimal_context(core);context['role']=role
+    plan = resolve_connection(catalog=CoreCatalog(ROOT), context=context, core=core, source='public6', adapter=adapter)
     if check:
-        result = {"valid": True, "core": core, "role": role, "carrier": carrier}
+        result = {"valid": True, "core": core, "role": role, "carrier": carrier, "connectionPlan":plan}
         print(json.dumps(result))
         return result
     result = install_peer(code, resolved, core, role, output_dir, gate_port, peer_port)
 
+    result['connectionPlan'] = {**plan, 'state':'provisioned', 'connected':False}
     if core in ("carp", "idris"):
         key_file = output_dir / f"{role}.key"
         generate_native_key(core, role, code, key_file)
@@ -57,12 +66,34 @@ def connect(code: str, core: str, role: str, output_dir: Path, carrier: str,
     print(f"1. shadow6-gate --config {output_dir}/gate.json")
     print(f"2. shadow6 virtual-{role} --config {output_dir}/virtual-peer.json")
     print("Native Core configuration must be prepared separately for its supported transport.")
+    print(json.dumps(result["connectionPlan"], sort_keys=True))
     return result
 
+def stream_session(plan):
+    import selectors, time
+    with open_local_session(plan) as session, selectors.DefaultSelector() as selector:
+        selector.register(session.socket, selectors.EVENT_READ, 'socket')
+        selector.register(sys.stdin.buffer, selectors.EVENT_READ, 'stdin')
+        while time.monotonic() < session.deadline and session.remaining:
+            for key,_ in selector.select(timeout=min(1,max(0,session.deadline-time.monotonic()))):
+                if key.data == 'stdin':
+                    import os, socket
+                    data=os.read(sys.stdin.fileno(),65536)
+                    if data: session.send(data)
+                    else:
+                        selector.unregister(sys.stdin.buffer);session.socket.shutdown(socket.SHUT_WR)
+                else:
+                    data=session.receive()
+                    if not data:return
+                    sys.stdout.buffer.write(data);sys.stdout.buffer.flush()
+
 def main():
-    p = argparse.ArgumentParser(description="One-click Public6 connection")
-    p.add_argument("code", nargs="?", help="40-char Public6 join code")
-    p.add_argument("--core", choices=CORE_NAMES)
+    p = argparse.ArgumentParser(description="Resolve Named Service or S6P1/invitation to one connection plan; provision Public6 when offered")
+    p.add_argument("code", nargs="?", help="namespace/name service or 40-char Public6 join code")
+    p.add_argument("--core", help="explicit Core Catalog identity")
+    p.add_argument("--stdio",action="store_true",help="attach an observed local application stream to stdin/stdout, bounded to 300s/16MiB")
+    p.add_argument("--json", action="store_true", help="structured connection plan")
+    p.add_argument("--adapter", choices=("native-single","gate","broker-set-selector"), default="native-single")
     p.add_argument("--role", choices=["client", "agent"])
     p.add_argument("--output", type=Path, default=Path.cwd() / "shadow6-public")
     p.add_argument("--carrier", choices=["gate", "s6na"], default="gate")
@@ -81,29 +112,44 @@ def main():
     p.add_argument("--list-routes", action="store_true", help="resolve invitation and show offered core transports without provisioning")
     p.add_argument("--native-config", type=Path, help="validate and emit a bounded native configuration alongside Virtual Peer files")
     args = p.parse_args()
+    envelope = None
     try:
+        import re
+        if args.code and re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]{0,63}/[A-Za-z0-9][A-Za-z0-9._-]{0,63}', args.code):
+            if any((args.invitation,args.protocol_envelope,args.protocol_file,args.code_file,args.profile)):
+                raise ValueError('choose one connection resolve source')
+            catalog = CoreCatalog(ROOT)
+            result = resolve_connection(service=args.code, registry=ServiceRegistry(catalog=catalog), catalog=catalog, core=args.core, adapter=args.adapter)
+            if args.stdio:
+                stream_session(result); return
+            print(json.dumps(result,sort_keys=True)); return
+        if args.stdio: raise ValueError("--stdio requires a running named service with observed application readiness")
         if args.protocol_envelope and args.protocol_file:
             raise ValueError("use only one of --protocol-envelope or --protocol-file")
         token = args.protocol_envelope
         if args.protocol_file:
             token = secure_read(args.protocol_file, 262144).decode("ascii").strip()
         if token:
-            envelope, claims = resolve_protocol_envelope(token, component="public6")
-            if args.core and envelope["core"] not in (args.core, "all"):
+            envelope, claims = resolve_protocol_envelope(token)
+            if args.core and not core_allowed(envelope["core"], args.core):
                 raise ValueError("S6P1 Core does not match --core")
             if args.role and envelope["role"] not in (args.role, "all"):
                 raise ValueError("S6P1 role does not match --role")
-            args.core = args.core or (envelope["core"] if envelope["core"] != "all" else None)
+            args.core = args.core or (envelope["core"] if isinstance(envelope["core"],str) and envelope["core"] != "all" else None)
             args.role = args.role or (envelope["role"] if envelope["role"] in ("client", "agent") else None)
             embedded = envelope.get("credentials", {}).get("public6_invitation")
             if not isinstance(embedded, str):
-                raise ValueError("protocol envelope has no public6_invitation credential")
+                result = resolve_connection(context=envelope,catalog=CoreCatalog(ROOT),core=args.core,adapter=args.adapter)
+                print(json.dumps(result,sort_keys=True)); return
             args.invitation = embedded
         if args.invitation:
             invitation = unpack_invitation(args.invitation)
             args.code, args.profile, args.pin = invitation["code"], None, invitation["gate_public_key"]
             import tempfile
-            temp = Path(tempfile.mkdtemp(prefix="shadow6-invitation-")) / "profile.json"
+            invitation_temp = tempfile.TemporaryDirectory(prefix="shadow6-invitation-")
+            import atexit
+            atexit.register(invitation_temp.cleanup)
+            temp = Path(invitation_temp.name) / "profile.json"
             temp.write_text(json.dumps(invitation["profile"], separators=(",", ":"))); temp.chmod(0o600)
             args.profile = temp
         elif bool(args.code or args.code_file) == bool(args.invitation):
@@ -135,7 +181,7 @@ def main():
     
     try:
         connected = connect(args.code, args.core, args.role, args.output, args.carrier,
-                args.gate_port, args.peer_port, args.interactive, args.directory, args.profile, args.pin, args.check)
+                args.gate_port, args.peer_port, args.interactive, args.directory, args.profile, args.pin, args.check, envelope, args.adapter)
         if native and not args.check and connected is not None:
             destination = args.output.resolve() / 'native'
             destination.mkdir(mode=0o700)

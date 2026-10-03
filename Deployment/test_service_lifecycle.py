@@ -135,9 +135,13 @@ class ServiceLifecycleTests(unittest.TestCase):
             sock.bind(('127.0.0.1',0)); port = sock.getsockname()[1]
         # The fixture Core remains alive; authentication must be measured by OCaml,
         # never by the registry even if the fixture has no native listener.
+        with socket.socket() as native_sock:
+            native_sock.bind(('127.0.0.1',0));native_port=native_sock.getsockname()[1]
+        self.binary.write_text(f'#!/usr/bin/env python3\nimport socket,time\ns=socket.socket();s.bind(("127.0.0.1",{native_port}));s.listen();time.sleep(120)\n')
+        atomic_write(self.config,json.dumps({'listen_addr':f'127.0.0.1:{native_port}'}).encode())
         metrics = self.root/'metrics.json'; config = self.root/'envelope.conf'
         key = 'test-only-shared-key-0123456789'
-        atomic_write(config,f'listen=127.0.0.1:{port}\nupstream=127.0.0.1:1\nauth_key={key}\nmetrics_path={metrics}\n'.encode())
+        atomic_write(config,f'listen=127.0.0.1:{port}\nupstream=127.0.0.1:{native_port}\nauth_key={key}\nmetrics_path={metrics}\n'.encode())
         self.catalog.envelope_binary = lambda: Path(binary)
         self.registry.configure('home/nas',core='go',config={'config_path':str(self.config)},privacy='envelope',
                                 spec={'envelope_config':str(config),'metrics_path':str(metrics)})

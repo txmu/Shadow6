@@ -257,3 +257,25 @@ class NativeOrchestrationTests(unittest.TestCase):
                 self.assertEqual(cfg[role]['transport'],'micro-mux')
                 self.assertEqual(set(cfg),{'role','broker','agent','client'})
                 self.assertTrue(cfg[role]['broker_addrs'][0].startswith('ws://127.0.0.1:'))
+
+class BrokerSetPeripheralTests(unittest.TestCase):
+    def test_multiple_brokers_use_explicit_gate_realization(self):
+        import tempfile,json
+        from pathlib import Path
+        from Deployment.protocol_context import minimal_context
+        from Deployment.broker_set import gate_patch
+        from Deployment.service_storage import atomic_write
+        import shadow6_auto as auto
+        with tempfile.TemporaryDirectory(prefix='shadow6-brokerset-') as directory:
+            route={'kind':'broker_set','id':'home','policy':'round_robin', 'members':[
+                {'identity':f'broker-{i}','endpoint':f'tcp://127.0.0.{i+1}:14433','public_key':'a'*64} for i in range(2)]}
+            context=minimal_context('go');context['routes']=[route]
+            path=Path(directory)/'gate.json'
+            config={'enabled':True,'role':'client','listen_host':'127.0.0.1','listen_port':14434,**gate_patch(route)}
+            atomic_write(path,json.dumps(config).encode())
+            topology={'version':'1.0','global':{'broker_adapter':{'kind':'gate','context':context,'config_path':str(path),'local_endpoint':'wss://127.0.0.1:14434/ws'}},
+                'nodes':[{'name':f'broker-{i}','type':'broker','engines':['shadow6-go'],'listen_port':14430+i} for i in range(2)]}
+            self.assertEqual(auto.validate_topology(topology),topology)
+            self.assertEqual(auto.broker_adapter(topology)['local_endpoint'],'wss://127.0.0.1:14434/ws')
+            topology['global'].clear()
+            with self.assertRaisesRegex(ValueError,'native-single adapter'):auto.validate_topology(topology)

@@ -1,7 +1,7 @@
 # Shadow6 deployment and S6ABI/1
 
 `shadow6.deployment.v1` is a strict, Core-neutral intent document. It names
-logical Broker replica sets, node identities, loopback services, policies and
+logical Broker endpoint sets, node identities, loopback services, policies and
 application requirements. It never contains private keys or native Core
 arguments. `shadow6 deployment plan` translates it into a bounded plan that an
 installed Core driver can apply without rebuilding the Core.
@@ -35,5 +35,15 @@ Use [the install/run lifecycle guide](../docs/named-services.md) for actual loca
 process supervision, explicit locks, drift rejection and privacy observations.
 `shadow6_driver.invocation` describes the S6ABI external-driver contract; Named
 Service uses each built-in family's native CLI and does not assume every native
-executable accepts S6ABI driver flags. Application readiness is reported as
-`process-alive` until a native application E2E check establishes a stronger claim.
+executable accepts S6ABI driver flags. Application readiness consumes validated ready events and checks process ownership of
+the announced endpoint. Listener observations and process liveness remain distinct;
+transport/application facts without evidence stay unknown.
+
+## S6P1 context and lock v2
+
+Named Services embed S6P1 portable intent; CoreBinding holds explicit native
+realization, and Runtime holds process/endpoint observations. DeploymentLock v2
+locks the logical context digest, including BrokerSet routes. Legacy manifests
+project to S6P1 through `node_context`; explicit node contexts must agree with
+their realization. See [the shared contract](../docs/service-connections.md) for
+connection plans, four optional perimeter stacks and a complete lifecycle.

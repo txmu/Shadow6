@@ -141,16 +141,31 @@ def run_hands(args):
   return 2
 
 def add_service_options(parser):
+ parser.add_argument("--protocol-envelope",help="S6P1 portable logical/admission context")
+ parser.add_argument("--protocol-file",type=Path,help="owner-only S6P1 token file")
+ parser.add_argument("--gate-config",type=Path)
+ parser.add_argument("--guard-config",type=Path)
  parser.add_argument("--privacy",choices=("native","envelope"),default="native")
  parser.add_argument("--envelope-config",type=Path)
  parser.add_argument("--metrics",type=Path)
  parser.add_argument("--ttl",type=int,default=3600)
 
 def service_spec(args):
- result={"endpoint":{"mode":"private"},"ttl":args.ttl}
+ result={"ttl":args.ttl}
+ for component in ("gate","guard"):
+  path=getattr(args,component+"_config")
+  if path: result[component+"_config"]=str(path.absolute())
  if args.envelope_config: result["envelope_config"]=str(args.envelope_config.absolute())
  if args.metrics: result["metrics_path"]=str(args.metrics.absolute())
  return result
+
+def service_context(args):
+ from protocol_context import validate_context, minimal_context
+ if args.protocol_envelope and args.protocol_file: raise ValueError("choose one S6P1 source")
+ if args.protocol_file:
+  from service_storage import private_read
+  return validate_context(private_read(args.protocol_file).decode().strip())
+ return validate_context(args.protocol_envelope) if args.protocol_envelope else minimal_context(args.core)
 
 def load_service_config(path):
  from service_storage import private_read, strict_json
@@ -167,10 +182,10 @@ def main():
    checks=[{"core":c["id"],"available":Path(c["executable"]).is_file(),"executable":os.access(c["executable"],os.X_OK)} for c in catalog.list()]
    result={"schema":"shadow6.lifecycle.v1","stage":"install","operation":"inspect","verified":any(c["available"] and c["executable"] for c in checks),"cores":checks,"hint":"Use shadow6 install --prefix /absolute/path to install existing artifacts without building."}
   print(json.dumps(result,sort_keys=True,indent=2)); return 0
- if raw and raw[0] in {"run","connect","status","restart","stop","remove","apply","lock"} and len(raw) >= 2 and not raw[1].startswith("-") and (raw[0] != "connect" or __import__("re").fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}/[A-Za-z0-9][A-Za-z0-9._-]{0,63}", raw[1])):
+ if raw and raw[0] in {"run","status","restart","stop","remove","apply","lock"} and len(raw) >= 2 and not raw[1].startswith("-"):
   if raw[2:] not in ([], ["--json"]): raise ValueError("unexpected service arguments")
   registry=ServiceRegistry(catalog=CoreCatalog(ROOT)); action=raw[0]; name=raw[1]
-  handlers={"run":registry.run,"connect":registry.connect,"status":registry.status,"restart":registry.restart,"stop":registry.stop,"remove":registry.remove,"apply":registry.apply,"lock":registry.lock}
+  handlers={"run":registry.run,"status":registry.status,"restart":registry.restart,"stop":registry.stop,"remove":registry.remove,"apply":registry.apply,"lock":registry.lock}
   try: result=handlers[action](name)
   except (ValueError,OSError) as exc: print(json.dumps({"schema":"shadow6.lifecycle-error.v1","stage":action,"error":str(exc)})); return 2
   print(json.dumps(result,sort_keys=True,indent=2)); return 0
@@ -268,11 +283,11 @@ def main():
   print(json.dumps(result,ensure_ascii=True,sort_keys=True,indent=2)); return 0
  if a.command=="service":
   registry=ServiceRegistry(catalog=CoreCatalog(ROOT))
-  if a.service_action=="list": result={"schema":"shadow6.service-registry.v1","services":registry.list()}
+  if a.service_action=="list": result={"schema":"shadow6.service-registry.v2","services":registry.list()}
   elif a.service_action=="inspect": result=registry.inspect(a.name)
   elif a.service_action in {"create","configure"}:
    config=load_service_config(a.config) if a.config else None
-   result=(registry.create(a.name,core=a.core,config=config,privacy=a.privacy,spec=service_spec(a)) if a.service_action=="create" else registry.configure(a.name,core=a.core,config=config,privacy=a.privacy,spec=service_spec(a)))
+   result=(registry.create(a.name,core=a.core,config=config,privacy=a.privacy,spec=service_spec(a),context=service_context(a)) if a.service_action=="create" else registry.configure(a.name,core=a.core,config=config,privacy=a.privacy,spec=service_spec(a),context=service_context(a)))
   elif a.service_action=="lock": result=registry.lock(a.name)
   elif a.service_action=="apply": result=registry.apply(a.name)
   elif a.service_action=="status":
@@ -290,10 +305,10 @@ def main():
  if a.command=="setup":
   registry=ServiceRegistry(catalog=CoreCatalog(ROOT));
   try:
-   config=load_service_config(a.config); spec=service_spec(a)
+   config=load_service_config(a.config); spec=service_spec(a); context=service_context(a)
    try: existing=registry.inspect(a.name)
-   except ValueError: existing=registry.create(a.name,core=a.core,config=config,privacy=a.privacy,spec=spec)
-   if existing.get("coreBinding") != registry.catalog.binding(a.core,config) or existing["spec"] != spec or existing["privacy"] != a.privacy:
+   except ValueError: existing=registry.create(a.name,core=a.core,config=config,privacy=a.privacy,spec=spec,context=context)
+   if existing.get("coreBinding") != registry.catalog.binding(a.core,config) or existing["spec"] != spec or existing["privacy"] != a.privacy or existing["protocolContext"] != context:
     raise ValueError("setup differs from existing service; explicitly stop and service configure first")
    registry.apply(a.name); result=registry.run(a.name)
   except (ValueError,OSError,json.JSONDecodeError) as exc:

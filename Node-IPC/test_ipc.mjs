@@ -235,14 +235,20 @@ test('real prebuilt C11Relay normal/high-speed through both IPC paths', {skip: !
   const port = await echo(t);
   for (const mode of ['normal','high-speed']) {
     const reserve = dgram.createSocket('udp4'); await new Promise(r => reserve.bind(0, '127.0.0.1', r)); const relayPort = reserve.address().port; await new Promise(r => reserve.close(r));
-    const child = spawn(process.env.SHADOW6_RELAY_BINARY, ['--bind','127.0.0.1','--port',String(relayPort),'--dest',`127.0.0.1:${port}`,'--mode',mode,'--max-peers','16'], {stdio: 'ignore'});
-    const adapter = new C11RelayAdapter({port: relayPort, maxPeers: 16, timeoutMs: 200});
+    const child = spawn(process.env.SHADOW6_RELAY_BINARY, ['--bind','127.0.0.1','--port',String(relayPort),'--dest',`127.0.0.1:${port}`,'--mode',mode,'--max-peers','32'], {stdio: 'ignore'});
+    // Failed startup UDP probes retain native mappings until idle expiry.
+    // Bound startup headroom separately from the 16 application peers.
+    const adapter = new C11RelayAdapter({port: relayPort, maxPeers: 16, timeoutMs: 2000});
     try {
       for (let tries = 0; ; tries++) { try { await adapter.exchange(0, Buffer.from('ready')); break; } catch (error) { if (tries > 8) throw error; } }
       const fast = await server(t, FastRPCServer, (m, p, c) => adapter.rpc(m, p, c)), raw = await server(t, RawIPCServer, (type, bytes, c) => adapter.raw(type, bytes, c));
       const datagrams = Array.from({length: 16}, (_, peer) => ({peer, payload: crypto.randomBytes(1024)}));
       assert.deepEqual(decodeRelayBatch(await new RawIPCClient(raw).call(encodeRelayBatch(datagrams), 20)), datagrams);
-      for (const item of datagrams) assert.equal((await new FastRPCClient(fast).call('c11relay.exchange', {peer: item.peer, payload_base64: item.payload.toString('base64')})).result.payload_base64, item.payload.toString('base64'));
+      for (const item of datagrams) {
+        const reply = await new FastRPCClient(fast).call('c11relay.exchange', {peer: item.peer, payload_base64: item.payload.toString('base64')});
+        assert.equal(reply.error, undefined, JSON.stringify(reply));
+        assert.equal(reply.result.payload_base64, item.payload.toString('base64'));
+      }
     } finally {
       adapter.close(); await new Promise(resolve => { child.once('close', resolve); child.kill('SIGTERM'); });
     }

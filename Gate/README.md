@@ -53,3 +53,7 @@ Gate/shadow6-gate --config /absolute/path/gate.json --check-config
 The Android APK packages Gate as `libshadow6_gate.so` and starts it directly
 from app-private configuration; Termux and third-party VPN applications are not
 required.
+
+## BrokerSet and admission boundary
+
+Gate realizes explicit S6P1 BrokerSet routes through existing multiple remote hosts/upstreams and round_robin/random selection. The adapter validates endpoints and trust keys; native Cores can retain one stable local endpoint. This provides selection for new paths, without state replication or seamless session migration. Gate remains optional and disabled by default. S6EPE can authenticate admission in front of Gate; Guard adds perimeter policy. See [legal compositions and limits](../docs/service-connections.md).

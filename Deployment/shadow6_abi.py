@@ -116,7 +116,14 @@ def capability_payload(feature_report: dict, *, boundary: str, core: str, limits
     if boundary not in ("stream", "message", "credited") or not isinstance(core, str) or not core:
         raise ValueError("invalid S6ABI capability")
     _reject_float(feature_report)
-    return {"abi": ABI_VERSION, "core": core, "boundary": boundary, "guarantees": {"ordered": boundary == "stream" or boundary in ("message", "credited"), "reliable": True, "fullDuplex": boundary == "stream"}, "limits": limits or {}, "featureReport": feature_report}
+    selected = limits or {}
+    def guarantee(key, alias=None):
+        value = selected.get(key, selected.get(alias) if alias else None)
+        return value if type(value) is bool else None
+    return {"abi": ABI_VERSION, "core": core, "boundary": boundary,
+            "guarantees": {"ordered":guarantee('ordered'), "reliable":guarantee('reliable'),
+                           "fullDuplex":guarantee('fullDuplex','full_duplex')},
+            "limits":selected, "featureReport":feature_report}
 
 
 def s6ar_request(method: str, params: dict, *, context: str | None = None) -> str:

@@ -1,0 +1,114 @@
+"""One resolver for Named Service, S6P1 and Public6 provisioning sources."""
+try:
+    from .protocol_context import validate_context, check_binding, admit, context_digest, core_allowed
+    from .broker_set import realize, gate_patch
+except ImportError:
+    from protocol_context import validate_context, check_binding, admit, context_digest, core_allowed
+    from broker_set import realize, gate_patch
+
+
+def connection_plan(context, *, catalog, core=None, binding=None, runtime=None, source='s6p1', adapter='native-single'):
+    context = validate_context(context)
+    context = admit(context, component='public6' if context['credentials'].get('public6_invitation') else None)
+    if core and binding and binding['core'] != core: raise ValueError('explicit Core differs from locked CoreBinding')
+    requested = core or (binding or {}).get('core')
+    scope = context['core']
+    requirements = {}
+    if context['role'] != 'all': requirements['roles'] = context['role']
+    kinds = {r['boundary'] for r in context['routes'] if r.get('boundary')}
+    if kinds: requirements['applicationBoundaries'] = sorted(kinds)
+    resolution = catalog.resolve(requirements, requested or (scope if isinstance(scope,str) and scope != 'all' else None))
+    candidates = [c for c in resolution['candidates'] if core_allowed(scope,c['id'])]
+    if not requested:
+        if len(candidates) > 1: raise ValueError('AmbiguousCore: explicit --core/CoreBinding required')
+        if not candidates: raise ValueError('capability unavailable: no compatible Core')
+        requested = candidates[0]['id']
+    descriptor = check_binding(context, requested, catalog)
+    if not any(c['id'] == requested for c in candidates): raise ValueError('capability unavailable: explicit Core does not satisfy context')
+    boundaries = sorted({r['boundary'] for r in context['routes'] if r.get('boundary')})
+    if len(boundaries) > 1: raise ValueError('AmbiguousApplicationBoundary: select one application boundary')
+    boundary = boundaries[0] if boundaries else None
+    pools = []
+    for route in context['routes']:
+        if route.get('kind') == 'broker_set':
+            pool = realize(route, adapter=adapter)
+            if adapter == 'gate': pool['gateConfigPatch'] = gate_patch(route)
+            pools.append(pool)
+    observed = runtime or {}
+    endpoint = observed.get('endpoint')
+    readiness = observed.get('readiness','unavailable')
+    attach = (readiness == 'application-ready' and isinstance(endpoint,dict) and endpoint.get('boundary') == 'stream' and endpoint.get('mode') == 'localhost-tcp-proxy' and endpoint.get('observation') == 'structured-ready-event')
+    if not boundary and readiness == 'application-ready' and isinstance(endpoint,dict):
+        boundary = endpoint.get('boundary')
+    # No socket open is invented from native wire data. A ready process is not
+    # an application session. Existing Public6 provisioning happens afterward.
+    return {'schema':'shadow6.connection-plan.v1', 'source':source, 'core':requested,
+            'contextDigest':context_digest(context), 'role':context['role'],
+            'binding':binding, 'runtimeIdentity':{k:observed[k] for k in ('pid','processIdentity') if k in observed}, 'endpoint':endpoint, 'readiness':readiness,
+            'applicationBoundary':boundary, 'abi':'S6ABI/1' if boundary else None,
+            'brokerSets':pools, 'state':'planned', 'connected':False,
+            'capability':{'available':boundary is not None and boundary in descriptor['applicationBoundaries'],
+                          'sessionLaunch':'local-application-stream' if attach else 'unavailable', 'reason':'Use --stdio or libshadow6.connect to attach to the observed client proxy' if attach else 'Native endpoint needs its declared application adapter; no uniform session launcher is advertised'},
+            'provisioning':{'public6':isinstance(context['credentials'].get('public6_invitation'),str)}}
+
+
+def resolve_connection(*, catalog, service=None, registry=None, context=None, core=None, binding=None, runtime=None, source='s6p1', adapter='native-single'):
+    if service is not None:
+        if context is not None: raise ValueError('choose one connection resolve source')
+        item = registry.status(service)
+        if item['state'] != 'running': raise ValueError('service is not running')
+        registry.apply(service)  # lock/context/config drift must fail closed
+        context, binding, runtime = item['protocolContext'], item['coreBinding'], item['runtime']
+        source = 'named-service'
+    if context is None: raise ValueError('S6P1 context required')
+    return connection_plan(context, catalog=catalog, core=core, binding=binding, runtime=runtime, source=source, adapter=adapter)
+
+
+class LocalSession:
+    """Attach only to an observed, authenticated native client application proxy."""
+    def __init__(self, plan):
+        import socket, time
+        try:
+            from .service_runtime import alive
+            from .runtime_observation import sockets
+        except ImportError:
+            from service_runtime import alive
+            from runtime_observation import sockets
+        try:
+            from .runtime_observation import private_socket
+        except ImportError:
+            from runtime_observation import private_socket
+        target = plan.get('endpoint')
+        if plan.get('readiness') != 'application-ready' or not isinstance(target,dict) or target.get('observation') != 'structured-ready-event' or target.get('boundary') != 'stream' or target.get('mode') != 'localhost-tcp-proxy' or not private_socket(target):
+            raise ValueError('capability unavailable: safe local application stream session')
+        owner=target.get('owner',{})
+        if not alive(plan.get('runtimeIdentity',{})) or not alive(owner) or not any(s['transport']=='tcp' and s['host']==target['host'] and s['port']==target['port'] for s in sockets(owner.get('pid'))):
+            raise ValueError('application endpoint owner is unavailable')
+        self.socket = socket.create_connection((target['host'],target['port']),timeout=5)
+        if not alive(owner):
+            self.socket.close();raise ValueError("application endpoint owner changed")
+        self.deadline=time.monotonic()+300
+        self.remaining=16*1024*1024
+        self.socket.settimeout(30)
+
+    def _budget(self, size):
+        import time
+        if time.monotonic() >= self.deadline or size > self.remaining:
+            self.close(); raise ValueError('local session lifetime/byte budget exhausted')
+        self.remaining -= size
+
+    def send(self, data):
+        self._budget(len(data)); self.socket.sendall(data)
+
+    def receive(self, size=65536):
+        if type(size) is not int or not 1 <= size <= 65536: raise ValueError('invalid receive bound')
+        self._budget(0)
+        data=self.socket.recv(min(size,self.remaining or 1));self._budget(len(data));return data
+
+    def close(self): self.socket.close()
+    def __enter__(self): return self
+    def __exit__(self,*_): self.close()
+
+
+def open_local_session(plan):
+    return LocalSession(plan)

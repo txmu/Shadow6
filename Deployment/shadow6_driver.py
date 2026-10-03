@@ -60,7 +60,7 @@ def select_boundary(report: dict, requirements: dict) -> dict:
         kind = item.get("kind", item.get("type", item.get("boundary")))
         if kind != boundary:
             continue
-        if any(item.get(key) is False for key in ("ordered", "reliable", "fullDuplex") if requirements.get(key) is True):
+        if any(item.get(key, item.get("full_duplex") if key == "fullDuplex" else None) is not True for key in ("ordered", "reliable", "fullDuplex") if requirements.get(key) is True):
             continue
         max_record = requirements.get("maxRecord")
         limit = item.get("max_record", item.get("maxRecord"))

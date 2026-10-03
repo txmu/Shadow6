@@ -489,6 +489,50 @@ def selected_core_engine(node: Dict[str, Any]) -> str:
     return selected[0]
 
 
+sys.path.insert(0, str(PROJECT_ROOT))
+
+def broker_adapter(topo):
+    """Bind a logical BrokerSet to an operator-configured peripheral selector.
+
+    Native adapters still receive exactly one stable endpoint. Gate servers and
+    their keys are explicit existing deployment objects, never silently enabled.
+    """
+    global_cfg = topo.get('global', {})
+    adapter = global_cfg.get('broker_adapter')
+    brokers = [n for n in topo['nodes'] if n['type'] == 'broker']
+    if adapter is None:
+        if len(brokers) > 1:
+            raise ValueError('capability unavailable: native-single adapter; multiple Brokers require an explicit BrokerSet peripheral realization')
+        return None
+    if not isinstance(adapter, dict) or set(adapter) != {'kind','context','config_path','local_endpoint'} or adapter['kind'] != 'gate':
+        raise ValueError('invalid broker_adapter realization')
+    from Deployment.protocol_context import validate_context, check_binding
+    from Deployment.broker_set import gate_patch, private_endpoint
+    from Deployment.core_catalog import CoreCatalog
+    context = validate_context(adapter['context'])
+    core = selected_core_engine(brokers[0]).removeprefix('shadow6-')
+    check_binding(context, core, CoreCatalog(PROJECT_ROOT))
+    pools = [r for r in context['routes'] if r.get('kind') == 'broker_set']
+    if len(pools) != 1 or {m['identity'] for m in pools[0]['members']} != {n['name'] for n in brokers}:
+        raise ValueError('BrokerSet identities must match all topology Brokers')
+    patch = gate_patch(pools[0])
+    if patch['protocol'] != ['tcp']:
+        raise ValueError('capability unavailable: native control adapter requires a stream Gate BrokerSet')
+    if not private_endpoint(adapter['local_endpoint']):
+        raise ValueError('native control adapter endpoint must be loopback')
+    path = Path(adapter['config_path'])
+    if not path.is_absolute(): raise ValueError('Gate realization requires absolute config_path')
+    from Deployment.service_storage import private_read, strict_json
+    config = strict_json(private_read(path))
+    if config.get('enabled') is not True or config.get('role') != 'client' or any(config.get(k) != v for k,v in patch.items()):
+        raise ValueError('Gate realization does not match S6P1 BrokerSet/trust/policy')
+    from urllib.parse import urlsplit
+    local = urlsplit(adapter['local_endpoint'])
+    if config.get('listen_host') != local.hostname or config.get('listen_port') != local.port:
+        raise ValueError('Gate stable endpoint differs from adapter realization')
+    return adapter
+
+
 def validate_topology(topo: Any) -> dict:
     """Validate untrusted topology input before paths, commands, or sockets use it."""
     if not isinstance(topo, dict):
@@ -500,7 +544,7 @@ def validate_topology(topo: Any) -> dict:
     global_cfg = topo.get("global", {})
     if not isinstance(global_cfg, dict):
         raise ValueError("global topology settings must be a mapping")
-    if set(global_cfg) - {"stealth_mode", "broker_scheme", "broker_path", "output_dir", "mtd_rotation_interval", "gleam_transport"}:
+    if set(global_cfg) - {"stealth_mode", "broker_scheme", "broker_path", "output_dir", "mtd_rotation_interval", "gleam_transport", "broker_adapter"}:
         raise ValueError("unknown global topology fields")
     if "stealth_mode" in global_cfg and type(global_cfg["stealth_mode"]) is not bool:
         raise ValueError("stealth_mode must be boolean")
@@ -577,8 +621,9 @@ def validate_topology(topo: Any) -> dict:
             raise ValueError(f"node {name} has an invalid init_system")
         if ssh_host and (not is_loopback_host(str(ssh_host)) or deploy_root) and not node.get("known_hosts"):
             raise ValueError(f"remote node {name} must set known_hosts for SSH host-key verification")
-    if len(brokers) != 1:
-        raise ValueError("topology must contain exactly one broker")
+    if not brokers:
+        raise ValueError("topology requires at least one Broker")
+    adapter = broker_adapter(topo)
     agent_names = [node["name"] for node in nodes if node["type"] == "agent"]
     for node in nodes:
         if node["type"] == "client":
@@ -591,7 +636,7 @@ def validate_topology(topo: Any) -> dict:
         raise ValueError("all broker, agent, and client nodes must use the same core engine")
     if next(iter(core_engines)).removeprefix("shadow6-") in DATAGRAM_CORE_NAMES:
         if len(nodes) != 3 or {n['type'] for n in nodes} != {"broker", "agent", "client"}:
-            raise ValueError("native datagram adapter requires one broker, agent and client")
+            raise ValueError("capability unavailable: native datagram topology adapter requires one broker, agent and client")
     if "gleam_transport" in global_cfg and core_engines != {"shadow6-gleam"}:
         raise ValueError("gleam_transport applies only to the Gleam Core")
     broker = brokers[0]
@@ -642,6 +687,8 @@ def generate_random_sni() -> str:
 async def execute_mtd_rotation(topo: dict):
     """Perform Zero-Touch full-dimensional rotation and deploy."""
     topo = validate_topology(topo)
+    if topo.get('global',{}).get('broker_adapter') and any(n.get('ssh_host') and n.get('init_system','auto') != 'none' for n in topo['nodes']):
+        raise ValueError('capability unavailable: native-only SSH activation cannot attest Gate realization; use local Named Service supervision or init_system=none staged artifacts')
     console.print("[bold magenta][*] Initiating MTD Full-Dimensional Rotation...[/bold magenta]")
     
     # 1. Rotate Keys (Ed25519)
@@ -685,6 +732,9 @@ async def execute_mtd_rotation(topo: dict):
     if not isinstance(broker_path, str) or not broker_path.startswith("/") or broker_path == "/" or any(char in broker_path for char in "?#\r\n"):
         raise ValueError("global.broker_path must be a non-root absolute URL path")
     broker_url = f"{broker_scheme}://{format_host_port(broker_host, broker_port)}{broker_path}"
+    adapter = broker_adapter(topo)
+    if adapter:
+        broker_url = adapter["local_endpoint"]
     output_dir = Path(global_cfg.get("output_dir", "generated")).expanduser()
     if not output_dir.is_absolute():
         output_dir = Path.cwd() / output_dir
@@ -714,7 +764,7 @@ async def execute_mtd_rotation(topo: dict):
         
         if node['type'] == 'broker':
             config_data['broker'] = {
-                "listen_addr": format_host_port(node.get('listen_host', '127.0.0.1' if core_engine == 'shadow6-gleam' else '0.0.0.0'), broker_port),
+                "listen_addr": format_host_port(node.get('listen_host', '127.0.0.1' if core_engine == 'shadow6-gleam' else '0.0.0.0'), int(node.get("listen_port",4433))),
                 "private_key": broker_priv,
                 "agents": agents_data,
                 "clients": clients_data,
@@ -788,6 +838,9 @@ async def execute_mtd_rotation(topo: dict):
             for other_role in ("broker", "agent", "client"):
                 config_data.setdefault(other_role, None)
 
+        if adapter and node['type'] in {'agent','client'}:
+            from Deployment.service_storage import private_read, strict_json
+            _write_secure_json(output_dir / f"{node['name']}.gate.json", strict_json(private_read(adapter['config_path'])))
         filename = output_dir / f"{node['name']}.json"
         _write_secure_json(filename, config_data)
         console.print(f"[green][+] Generated rotated config for {node['name']} -> {filename} (Perms 600)[/green]")

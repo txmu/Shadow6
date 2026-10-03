@@ -33,3 +33,16 @@ class InstallDestinationTests(unittest.TestCase):
             self.assertTrue(marker.is_symlink())
 
 if __name__=='__main__': unittest.main()
+
+class InstalledMarkerRegression(unittest.TestCase):
+    def test_exact_marker_accepts_replacement_before_copy(self):
+        # A minimal fake checkout avoids native artifacts and checks the real script.
+        with tempfile.TemporaryDirectory(prefix='shadow6-marker-') as directory:
+            root=Path(directory);source=root/'project';(source/'Tools').mkdir(parents=True)
+            script=source/'Tools/install_tree.sh';script.write_bytes(SCRIPT.read_bytes())
+            (source/'Makefile').write_text('# fixture\n')
+            destination=root/'installed'
+            for _ in range(2):
+                result=subprocess.run(['bash',str(script),str(destination)],capture_output=True,text=True,timeout=5)
+                self.assertEqual(result.returncode,0,result.stderr)
+                self.assertEqual((destination/'.shadow6-tree').read_bytes(),b'shadow6-installed-tree\n')

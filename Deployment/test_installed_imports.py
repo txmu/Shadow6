@@ -1,0 +1,42 @@
+"""Exercise the actual install-prebuilt target from outside the source cwd."""
+import json
+import os
+import re
+import subprocess
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+ROOT=Path(__file__).resolve().parents[1]
+
+class InstalledImports(unittest.TestCase):
+    def test_staged_entrypoints_package_imports_and_repeat_install(self):
+        with tempfile.TemporaryDirectory(prefix='shadow6-installed-') as directory:
+            stage=Path(directory)
+            flags=set(re.findall(r'BUILD_[A-Z_]+',(ROOT/'Makefile').read_text()+(ROOT/'config.mk').read_text() if (ROOT/'config.mk').exists() else (ROOT/'Makefile').read_text()))
+            command=['make','install-prebuilt','PREFIX=/usr/local','DESTDIR='+directory]+[f'{flag}=0' for flag in sorted(flags)]
+            env={k:v for k,v in os.environ.items() if k not in {'PYTHONPATH','SHADOW6_ROOT'}}
+            installed=stage/'usr/local'
+            for _ in range(2):
+                result=subprocess.run(command,cwd=ROOT,env=env,capture_output=True,text=True,timeout=60)
+                self.assertEqual(result.returncode,0,result.stderr[-4000:])
+            for args in (['abi','catalog'],['connect','--help'],['core','list']):
+                result=subprocess.run([sys.executable,str(installed/'bin/shadow6'),*args],cwd=stage,env=env,capture_output=True,text=True,timeout=15)
+                self.assertEqual(result.returncode,0,result.stderr)
+            package=next(installed.glob('lib/python*/site-packages/Deployment')) if list(installed.glob('lib/python*/site-packages/Deployment')) else next(installed.glob('lib/python*/dist-packages/Deployment'))
+            code='''import sys,json
+sys.path.insert(0,sys.argv[1])
+from libshadow6 import Shadow6
+from Deployment import encode_control
+from Deployment.service_registry import ServiceRegistry
+from Deployment.core_catalog import CoreCatalog
+from Deployment.protocol_context import minimal_context
+from Deployment.connection_plan import resolve_connection
+catalog=CoreCatalog()
+assert catalog.root == __import__('pathlib').Path(sys.argv[2])
+assert resolve_connection(context=minimal_context('go'),catalog=catalog)['core']=='go'
+print('installed imports passed')
+'''
+            result=subprocess.run([sys.executable,'-I','-c',code,str(package.parent),str(installed/'share/shadow6/tree')],cwd=stage,env=env,capture_output=True,text=True,timeout=15)
+            self.assertEqual(result.returncode,0,result.stderr)

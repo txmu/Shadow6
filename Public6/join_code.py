@@ -47,13 +47,21 @@ PASSPORT_SCHEMA = "shadow6.passport.v1"
 VISA_SCHEMA = "shadow6.visa.v1"
 MAX_CREDENTIAL_BYTES = 32768
 
-def _reject_protocol_float(value):
-    if isinstance(value, float):
-        raise ValueError("floating-point values are not permitted in S6P1")
+def _reject_protocol_float(value, depth=0):
+    if depth > 32 or isinstance(value, float):
+        raise ValueError("floating-point values/excessive nesting are not permitted in S6P1")
     if isinstance(value, dict):
-        for item in value.values(): _reject_protocol_float(item)
+        for key,item in value.items():
+            if not isinstance(key,str) or len(key)>128: raise ValueError('invalid S6P1 key')
+            _reject_protocol_float(item,depth+1)
     elif isinstance(value, list):
-        for item in value: _reject_protocol_float(item)
+        if len(value)>256: raise ValueError('S6P1 list limit')
+        for item in value: _reject_protocol_float(item,depth+1)
+    elif isinstance(value,str):
+        if len(value)>65536 or '\x00' in value: raise ValueError('S6P1 string limit')
+    elif type(value) is int and abs(value)>2**53-1:
+        raise ValueError('S6P1 integer range')
+
 
 def pack_protocol(envelope: dict) -> str:
     """Encode a platform-neutral Shadow6 protocol envelope.
@@ -65,12 +73,14 @@ def pack_protocol(envelope: dict) -> str:
     if type(envelope) is not dict or set(envelope) - {"schema", "version", "purpose", "core", "role", "identity", "routes", "components", "credentials"}:
         raise ValueError("invalid Shadow6 protocol envelope")
     required = {"schema", "version", "purpose", "core", "role", "identity", "routes", "components", "credentials"}
-    if set(envelope) != required or envelope["schema"] != "shadow6.protocol-envelope.v1" or envelope["version"] != 1:
+    if set(envelope) != required or envelope["schema"] != "shadow6.protocol-envelope.v1" or type(envelope["version"]) is not int or envelope["version"] != 1:
         raise ValueError("invalid Shadow6 protocol envelope schema")
     if not isinstance(envelope["purpose"], str) or not 1 <= len(envelope["purpose"]) <= 64:
         raise ValueError("invalid envelope purpose")
-    if not isinstance(envelope["core"], str) or envelope["core"] not in CORE_NAMES and envelope["core"] != "all":
-        raise ValueError("invalid envelope Core")
+    scope = envelope['core']
+    ids = scope if isinstance(scope,list) else [scope]
+    if not 1 <= len(ids) <= 16 or any(not isinstance(c,str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._:-]{0,63}',c) for c in ids) or len(set(ids)) != len(ids) or isinstance(scope,list) and 'all' in ids:
+        raise ValueError('invalid envelope Core scope')
     if not isinstance(envelope["role"], str) or envelope["role"] not in ("broker", "agent", "client", "gate", "relay", "plugin", "all"):
         raise ValueError("invalid envelope role")
     if not isinstance(envelope["identity"], dict) or not isinstance(envelope["routes"], list) or not isinstance(envelope["components"], dict) or not isinstance(envelope["credentials"], dict):

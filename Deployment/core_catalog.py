@@ -5,7 +5,11 @@ implementations are admitted only after the same descriptor contract passes.
 It never chooses a winner.
 """
 from __future__ import annotations
-import hashlib, json, os, platform, re
+import hashlib, json, os, platform, re, sys
+try:
+    from .service_storage import private_read, strict_json, atomic_write
+except ImportError:
+    from service_storage import private_read, strict_json, atomic_write
 from pathlib import Path
 from typing import Any
 
@@ -19,22 +23,28 @@ def _schema(core: str) -> dict[str, Any]:
     return {"schema": CONFIG_SCHEMA, "version": "1", "core": core, "fields": [
         {"id":"config_path", "type":"path", "required":True, "optional":False,
          "description":"Path to the Core-specific configuration file", "secret":False,
-         "restartRequired":True, "roles":["broker","agent","client","gate"],
+         "restartRequired":True, "roles":["broker","agent","client"],
          "dependencies":[], "conflicts":[], "hasDefault":False}
     ]}
 
 def _descriptor(core: str, root: Path | None = None) -> dict[str, Any]:
     root = root or Path(__file__).resolve().parents[1]
     path = root / f"Core-{core.title() if core != 'cpp' else 'Cpp'}" / f"shadow6-{core}"
+    # Built-in kinds come from the shared feature contract, not a UI preference.
+    for location in (root / 'Crosed', root.parent / 'modules'):
+        if (location / 'feature_contract.py').is_file(): sys.path.insert(0,str(location));break
+    from feature_contract import STREAM_CONNECTION_LIMIT, APP_TRANSPORT_MODES
+    report_id = 'shadow6-' + core
+    boundaries = (['stream'] if report_id in STREAM_CONNECTION_LIMIT else []) + (['message'] if report_id in APP_TRANSPORT_MODES else [])
     return {"schema": DESCRIPTOR_SCHEMA, "id": core, "displayName": f"Shadow6 {core.title()} Core",
             "implementation": {"name": core, "version": "unknown", "language": core},
             "executable": str(path), "binaryDigest": None, "publisher": "Shadow6",
             "source": "builtin", "trust": {"status":"builtin"}, "protocolFamily": "core-native",
-            "applicationBoundaries": ["stream", "message", "credited"],
-            "guarantees": {}, "limits": {}, "roles":["broker","agent","client","gate"],
+            "applicationBoundaries": boundaries,
+            "guarantees": {}, "limits": {}, "roles":["broker","agent","client"],
             "platforms":[platform.system().lower()], "architectures":[platform.machine()],
             "featureReportDigest": None, "configurationSchema": _schema(core),
-            "configurationSchemaVersion":"1", "privacyEnvelope": {"available": (root / "OCaml/privacy_envelope/shadow6-privacy-envelope").is_file(), "implementation":"ocaml", "mode":"authenticated-envelope", "nativeProtocolUnchanged":True, "preauthIdentityDisclosure":False, "publicCoreListenerRequired":False}}
+            "configurationSchemaVersion":"1", "launchAdapter":"native-files" if core in ("carp","idris") else "native-config", "privacyEnvelope": {"available": (root / "OCaml/privacy_envelope/shadow6-privacy-envelope").is_file(), "implementation":"ocaml", "mode":"authenticated-envelope", "nativeProtocolUnchanged":True, "preauthIdentityDisclosure":False, "publicCoreListenerRequired":False}}
 
 def _digest(path: Path) -> str | None:
     try:
@@ -48,12 +58,19 @@ def _digest(path: Path) -> str | None:
     return None
 
 def validate_descriptor(value: dict[str, Any]) -> dict[str, Any]:
+    strict_json(json.dumps(value,allow_nan=False).encode())
     if not isinstance(value, dict) or value.get("schema") != DESCRIPTOR_SCHEMA or not _ID.fullmatch(str(value.get("id", ""))):
         raise ValueError("invalid Core descriptor")
     if not isinstance(value.get("configurationSchema"), dict) or value["configurationSchema"].get("schema") != CONFIG_SCHEMA:
         raise ValueError("Core descriptor requires a configuration schema")
     if value["configurationSchema"].get("core") != value["id"]:
         raise ValueError("Core descriptor/schema identity mismatch")
+    allowed = {'schema','id','displayName','implementation','executable','binaryDigest','publisher','source','trust','protocolFamily','applicationBoundaries','guarantees','limits','roles','platforms','architectures','featureReportDigest','configurationSchema','configurationSchemaVersion','privacyEnvelope','launchAdapter'}
+    if set(value) - allowed: raise ValueError('unknown Core descriptor field')
+    if not isinstance(value.get('applicationBoundaries'),list) or not value['applicationBoundaries'] or any(b not in {'stream','message','credited'} for b in value['applicationBoundaries']): raise ValueError('invalid application boundaries')
+    if not isinstance(value.get('roles'),list) or not value['roles'] or any(r not in {'broker','agent','client','gate'} for r in value['roles']): raise ValueError('invalid descriptor roles')
+    if value.get('launchAdapter','native-config') not in {'native-config','native-files'}: raise ValueError('unsupported launch adapter')
+    if not isinstance(value.get('executable'),str) or not Path(value['executable']).is_absolute(): raise ValueError('absolute Core executable required')
     for key in ("displayName", "implementation", "protocolFamily", "applicationBoundaries", "roles"):
         if key not in value: raise ValueError(f"Core descriptor missing {key}")
     return value
@@ -78,9 +95,25 @@ class CoreCatalog:
                 from install_layout import tree_root
                 root = tree_root(__file__)
             except ImportError:
-                root = Path(__file__).resolve().parents[1]
+                here = Path(__file__).resolve()
+                root = next((ancestor / 'share/shadow6/tree' for ancestor in here.parents
+                             if (ancestor / 'share/shadow6/tree/Makefile').is_file()), here.parents[1])
         self.root = Path(root)
         self._items = {c: _descriptor(c, self.root) for c in CORE_IDS}
+        self.descriptor_path = Path(os.environ.get('SHADOW6_CORE_DESCRIPTORS',Path.home()/'.config/shadow6/cores.json'))
+        self._load_imported()
+
+    def _load_imported(self):
+        try: items = strict_json(private_read(self.descriptor_path))
+        except FileNotFoundError: return
+        if not isinstance(items,dict) or len(items)>128: raise ValueError('invalid imported Core catalog')
+        for identity,item in items.items():
+            if identity in CORE_IDS or item.get('id') != identity or item.get('source') != 'imported': raise ValueError('imported descriptors cannot replace built-in Core identities')
+            self.register(item)
+
+    def component_binary(self, component):
+        if component not in ("gate", "guard"): raise ValueError("unknown peripheral component")
+        return self.root / component.title() / ("shadow6-" + component)
 
     def envelope_binary(self):
         return self.root / "OCaml/privacy_envelope/shadow6-privacy-envelope"
@@ -92,10 +125,15 @@ class CoreCatalog:
         return self._items[item["id"]]
 
     def import_file(self, path: str | os.PathLike[str]) -> dict[str, Any]:
-        value = json.loads(Path(path).read_text(encoding="utf-8"))
+        raw = Path(path).read_bytes()
+        if len(raw)>262144: raise ValueError("descriptor size limit")
+        value = strict_json(raw)
         value.setdefault("source", "imported")
         value.setdefault("trust", {"status":"unverified"})
-        return self.register(value)
+        if value.get('id') in CORE_IDS or value.get('source') != 'imported': raise ValueError('cannot import over a builtin Core')
+        item=self.register(value)
+        atomic_write(self.descriptor_path,json.dumps({k:v for k,v in self._items.items() if k not in CORE_IDS},sort_keys=True,allow_nan=False).encode())
+        return item
 
     def list(self) -> list[dict[str, Any]]: return [self._items[k] for k in sorted(self._items)]
     def inspect(self, core: str) -> dict[str, Any]:
@@ -105,7 +143,12 @@ class CoreCatalog:
         matches, rejected = [], []
         for item in self.list():
             if core and item["id"] != core: rejected.append({"core":item["id"],"reason":"not explicitly requested"}); continue
-            missing = [k for k,v in requirements.items() if v not in item.get(k, []) and item.get(k) != v]
+            def meets(key, wanted):
+                actual=item.get(key)
+                if isinstance(actual,list):
+                    return all(v in actual for v in (wanted if isinstance(wanted,list) else [wanted]))
+                return actual == wanted
+            missing = [k for k,v in requirements.items() if not meets(k,v)]
             (matches if not missing else rejected).append(item if not missing else {"core":item["id"],"reason":"requirements not met"})
         return {"schema":"shadow6.core-resolution.v1", "candidates":matches, "rejected":rejected,
                 "bindingRequired":len(matches) != 1, "ambiguous":len(matches)>1}
@@ -114,7 +157,8 @@ class CoreCatalog:
         descriptor = self.inspect(core); normalized = validate_config(descriptor, config)
         payload = {"core":core, "version":version or descriptor["implementation"]["version"],
                    "binaryDigest":_digest(Path(descriptor["executable"])), "featureReportDigest":descriptor.get("featureReportDigest"),
-                   "configSchemaVersion":descriptor["configurationSchemaVersion"], "config":normalized}
+                   "configSchemaVersion":descriptor["configurationSchemaVersion"], "config":normalized,
+                   "descriptorDigest":"sha256:"+hashlib.sha256(json.dumps(descriptor,sort_keys=True,separators=(",",":"),allow_nan=False).encode()).hexdigest()}
         payload["configDigest"] = "sha256:" + hashlib.sha256(json.dumps(normalized,sort_keys=True,separators=(",",":")).encode()).hexdigest()
         return payload
 

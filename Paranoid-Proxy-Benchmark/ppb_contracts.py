@@ -32,6 +32,15 @@ FILES = [f'{directory}/{name}' for directory, name in SUITES.values()] + [
     'Paranoid-Proxy-Benchmark/ppb_contracts.py',
     'Paranoid-Proxy-Benchmark/paranoid_proxy_benchmark.py',
 ]
+# Source assertions are part of the exported contract; include their inputs.
+FILES += [
+    'Core-Go/data.go', 'Core-Rust/src/main.rs', 'Core-Gleam/src/shadow6_role.erl',
+    'Core-Zig/src/runtime.zig', 'Core-Ada/src/runtime.adb', 'Core-D/src/runtime.d',
+    'Core-Nim/src/runtime.nim', 'Core-Cpp/src/runtime.hpp', 'Core-Pony/runtime.pony',
+    'Core-Hare/src/runtime.ha', 'Core-Carp/src/runtime.h', 'Core-Idris/ffi/sodium_ffi.c',
+    'CLI/shadow6_vcore.py', 'CLI/shadow6.py', 'shadow6_audit.py',
+    'Security-Assistants/shadow6_security.py',
+]
 FILES += [f'plugins/{plugin}/{name}' for plugin in ('maze-runner','number-guess','rock-paper-scissors') for name in ('main.py','plugin.json')]
 PLUGIN_CASES = ('test_bundled_plugins_are_signed_and_discoverable',
     'test_modified_code_and_manifest_are_rejected',

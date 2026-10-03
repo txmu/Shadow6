@@ -107,6 +107,15 @@ class Shadow6:
         if not isinstance(value, dict): raise Shadow6Error("expected JSON object")
         return value
 
+    def connection_plan(self, name: str) -> dict:
+        """Resolve a named service through the same S6P1 connection pipeline."""
+        return self.json('connect', name, '--json')
+
+    def connect(self, name: str):
+        """Open a bounded local application session from actual ready state."""
+        from Deployment.connection_plan import open_local_session
+        return open_local_session(self.connection_plan(name))
+
     def features(self, component: str | None = None) -> dict:
         args = ("features", "--format", "json")
         if component is not None:

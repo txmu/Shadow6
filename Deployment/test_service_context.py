@@ -1,0 +1,262 @@
+"""Focused S6P1 lifecycle/topology/import regressions, no native build."""
+import copy
+import json
+import os
+import socket
+import subprocess
+import sys
+import tempfile
+import time
+import unittest
+from pathlib import Path
+from Deployment.core_catalog import CoreCatalog
+from Deployment.service_registry import ServiceRegistry
+from Deployment.service_storage import atomic_write
+from Deployment.protocol_context import minimal_context, validate_context, context_digest
+from Deployment.connection_plan import resolve_connection
+from Deployment.broker_set import realize, gate_patch
+from Deployment.runtime_observation import ready
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def pool(count=1):
+    return {'kind':'broker_set','id':'home','policy':'round_robin',
+            'members':[{'identity':f'broker-{i}', 'endpoint':f'tcp://127.0.0.{i+1}:14433',
+                        'public_key':'a'*64} for i in range(count)]}
+
+
+class ContextTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix='shadow6-context-')
+        self.addCleanup(self.temp.cleanup)
+        self.directory = Path(self.temp.name)
+        self.config = self.directory/'native.json'; atomic_write(self.config,b'{}')
+        self.catalog = CoreCatalog(ROOT)
+        self.registry = ServiceRegistry(self.directory/'registry.json', self.catalog)
+
+    def create(self, context=None, **kwargs):
+        return self.registry.create('home/nas',core='go',config={'config_path':str(self.config)},context=context,**kwargs)
+
+    def test_context_is_unique_semantic_source(self):
+        context = minimal_context('go'); context.update(role='client',identity={'ref':'nas'})
+        context['routes']=[pool()]
+        item = self.create(context)
+        self.assertEqual(item['protocolContext'],context)
+        self.assertFalse({'role','brokers','routes','identity','credentials'} & set(item['spec']))
+        loaded = ServiceRegistry(self.registry.path,self.catalog).inspect('home/nas')
+        self.assertEqual(loaded['protocolContext'],context)
+        for field in ('role','routes','brokers','credentials','identity','endpoint'):
+            with self.assertRaises(ValueError): self.registry._spec({field:{}})
+
+    def test_core_scope_rejects_binding_conflict(self):
+        with self.assertRaisesRegex(ValueError,'scope'): self.create(minimal_context('rust'))
+        self.create(minimal_context('all'))
+        self.registry.configure('home/nas',core='rust',config={'config_path':str(self.config)})
+        self.assertEqual(self.registry.require_binding('home/nas')['core'],'rust')
+
+    def test_ambiguous_core_never_auto_selected(self):
+        with self.assertRaisesRegex(ValueError,'AmbiguousCore'):
+            resolve_connection(context=minimal_context(),catalog=self.catalog)
+        self.assertEqual(resolve_connection(context=minimal_context('go'),catalog=self.catalog)['core'],'go')
+
+    def test_third_party_descriptor_participates(self):
+        descriptor = copy.deepcopy(self.catalog.inspect('go'))
+        descriptor.update(id='vendor-x', source='imported')
+        descriptor['configurationSchema']['core']='vendor-x'
+        self.catalog.register(descriptor)
+        item = self.registry.create('home/vendor',core='vendor-x',config={'config_path':str(self.config)},context=minimal_context('vendor-x'))
+        plan = resolve_connection(context=item['protocolContext'],catalog=self.catalog,binding=item['coreBinding'])
+        self.assertEqual(plan['core'],'vendor-x')
+
+    def test_unknown_runtime_material_rejected_from_context(self):
+        for key in ('pid','binaryDigest','config_path','telemetry','runtime'):
+            context=minimal_context(); context['identity'][key]=1
+            with self.assertRaises(ValueError): validate_context(context)
+        context=minimal_context();context['routes']=[{ 'kind':'broker_set',**pool(), 'health':'ready'}]
+        with self.assertRaises(ValueError): validate_context(context)
+
+    def test_lock_detects_route_identity_privacy_core_drift(self):
+        item=self.create(); first=self.registry.lock('home/nas')
+        self.assertEqual(first['contextDigest'],context_digest(item['protocolContext']))
+        context=minimal_context('go');context['routes']=[pool()]
+        self.registry.configure('home/nas',core='go',config={'config_path':str(self.config)},context=context)
+        second=self.registry.lock('home/nas')
+        self.assertNotEqual(first['digest'],second['digest'])
+        value=json.loads(self.registry.path.read_text());value['services']['home/nas']['protocolContext']['identity']={'ref':'changed'}
+        atomic_write(self.registry.path,json.dumps(value).encode())
+        with self.assertRaisesRegex(ValueError,'drift'): self.registry.apply('home/nas')
+
+    def test_safe_legacy_migration_and_ambiguous_fail_closed(self):
+        self.create()
+        value=json.loads(self.registry.path.read_text());value['schema']='shadow6.service-registry.v1'
+        del value['services']['home/nas']['protocolContext']
+        value['services']['home/nas']['spec']['endpoint']={'mode':'private'}
+        atomic_write(self.registry.path,json.dumps(value).encode())
+        migrated=ServiceRegistry(self.registry.path,self.catalog)
+        migrated.init()
+        self.assertEqual(json.loads(self.registry.path.read_text())['schema'],'shadow6.service-registry.v2')
+        value['services']['home/nas']['spec']['endpoint']['address']='127.0.0.1:1234'
+        atomic_write(self.registry.path,json.dumps(value).encode())
+        with self.assertRaisesRegex(ValueError,'ambiguous legacy'): ServiceRegistry(self.registry.path,self.catalog)
+
+    def test_legacy_simulated_pid_never_runtime_proof(self):
+        self.create();value=json.loads(self.registry.path.read_text())
+        value['schema']='shadow6.service-registry.v1'
+        del value['services']['home/nas']['protocolContext']
+        value['services']['home/nas']['runtime']={'pid':os.getpid()}
+        atomic_write(self.registry.path,json.dumps(value).encode())
+        with self.assertRaisesRegex(ValueError,'runtime identity'): ServiceRegistry(self.registry.path,self.catalog)
+
+    def test_named_and_s6p1_use_one_pipeline_and_real_observation(self):
+        self.catalog._items['go']['executable']=str(self.directory/'fixture-core')
+        binary=Path(self.catalog.inspect('go')['executable'])
+        binary.write_text('#!/usr/bin/env python3\nimport time\ntime.sleep(60)\n');binary.chmod(0o700)
+        self.create()
+        try:
+            running=self.registry.run('home/nas')
+            named=self.registry.connect('home/nas')
+            direct=resolve_connection(context=running['protocolContext'],catalog=self.catalog,binding=running['coreBinding'],runtime=running['runtime'])
+            self.assertEqual({k:v for k,v in named.items() if k!='source'}, {k:v for k,v in direct.items() if k!='source'})
+            self.assertIsNone(named['endpoint']);self.assertEqual(named['readiness'],'process-alive')
+            self.assertFalse(named['connected'])
+        finally: self.registry.stop('home/nas')
+
+    def test_ready_event_runtime_endpoint_not_desired_route(self):
+        binary=self.directory/'fixture-core'
+        binary.write_text('''#!/usr/bin/env python3
+import socket,json,time
+s=socket.socket();s.bind(('127.0.0.1',0));s.listen()
+print(json.dumps({'event':'shadow6.ready','schema':1,'core':'shadow6-go','role':'client',
+'application_boundary':{'kind':'stream','mode':'localhost-tcp-proxy','endpoint':{'host':'127.0.0.1','port':s.getsockname()[1]}}}),flush=True)
+time.sleep(60)
+''');binary.chmod(0o700);self.catalog._items['go']['executable']=str(binary)
+        context=minimal_context('go');context['role']='client';context['routes']=[{'boundary':'stream','endpoint':'tcp://127.0.0.1:1'}]
+        self.create(context)
+        try:
+            result=self.registry.run('home/nas')
+            self.assertEqual(result['runtime']['readiness'],'application-ready')
+            self.assertNotEqual(result['runtime']['endpoint']['port'],1)
+            self.assertEqual(self.registry.connect('home/nas')['applicationBoundary'],'stream')
+        finally:self.registry.stop('home/nas')
+
+    def test_envelope_rejects_public_upstream_and_native_exposure(self):
+        from Deployment.service_runtime import validate_envelope,validate_native_private
+        with self.assertRaisesRegex(ValueError,'loopback'):
+            validate_envelope({'listen':'0.0.0.0:14444','upstream':'0.0.0.0:14433','auth_key':'x'*32})
+        atomic_write(self.config,b'{"role":"broker","broker":{"listen_addr":"0.0.0.0:14433"}}')
+        with self.assertRaisesRegex(ValueError,'public native'):
+            validate_native_private(self.config)
+        atomic_write(self.config,b'{"role":"broker","broker":{"listen_addr":"127.0.0.1:14433"}}')
+        validate_native_private(self.config)
+
+    def test_broker_set_single_multi_capability_health_and_gate(self):
+        self.assertEqual(realize(pool())['selected']['identity'],'broker-0')
+        with self.assertRaisesRegex(ValueError,'capability unavailable'): realize(pool(2))
+        self.assertEqual(realize(pool(2),adapter='broker-set-selector',cursor=1)['selected']['identity'],'broker-1')
+        self.assertEqual(realize(pool(2),adapter='broker-set-selector',observations={pool(2)['members'][0]['endpoint']:'unavailable'})['selected']['identity'],'broker-1')
+        patch=gate_patch(pool(2));self.assertEqual(len(patch['remote_hosts']),2)
+        self.assertEqual(patch['peer_public_keys'],['a'*64]);self.assertFalse(patch['mtd']['enabled'])
+        self.assertFalse(realize(pool(2),adapter='gate')['sessionMigration'])
+
+
+
+class CompositionTests(unittest.TestCase):
+    def test_four_explicit_stacks_and_no_gate_requirement(self):
+        from Deployment.service_composition import validate_composition
+        envelope={'listen':'127.0.0.1:14444','upstream':'127.0.0.1:14433'}
+        gate={'enabled':True,'role':'server','listen_host':'127.0.0.1','listen_port':14433,'protocol':['tcp'],'upstream':'127.0.0.1:14432'}
+        guard={'spa_config':{'enabled':True,'agent_tcp_port':14444}}
+        for g in (None,gate):
+            for perimeter in (None,guard):
+                result=validate_composition(privacy='envelope',envelope=envelope,gate=g,guard=perimeter)
+                self.assertEqual(result['layers'],(['Guard'] if perimeter else [])+['S6EPE']+(['Gate'] if g else [])+['Core'])
+                self.assertFalse(result['outerEncryptedCamouflage'])
+        guard['spa_config']['agent_tcp_port']=14432
+        with self.assertRaisesRegex(ValueError,'EPE admission'):
+            validate_composition(privacy='envelope',envelope=envelope,gate=gate,guard=guard)
+        gate['enabled']=False
+        with self.assertRaisesRegex(ValueError,'explicit enabled'):
+            validate_composition(privacy='envelope',envelope=envelope,gate=gate)
+
+    def test_ready_unknown_schema_identity_and_public_endpoint_rejected(self):
+        event={'event':'shadow6.ready','schema':1,'core':'shadow6-go','role':'client',
+               'application_boundary':{'kind':'stream','mode':'localhost-tcp-proxy','endpoint':{'host':'127.0.0.1','port':14433}}}
+        self.assertEqual(ready(json.dumps(event).encode(),'go')['readiness'],'application-ready')
+        for field,value in (('core','shadow6-rust'),('schema',2),('role','broker'),('unknown',True)):
+            altered={**event,field:value}
+            with self.assertRaises(ValueError):ready(json.dumps(altered).encode(),'go')
+        event['application_boundary']['endpoint']['host']='0.0.0.0'
+        with self.assertRaises(ValueError):ready(json.dumps(event).encode(),'go')
+
+class LocalSessionTests(unittest.TestCase):
+    def test_actual_application_stream_attach_and_byte_budget(self):
+        import threading
+        from Deployment.connection_plan import open_local_session
+        from Deployment.service_runtime import identity
+        with socket.socket() as listener:
+            listener.bind(('127.0.0.1',0));listener.listen();port=listener.getsockname()[1]
+            def echo():
+                with listener.accept()[0] as client:
+                    client.sendall(client.recv(1024))
+            worker=threading.Thread(target=echo);worker.start()
+            token={'pid':os.getpid(),'processIdentity':identity(os.getpid())}
+            plan={'readiness':'application-ready','runtimeIdentity':token,
+                  'endpoint':{'host':'127.0.0.1','port':port,'boundary':'stream', 'mode':'localhost-tcp-proxy','observation':'structured-ready-event','owner':token}}
+            with open_local_session(plan) as session:
+                session.send(b'actual-session');self.assertEqual(session.receive(),b'actual-session')
+                session.remaining=0
+                with self.assertRaisesRegex(ValueError,'budget'):session.send(b'x')
+            worker.join(3);self.assertFalse(worker.is_alive())
+        plan['readiness']='process-alive'
+        with self.assertRaisesRegex(ValueError,'capability unavailable'):open_local_session(plan)
+
+class ContextDriftAndScope(unittest.TestCase):
+    setUp = ContextTests.setUp
+    create = ContextTests.create
+    def test_candidate_scope_and_explicit_binding_are_consistent(self):
+        context=minimal_context();context['core']=['go','rust']
+        with self.assertRaisesRegex(ValueError,'AmbiguousCore'):resolve_connection(context=context,catalog=self.catalog)
+        self.assertEqual(resolve_connection(context=context,catalog=self.catalog,core='rust')['core'],'rust')
+        with self.assertRaisesRegex(ValueError,'scope'):self.create({**context,'core':['rust','gleam']})
+        item=self.create(context)
+        with self.assertRaisesRegex(ValueError,'locked CoreBinding'):
+            resolve_connection(context=context,catalog=self.catalog,binding=item['coreBinding'],core='rust')
+
+    def test_invalid_admission_material_is_rejected_on_create(self):
+        context=minimal_context('go');context['credentials']={'passport':'S6PASS1.invalid'}
+        with self.assertRaises(ValueError):self.create(context)
+
+    def test_native_role_drift_from_context_is_rejected(self):
+        atomic_write(self.config,b'{"role":"broker"}')
+        self.create({**minimal_context('go'),'role':'client'})
+        with self.assertRaisesRegex(ValueError,'role realization'):self.registry.lock('home/nas')
+
+    def test_envelope_config_binary_privacy_and_core_drift_lock(self):
+        atomic_write(self.config,b'{"listen_addr":"127.0.0.1:14433"}')
+        binary=self.directory/'epe';binary.write_text('#!/bin/false\n');binary.chmod(0o700)
+        self.catalog.envelope_binary=lambda:binary
+        config=self.directory/'epe.conf'
+        atomic_write(config,b'listen=127.0.0.1:14434\nupstream=127.0.0.1:14433\nauth_key=abcdefghijklmnop\n')
+        self.create(privacy='envelope',spec={'envelope_config':str(config)})
+        first=self.registry.lock('home/nas')['digest']
+        atomic_write(config,config.read_bytes()+b'max_sessions=4\n')
+        with self.assertRaisesRegex(ValueError,'drift'):self.registry.apply('home/nas')
+        self.registry.lock('home/nas');binary.write_text('#!/bin/false\n# changed\n')
+        with self.assertRaisesRegex(ValueError,'drift'):self.registry.apply('home/nas')
+        self.registry.configure('home/nas',core='go',config={'config_path':str(self.config)},privacy='native')
+        self.assertNotEqual(self.registry.lock('home/nas')['digest'],first)
+        self.registry.configure('home/nas',core='rust',config={'config_path':str(self.config)},context=minimal_context('rust'))
+        self.assertNotEqual(self.registry.lock('home/nas')['digest'],first)
+
+    def test_imported_descriptor_persists_for_next_catalog(self):
+        from unittest.mock import patch
+        path=self.directory/'descriptors.json';source=self.directory/'descriptor.json'
+        descriptor=copy.deepcopy(self.catalog.inspect('go'));descriptor.update(id='vendor-x',source='imported')
+        descriptor['configurationSchema']['core']='vendor-x'
+        source.write_text(json.dumps(descriptor))
+        with patch.dict(os.environ,{'SHADOW6_CORE_DESCRIPTORS':str(path)}):
+            CoreCatalog(ROOT).import_file(source)
+            self.assertEqual(CoreCatalog(ROOT).inspect('vendor-x')['id'],'vendor-x')
+
+if __name__ == '__main__':unittest.main()

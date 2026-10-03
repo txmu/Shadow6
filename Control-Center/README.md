@@ -118,3 +118,7 @@ remain on stdout; `shadow6 --json-events` sends progress events to stderr.
 Protocol references: [MCP tools](https://modelcontextprotocol.io/specification/2026-07-28/server/tools),
 [LSP 3.18](https://microsoft.github.io/language-server-protocol/),
 and [OpenAI function calling](https://developers.openai.com/api/docs/guides/function-calling).
+
+## S6AR1 and service context
+
+S6AR1 carries control request/response/events, optionally with an S6P1 context token. It does not carry a second Named Service intent model. S6P1 is logical/admission data, Named Service persists its lifecycle, Deployment/CoreBinding lock the local realization, and Runtime records observations. See [the shared layering and connect contract](../docs/service-connections.md). Existing API mutation defaults remain disabled.

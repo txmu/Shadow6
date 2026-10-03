@@ -12,13 +12,17 @@ try:
     from .core_catalog import CoreCatalog
     from .service_storage import private_read, strict_json, private_directory, atomic_write
     from . import service_runtime as runtime
+    from .protocol_context import validate_context, minimal_context, check_binding, context_digest, admit
+    from .connection_plan import resolve_connection
 except ImportError:
     from core_catalog import CoreCatalog
     from service_storage import private_read, strict_json, private_directory, atomic_write
     import service_runtime as runtime
+    from protocol_context import validate_context, minimal_context, check_binding, context_digest, admit
+    from connection_plan import resolve_connection
 
 NAME = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._-]{0,63}/[A-Za-z0-9][A-Za-z0-9._-]{0,63}$')
-SCHEMA = 'shadow6.service-registry.v1'
+SCHEMA = 'shadow6.service-registry.v2'
 
 
 def encoded(value):
@@ -49,6 +53,8 @@ def transaction(method):
                         raise ValueError('service registry busy')
                     time.sleep(.05)
             self._load(); self._depth = 1
+            if getattr(self, '_migration_pending', False):
+                self._save(); self._migration_pending = False
             return method(self, *args, **kwargs)
         finally:
             self._depth = 0
@@ -69,9 +75,9 @@ class ServiceRegistry:
             data = strict_json(private_read(self.path))
         except FileNotFoundError:
             self.services = {}; return
-        if not isinstance(data, dict) or set(data) != {'schema', 'services'} or data['schema'] != SCHEMA or not isinstance(data['services'], dict) or len(data['services']) > 128:
+        if not isinstance(data, dict) or set(data) != {'schema', 'services'} or data['schema'] not in (SCHEMA, 'shadow6.service-registry.v1') or not isinstance(data['services'], dict) or len(data['services']) > 128:
             raise ValueError('invalid service registry')
-        allowed = {'name', 'spec', 'privacy', 'privacyTelemetry', 'coreBinding', 'state', 'deploymentLock', 'runtime'}
+        allowed = {'name', 'protocolContext', 'spec', 'privacy', 'privacyTelemetry', 'coreBinding', 'state', 'deploymentLock', 'runtime'}
         for name, item in data['services'].items():
             if not NAME.fullmatch(name) or not isinstance(item, dict) or set(item) - allowed or item.get('name') != name:
                 raise ValueError('invalid named service record')
@@ -80,11 +86,11 @@ class ServiceRegistry:
             binding = item.get('coreBinding')
             if binding is not None:
                 fields = {'core','version','binaryDigest','featureReportDigest','configSchemaVersion','config','configDigest'}
-                if not isinstance(binding, dict) or set(binding) != fields or binding['core'] not in self.catalog._items:
+                if not isinstance(binding, dict) or set(binding) not in (fields,fields | {'descriptorDigest'}) or binding['core'] not in self.catalog._items:
                     raise ValueError('invalid Core binding')
                 self.catalog.binding(binding['core'], binding['config'])
             lock = item.get('deploymentLock')
-            if lock is not None and (not isinstance(lock, dict) or set(lock) != {'schema','digest','coreBinding'} or lock['schema'] != 'shadow6.deployment-lock.v2'):
+            if lock is not None and (not isinstance(lock, dict) or set(lock) not in ({'schema','digest','coreBinding'}, {'schema','digest','coreBinding','contextDigest'}) or lock['schema'] != 'shadow6.deployment-lock.v2'):
                 raise ValueError('invalid deployment lock')
             process = item.get('runtime')
             if process is not None:
@@ -93,26 +99,42 @@ class ServiceRegistry:
                     raise ValueError('invalid runtime identity; legacy simulated state needs explicit recreation')
                 if any(type(process[k]) is not int for k in ('startedAt','expiresAt')):
                     raise ValueError('invalid runtime timestamps')
+            if 'protocolContext' not in item:
+                if process is not None:
+                    raise ValueError(f'{name}: legacy runtime cannot establish S6P1 intent; stop/recreate explicitly')
+                legacy = item.get('spec', {})
+                if legacy.get('endpoint', {'mode':'private'}) != {'mode':'private'}:
+                    raise ValueError(f'{name}: ambiguous legacy endpoint; supply an explicit S6P1 context')
+                if binding is not None:
+                    # Native config schemas are not interchangeable; only intent-free
+                    # records can migrate without inventing role/routes/credentials.
+                    try: native = strict_json(private_read(binding['config']['config_path']))
+                    except (ValueError, OSError): native = None
+                    if native != {}:
+                        raise ValueError(f'{name}: legacy native intent requires explicit S6P1 recreation; no semantics guessed')
+                item['protocolContext'] = minimal_context(binding['core'] if binding else None)
+                item['spec'] = {k:v for k,v in legacy.items() if k != 'endpoint'}
+                item.pop('deploymentLock', None)
+                item['state'] = 'ready' if binding else 'unresolved'
+            item['protocolContext'] = validate_context(item['protocolContext'])
+            if binding: check_binding(item['protocolContext'], binding['core'], self.catalog)
             self._spec(item.get('spec', {}))
             if item.get('privacy') not in ('native', 'envelope'):
                 raise ValueError('invalid privacy mode')
         self.services = data['services']
+        if data['schema'] != SCHEMA:
+            self._migration_pending = True
 
     def _save(self):
         atomic_write(self.path, encoded({'schema': SCHEMA, 'services': self.services}) + b'\n')
 
     @staticmethod
     def _spec(spec):
-        if not isinstance(spec, dict) or set(spec) - {'endpoint', 'ttl', 'envelope_config', 'metrics_path'}:
+        if not isinstance(spec, dict) or set(spec) - {'ttl', 'envelope_config', 'metrics_path', 'gate_config', 'guard_config'}:
             raise ValueError('unknown service specification field')
         if type(spec.get('ttl', 3600)) is not int or not 30 <= spec.get('ttl', 3600) <= 86400:
             raise ValueError('service ttl must be 30..86400 seconds')
-        endpoint = spec.get('endpoint', {'mode': 'private'})
-        if not isinstance(endpoint, dict) or set(endpoint) - {'mode', 'address'} or endpoint.get('mode') != 'private':
-            raise ValueError('service endpoint requires private mode')
-        if 'address' in endpoint and (not isinstance(endpoint['address'], str) or len(endpoint['address']) > 256):
-            raise ValueError('invalid endpoint address')
-        for key in ('envelope_config', 'metrics_path'):
+        for key in ('envelope_config', 'metrics_path', 'gate_config', 'guard_config'):
             if key in spec and (not isinstance(spec[key], str) or not Path(spec[key]).is_absolute()):
                 raise ValueError('service file references must be absolute paths')
 
@@ -122,23 +144,28 @@ class ServiceRegistry:
         return {'schema': 'shadow6.lifecycle.v1', 'stage': 'init', 'platform': platform.system(), 'statePath': str(self.path)}
 
     @transaction
-    def create(self, name, *, core, config, spec=None, privacy='native'):
+    def create(self, name, *, core, config, spec=None, privacy='native', context=None):
         if not NAME.fullmatch(name) or name in self.services or len(self.services) >= 128:
             raise ValueError('service name must be unique namespace/name; maximum 128 services')
         spec = spec or {}; self._spec(spec)
         if privacy not in ('native', 'envelope'):
             raise ValueError('privacy must be native or envelope')
+        context = admit(validate_context(context)) if context is not None else minimal_context(core)
         binding = None if core is None else self.catalog.binding(core, config or {})
-        item = {'name': name, 'spec': spec, 'privacy': privacy, 'coreBinding': binding,
+        if binding: check_binding(context, core, self.catalog)
+        item = {'name': name, 'protocolContext': context, 'spec': spec, 'privacy': privacy, 'coreBinding': binding,
                 'state': 'unresolved' if binding is None else 'ready'}
         self.services[name] = item; self._save(); return item
 
     @transaction
-    def configure(self, name, *, core, config, privacy=None, spec=None):
+    def configure(self, name, *, core, config, privacy=None, spec=None, context=None):
         item = self.inspect(name)
         if runtime.alive(item.get('runtime', {})):
             raise ValueError('stop the service before reconfiguring')
         binding = self.catalog.binding(core, config)
+        context = admit(validate_context(context)) if context is not None else admit(item['protocolContext'])
+        check_binding(context, core, self.catalog)
+        item['protocolContext'] = context
         if privacy is not None and privacy not in ('native', 'envelope'):
             raise ValueError('invalid privacy mode')
         if spec is not None:
@@ -151,11 +178,24 @@ class ServiceRegistry:
 
     def _material(self, name):
         item = self.inspect(name); binding = self.require_binding(name)
+        check_binding(item['protocolContext'], binding['core'], self.catalog)
         current = self.catalog.binding(binding['core'], binding['config'])
         if current != binding:
             raise ValueError('Core binding drift; explicitly reconfigure')
-        config_hash = digest(private_read(binding['config']['config_path']))
+        content = private_read(binding['config']['config_path'])
+        config_hash = digest(content)
+        try: native = strict_json(content)
+        except ValueError: native = None
+        context = item['protocolContext']
+        if isinstance(native,dict) and 'role' in native and context['role'] not in ('all',native['role']):
+            raise ValueError('native role realization differs from S6P1')
+        if isinstance(native,dict) and context['identity'].get('id') is not None:
+            role = native.get('role')
+            native_id = native.get(role,{}).get('id') if isinstance(native.get(role),dict) else native.get('id')
+            if native_id != context['identity']['id']: raise ValueError('native identity realization differs from S6P1')
         extra = {}
+        fields = None
+        components = {}
         if item['privacy'] == 'envelope':
             path = item['spec'].get('envelope_config')
             if not path:
@@ -171,9 +211,29 @@ class ServiceRegistry:
                 fields[key.strip()] = value.strip()
             if item['spec'].get('metrics_path') and fields.get('metrics_path') != item['spec']['metrics_path']:
                 raise ValueError('service metrics path must match envelope metrics_path')
+            runtime.validate_envelope(fields)
+            runtime.validate_native_private(binding['config']['config_path'])
             extra['envelopeConfigDigest'] = digest(content)
             extra['envelopeBinaryDigest'] = digest(Path(runtime.executable(self.catalog.envelope_binary())).read_bytes())
-        return {'name': name, 'spec': item['spec'], 'privacy': item['privacy'], 'binding': binding, 'nativeConfigDigest': config_hash, **extra}
+        for component in ('gate', 'guard'):
+            path = item['spec'].get(component + '_config')
+            if path:
+                value = strict_json(private_read(path))
+                components[component] = value
+                if item['privacy'] == 'envelope' and component == 'gate':
+                    import ipaddress
+                    if not ipaddress.ip_address(value.get('listen_host','0.0.0.0')).is_loopback:
+                        raise ValueError('envelope invariant: Gate listener must be private behind EPE')
+                if component == 'gate' and value.get('enabled') is not True:
+                    raise ValueError('explicit Gate composition requires enabled: true')
+                extra[component + 'ConfigDigest'] = digest(private_read(path))
+                extra[component + 'BinaryDigest'] = digest(Path(runtime.executable(self.catalog.component_binary(component))).read_bytes())
+        try:
+            from .service_composition import validate_composition
+        except ImportError:
+            from service_composition import validate_composition
+        extra['composition'] = validate_composition(privacy=item['privacy'], envelope=fields, gate=components.get('gate'), guard=components.get('guard'))
+        return {'contextDigest':context_digest(item['protocolContext']), 'name': name, 'spec': item['spec'], 'privacy': item['privacy'], 'binding': binding, 'nativeConfigDigest': config_hash, **extra}
 
     @transaction
     def lock(self, name):
@@ -181,7 +241,7 @@ class ServiceRegistry:
         if runtime.alive(item.get('runtime', {})):
             raise ValueError('stop service before locking')
         material = self._material(name)
-        item['deploymentLock'] = {'schema': 'shadow6.deployment-lock.v2', 'digest': digest(encoded(material)), 'coreBinding': self.require_binding(name)}
+        item['deploymentLock'] = {'schema': 'shadow6.deployment-lock.v2', 'digest': digest(encoded(material)), 'coreBinding': self.require_binding(name), 'contextDigest':context_digest(item['protocolContext'])}
         item['state'] = 'locked'; self._save(); return item['deploymentLock']
 
     @transaction
@@ -198,18 +258,26 @@ class ServiceRegistry:
     @transaction
     def run(self, name):
         item = self.apply(name); binding = self.require_binding(name)
+        admit(item['protocolContext'], role=None if item['protocolContext']['role'] == 'all' else item['protocolContext']['role'])
         if runtime.alive(item.get('runtime', {})):
-            return self.status(name)
+            existing = self.status(name)
+            if not existing.get('runtimeObservation') or existing['runtime']['readiness'] == 'unavailable':
+                raise ValueError('runtime health unavailable; explicitly restart')
+            return existing
         binary = runtime.executable(self.catalog.inspect(binding['core'])['executable'])
         plan = {'root': str(self.catalog.root), 'core': binding['core'], 'binary': binary,
-                'config': binding['config']['config_path'], 'ttl': item['spec'].get('ttl', 3600)}
+                'config': binding['config']['config_path'], 'launchAdapter':self.catalog.inspect(binding['core']).get('launchAdapter','native-config'), 'ttl': item['spec'].get('ttl', 3600)}
         if item['privacy'] == 'envelope':
             plan.update(envelopeConfig=item['spec']['envelope_config'], envelopeBinary=str(self.catalog.envelope_binary()))
+        for component in ('gate', 'guard'):
+            if item['spec'].get(component + '_config'):
+                plan[component + 'Config'] = item['spec'][component + '_config']
+                plan[component + 'Binary'] = str(self.catalog.component_binary(component))
         path = self.path.parent / (hashlib.sha256(name.encode()).hexdigest() + '.runtime.json')
         atomic_write(path, encoded(plan))
         process = runtime.start(path)
         item['runtime'] = {**process, 'state': 'running', 'core': binding['core'], 'lockDigest': item['deploymentLock']['digest'],
-                           'endpoint': item['spec'].get('endpoint', {'mode': 'private'}), 'privacy': item['privacy'],
+                           'endpoint': None, 'privacy': item['privacy'],
                            'startedAt': int(time.time()), 'expiresAt': int(time.time()) + plan['ttl']}
         item['state'] = 'running'
         try:
@@ -223,8 +291,14 @@ class ServiceRegistry:
         item = self.inspect(name)
         if item.get('runtime', {}).get('state') == 'running' and not runtime.alive(item['runtime']):
             item['runtime']['state'] = 'exited'; item['state'] = 'exited'; self._save()
-        from privacy_envelope import read_metrics
         result = json.loads(json.dumps(item))
+        runtime.observe(result, self.path.parent / (hashlib.sha256(name.encode()).hexdigest() + '.runtime.json'))
+        try:
+            from privacy_envelope import read_metrics
+        except ImportError:
+            import sys
+            sys.path.insert(0, str(self.catalog.root / 'Control-Center'))
+            from privacy_envelope import read_metrics
         result['privacyTelemetry'] = read_metrics(item['spec'].get('metrics_path'))
         return result
 
@@ -233,7 +307,7 @@ class ServiceRegistry:
         item = self.status(name)
         if item['state'] != 'running' or not runtime.alive(item.get('runtime', {})):
             raise ValueError('service is not running')
-        return {'service': name, 'core': self.require_binding(name)['core'], 'endpoint': item['runtime']['endpoint'], 'readiness': item['runtime']['readiness']}
+        return resolve_connection(service=name, registry=self, catalog=self.catalog)
 
     @transaction
     def stop(self, name):
@@ -250,6 +324,9 @@ class ServiceRegistry:
     def remove(self, name):
         self.stop(name); self.services.pop(name); self._save()
         path = self.path.parent / (hashlib.sha256(name.encode()).hexdigest() + '.runtime.json')
+        observed = Path(str(path) + '.observed')
+        if observed.exists():
+            private_read(observed); observed.unlink()
         if path.exists():
             private_read(path); path.unlink()
         return {'removed': name}

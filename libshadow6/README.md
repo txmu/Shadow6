@@ -57,3 +57,7 @@ application session. The facade consumes the Core's declared boundary through
 `S6ABI/1`; separately shipped Core names are accepted when their signed report
 declares a compatible boundary. This is capability selection, not native wire
 protocol negotiation.
+
+## Named Service connections
+
+`Shadow6.connection_plan("home/nas")` returns the same structured plan as `shadow6 connect home/nas --json`. `with Shadow6().connect("home/nas") as session:` actually attaches to a process-owned, structured-ready loopback TCP client application proxy. Use `session.send(bytes)` and `session.receive()`; unsupported boundaries raise a capability error. This session is bounded to 300s/16MiB and 30s socket inactivity. S6P1 owns intent, S6AR1 control transport, S6ABI application boundaries; local PID/config/digests stay outside S6P1. See [service connections](../docs/service-connections.md).

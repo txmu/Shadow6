@@ -157,3 +157,7 @@ resource handling. They do not establish interoperability for every native Core
 or certify network anonymity. See [named services](named-services.md),
 [exposure review](privacy-envelope-exposure-audit.md) and
 [the current verification record](review-2026-10-03.md).
+
+## Named service composition
+
+Named Service locks EPE config and binary alongside its S6P1 context and CoreBinding, and supervises all explicitly included Core/EPE/Gate/Guard processes. Native/Gate listeners behind EPE must be private; EPE upstream must match an observed deployment listener. Guard forwarding must feed EPE, and SPA/IP windows do not replace session-level admission. Legal optional stacks and the unchanged v2 cryptographic scope are described in [service connections](service-connections.md).

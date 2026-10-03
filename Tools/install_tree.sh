@@ -98,7 +98,7 @@ marker="$destination/.shadow6-tree"
 if [[ -d "$destination" ]] && [[ -n "$(ls -A "$destination" 2>/dev/null)" ]]; then
     marker_valid=false
     if [[ -f "$marker" && ! -L "$marker" ]] && [[ "$(wc -c < "$marker")" -le 64 ]] &&
-       [[ "$(head -c 64 -- "$marker")" == $'shadow6-installed-tree\n' ]]; then
+       cmp -s -- "$marker" <(printf 'shadow6-installed-tree\n'); then
         marker_valid=true
     fi
     if [[ "$marker_valid" != true ]]; then

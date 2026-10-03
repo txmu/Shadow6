@@ -69,6 +69,17 @@ class Public6Tests(unittest.TestCase):
             "gate_compiled": True, "gate_enabled_by_default": False,
             "utf8": True, "crosed_capabilities": [],
         }
+        # A real feature report includes native application boundaries even at L0.
+        from feature_contract import STREAM_CONNECTION_LIMIT
+        base['application_boundaries'] = [{
+            'kind':'stream', 'mode':'localhost-tcp-proxy', 'roles':['client'],
+            'ordered':True, 'reliable':True, 'full_duplex':True,
+            'backpressure':'tcp-flow-control', 'half_close':True,
+            'local_connection_limit':STREAM_CONNECTION_LIMIT['shadow6-go'],
+            'listener_ownership':'core', 'endpoint_discovery':'stdout-ready-jsonl-v1',
+            'listener_ready':'bound-and-listening', 'shutdown':'close-active-flows',
+            'eof':'propagate-half-close', 'connection_mapping':'one-local-connection-per-native-flow',
+        }]
         full = dict(base, crosed_compiled=True, crosed_max_level=5, app_transport=True,
                     qubes_isolation=True, crosed_capabilities=["observe.version"])
         self.assertTrue(negotiate(offer_from_feature_report(base), offer_from_feature_report(full))["compatible"])

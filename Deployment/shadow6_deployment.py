@@ -14,8 +14,12 @@ from pathlib import Path
 from typing import Any
 try:
     from .core_catalog import default_catalog
+    from .protocol_context import validate_context, check_binding, context_digest
+    from .broker_set import validate_routes
 except ImportError:
     from core_catalog import default_catalog
+    from protocol_context import validate_context, check_binding, context_digest
+    from broker_set import validate_routes
 
 MAX_BYTES = 1024 * 1024
 MAX_NODES = 256
@@ -111,7 +115,7 @@ def validate_manifest(value: dict) -> dict:
     for broker in brokers:
         if not isinstance(broker, dict):
             raise ValueError("invalid broker set")
-        _keys(broker, {"id", "identity", "endpoints", "core", "mode"}, {"id", "identity", "endpoints", "core"}, "broker set")
+        _keys(broker, {"id", "identity", "endpoints", "core", "mode", "route"}, {"id", "identity", "endpoints", "core"}, "broker set")
         bid = _id(broker["id"], "broker set id")
         if bid in broker_ids:
             raise ValueError("duplicate broker set id")
@@ -122,6 +126,11 @@ def validate_manifest(value: dict) -> dict:
         endpoints = broker["endpoints"]
         if not isinstance(endpoints, list) or not 1 <= len(endpoints) <= 16 or not all(isinstance(x, str) and 1 <= len(x) <= 512 for x in endpoints):
             raise ValueError("broker endpoints must contain 1..16 URLs")
+        if "route" in broker:
+            route = broker["route"]
+            validate_routes([route])
+            if route.get("kind") != "broker_set" or route["id"] != bid or [m["endpoint"] for m in route["members"]] != endpoints:
+                raise ValueError("BrokerSet legacy fields differ from canonical S6P1 route")
         if broker.get("mode", "replica") not in ("replica", "standby"):
             raise ValueError("independent Broker authorities require separate topologies")
     nodes = spec["nodes"]
@@ -131,7 +140,7 @@ def validate_manifest(value: dict) -> dict:
     for node in nodes:
         if not isinstance(node, dict):
             raise ValueError("invalid node")
-        _keys(node, {"id", "role", "core", "brokerSet", "platform", "artifact", "identityRef", "labels"}, {"id", "role", "core", "brokerSet", "identityRef"}, "node")
+        _keys(node, {"id", "role", "core", "brokerSet", "platform", "artifact", "identityRef", "labels", "context"}, {"id", "role", "core", "brokerSet", "identityRef"}, "node")
         nid = _id(node["id"], "node id")
         if nid in node_ids:
             raise ValueError("duplicate node id")
@@ -140,6 +149,11 @@ def validate_manifest(value: dict) -> dict:
         except (KeyError, ValueError): raise ValueError("invalid node Core") from None
         if node["role"] not in ROLES or node["brokerSet"] not in broker_ids:
             raise ValueError("invalid node role, Core or brokerSet")
+        if "context" in node:
+            context = validate_context(node["context"])
+            check_binding(context, node["core"], default_catalog())
+            if context["role"] != node["role"] or context["identity"].get("ref") != node["identityRef"]:
+                raise ValueError("deployment realization differs from S6P1 role/identity")
         if not isinstance(node["identityRef"], str) or not _REF.fullmatch(node["identityRef"]):
             raise ValueError("invalid node identityRef")
     services = spec["services"]
@@ -198,9 +212,23 @@ def canonical_manifest(manifest: dict) -> bytes:
     return json.dumps(validate_manifest(manifest), sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False).encode("utf-8")
 
 
+def node_context(manifest, node):
+    """Upgrade legacy Deployment intent to the existing portable S6P1 model."""
+    broker = next(b for b in manifest['spec']['brokerSets'] if b['id'] == node['brokerSet'])
+    route = broker.get('route') or {'kind':'broker_set','id':broker['id'],'policy':'priority',
+        'members':[{'identity':broker['identity'],'endpoint':e,'priority':i} for i,e in enumerate(broker['endpoints'])]}
+    expected = validate_context({'schema':'shadow6.protocol-envelope.v1','version':1,
+        'purpose':'deployment','core':node['core'],'role':node['role'],
+        'identity':{'ref':node['identityRef']},'routes':[route],'components':{},'credentials':{}})
+    context = validate_context(node.get('context',expected))
+    if context['routes'] != expected['routes']:
+        raise ValueError('deployment BrokerSet realization differs from S6P1 routes')
+    return context
+
+
 def manifest_lock(manifest: dict) -> dict:
     canonical = canonical_manifest(manifest)
-    return {"schema": "shadow6.deployment-lock.v1", "manifestDigest": "sha256:" + hashlib.sha256(canonical).hexdigest(), "manifest": json.loads(canonical), "brokerSets": [{"id": b["id"], "identity": b["identity"], "endpoints": b["endpoints"], "core": b["core"], "mode": b.get("mode", "replica")} for b in manifest["spec"]["brokerSets"]], "nodes": [{"id": n["id"], "role": n["role"], "core": n["core"], "brokerSet": n["brokerSet"], "identityRef": n["identityRef"]} for n in manifest["spec"]["nodes"]]}
+    return {"schema": "shadow6.deployment-lock.v2", "contextDigests":{n["id"]:context_digest(node_context(manifest,n)) for n in manifest["spec"]["nodes"]}, "manifestDigest": "sha256:" + hashlib.sha256(canonical).hexdigest(), "manifest": json.loads(canonical), "brokerSets": [{"id": b["id"], "identity": b["identity"], "endpoints": b["endpoints"], "core": b["core"], "mode": b.get("mode", "replica")} for b in manifest["spec"]["brokerSets"]], "nodes": [{"id": n["id"], "role": n["role"], "core": n["core"], "brokerSet": n["brokerSet"], "identityRef": n["identityRef"]} for n in manifest["spec"]["nodes"]]}
 
 
 def plan_manifest(manifest: dict) -> dict:

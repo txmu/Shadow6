@@ -480,7 +480,7 @@ endif
 deployment-test:
 	@PYTHONPATH=Deployment:Control-Center $(PYTHON) -m unittest -v Deployment/test_deployment.py
 	@PYTHONPATH=Deployment:Control-Center $(PYTHON) -m unittest -v Deployment/test_core_explicit.py
-	@PYTHONPATH=Deployment $(PYTHON) -m unittest -v Deployment/test_service_lifecycle.py
+	@$(PYTHON) -m unittest -v Deployment/test_service_lifecycle.py Deployment/test_service_context.py
 	@d=$$(mktemp -d /tmp/shadow6-acceptance.XXXXXX); trap 'rm -rf "$$d"' EXIT; PYTHONPATH=CLI:Deployment $(PYTHON) CLI/shadow6.py acceptance --manifest Deployment/example.deployment.json --source-only --output "$$d" >/dev/null
 
 acceptance: deployment-test
@@ -558,10 +558,12 @@ endif
 	@install -d -m 0755 "$(DESTDIR)$(PREFIX)/share/shadow6/modules"
 	@install -m 0644 CLI/shadow6_vcore.py CLI/vcore_adapters.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/"
 	@install -d -m 0755 "$(DESTDIR)$(PREFIX)/share/shadow6/deployment"
-	@install -m 0644 Deployment/__init__.py Deployment/core_catalog.py Deployment/service_registry.py Deployment/service_storage.py Deployment/service_runtime.py Deployment/shadow6_deployment.py Deployment/shadow6_abi.py Deployment/shadow6_driver.py Deployment/shadow6_acceptance.py "$(DESTDIR)$(PREFIX)/share/shadow6/deployment/"
+	@install -m 0644 Deployment/__init__.py Deployment/protocol_context.py Deployment/connection_plan.py Deployment/broker_set.py Deployment/runtime_observation.py Deployment/service_composition.py Deployment/core_catalog.py Deployment/service_registry.py Deployment/service_storage.py Deployment/service_runtime.py Deployment/shadow6_deployment.py Deployment/shadow6_abi.py Deployment/shadow6_driver.py Deployment/shadow6_acceptance.py "$(DESTDIR)$(PREFIX)/share/shadow6/deployment/"
 	@install -m 0644 Deployment/shadow6_deployment.py Deployment/shadow6_abi.py Deployment/shadow6_driver.py Deployment/shadow6_acceptance.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/"
 	@install -m 0644 Tools/python_runtime.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/"
 	@install -d -m 0755 "$(DESTDIR)$(PYTHON_SITE_PACKAGES)/libshadow6"
+	@install -d -m 0755 "$(DESTDIR)$(PYTHON_SITE_PACKAGES)/Deployment"
+	@install -m 0644 Deployment/__init__.py Deployment/protocol_context.py Deployment/connection_plan.py Deployment/broker_set.py Deployment/runtime_observation.py Deployment/service_composition.py Deployment/core_catalog.py Deployment/service_registry.py Deployment/service_storage.py Deployment/service_runtime.py Deployment/shadow6_deployment.py Deployment/shadow6_abi.py Deployment/shadow6_driver.py Deployment/shadow6_acceptance.py "$(DESTDIR)$(PYTHON_SITE_PACKAGES)/Deployment/"
 	@install -m 0644 libshadow6/__init__.py "$(DESTDIR)$(PYTHON_SITE_PACKAGES)/libshadow6/"
 	@install -m 0644 Network-Adapter/shadow6_network.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/"
 	@install -m 0644 Network-Adapter/shadow6_network.mjs "$(DESTDIR)$(PREFIX)/share/shadow6/modules/"

@@ -56,3 +56,10 @@ class DeploymentTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class GuaranteeTests(unittest.TestCase):
+    def test_absent_guarantee_is_not_synthesized(self):
+        report={'application_boundaries':[{'kind':'message'}]}
+        with self.assertRaises(ValueError):select_boundary(report,{'boundary':'message','reliable':True})
+        from Deployment.shadow6_abi import capability_payload
+        self.assertIsNone(capability_payload(report,boundary='message',core='vendor')['guarantees']['reliable'])

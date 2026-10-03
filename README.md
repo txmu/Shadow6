@@ -392,3 +392,7 @@ gleam-mux udp F node 0.24 77.9% - 7.62 77
 gleam-mux udp R base 1.10 0.0% - 0.00 0
 gleam-mux udp R node 0.29 72.8% - 7.89 75
 ```
+
+## S6P1 命名服务与统一连接
+
+Named Service v2 持有 S6P1 逻辑/准入上下文；CoreBinding 显式锁定本机 Core，Runtime 只记录实际进程、端点和 readiness。`shadow6 connect home/nas` 与 S6P1/invitation 汇入同一 connection-plan resolver；已观测到的本地 client stream 可通过 `--stdio` 或 libshadow6 真正建立会话。多 Broker 使用 S6P1.routes BrokerSet 和显式 Gate 适配，不承诺既有 session 无缝迁移。参见 [完整链路与边界](docs/service-connections.md)。

@@ -63,7 +63,7 @@ and `service run`. `service configure NAME --core CORE --config BINDING` require
 the service to be stopped and invalidates the old lock. Repeating an identical
 `setup` or `run` reuses a living process. A different binding or privacy policy
 requires explicit reconfiguration. Native configuration contents, binary bytes,
-privacy mode and service specification contribute to drift checks.
+S6P1 logical context, privacy mode and peripheral specification contribute to drift checks.
 
 Core catalog listing avoids hashing every installed binary. Binding a selected Core computes its binary digest, then the lock checks that digest again before applying and running.
 
@@ -75,11 +75,12 @@ The supervisor terminates the Core and optional envelope when either process
 exits or the lifetime expires. `stop` signals only the recorded PID after checking
 its Linux boot/process-start identity and acquiring a pidfd.
 
-`running` means the actual process survived startup. The current readiness value
-is `process-alive`; application/native handshakes still require their own E2E
-check. `connect NAME` returns the running service's declared endpoint and Core;
-it does not invent a native client connection. Existing Public6 invitation
-commands (`shadow6 connect --invitation ...`) keep their original behavior.
+Named services embed a strictly validated S6P1 `protocolContext` and keep logical
+role/routes/identity/credentials there. Runtime endpoints come from process-owned
+sockets and validated native ready events. Unsupported transport/application
+readiness stays unknown. `connect NAME` and S6P1/invitation sources share one
+connection-plan resolver; safe observed client streams support `--stdio`.
+See [the full context, topology and lifecycle contract](service-connections.md).
 
 Carp and Idris use the normalized `shadow6 native-config` document described in
 [the native configuration guide](native-tooling.md), translated into their
@@ -87,7 +88,7 @@ fixed positional CLI contracts. Other families receive `--config FILE` using
 their own configuration format. No caller-supplied executable or shell command
 is accepted by Named Service.
 
-Native process output is currently discarded; on startup failure, run the
+Native stdout is consumed with bounded buffers for ready events; other output is discarded; on startup failure, run the
 Core's documented `--check-config` or native foreground command for diagnostics.
 Secret-bearing output is not copied into the registry or telemetry.
 

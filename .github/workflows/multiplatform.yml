@@ -15,6 +15,10 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v6
+        with: {python-version: '3.12'}
+      - name: Install declared S6P1 credential verifier dependency
+        run: python3 -m pip install 'cryptography==50.0.1'
       - name: Install OCaml toolchain and declared envelope dependencies
         run: |
           sudo apt-get update
@@ -31,7 +35,7 @@ jobs:
           dune runtest --root OCaml/privacy_envelope
           S6EPE_BINARY="$PWD/OCaml/privacy_envelope/_build/default/src/main.exe" \
             python3 -m unittest discover -s OCaml/privacy_envelope/test -p 'test_*.py' -v
-          PYTHONPATH=CLI:Deployment:Control-Center python3 -m unittest Deployment.test_core_explicit Control-Center/test_privacy_envelope.py
+          S6EPE_BINARY="$PWD/OCaml/privacy_envelope/_build/default/src/main.exe" python3 -m unittest Deployment.test_service_context Deployment.test_service_lifecycle Deployment.test_core_explicit Control-Center/test_privacy_envelope.py
           test -s docs/privacy-envelope.md
           test -s docs/privacy-envelope-exposure-audit.md
   deployment-abi-acceptance:
@@ -47,10 +51,18 @@ jobs:
       - name: Run one acceptance gate without compiling native Cores
         run: |
           set -euo pipefail
-          .venv/bin/python -m unittest -v Deployment/test_deployment.py
+          .venv/bin/python -m unittest -v \
+            Deployment.test_deployment Deployment.test_core_explicit \
+            Deployment.test_service_context Deployment.test_service_lifecycle \
+            Deployment.test_installed_imports Tools.test_install_tree
+          (cd /tmp && "$GITHUB_WORKSPACE/.venv/bin/python" "$GITHUB_WORKSPACE/CLI/shadow6.py" abi catalog)
           .venv/bin/python CLI/shadow6.py acceptance \
             --manifest Deployment/example.deployment.json \
             --source-only --output acceptance
+      - name: Check portable PPB export and strict Public6 fixtures
+        run: |
+          .venv/bin/python -m unittest discover -s Paranoid-Proxy-Benchmark -p test_paranoid.py -v
+          .venv/bin/python -m unittest discover -s Public6 -p test_public6.py -v
       - name: Compile optional OCaml control verifier when available
         run: make ocaml-control-test PYTHON=.venv/bin/python
       - name: Upload acceptance reports

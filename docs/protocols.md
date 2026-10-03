@@ -97,3 +97,7 @@ never be enabled silently by a build or install step.
 - S6NA/1 is cross-backend compatible between Python and Node.js, not a universal replacement for native Core protocols.
 - Public6 negotiates optional features; it does not make unrelated native protocols wire-compatible.
 - Unknown versions, fields, record kinds, floats in signed portable JSON, invalid lengths and replayed credentials fail closed.
+
+## Portable context and local realization
+
+S6P1 owns portable Core scope, role, identity, routes, components and admission credentials. Named Service embeds that context as a persistent local lifecycle object; CoreBinding/DeploymentLock realize and lock it, and Runtime observes processes and actual endpoints. S6AR1 transports control request/response/events; S6ABI defines application/process/data boundaries. [Unified connect and BrokerSet contracts](service-connections.md) preserve native Core wire formats.
