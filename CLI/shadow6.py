@@ -6,6 +6,8 @@ from pathlib import Path
 _HERE = Path(__file__).resolve().parent
 if (_HERE.parent / "Deployment").is_dir():
     sys.path.insert(0, str(_HERE.parent / "Deployment"))
+if (_HERE.parent / "Control-Center").is_dir():
+    sys.path.insert(0, str(_HERE.parent / "Control-Center"))
 for _candidate in (_HERE, _HERE.parent / "Crosed", _HERE.parent / "share" / "shadow6" / "modules", _HERE.parent / "modules"):
     if (_candidate / "install_layout.py").is_file():
         sys.path.insert(0, str(_candidate))
@@ -150,7 +152,7 @@ def main():
   try: result=handlers[action](name)
   except (ValueError,OSError) as exc: print(json.dumps({"schema":"shadow6.lifecycle-error.v1","stage":action,"error":str(exc)})); return 2
   print(json.dumps(result,sort_keys=True,indent=2)); return 0
- if raw and raw[0] in COMPONENTS and raw[0] not in {"virtual-broker","virtual-client","virtual-agent","deployment","acceptance"}:
+ if raw and raw[0] in COMPONENTS and raw[0] not in {"virtual-broker","virtual-client","virtual-agent","deployment","acceptance","privacy-envelope"}:
   args=raw[1:];return run(raw[0],args[1:] if args[:1]==["--"] else args,events)
  p=argparse.ArgumentParser(prog="shadow6");p.add_argument("--json-events",action="store_true");sub=p.add_subparsers(dest="command",required=True)
  q=sub.add_parser("tools",help="list all fixed tool routes and availability")
@@ -214,7 +216,9 @@ def main():
   x=ss.add_parser(action); x.add_argument("name")
  # init/install are fixed component routes; lifecycle dispatch handles them below.
  q=sub.add_parser("setup",help="create, bind, lock, apply and run a named service")
- q.add_argument("name"); q.add_argument("--core",required=True); q.add_argument("--config",type=Path,required=True); q.add_argument("--json",action="store_true")
+ q.add_argument("name"); q.add_argument("--core",required=True); q.add_argument("--config",type=Path,required=True); q.add_argument("--privacy",choices=("native","envelope"),default="native"); q.add_argument("--json",action="store_true")
+ q=sub.add_parser("privacy-envelope",help="inspect the optional OCaml authenticated external envelope")
+ q.add_argument("action",choices=("status","feature-report","compatibility")); q.add_argument("--core",action="append")
  a=p.parse_args();tail=lambda v:v[1:] if v[:1]==["--"] else v
  if a.command=="tools":
   print(json.dumps({"schema":"shadow6.tools.v1","tools":[{"name":n,"path":str(path),"available":path.is_file()} for n,path in sorted(COMPONENTS.items())]},indent=2));return 0
@@ -256,10 +260,16 @@ def main():
   registry=ServiceRegistry();
   try:
    try: registry.inspect(a.name)
-   except ValueError: registry.create(a.name,core=a.core,config=json.loads(a.config.read_text()),spec={"endpoint":{"mode":"private"}})
+   except ValueError: registry.create(a.name,core=a.core,config=json.loads(a.config.read_text()),privacy=a.privacy,spec={"endpoint":{"mode":"private"}})
    registry.configure(a.name,core=a.core,config=json.loads(a.config.read_text())); registry.lock(a.name); result=registry.run(a.name)
   except (ValueError,OSError,json.JSONDecodeError) as exc:
    print(json.dumps({"schema":"shadow6.lifecycle-error.v1","stage":"setup","error":str(exc)}),file=sys.stderr); return 2
+  print(json.dumps(result,sort_keys=True,indent=2)); return 0
+ if a.command=="privacy-envelope":
+  from privacy_envelope import EnvelopeMetrics, compatibility
+  if a.action=="status": result=EnvelopeMetrics().public()
+  elif a.action=="feature-report": result=json.loads('{"schema":"shadow6.privacy-envelope.v1","implementation":"ocaml","mode":"authenticated-envelope","native_protocol_unchanged":true,"preauth_identity_disclosure":false,"public_core_listener_required":false}')
+  else: result={"schema":"shadow6.privacy-envelope-compatibility.v1","cores":[compatibility(c) for c in (a.core or list(CoreCatalog(ROOT)._items))]}
   print(json.dumps(result,sort_keys=True,indent=2)); return 0
  if a.command=="acceptance":
   deployment_dir = ROOT / "Deployment" if (ROOT / "Deployment").is_dir() else ROOT / "share" / "shadow6" / "deployment"

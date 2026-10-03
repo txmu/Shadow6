@@ -27,11 +27,12 @@ class ServiceRegistry:
         self.path.parent.mkdir(parents=True, exist_ok=True); self._save()
         return {"schema":"shadow6.lifecycle.v1","stage":"init","platform":platform.system(),"architecture":platform.machine(),"statePath":str(self.path)}
 
-    def create(self, name: str, *, core: str | None, config: dict[str, Any] | None, spec: dict[str, Any] | None = None) -> dict[str, Any]:
+    def create(self, name: str, *, core: str | None, config: dict[str, Any] | None, spec: dict[str, Any] | None = None, privacy: str = "native") -> dict[str, Any]:
         if not NAME.fullmatch(name): raise ValueError("service name must be namespace/name")
         if name in self.services: raise ValueError("service already exists")
         binding = None if core is None else self.catalog.binding(core, config or {})
-        item = {"name":name, "spec":spec or {}, "coreBinding":binding, "state":"unresolved" if binding is None else "ready"}
+        if privacy not in {"native", "envelope"}: raise ValueError("privacy must be native or envelope")
+        item = {"name":name, "spec":spec or {}, "privacy":privacy, "coreBinding":binding, "state":"unresolved" if binding is None else "ready"}
         self.services[name] = item; self._save(); return item
 
     def configure(self, name: str, *, core: str, config: dict[str, Any]) -> dict[str, Any]:
@@ -48,7 +49,7 @@ class ServiceRegistry:
         item=self.inspect(name); binding=self.require_binding(name); lock=item.get("deploymentLock") or self.lock(name)
         runtime=item.get("runtime")
         if runtime and runtime.get("state")=="running" and runtime.get("core")==binding["core"] and runtime.get("lockDigest")==lock["digest"]: return item
-        item["runtime"]={"state":"running","core":binding["core"],"coreVersion":binding.get("version"),"lockDigest":lock["digest"],"pid":None,"endpoint":item.get("spec",{}).get("endpoint",{"mode":"private"}),"readyAt":time.time(),"drift":False}; item["state"]="running"; self._save(); return item
+        item["runtime"]={"state":"running","core":binding["core"],"coreVersion":binding.get("version"),"lockDigest":lock["digest"],"pid":None,"endpoint":item.get("spec",{}).get("endpoint",{"mode":"private"}),"privacy":item.get("privacy","native"),"readyAt":time.time(),"drift":False}; item["state"]="running"; self._save(); return item
     def status(self, name): return self.inspect(name)
     def stop(self, name):
         item=self.inspect(name)
