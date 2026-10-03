@@ -5,9 +5,11 @@ let copy fd_in fd_out max_frame metrics =
     if count = 0 then () else (metrics () count; let rec send offset = if offset < count then let n = Unix.write fd_out buffer offset (count-offset) in send (offset+n) in send 0; loop ())
   in loop ()
 
-let datagram socket upstream max_frame on_bytes =
+let datagram socket upstream max_frame key on_bytes =
   let buffer = Bytes.create max_frame in
   let length, peer = Unix.recvfrom socket buffer 0 max_frame [] in
-  if length = max_frame then invalid_arg "oversize datagram";
-  on_bytes length; ignore (Unix.sendto socket buffer 0 length [] upstream);
+  if length <= 32 || length = max_frame then invalid_arg "oversize or unauthenticated datagram";
+  let tag = Bytes.sub_string buffer 0 32 and payload = Bytes.sub buffer 32 (length - 32) in
+  if not (Crypto.equal tag (Crypto.tag ~key payload)) then invalid_arg "unauthenticated datagram";
+  on_bytes (length - 32); ignore (Unix.sendto socket payload 0 (length - 32) [] upstream);
   (length, peer)

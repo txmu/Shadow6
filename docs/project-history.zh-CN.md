@@ -546,4 +546,6 @@ crypto、ACK、重传和 peer compatibility 均未改变。CLI 与 Control Cente
 命名服务现在贯通 install、init、setup、create/configure、lock、apply、run、ready、connect、
 status、restart、stop、remove 生命周期。状态持久化 ServiceSpec、CoreBinding、DeploymentLock、
 实际 Core、endpoint、ready 时间和 drift；重复 setup 会复用健康 runtime，Core 变化必须显式
-重新配置。OCaml/Dune 构建和 datagram 边界测试已纳入 CI。
+重新配置。此前仅有骨架的 envelope 运行时已补齐：stream 使用 nonce/HMAC challenge，
+datagram 使用 HMAC 前缀并保留 datagram 边界；未认证连接不会建立上游 Core 连接。
+OCaml/Dune 构建和 datagram 边界测试已纳入 CI。

@@ -1,4 +1,4 @@
-type t = { listen : Unix.sockaddr; upstream : Unix.sockaddr; mode : string; max_frame : int; handshake_timeout : float; max_preauth : int; max_sessions : int }
+type t = { listen : Unix.sockaddr; upstream : Unix.sockaddr; mode : string; auth_key : string; max_frame : int; handshake_timeout : float; max_preauth : int; max_sessions : int }
 
 let bounded name low high value = if value < low || value > high then invalid_arg name else value
 let endpoint value =
@@ -12,4 +12,5 @@ let load path =
   let get k = try Hashtbl.find values k with Not_found -> invalid_arg ("missing " ^ k) in
   let mode = try Hashtbl.find values "mode" with Not_found -> "stream" in
   if mode <> "stream" && mode <> "datagram" then invalid_arg "mode";
-  { listen = endpoint (get "listen"); upstream = endpoint (get "upstream"); mode; max_frame = bounded "max_frame" 256 1048576 (int_of_string (get "max_frame")); handshake_timeout = float_of_int (bounded "handshake_timeout" 1 30 (int_of_string (get "handshake_timeout"))); max_preauth = bounded "max_preauth" 1 4096 (int_of_string (get "max_preauth")); max_sessions = bounded "max_sessions" 1 1024 (int_of_string (get "max_sessions")) }
+  let auth_key = get "auth_key" in if String.length auth_key < 16 || String.length auth_key > 256 then invalid_arg "auth_key";
+  { listen = endpoint (get "listen"); upstream = endpoint (get "upstream"); mode; auth_key; max_frame = bounded "max_frame" 256 1048576 (int_of_string (get "max_frame")); handshake_timeout = float_of_int (bounded "handshake_timeout" 1 30 (int_of_string (get "handshake_timeout"))); max_preauth = bounded "max_preauth" 1 4096 (int_of_string (get "max_preauth")); max_sessions = bounded "max_sessions" 1 1024 (int_of_string (get "max_sessions")) }
