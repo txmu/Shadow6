@@ -247,7 +247,8 @@ def main():
    config=json.loads(a.config.read_text()) if a.config else None
    result=(registry.create(a.name,core=a.core,config=config) if a.service_action=="create" else registry.configure(a.name,core=a.core,config=config))
   elif a.service_action=="apply": result=registry.apply(a.name)
-  elif a.service_action=="status": result=registry.status(a.name)
+  elif a.service_action=="status":
+   item=registry.status(a.name); result={**item,"privacyTelemetry":item.get("privacyTelemetry",{})}
   elif a.service_action=="restart": result=registry.restart(a.name)
   elif a.service_action=="stop": result=registry.stop(a.name)
   elif a.service_action=="remove": result=registry.remove(a.name)

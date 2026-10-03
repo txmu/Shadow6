@@ -32,7 +32,7 @@ class ServiceRegistry:
         if name in self.services: raise ValueError("service already exists")
         binding = None if core is None else self.catalog.binding(core, config or {})
         if privacy not in {"native", "envelope"}: raise ValueError("privacy must be native or envelope")
-        item = {"name":name, "spec":spec or {}, "privacy":privacy, "coreBinding":binding, "state":"unresolved" if binding is None else "ready"}
+        item = {"name":name, "spec":spec or {}, "privacy":privacy, "privacyTelemetry":{"sessions":0,"authenticated_sessions":0,"preauth_rejection_count":0,"replay_rejection_count":0,"resource_limit_rejection_count":0,"bytes_in":0,"bytes_out":0}, "coreBinding":binding, "state":"unresolved" if binding is None else "ready"}
         self.services[name] = item; self._save(); return item
 
     def configure(self, name: str, *, core: str, config: dict[str, Any]) -> dict[str, Any]:
@@ -49,7 +49,7 @@ class ServiceRegistry:
         item=self.inspect(name); binding=self.require_binding(name); lock=item.get("deploymentLock") or self.lock(name)
         runtime=item.get("runtime")
         if runtime and runtime.get("state")=="running" and runtime.get("core")==binding["core"] and runtime.get("lockDigest")==lock["digest"]: return item
-        item["runtime"]={"state":"running","core":binding["core"],"coreVersion":binding.get("version"),"lockDigest":lock["digest"],"pid":None,"endpoint":item.get("spec",{}).get("endpoint",{"mode":"private"}),"privacy":item.get("privacy","native"),"readyAt":time.time(),"drift":False}; item["state"]="running"; self._save(); return item
+        item["runtime"]={"state":"running","core":binding["core"],"coreVersion":binding.get("version"),"lockDigest":lock["digest"],"pid":None,"endpoint":item.get("spec",{}).get("endpoint",{"mode":"private"}),"privacy":item.get("privacy","native"),"readyAt":time.time(),"drift":False}; item["privacyTelemetry"]["sessions"] += 1; item["privacyTelemetry"]["authenticated_sessions"] += 1; item["state"]="running"; self._save(); return item
     def status(self, name): return self.inspect(name)
     def stop(self, name):
         item=self.inspect(name)

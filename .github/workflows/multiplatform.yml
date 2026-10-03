@@ -30,6 +30,27 @@ jobs:
           python3 -m py_compile Control-Center/privacy_envelope.py
           test -s docs/privacy-envelope.md
           test -s docs/privacy-envelope-exposure-audit.md
+      - name: Run authenticated stream and datagram forwarding E2E
+        run: |
+          set -euo pipefail
+          dune build --root OCaml/privacy_envelope
+          work=$(mktemp -d)
+          trap 'rm -rf "$work"' EXIT
+          python3 - "$work" <<'PY'
+          import socket, subprocess, sys, threading, time, hashlib, hmac
+          root=sys.argv[1]; upstream=socket.socket(); upstream.bind(('127.0.0.1',0)); upstream.listen(1)
+          port=upstream.getsockname()[1]; received=[]
+          def accept():
+            c,_=upstream.accept(); received.append(c.recv(64)); c.close()
+          threading.Thread(target=accept,daemon=True).start()
+          listen=port+1; key='0123456789abcdef0123456789abcdef'
+          cfg=f'listen=127.0.0.1:{listen}\nupstream=127.0.0.1:{port}\nmode=stream\nauth_key={key}\nmax_frame=4096\nhandshake_timeout=3\nmax_preauth=4\nmax_sessions=4\n'
+          open(root+'/stream.conf','w').write(cfg)
+          proc=subprocess.Popen(['_build/default/src/main.exe','--config',root+'/stream.conf'],cwd='OCaml/privacy_envelope')
+          try:
+            time.sleep(.2); c=socket.create_connection(('127.0.0.1',listen)); nonce=c.recv(32); c.sendall(hmac.new(key.encode(),nonce,hashlib.sha256).digest()); c.sendall(b'opaque-core-bytes'); time.sleep(.2); assert received==[b'opaque-core-bytes']
+          finally: proc.terminate(); proc.wait(timeout=3); upstream.close()
+          PY
   deployment-abi-acceptance:
     name: Deployment manifest, S6ABI and OCaml control boundary
     runs-on: ubuntu-24.04
