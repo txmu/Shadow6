@@ -11,10 +11,10 @@ from pathlib import Path
 
 try:
     from .service_storage import private_read, strict_json, atomic_write
-    from .runtime_observation import sockets, private_socket, ready, validate_observation
+    from .runtime_observation import sockets, private_socket, ready, validate_observation, endpoint_matches
 except ImportError:
     from service_storage import private_read, strict_json, atomic_write
-    from runtime_observation import sockets, private_socket, ready, validate_observation
+    from runtime_observation import sockets, private_socket, ready, validate_observation, endpoint_matches
 
 
 _CHILDREN = {}
@@ -106,7 +106,7 @@ def executable_digest(path):
 
 def verify_launch_material(plan):
     required = {'root','core','binary','config','ttl','launchDigests'}
-    allowed = required | {'launchAdapter'} | {c + k for c in ('envelope','gate','guard') for k in ('Config','Binary')}
+    allowed = required | {'launchAdapter','protocolContext','contextDigest','lockDigest'} | {c + k for c in ('envelope','gate','guard') for k in ('Config','Binary')}
     if not isinstance(plan,dict) or not required <= set(plan) or set(plan) - allowed:
         raise ValueError('invalid launch plan fields')
     if not isinstance(plan['core'],str) or re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._:-]{0,63}',plan['core']) is None:
@@ -136,6 +136,34 @@ def verify_launch_material(plan):
         actual = executable_digest(plan[key]) if kind == 'executable' else 'sha256:' + hashlib.sha256(private_read(plan[key])).hexdigest()
         if actual != digest:
             raise ValueError(f'deployment drift before launch: {key}; explicitly reconfigure')
+    verify_launch_admission(plan)
+
+
+def verify_launch_admission(plan):
+    """Recheck original S6P1 admission; expiration is not a startup-only rule."""
+    keys = {'protocolContext','contextDigest','lockDigest'}
+    if not keys & set(plan): return  # Legacy direct supervisor plans.
+    if not keys <= set(plan): raise ValueError('incomplete approved launch context')
+    try:
+        from .protocol_context import context_digest, admit_realization
+        from .topology_contract import check_node_binding
+    except ImportError:
+        from protocol_context import context_digest, admit_realization
+        from topology_contract import check_node_binding
+    context = plan['protocolContext']
+    if context_digest(context) != plan['contextDigest']:
+        raise ValueError('launch intent digest mismatch')
+    if not isinstance(plan['lockDigest'],str) or re.fullmatch(r'sha256:[0-9a-f]{64}',plan['lockDigest']) is None:
+        raise ValueError('invalid approved lock digest')
+    for route in context['routes']:
+        if route.get('kind') == 'broker_set' and 'engine' in route:
+            check_node_binding(route['engine'],plan['core'],role=context['role'] if context['role'] != 'all' else 'client')
+    native = strict_json(private_read(plan['config']))
+    role = native.get('role') if isinstance(native,dict) else None
+    if role is not None and context['role'] not in ('all',role):
+        raise ValueError('launch native role conflicts with S6P1')
+    components = [('s6epe' if c == 'envelope' else c) for c in ('envelope','gate','guard') if c + 'Config' in plan]
+    admit_realization(context,native_role=role,components=components)
 
 
 def start(plan):
@@ -166,6 +194,7 @@ def start(plan):
 
 
 def supervise(plan_path, ack):
+    os.umask(0o077)
     plan = strict_json(private_read(plan_path))
     verify_launch_material(plan)
     root = Path(plan['root'])
@@ -241,9 +270,9 @@ def supervise(plan_path, ack):
                             raise ValueError('envelope invariant: Gate public exposure rejected')
                         for target in (gate_value.get('upstreams') or [gate_value.get('upstream','')]):
                             parsed = endpoint(target)
-                            if not any(e['host']==parsed.hostname and e['port']==parsed.port for e in native):
+                            if not any(endpoint_matches(e,parsed) for e in native):
                                 raise ValueError('Gate upstream is not an observed deployment listener')
-                    if not any(e['host'] == upstream.hostname and e['port'] == upstream.port for e in upstream_sockets):
+                    if not any(endpoint_matches(e,upstream) for e in upstream_sockets):
                         raise ValueError('envelope upstream is not an observed deployment listener')
                 result = {'observedAt':int(time.time()), 'pid':os.getpid(), 'processIdentity':identity(os.getpid()),
                           'processes':[{'pid':p.pid,'processIdentity':identity(p.pid)} for p in children],
@@ -252,7 +281,7 @@ def supervise(plan_path, ack):
                           'readiness':'listener-ready' if public else 'process-alive',
                           'transportReadiness':'unknown','applicationReadiness':'unknown'}
                 candidate = ready_state.get('endpoint',{})
-                if ready_state and any(e['host'] == candidate.get('host') and e['port'] == candidate.get('port') and (candidate.get('boundary') != 'stream' or e['transport'] == 'tcp') for e in native):
+                if ready_state and any(e.get('host') == candidate.get('host') and e.get('port') == candidate.get('port') and (candidate.get('boundary') != 'stream' or e['transport'] == 'tcp') for e in native):
                     result.update(ready_state)
                     result['endpoint']['owner']={'pid':children[0].pid,'processIdentity':identity(children[0].pid)}
                     result['applicationReadiness'] = 'ready'
@@ -276,8 +305,14 @@ def supervise(plan_path, ack):
             verify_launch_material(plan)
             if stopping or any(p.poll() is not None for p in children):
                 raise ValueError('critical process exited during startup')
-            os.write(ack, b'OK'); os.close(ack); ack = -1
+            if ack >= 0:
+                os.write(ack, b'OK'); os.close(ack); ack = -1
+            checked = time.monotonic()
             while not stopping and time.monotonic() < deadline and all(p.poll() is None for p in children):
+                verify_launch_admission(plan)
+                if time.monotonic() - checked >= 5:
+                    verify_launch_material(plan)
+                    checked = time.monotonic()
                 observe_children()
                 time.sleep(.2)
     finally:
@@ -331,7 +366,7 @@ def validate_envelope(fields):
         from .broker_set import private_endpoint, endpoint
     except ImportError:
         from broker_set import private_endpoint, endpoint
-    known={'listen','upstream','mode','role','auth_key','max_frame','handshake_timeout','max_preauth','max_sessions','idle_timeout','session_timeout','metrics_path'}
+    known={'listen','upstream','mode','role','auth_key','max_frame','handshake_timeout','max_preauth','max_sessions','idle_timeout','session_timeout','metrics_path','key_epoch','replay_path','padding_block','jitter_ms','cover_interval','cover_limit','shaping_budget'}
     if set(fields)-known: raise ValueError('unknown envelope configuration field')
     if fields.get('role','server') != 'server': raise ValueError('privacy=envelope requires a server admission boundary')
     if fields.get('mode','stream') not in {'stream','datagram'}: raise ValueError('invalid envelope mode')
@@ -381,7 +416,7 @@ def observe(item, plan_path):
     actual = (all(e in native for e in value['nativeEndpoints'])
               and all(e in public for e in value['endpoints']))
     if target is not None and value['readiness'] == 'application-ready':
-        actual = actual and any(e['host']==target['host'] and e['port']==target['port']
+        actual = actual and any(e.get('host')==target['host'] and e.get('port')==target['port']
                                 and (target['boundary'] != 'stream' or e['transport']=='tcp') for e in native)
     if not actual:
         process['endpoint']=None;process['readiness']='unavailable';return

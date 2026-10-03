@@ -506,6 +506,7 @@ install: build
 .PHONY: install-prebuilt
 install-prebuilt:
 	@install -d "$(DESTDIR)$(PREFIX)/bin"
+	@install -m 0755 Service-Init/shadow6_service_runner.py "$(DESTDIR)$(PREFIX)/bin/shadow6-service-runner"
 	@if test -x OCaml/privacy_envelope/shadow6-privacy-envelope; then install -m 0755 OCaml/privacy_envelope/shadow6-privacy-envelope "$(DESTDIR)$(PREFIX)/bin/shadow6-privacy-envelope"; fi
 	@if test "$(BUILD_CARP)" = 1 && test -x Core-Carp/shadow6-carp; then install -m 0755 Core-Carp/shadow6-carp "$(DESTDIR)$(PREFIX)/bin/shadow6-carp"; fi
 ifeq ($(BUILD_HARE),1)
@@ -558,12 +559,12 @@ endif
 	@install -d -m 0755 "$(DESTDIR)$(PREFIX)/share/shadow6/modules"
 	@install -m 0644 CLI/shadow6_vcore.py CLI/vcore_adapters.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/"
 	@install -d -m 0755 "$(DESTDIR)$(PREFIX)/share/shadow6/deployment"
-	@install -m 0644 Deployment/__init__.py Deployment/protocol_context.py Deployment/connection_plan.py Deployment/broker_set.py Deployment/runtime_observation.py Deployment/service_composition.py Deployment/core_catalog.py Deployment/service_registry.py Deployment/service_storage.py Deployment/service_runtime.py Deployment/shadow6_deployment.py Deployment/shadow6_abi.py Deployment/shadow6_driver.py Deployment/shadow6_acceptance.py "$(DESTDIR)$(PREFIX)/share/shadow6/deployment/"
+	@install -m 0644 Deployment/__init__.py Deployment/protocol_context.py Deployment/topology_contract.py Deployment/native_realization.py Deployment/connection_plan.py Deployment/broker_set.py Deployment/runtime_observation.py Deployment/service_composition.py Deployment/core_catalog.py Deployment/service_registry.py Deployment/service_storage.py Deployment/service_runtime.py Deployment/shadow6_deployment.py Deployment/shadow6_abi.py Deployment/shadow6_driver.py Deployment/shadow6_acceptance.py "$(DESTDIR)$(PREFIX)/share/shadow6/deployment/"
 	@install -m 0644 Deployment/shadow6_deployment.py Deployment/shadow6_abi.py Deployment/shadow6_driver.py Deployment/shadow6_acceptance.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/"
 	@install -m 0644 Tools/python_runtime.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/"
 	@install -d -m 0755 "$(DESTDIR)$(PYTHON_SITE_PACKAGES)/libshadow6"
 	@install -d -m 0755 "$(DESTDIR)$(PYTHON_SITE_PACKAGES)/Deployment"
-	@install -m 0644 Deployment/__init__.py Deployment/protocol_context.py Deployment/connection_plan.py Deployment/broker_set.py Deployment/runtime_observation.py Deployment/service_composition.py Deployment/core_catalog.py Deployment/service_registry.py Deployment/service_storage.py Deployment/service_runtime.py Deployment/shadow6_deployment.py Deployment/shadow6_abi.py Deployment/shadow6_driver.py Deployment/shadow6_acceptance.py "$(DESTDIR)$(PYTHON_SITE_PACKAGES)/Deployment/"
+	@install -m 0644 Deployment/__init__.py Deployment/protocol_context.py Deployment/topology_contract.py Deployment/native_realization.py Deployment/connection_plan.py Deployment/broker_set.py Deployment/runtime_observation.py Deployment/service_composition.py Deployment/core_catalog.py Deployment/service_registry.py Deployment/service_storage.py Deployment/service_runtime.py Deployment/shadow6_deployment.py Deployment/shadow6_abi.py Deployment/shadow6_driver.py Deployment/shadow6_acceptance.py "$(DESTDIR)$(PYTHON_SITE_PACKAGES)/Deployment/"
 	@install -m 0644 libshadow6/__init__.py "$(DESTDIR)$(PYTHON_SITE_PACKAGES)/libshadow6/"
 	@install -m 0644 Network-Adapter/shadow6_network.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/"
 	@install -m 0644 Network-Adapter/shadow6_network.mjs "$(DESTDIR)$(PREFIX)/share/shadow6/modules/"
@@ -617,6 +618,7 @@ ifeq ($(BUILD_DETECTOR),1)
 	@install -m 0755 Detector/watch.py "$(DESTDIR)$(PREFIX)/bin/shadow6-watch"
 	@install -m 0755 Detector/counterstrike.py "$(DESTDIR)$(PREFIX)/bin/shadow6-counterstrike"
 	@install -m 0644 Detector/detector_core.py "$(DESTDIR)$(PREFIX)/bin/detector_core.py"
+	@install -m 0644 Detector/service_compliance.py "$(DESTDIR)$(PREFIX)/bin/service_compliance.py"
 	@install -m 0644 Detector/counterstrike.py "$(DESTDIR)$(PREFIX)/bin/counterstrike.py"
 endif
 ifeq ($(BUILD_PLUGINS),1)

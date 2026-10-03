@@ -21,6 +21,18 @@ candidates, but it must not choose among multiple compatible Core families.
 Every locked deployment and named service carries a CoreBinding and normalized
 configuration digest.
 
+An ordinary topology uses one engine family. Each node CoreBinding must match
+its BrokerSet's Core; Gate failover does not translate native protocols.
+`topology_contract.py` is the shared fleet/node admission authority. The explicit
+legacy Zig Broker control declaration may accompany Go or Rust, with that
+Go/Rust engine still owning the native invocation. It does not permit mixed
+Agent/Client data planes. A BrokerSet S6P1 route may declare `engine` to retain
+this constraint when portable Core scope is `all` or a candidate list.
+
+Auto-Orchestrator remains a topology/fleet controller and operational executor
+(SSH/SFTP, init activation, credentials, MTD, SPA, RPC and dashboard). Deployment
+owns node/service realization; it does not acquire fleet scheduling or SSH.
+
 ```sh
 shadow6 acceptance --manifest Deployment/example.deployment.json --source-only
 ```

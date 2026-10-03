@@ -62,6 +62,12 @@ def check_binding(context, core, catalog):
     if scope != 'all' and scope not in descriptor['roles']:
         raise ValueError('capability unavailable: Core role')
     for route in context['routes']:
+        if route.get('kind') == 'broker_set' and 'engine' in route:
+            try:
+                from .topology_contract import check_node_binding
+            except ImportError:
+                from topology_contract import check_node_binding
+            check_node_binding(route['engine'], core, role=context['role'] if context['role'] != 'all' else 'client')
         boundary = route.get('boundary') if isinstance(route, dict) else None
         if boundary and boundary not in descriptor['applicationBoundaries']:
             raise ValueError('capability unavailable: application boundary')

@@ -95,11 +95,40 @@ def generate_init_script(system: str, name: str, bin_path: str, conf_path: str) 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--system", required=True)
-    parser.add_argument("--name", required=True)
-    parser.add_argument("--binary", required=True)
-    parser.add_argument("--config", required=True)
+    parser.add_argument("--name")
+    parser.add_argument("--binary")
+    parser.add_argument("--config")
+    parser.add_argument("--named-service")
+    parser.add_argument("--registry",type=Path)
+    parser.add_argument("--capabilities",action='store_true')
     args = parser.parse_args()
     try:
+        if args.named_service or args.capabilities:
+            import sys,json,hashlib
+            here=Path(__file__).resolve().parent
+            root=here.parent if here.name not in {'bin','modules'} else (here.parent/'share/shadow6/tree' if here.name=='bin' else here.parent/'tree')
+            sys.path.insert(0,str(root))
+            from Deployment.supervisor_contract import capabilities
+            backend=normalize_init_system(args.system)
+            if args.capabilities:
+                print(json.dumps(capabilities(backend),sort_keys=True));return 0
+            if args.binary or args.config or args.name:
+                raise ValueError('Named Service realization cannot override binary/config/name')
+            from Deployment.service_registry import ServiceRegistry
+            from Deployment.core_catalog import CoreCatalog
+            registry=ServiceRegistry(args.registry,catalog=CoreCatalog(root))
+            plan_path,plan=registry.launch_plan(args.named_service)
+            if here.name == 'bin':
+                runner = here/'shadow6-service-runner'
+            elif here.name == 'modules':
+                runner = here.parents[2]/'bin/shadow6-service-runner'
+            else:
+                runner = root/'Service-Init/shadow6_service_runner.py'
+            name='shadow6-'+hashlib.sha256(args.named_service.encode()).hexdigest()[:24]
+            print(generate_init_script(backend,name,str(runner),str(plan_path)),end='')
+            return 0
+        if not all((args.name,args.binary,args.config)):
+            raise ValueError('legacy service requires --name/--binary/--config')
         print(generate_init_script(args.system, args.name, args.binary, args.config), end="")
     except ValueError as exc:
         parser.error(str(exc))

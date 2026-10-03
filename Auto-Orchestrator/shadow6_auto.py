@@ -72,7 +72,7 @@ from native_config import topology_configs, CORES as DATAGRAM_CORE_NAMES
 SAFE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 VALID_ROLES = {"broker", "agent", "client"}
 CORE_ENGINES = {"shadow6-go", "shadow6-rust", "shadow6-zig", "shadow6-ada", "shadow6-d", "shadow6-nim", "shadow6-cpp", "shadow6-pony", "shadow6-hare", "shadow6-carp", "shadow6-gleam", "shadow6-idris"}
-CORE_TRANSPORTS = {"shadow6-go": "kcp", "shadow6-rust": "quic", "shadow6-zig": "enet", "shadow6-ada": "cell-relay", "shadow6-d": "secure-stream", "shadow6-nim": "webrtc", "shadow6-cpp": "sctp", "shadow6-pony": "udp", "shadow6-hare": "udp", "shadow6-carp": "udp", "shadow6-gleam": "secure-stream", "shadow6-idris": "udp"}
+
 OPTIONAL_COMPONENTS = {"shadow6-guard", "c11relay"}
 ENGINE_BINARIES = {
     "shadow6-nim": (BINARY_DIR / "shadow6-nim" if BINARY_DIR else PROJECT_ROOT / "Core-Nim" / "shadow6-nim"),
@@ -428,21 +428,8 @@ def is_loopback_host(value: str) -> bool:
 
 
 def format_host_port(host: str, port: int) -> str:
-    """Format literal IPv6 and ordinary hosts for socket/URL authority use."""
-    host = str(host).strip()
-    if not host or any(character in host for character in "[]/%\r\n\x00"):
-        raise ValueError(f"invalid host: {host!r}")
-    try:
-        parsed = ipaddress.ip_address(host)
-    except ValueError:
-        labels = host.rstrip(".").split(".")
-        if len(host) > 253 or any(
-            not re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?", label)
-            for label in labels
-        ):
-            raise ValueError(f"invalid host: {host!r}")
-        return f"{host}:{port}"
-    return f"[{parsed}]:{port}" if parsed.version == 6 else f"{parsed}:{port}"
+    from Deployment.native_realization import format_host_port as canonical_host_port
+    return canonical_host_port(host, port)
 
 
 def load_topology_file(yaml_path: str) -> dict:
@@ -477,16 +464,10 @@ def load_topology_file(yaml_path: str) -> dict:
 
 
 def selected_core_engine(node: Dict[str, Any]) -> str:
+    from Deployment.topology_contract import selected_engine
     engines = node.get("engines", [])
     selected = [engine for engine in engines if engine in CORE_ENGINES]
-    # Zig can be declared as a broker bridge alongside a Go or Rust engine.
-    # The non-Zig engine owns this process invocation; the generated broker
-    # configuration retains Zig's explicitly requested bridge capability.
-    if node.get("type") == "broker" and len(selected) == 2 and "shadow6-zig" in selected:
-        selected = [engine for engine in selected if engine != "shadow6-zig"]
-    if len(selected) != 1:
-        raise ValueError(f"node {node.get('name', '<unknown>')} must select exactly one core engine")
-    return selected[0]
+    return 'shadow6-' + selected_engine(selected, node.get('type'))
 
 
 sys.path.insert(0, str(PROJECT_ROOT))
@@ -631,9 +612,9 @@ def validate_topology(topo: Any) -> dict:
             target = node.get("target_agent", agent_names[0] if agent_names else "")
             if set(allowed) - set(agent_names) or target not in agent_names or target not in allowed:
                 raise ValueError(f"client {node['name']} must target an existing allowed agent")
-    core_engines = {selected_core_engine(node) for node in nodes}
-    if len(core_engines) != 1:
-        raise ValueError("all broker, agent, and client nodes must use the same core engine")
+    from Deployment.topology_contract import check_topology
+    contract = check_topology([{'role': n['type'], 'core': selected_core_engine(n)} for n in nodes])
+    core_engines = {'shadow6-' + contract['engine']}
     if next(iter(core_engines)).removeprefix("shadow6-") in DATAGRAM_CORE_NAMES:
         if len(nodes) != 3 or {n['type'] for n in nodes} != {"broker", "agent", "client"}:
             raise ValueError("capability unavailable: native datagram topology adapter requires one broker, agent and client")
@@ -760,83 +741,14 @@ async def execute_mtd_rotation(topo: dict):
             await deploy_to_node(node, config)
     for node in topo.get('nodes', []):
         stealth = topo.get('global', {}).get('stealth_mode', True)
-        config_data = {"role": node['type']}
-        
-        if node['type'] == 'broker':
-            config_data['broker'] = {
-                "listen_addr": format_host_port(node.get('listen_host', '127.0.0.1' if core_engine == 'shadow6-gleam' else '0.0.0.0'), int(node.get("listen_port",4433))),
-                "private_key": broker_priv,
-                "agents": agents_data,
-                "clients": clients_data,
-                "webhook_url": "",
-                "stealth_mode": stealth
-            }
-        elif node['type'] == 'agent':
-            _, priv = agent_keys[node['name']]
-            config_data['agent'] = {
-                "id": node['name'],
-                "broker_addrs": [broker_url],
-                "broker_pubkey": broker_pub,
-                "private_key": priv,
-                "target_port": int(node.get("target_port", 22)),
-                "auto_close_after": int(node.get("auto_close_after", 7200)),
-                "allow_local_discovery": bool(node.get("allow_local_discovery", False)),
-                "client_pubkeys": {name: keys[0] for name, keys in client_keys.items()},
-            }
-            if core_engine == "shadow6-rust":
-                config_data['agent'].update({
-                    "sni": generate_random_sni(),
-                    "alpn": "shadow6/1",
-                    "transport": "quic",
-                })
-            else:
-                config_data['agent']["transport"] = CORE_TRANSPORTS[core_engine]
-        elif node['type'] == 'client':
-            _, priv = client_keys[node['name']]
-            if has_c11_relay:
-                console.print("[yellow]Warning: C11 relay enabled; transport metadata may be visible at the relay.[/yellow]")
-
-            target_agent = node.get("target_agent", agent_names[0] if agent_names else "")
-            if target_agent not in agent_keys:
-                raise ValueError(f"client {node['name']} references unknown agent {target_agent!r}")
-            
-            config_data['client'] = {
-                "id": node['name'],
-                "broker_addrs": [broker_url],
-                "broker_pubkey": broker_pub,
-                "private_key": priv,
-                "target_agent": target_agent,
-                "agent_pubkey": agent_keys[target_agent][0],
-                "on_success": node.get("on_success", ""),
-                "allow_local_discovery": bool(node.get("allow_local_discovery", False)),
-                "transport": CORE_TRANSPORTS[core_engine],
-            }
-
-        if core_engine == "shadow6-go" and node['type'] in {"agent", "client"}:
-            # Go KCP FEC is disabled explicitly; the Go Core validates 0..246.
-            config_data[node['type']]["kcp_parity_shards"] = 0
-
-        if core_engine == "shadow6-ada":
-            domains = {item["name"]: item.get("domain", "default") for item in topo["nodes"]}
-            config_data[node["type"]]["domain"] = domains[node["name"]]
-            if node["type"] == "broker":
-                for entry in agents_data + clients_data:
-                    entry["domain"] = domains[entry["id"]]
-            elif node["type"] == "agent":
-                allowed = {entry["id"] for entry in clients_data if node["name"] in entry["allowed_agents"]}
-                config_data["agent"]["client_pubkeys"] = {name: client_keys[name][0] for name in allowed}
-                config_data["agent"]["client_domains"] = {name: domains[name] for name in allowed}
-            else:
-                config_data["client"]["target_domain"] = domains[target_agent]
-
-        if native_configs:
-            config_data = native_configs[node['name']]
-        elif core_engine == "shadow6-gleam" and node['type'] in {"agent", "client"}:
-            config_data[node['type']]["transport"] = global_cfg.get("gleam_transport", "secure-stream")
-
-        if core_engine == "shadow6-gleam":
-            for other_role in ("broker", "agent", "client"):
-                config_data.setdefault(other_role, None)
+        from Deployment.native_realization import realize_native_node
+        config_data = realize_native_node(topo=topo, node=node, core_engine=core_engine,
+            broker_pub=broker_pub, broker_priv=broker_priv, agents_data=agents_data,
+            clients_data=clients_data, agent_keys=agent_keys, client_keys=client_keys,
+            broker_url=broker_url, native_configs=native_configs,
+            sni=generate_random_sni() if core_engine == 'shadow6-rust' and node['type'] == 'agent' else None)
+        if has_c11_relay and node['type'] == 'client':
+            console.print("[yellow]Warning: C11 relay enabled; transport metadata may be visible at the relay.[/yellow]")
 
         if adapter and node['type'] in {'agent','client'}:
             from Deployment.service_storage import private_read, strict_json

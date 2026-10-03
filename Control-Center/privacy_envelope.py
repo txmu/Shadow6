@@ -35,7 +35,13 @@ def read_metrics(path=None):
     except FileNotFoundError:
         return {"schema":"shadow6.privacy-envelope-status.v1", "observation":"unavailable"}
     counters = set(EnvelopeMetrics().public()) - {'schema'}
-    if not isinstance(value, dict) or set(value) != counters | {'schema', 'observed_at'} or value['schema'] != 'shadow6.privacy-envelope-status.v1':
+    if not isinstance(value,dict):raise ValueError('invalid envelope metrics schema')
+    extra = set()
+    if value.get('schema') == 'shadow6.privacy-envelope-status.v2':
+        counters |= {'records_in','records_out','timeout_count','shaping_overhead_bytes'}
+        extra = {'shaping_enabled'}
+        if type(value.get('shaping_enabled')) is not bool:raise ValueError('invalid envelope shaping flag')
+    if set(value) != counters | {'schema', 'observed_at'} | extra or value.get('schema') not in {'shadow6.privacy-envelope-status.v1','shadow6.privacy-envelope-status.v2'}:
         raise ValueError('invalid envelope metrics schema')
     if any(type(value[k]) is not int or not 0 <= value[k] <= 2**53-1 for k in counters | {'observed_at'}):
         raise ValueError('invalid envelope metric')

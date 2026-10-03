@@ -1,11 +1,12 @@
 (test
  (name test_datagram)
  (modules test_datagram)
- (libraries unix))
-
-(copy_files ../src/config.ml)
-(copy_files ../src/metrics.ml)
+ (libraries s6epe_core))
 (test
  (name test_metrics_clock)
- (modules test_metrics_clock config metrics)
- (libraries unix threads))
+ (modules test_metrics_clock)
+ (libraries s6epe_core))
+(test
+ (name test_crypto)
+ (modules test_crypto)
+ (libraries s6epe_core))

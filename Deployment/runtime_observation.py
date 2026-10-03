@@ -69,11 +69,39 @@ def sockets(pid):
                     found.append({'host':address, 'port':int(port,16), 'transport':'tcp' if table.startswith('tcp') else 'udp', 'observation':'process-owned-socket'})
                     if len(found)>MAX_SOCKETS:raise ValueError('owned listener observation limit exceeded')
         except OSError:continue
-    return sorted(found, key=lambda x:(x['transport'],x['host'],x['port']))
+    try:
+        paths={}
+        with (Path('/proc') / str(pid) / 'net/unix').open() as stream:
+            for line in proc_rows(stream):
+                fields=line.split(maxsplit=7)
+                if len(fields)!=8 or fields[4]!='0001' or fields[3]!='00010000':continue
+                path=fields[7].rstrip('\n')
+                paths.setdefault(path,[]).append(fields[6])
+        for path,owners in paths.items():
+            if any(inode in inodes for inode in owners):
+                if len(owners)!=1:raise ValueError('Unix listener path ownership is ambiguous')
+                found.append({'path':path,'transport':'unix-stream','observation':'process-owned-socket'})
+                if len(found)>MAX_SOCKETS:raise ValueError('owned listener observation limit exceeded')
+    except OSError:pass
+    return sorted(found, key=lambda x:(x['transport'],x.get('host',x.get('path','')),x.get('port',0)))
 
 
 def private_socket(item):
+    if 'path' in item:
+        import stat
+        path=Path(item['path'])
+        if not path.is_absolute() or len(str(path).encode())>103:return False
+        try:
+            parent=path.parent.lstat();entry=path.lstat()
+        except OSError:return False
+        return (stat.S_ISDIR(parent.st_mode) and parent.st_uid==os.geteuid() and not parent.st_mode & 0o077
+                and stat.S_ISSOCK(entry.st_mode) and entry.st_uid==os.geteuid() and not entry.st_mode & 0o077)
     return ipaddress.ip_address(item['host']).is_loopback
+
+
+def endpoint_matches(observed, target):
+    if target.scheme == 'unix':return observed.get('transport')=='unix-stream' and observed.get('path')==target.path
+    return observed.get('host')==target.hostname and observed.get('port')==target.port and observed.get('transport')==('udp' if target.scheme in ('udp','quic') else 'tcp')
 
 
 def ready(line, core):
@@ -120,6 +148,10 @@ def validate_observation(value):
         if not isinstance(endpoints,list) or len(endpoints) > 64:
             raise ValueError('invalid observed endpoint list')
         for item in endpoints:
+            if isinstance(item,dict) and set(item)=={'path','transport','observation'} and item['transport']=='unix-stream' and item['observation']=='process-owned-socket':
+                if not isinstance(item['path'],str) or not Path(item['path']).is_absolute() or len(item['path'].encode())>103:
+                    raise ValueError('invalid observed Unix endpoint')
+                continue
             if not isinstance(item,dict) or set(item) != {'host','port','transport','observation'} or item['transport'] not in ('tcp','udp') or item['observation'] != 'process-owned-socket':
                 raise ValueError('invalid socket observation')
             address(item)

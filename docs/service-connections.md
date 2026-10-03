@@ -8,6 +8,16 @@ an explicit selection. Imported Core descriptors use the same catalog contract.
 `shadow6 core import FILE` persists a private local descriptor index
 so subsequent service and connect commands can use that identity.
 
+Core-Blind does not imply native wire compatibility. Ordinary topology nodes
+and BrokerSet members use the same engine family, validated by Deployment's
+shared `topology_contract` and Auto-Orchestrator. A portable BrokerSet route's
+optional `engine` fixes that family even when the context permits several
+candidate Cores. Legacy Deployment generates this route engine from BrokerSet
+intent and rejects incompatible node bindings. Zig's explicit Go/Rust Broker
+control declaration retains the Go/Rust native invocation; it is not a general
+cross-Core translator. Distinct independent BrokerSets may describe separate
+topologies, each with its own enforced family.
+
 A Named Service is the persistent local lifecycle object. Registry v2 embeds
 `protocolContext` and keeps only TTL and peripheral configuration references in
 `spec`. It has no duplicate role, identity, credentials or routes. CoreBinding
@@ -161,8 +171,8 @@ Legal optional stacks are `S6EPE -> Core`, `Guard -> S6EPE -> Core`,
 
 Guard provides exposure/perimeter policy: SPA/IP windows, rate control,
 AntiProbe, Broker Shield and TLS/Web facade. An unlocked IP window is not a
-session authentication decision. S6EPE supplies minimal cryptographic session
-admission; unauthenticated input never allocates a native upstream. Gate supplies
+session authentication decision. S6EPE supplies authenticated encrypted outer
+sessions; unauthenticated input never allocates a native upstream. Gate supplies
 an authenticated encrypted Shadow6 path with peer identity,
 Ed25519/X25519/HKDF/AES-GCM, relay, MTD and multiple endpoints. Core owns native
 protocol/data-plane semantics. Every layer remains optional where compatible.
@@ -175,9 +185,11 @@ Core/Gate listener; Guard forwarding features must target EPE. All critical
 processes share supervision and terminate if one exits. EPE config/binary drift
 invalidates the lock.
 
-The current EPE v2 stream model authenticates admission; it is **not** a complete
-outer encrypted cover transport, anonymity system, DPI-proof transport or full
-traffic camouflage. Gate's existing encryption is not duplicated in EPE.
+S6EPE v3 encrypts its outer stream/datagram payloads, with explicit bounded
+optional stream padding/jitter/cover records. It does not provide anonymity,
+DPI-proof transport or undetectability. Gate retains routing/relay/BrokerSet
+responsibilities; S6EPE does not translate native wire families. See the
+[versioned wire and replay/shaping limits](privacy-envelope.md).
 
 ## Verification state
 
@@ -223,3 +235,8 @@ Service role requests must match the locked native realization; an opaque or
 unspecified native role returns capability unavailable. Named connection inputs
 are captured and checked under one registry transaction, and failed connection
 to a stopped service leaves it stopped.
+
+The supervisor preserves the original S6P1 in its locked launch plan, rechecks
+admission during runtime and rehashes material at bounded five-second intervals.
+Expired admission or material drift shuts down the critical component group.
+Restart verifies approved material before stopping an existing healthy group.

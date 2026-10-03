@@ -9,6 +9,17 @@ from shadow6_init import INIT_SYSTEMS, generate_init_script, rc_variable
 
 
 class InitTests(unittest.TestCase):
+    def test_supervisor_capabilities_report_observed_availability(self):
+        from Deployment.supervisor_contract import capabilities
+        strong = capabilities("strong")
+        self.assertEqual(strong["backend"], "linux-pidfd")
+        self.assertIn(strong["availability"], {"available", "unavailable"})
+        self.assertEqual(strong["pidReuseProtection"], strong["availability"])
+        native = capabilities("systemd")
+        self.assertIn(native["availability"], {"partial", "unavailable"})
+        self.assertEqual(native["activation"], "explicit-operator-action")
+        self.assertEqual(native["definitionGeneration"], "available")
+
     def test_rc_arguments_survive_both_parsing_layers(self):
         path = '/etc/a b\'"${HOME};$(false)\\config.json'
         for system in ("openrc", "rc.d"):

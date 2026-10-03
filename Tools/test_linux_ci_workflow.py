@@ -9,6 +9,10 @@ instead of silently depending on the runner's ambient PATH ordering.
 import ast
 import os
 import re
+import shutil
+import subprocess
+import tarfile
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -84,6 +88,33 @@ def audit_path_literal(script: str) -> str:
 
 
 class LinuxIdrisRuntimeTests(unittest.TestCase):
+    def test_runtime_restore_preserves_all_tracked_idris_sources(self):
+        restore = step_script("Restore executable modes")
+        # Execute the actual restoration block, before host interpreter setup.
+        block = restore.split("chmod 0755 Core-Gleam/", 1)[0]
+        tracked = subprocess.check_output(
+            ["git", "ls-files", "Core-Idris"], cwd=ROOT, text=True).splitlines()
+        with tempfile.TemporaryDirectory(prefix="shadow6-ci-restore-") as directory:
+            stage = Path(directory)
+            for name in tracked:
+                target = stage / name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(ROOT / name, target)
+            subprocess.run(["git", "init", "-q"], cwd=stage, check=True)
+            subprocess.run(["git", "add", "Core-Idris"], cwd=stage, check=True)
+            artifacts = stage / "runner/idris-artifact"
+            artifacts.mkdir(parents=True)
+            product = stage / "shadow6-idris"
+            product.write_bytes(b"compiled runtime fixture\n")
+            with tarfile.open(artifacts / "core-idris-runtime.tar.gz", "w:gz") as archive:
+                archive.add(product, arcname="shadow6-idris")
+            subprocess.run(["bash", "-eu"], input=block, text=True, cwd=stage,
+                           env=dict(os.environ, RUNNER_TEMP=str(stage / "runner")),
+                           check=True, capture_output=True)
+            for name in tracked:
+                self.assertEqual((stage / name).read_bytes(), (ROOT / name).read_bytes(), name)
+            self.assertEqual((stage / "Core-Idris/shadow6-idris").read_bytes(), product.read_bytes())
+
     def test_distro_chezscheme_never_shadows_the_matched_interpreter(self):
         # apt's chezscheme lands in /usr/bin, which precedes /usr/local/bin in
         # SAFE_EXECUTION_PATH.  Installing it makes the audit resolve an

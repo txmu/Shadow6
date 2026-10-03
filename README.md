@@ -396,3 +396,5 @@ gleam-mux udp R node 0.29 72.8% - 7.89 75
 ## S6P1 命名服务与统一连接
 
 Named Service v2 持有 S6P1 逻辑/准入上下文；CoreBinding 显式锁定本机 Core，Runtime 只记录实际进程、端点和 readiness。`shadow6 connect home/nas` 与 S6P1/invitation 汇入同一 connection-plan resolver；已观测到的本地 client stream 可通过 `--stdio` 或 libshadow6 真正建立会话。多 Broker 使用 S6P1.routes BrokerSet 和显式 Gate 适配，不承诺既有 session 无缝迁移。参见 [完整链路与边界](docs/service-connections.md)。
+
+普通 topology 的 Broker/Agent/Client 必须使用同一 engine family；Core-Blind 不代表 native wire compatibility。Zig Broker 的 Go/Rust 控制兼容声明只是明确例外，不提供任意跨 Core 翻译。Auto-Orchestrator 保留 topology/fleet 与 SSH/MTD 执行能力，Deployment 收口 node/service realization。S6EPE v3 提供 authenticated encrypted outer stream/UDP、可选持久 replay 和有界 stream padding/jitter/cover；它不保证匿名、不可检测或不可封锁。参见 [S6EPE v3](docs/privacy-envelope.md)。

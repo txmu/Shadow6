@@ -1,6 +1,4 @@
 """Loopback E2E of the actual OCaml executable (S6EPE_BINARY is required)."""
-import hashlib
-import hmac
 import json
 import os
 from pathlib import Path
@@ -11,6 +9,8 @@ import tempfile
 import threading
 import time
 import unittest
+
+from wire_v3 import Peer, capsule, open_capsule
 
 KEY = 'test-only-key-0123456789abcdef'
 
@@ -55,7 +55,7 @@ class EnvelopeE2E(unittest.TestCase):
         listen = port(socket.SOCK_DGRAM if mode == 'datagram' else socket.SOCK_STREAM)
         metrics = self.root / (name+'.metrics')
         config = self.root / (name+'.conf')
-        values = dict(mode=mode, role=role, listen=f'127.0.0.1:{listen}', upstream=f'127.0.0.1:{upstream}', auth_key=KEY,
+        values = dict(mode=mode, role=role, listen=f'127.0.0.1:{listen}', upstream=f'127.0.0.1:{upstream}' if isinstance(upstream,int) else upstream, auth_key=KEY,
                       metrics_path=str(metrics), handshake_timeout=1, idle_timeout=2, session_timeout=5, max_frame=4096,
                       max_preauth=2, max_sessions=4)
         values.update(options)
@@ -121,7 +121,7 @@ class EnvelopeE2E(unittest.TestCase):
         held = [socket.create_connection(('127.0.0.1', server), timeout=2) for _ in range(2)]
         try:
             for sock in held:
-                exact(sock, 32)
+                exact(sock, 88)
             with socket.create_connection(('127.0.0.1', server), timeout=2) as rejected:
                 self.assertEqual(rejected.recv(1), b'')
             self.metrics(metrics, 'resource_limit_rejection_count', 1)
@@ -130,15 +130,13 @@ class EnvelopeE2E(unittest.TestCase):
                 sock.close()
         time.sleep(.15)
         with socket.create_connection(('127.0.0.1', server), timeout=2) as sock:
-            nonce = exact(sock, 32)
-            client = secrets.token_bytes(32)
-            proof = hmac.digest(KEY.encode(), b'S6EPE/2 client'+nonce+client, 'sha256')
-            for byte in client+proof:
-                sock.sendall(bytes([byte]))
-            self.assertEqual(exact(sock, 32), hmac.digest(KEY.encode(), b'S6EPE/2 server'+nonce+client, 'sha256'))
-            sock.sendall(b'hello'); self.assertEqual(exact(sock, 5), b'hello')
+            peer = Peer(sock, KEY, fragmented=True)
+            peer.send(b'hello')
+            self.assertEqual(peer.receive(), (b'hello',0))
+            peer.send(b'',tag=3)
+            self.assertEqual(peer.receive(), (b'',3))
         with socket.create_connection(('127.0.0.1', server), timeout=2) as sock:
-            exact(sock, 32); sock.sendall(bytes(64)); self.assertEqual(sock.recv(1), b'')
+            exact(sock, 88); sock.sendall(bytes(120)); self.assertEqual(sock.recv(1), b'')
         self.metrics(metrics, 'preauth_rejection_count', 3)
 
     def test_datagram_roundtrip_boundaries_multiple_peers(self):
@@ -152,15 +150,104 @@ class EnvelopeE2E(unittest.TestCase):
                     self.assertEqual(sock.recv(8192), payload)
         self.metrics(metrics, 'authenticated_sessions', 2)
 
+    def test_stream_ipv6_and_private_unix_handoffs(self):
+        with socket.socket(socket.AF_INET6) as reserve:
+            reserve.bind(('::1',0)); server_port = reserve.getsockname()[1]
+        native_path = self.root/'native.sock'
+        client_path = self.root/'client.sock'
+        native = socket.socket(socket.AF_UNIX); native.bind(str(native_path));native.listen()
+        self.addCleanup(native.close)
+        errors=[]
+        def echo():
+            try:
+                native.settimeout(3)
+                connection,_ = native.accept()
+                with connection:
+                    connection.settimeout(3)
+                    while True:
+                        payload=connection.recv(65536)
+                        if not payload:break
+                        connection.sendall(payload)
+            except OSError as error: errors.append(error)
+        thread=threading.Thread(target=echo);thread.start()
+        self.launch('server','stream','server','unix:'+str(native_path),listen=f'[::1]:{server_port}')
+        self.launch('client','stream','client',f'[::1]:{server_port}',listen='unix:'+str(client_path))
+        with socket.socket(socket.AF_UNIX) as connection:
+            connection.settimeout(3);connection.connect(str(client_path))
+            connection.sendall(b'IPv6 encrypted outer / Unix private native');connection.shutdown(socket.SHUT_WR)
+            self.assertEqual(exact(connection,len(b'IPv6 encrypted outer / Unix private native')),b'IPv6 encrypted outer / Unix private native')
+            self.assertEqual(connection.recv(1),b'')
+        thread.join(4);self.assertFalse(thread.is_alive());self.assertEqual(errors,[])
+
+    def test_v3_feature_report_matches_encrypted_wire(self):
+        report=json.loads(subprocess.check_output([self.binary,'--feature-report'],timeout=2))
+        self.assertEqual(report['wire_version'],3)
+        self.assertTrue(report['payload_encryption'])
+        self.assertEqual(report['cipher'],'XChaCha20-Poly1305')
+        self.assertTrue(report['endpoints']['IPv6'])
+        self.assertTrue(report['endpoints']['Unix_stream'])
+
+    def test_datagram_persistent_replay_survives_actual_process_restart(self):
+        state=self.root/'replay.state'
+        native=self.echo('datagram')
+        server,metrics=self.launch('server','datagram','server',native,replay_path=str(state))
+        packet=capsule(KEY,b'S6EPE/3 request',b'private-payload-marker',int(time.time()))
+        with socket.socket(type=socket.SOCK_DGRAM) as sock:
+            sock.settimeout(.5);address=('127.0.0.1',server)
+            sock.sendto(packet,address)
+            self.assertEqual(open_capsule(KEY,b'S6EPE/3 response',sock.recv(8192)),b'private-payload-marker')
+            persisted=state.read_bytes()
+            self.assertNotIn(KEY.encode(),persisted)
+            self.assertNotIn(b'private-payload-marker',persisted)
+            self.assertLess(len(persisted),400000)
+            self.assertEqual(state.stat().st_mode & 0o777,0o600)
+            self.children[-1].terminate();self.children[-1].wait(timeout=3)
+            metrics.unlink()
+            self.launch('server','datagram','server',native,replay_path=str(state),listen=f'127.0.0.1:{server}')
+            sock.sendto(packet,address)
+            with self.assertRaises(TimeoutError):sock.recv(8192)
+        self.metrics(metrics,'replay_rejection_count',1)
+
+    def test_padding_zero_record_cover_limit_and_budget_fail_closed(self):
+        server,metrics=self.launch('shaped','stream','server',self.echo('stream'),padding_block=128,jitter_ms=2,cover_interval=1,cover_limit=1)
+        with socket.create_connection(('127.0.0.1',server),timeout=3) as sock:
+            peer=Peer(sock,KEY)
+            peer.send(b'')
+            peer.send(b'abc')
+            self.assertEqual(peer.receive(),(b'abc',0))
+            self.assertEqual(peer.last_record_size,128+17)
+            self.assertEqual(peer.receive(),(b'',1))
+            peer.send(b'',tag=3)
+            self.assertEqual(peer.receive(),(b'',3))
+        value=self.metrics(metrics,'shaping_overhead_bytes',120)
+        self.assertTrue(value['shaping_enabled'])
+        self.assertLessEqual(value['shaping_overhead_bytes'],1048576)
+        server,metrics=self.launch('exhausted','stream','server',self.echo('stream'),padding_block=4096,shaping_budget=64)
+        with socket.create_connection(('127.0.0.1',server),timeout=3) as sock:
+            peer=Peer(sock,KEY);peer.send(b'abc')
+            with self.assertRaises(EOFError):peer.receive()
+        self.metrics(metrics,'resource_limit_rejection_count',1)
+
+    def test_authenticated_stream_replay_is_rejected_without_native_replay(self):
+        server,metrics=self.launch('replay','stream','server',self.echo('stream'))
+        with socket.create_connection(('127.0.0.1',server),timeout=3) as sock:
+            peer=Peer(sock,KEY);packet=peer.send(b'unique')
+            self.assertEqual(peer.receive(),(b'unique',0))
+            sock.sendall(packet)
+            with self.assertRaises(EOFError):peer.receive()
+        value=self.metrics(metrics,'preauth_rejection_count',1)
+        self.assertEqual(value['bytes_in'],len(b'unique'))
+
     def test_datagram_replay_invalid_and_oversize_do_not_kill_server(self):
         server, metrics = self.launch('server', 'datagram', 'server', self.echo('datagram'))
-        body = f'{int(time.time()):016x}'.encode()+secrets.token_bytes(32)+b'payload'
-        packet = hmac.digest(KEY.encode(), b'S6EPE/2 request'+body, 'sha256')+body
+        packet = capsule(KEY, b'S6EPE/3 request', b'payload', int(time.time()))
         with socket.socket(type=socket.SOCK_DGRAM) as sock:
             sock.settimeout(.3); address = ('127.0.0.1', server)
             sock.sendto(packet, address); reply = sock.recv(8192)
-            self.assertTrue(reply.endswith(b'payload'))
-            self.assertEqual(reply[:32], hmac.digest(KEY.encode(), b'S6EPE/2 response'+reply[32:], 'sha256'))
+            self.assertFalse(reply.endswith(b'payload'))
+            self.assertEqual(open_capsule(KEY,b'S6EPE/3 response',reply),b'payload')
+            sock.sendto(reply,address)
+            with self.assertRaises(TimeoutError): sock.recv(8192)
             sock.sendto(packet, address)
             with self.assertRaises(TimeoutError): sock.recv(8192)
             sock.sendto(b'bad', address); sock.sendto(bytes(5000), address)

@@ -40,3 +40,13 @@ loopback self-test with:
 
 See `docs/counterstrike.en.md` and `docs/counterstrike.zh-CN.md`, and
 `Detector/counterstrike.policy.example.json` for the operator configuration.
+
+## Named Service compliance
+
+`shadow6-detector --verify-service namespace/name` compares the registered S6P1
+context with a bounded live Core feature report, DeploymentLock material, the
+supervisor's ready claim and Linux process-owned socket observations. It returns
+structured findings and exits nonzero on mismatch or unavailable runtime truth.
+Use `--registry PATH` to select an existing local registry. This check observes
+the current host; it does not treat S6P1, a feature report, a ready event or a
+lock as proof of OS state.

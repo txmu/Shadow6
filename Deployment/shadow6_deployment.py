@@ -16,10 +16,12 @@ try:
     from .core_catalog import default_catalog
     from .protocol_context import validate_context, check_binding, context_digest
     from .broker_set import validate_routes
+    from .topology_contract import check_node_binding
 except ImportError:
     from core_catalog import default_catalog
     from protocol_context import validate_context, check_binding, context_digest
     from broker_set import validate_routes
+    from topology_contract import check_node_binding
 
 MAX_BYTES = 1024 * 1024
 MAX_NODES = 256
@@ -131,6 +133,8 @@ def validate_manifest(value: dict) -> dict:
             validate_routes([route])
             if route.get("kind") != "broker_set" or route["id"] != bid or [m["endpoint"] for m in route["members"]] != endpoints:
                 raise ValueError("BrokerSet legacy fields differ from canonical S6P1 route")
+            if 'engine' in route:
+                check_node_binding(broker['core'], route['engine'], role='broker')
         if broker.get("mode", "replica") not in ("replica", "standby"):
             raise ValueError("independent Broker authorities require separate topologies")
     nodes = spec["nodes"]
@@ -149,6 +153,8 @@ def validate_manifest(value: dict) -> dict:
         except (KeyError, ValueError): raise ValueError("invalid node Core") from None
         if node["role"] not in ROLES or node["brokerSet"] not in broker_ids:
             raise ValueError("invalid node role, Core or brokerSet")
+        broker = next(b for b in brokers if b['id'] == node['brokerSet'])
+        check_node_binding(broker['core'], node['core'], role=node['role'])
         if "context" in node:
             context = validate_context(node["context"])
             check_binding(context, node["core"], default_catalog())
@@ -215,13 +221,18 @@ def canonical_manifest(manifest: dict) -> bytes:
 def node_context(manifest, node):
     """Upgrade legacy Deployment intent to the existing portable S6P1 model."""
     broker = next(b for b in manifest['spec']['brokerSets'] if b['id'] == node['brokerSet'])
+    check_node_binding(broker['core'], node['core'], role=node['role'])
     route = broker.get('route') or {'kind':'broker_set','id':broker['id'],'policy':'priority',
         'members':[{'identity':broker['identity'],'endpoint':e,'priority':i} for i,e in enumerate(broker['endpoints'])]}
+    if 'engine' in route:
+        check_node_binding(broker['core'], route['engine'], role='broker')
+    route = dict(route, engine=broker['core'])
     expected = validate_context({'schema':'shadow6.protocol-envelope.v1','version':1,
         'purpose':'deployment','core':node['core'],'role':node['role'],
         'identity':{'ref':node['identityRef']},'routes':[route],'components':{},'credentials':{}})
     context = validate_context(node.get('context',expected))
-    if context['routes'] != expected['routes']:
+    routes = [dict(r, engine=broker['core']) if r.get('kind') == 'broker_set' and 'engine' not in r else r for r in context['routes']]
+    if routes != expected['routes']:
         raise ValueError('deployment BrokerSet realization differs from S6P1 routes')
     return context
 

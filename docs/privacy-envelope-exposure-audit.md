@@ -2,21 +2,26 @@
 
 | Surface | Classification | Decision |
 | --- | --- | --- |
-| Native Core feature reports | PUBLIC_INTENTIONAL | Unchanged; required for local capability discovery. |
-| Control Center loopback API | LOCAL_ONLY | Remains loopback and bearer authenticated. |
-| S6EPE pre-auth listener | PUBLIC_INTENTIONAL | Generic bounded rejection; no product/Core banner. |
-| S6EPE authenticated transcript | AUTHENTICATED; target ENCRYPTED_AUTHENTICATED remains planned | Direction-separated HMAC proofs; no outer encryption in the current implementation. Native payload confidentiality depends on the selected Core/transport. |
-| Native Core listener when envelope is enabled | LOCAL_ONLY | Deployment policy binds it to private/loopback endpoint. |
-| S6EPE metrics | LOCAL_ONLY | Counters only; no payloads, tokens or native data. |
+| Native Core feature reports | PUBLIC_INTENTIONAL | Native contracts remain unchanged. |
+| Control Center Web API | LOCAL_ONLY | Loopback, bearer authenticated, bounded and read-only by default. |
+| S6EPE v3 hello | PUBLIC_INTENTIONAL | Version magic, ephemeral public key, random nonce and epoch; no Core identity or product credential. Identifiable by DPI. |
+| S6EPE v3 payload records | ENCRYPTED_AUTHENTICATED | Directional XChaCha20-Poly1305 secretstream/AEAD; no plaintext fallback. |
+| Core/Gate behind envelope | LOCAL_ONLY | Private declaration must also match actual process-owned listeners. |
+| Metrics and optional replay state | LOCAL_ONLY | Private bounded aggregate counters / nonce hashes; no payload, PSK or credentials. |
 
-The existing Core magic and native protocol labels were not changed.
+Mutual PSK transcript proofs bind fresh ephemeral X25519 keys. The server opens
+its native upstream only after authentication/key setup. UDP verifies AEAD,
+direction, timestamp, epoch and replay before forwarding; a bounded reply credit
+limits amplification. Optional private replay storage commits before forwarding
+and survives restart. Stream sequence state rejects replay and reordering.
 
-Version 2 sends only random challenge bytes before stream authentication. Server
-upstream creation follows verified client proof. UDP verifies direction, MAC,
-timestamp and nonce before allocating a native upstream; replies are also
-protected. The replay cache is bounded and process-local. Logs and metrics do
-not include the auth key or forwarded bytes. Numeric IPv4/loopback checks are
-implemented; deployment must still verify every other native listening address.
+IPv4, IPv6 and Unix stream endpoints are supported. Unix datagrams are explicitly
+unavailable. Deployment observations must verify the actual owned endpoints,
+component graph and upstreams. Socket ownership does not prove authentication or
+native protocol semantics. Unknown observations remain unavailable.
 
-The encrypted-transcript target is preserved above with its current status.
-See [verification evidence and remaining goals](review-2026-10-03.md).
+Optional padding/jitter/cover records have explicit byte, count and lifetime
+limits and default off. S6EPE does not provide anonymity, undetectability or a
+promise against DPI/blocking; traffic metadata and its v3 hello remain visible.
+Historical 10.3 review documents describe the preceding v2 implementation and
+verification, not the v3 wire introduced in this follow-up.

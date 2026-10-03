@@ -269,20 +269,17 @@ class ServiceRegistry:
         self._save(); return item
 
     @transaction
-    def run(self, name):
-        item = self.apply(name); binding = self.require_binding(name)
-        admit(item['protocolContext'], role=None if item['protocolContext']['role'] == 'all' else item['protocolContext']['role'])
-        if runtime.alive(item.get('runtime', {})):
-            existing = self.status(name)
-            if not existing.get('runtimeObservation') or existing['runtime']['readiness'] == 'unavailable':
-                raise ValueError('runtime health unavailable; explicitly restart')
-            return existing
+    def launch_plan(self, name):
+        """Export the same approved component graph used by strong/native runners."""
+        item = self.apply(name)
+        binding = self.require_binding(name)
         material = self._material(name)
         if digest(encoded(material)) != item['deploymentLock']['digest']:
-            raise ValueError('deployment drift; explicitly reconfigure and apply')
+            raise ValueError('deployment drift while preparing launch plan')
         binary = runtime.executable(self.catalog.inspect(binding['core'])['executable'])
         plan = {'root': str(self.catalog.root), 'core': binding['core'], 'binary': binary,
-                'config': binding['config']['config_path'], 'launchAdapter':self.catalog.inspect(binding['core']).get('launchAdapter','native-config'), 'ttl': item['spec'].get('ttl', 3600)}
+                'config': binding['config']['config_path'], 'launchAdapter':self.catalog.inspect(binding['core']).get('launchAdapter','native-config'), 'ttl': item['spec'].get('ttl', 3600),
+                'protocolContext':item['protocolContext'], 'contextDigest':material['contextDigest'], 'lockDigest':item['deploymentLock']['digest']}
         if item['privacy'] == 'envelope':
             plan.update(envelopeConfig=item['spec']['envelope_config'], envelopeBinary=str(self.catalog.envelope_binary()))
         for component in ('gate', 'guard'):
@@ -296,6 +293,22 @@ class ServiceRegistry:
                 plan['launchDigests'][component + 'Binary'] = material[component + 'BinaryDigest']
         path = self.path.parent / (hashlib.sha256(name.encode()).hexdigest() + '.runtime.json')
         atomic_write(path, encoded(plan))
+        return path, plan
+
+    @transaction
+    def run(self, name):
+        item = self.apply(name); binding = self.require_binding(name)
+        admit(item['protocolContext'], role=None if item['protocolContext']['role'] == 'all' else item['protocolContext']['role'])
+        if runtime.alive(item.get('runtime', {})):
+            existing = self.status(name)
+            if not existing.get('runtimeObservation') or existing['runtime']['readiness'] == 'unavailable':
+                raise ValueError('runtime health unavailable; explicitly restart')
+            return existing
+        material = self._material(name)
+        if digest(encoded(material)) != item['deploymentLock']['digest']:
+            raise ValueError('deployment drift; explicitly reconfigure and apply')
+        binary = runtime.executable(self.catalog.inspect(binding['core'])['executable'])
+        path, plan = self.launch_plan(name)
         process = runtime.start(path)
         item['runtime'] = {**process, 'state': 'running', 'core': binding['core'], 'lockDigest': item['deploymentLock']['digest'],
                            'endpoint': None, 'privacy': item['privacy'],
@@ -322,6 +335,23 @@ class ServiceRegistry:
             from privacy_envelope import read_metrics
         result['privacyTelemetry'] = read_metrics(item['spec'].get('metrics_path'))
         return result
+
+    @transaction
+    def compliance_snapshot(self, name):
+        """Capture lock material and observed status under one registry transaction."""
+        item = self.inspect(name)
+        try:
+            before = self._material(name)
+        except (ValueError, OSError, KeyError):
+            before = None
+        status = self.status(name)
+        try:
+            after = self._material(name)
+        except (ValueError, OSError, KeyError):
+            after = None
+        if before is None or after is None or encoded(before) != encoded(after):
+            before = None
+        return json.loads(json.dumps(item)), status, before
 
     @transaction
     def connection_inputs(self, name):
@@ -351,6 +381,8 @@ class ServiceRegistry:
 
     @transaction
     def restart(self, name):
+        # Verify the approved replacement before terminating a healthy group.
+        self.apply(name)
         self.stop(name); return self.run(name)
 
     @transaction

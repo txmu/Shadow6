@@ -1,4 +1,5 @@
 let () =
+  ignore (Unix.umask 0o077);
   Sys.set_signal Sys.sigpipe Sys.Signal_ignore;
   try
     if Array.length Sys.argv = 2 && Sys.argv.(1) = "--feature-report" then print_endline (Feature_report.report ())

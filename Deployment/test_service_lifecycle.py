@@ -148,16 +148,9 @@ class ServiceLifecycleTests(unittest.TestCase):
         item = self.registry.run('home/nas')
         self.assertEqual(item['privacyTelemetry']['authenticated_sessions'],0)
         with socket.create_connection(('127.0.0.1',port),timeout=2) as sock:
-            nonce = b''
-            while len(nonce)<32: nonce += sock.recv(32-len(nonce))
-            client = secrets.token_bytes(32)
-            sock.sendall(client+hmac.digest(key.encode(),b'S6EPE/2 client'+nonce+client,'sha256'))
-            reply = b''
-            while len(reply)<32:
-                part=sock.recv(32-len(reply))
-                if not part: break
-                reply += part
-            self.assertEqual(reply,hmac.digest(key.encode(),b'S6EPE/2 server'+nonce+client,'sha256'))
+            sys.path.insert(0, str(ROOT/'OCaml/privacy_envelope/test'))
+            from wire_v3 import Peer
+            Peer(sock, key)
         deadline=time.monotonic()+3
         while time.monotonic()<deadline:
             value=self.registry.status('home/nas')['privacyTelemetry']
@@ -180,6 +173,40 @@ class LaunchLockTests(unittest.TestCase):
         return {'root':str(ROOT),'core':'go','binary':str(self.binary),'config':str(self.config),'ttl':30,
                 'launchDigests':{'binary':service_runtime.executable_digest(self.binary),
                                 'config':'sha256:'+hashlib.sha256(self.config.read_bytes()).hexdigest()}}
+
+    def test_running_material_drift_stops_the_actual_component_group(self):
+        first = self.registry.run('home/nas')
+        observed = self.root / ( __import__('hashlib').sha256(b'home/nas').hexdigest() + '.runtime.json.observed')
+        child = strict_json(observed.read_bytes())['processes'][0]
+        atomic_write(self.config,b'{"changed_during_runtime":true}')
+        deadline = time.monotonic() + 8
+        while service_runtime.alive(first['runtime']) and time.monotonic() < deadline:
+            time.sleep(.05)
+        self.assertFalse(service_runtime.alive(first['runtime']))
+        self.assertFalse(service_runtime.alive(child))
+        self.assertEqual(self.registry.status('home/nas')['runtime']['readiness'],'unavailable')
+
+    def test_restart_drift_rejection_preserves_existing_process(self):
+        first = self.registry.run('home/nas')
+        atomic_write(self.config,b'{"replacement_not_approved":true}')
+        with self.assertRaisesRegex(ValueError,'drift'):
+            self.registry.restart('home/nas')
+        self.assertTrue(service_runtime.alive(first['runtime']))
+
+    def test_launch_preserves_s6p1_and_rechecks_expiration(self):
+        from Deployment.protocol_context import minimal_context, context_digest
+        from join_code import issue_passport
+        from unittest.mock import patch
+        now = int(time.time())
+        context = minimal_context('go')
+        context['role'] = 'client'
+        context['credentials']['passport'] = issue_passport('operator', roles=['client'], ttl=2, issuer_key=os.urandom(32))
+        plan = {**self.plan(), 'protocolContext':context, 'contextDigest':context_digest(context), 'lockDigest':'sha256:' + 'a'*64}
+        service_runtime.verify_launch_admission(plan)
+        with patch('join_code.time.time', return_value=now + 10):
+            with self.assertRaises(ValueError): service_runtime.verify_launch_admission(plan)
+        plan['contextDigest'] = 'sha256:' + '0'*64
+        with self.assertRaisesRegex(ValueError,'intent digest'): service_runtime.verify_launch_admission(plan)
 
     def test_locked_launch_rejects_config_change_after_registry_apply(self):
         marker=self.root/'started'

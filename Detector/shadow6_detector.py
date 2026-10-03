@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import collections
+import json
 import logging
 import os
 import socket
@@ -17,6 +18,8 @@ from pathlib import Path
 _ROOT = Path(__file__).resolve().parents[1]
 if str(_ROOT / "Public6") not in sys.path:
     sys.path.insert(0, str(_ROOT / "Public6"))
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
 
 from detector_core import (
     DecoyManager,
@@ -224,6 +227,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--decoy-max-clients", type=int, default=64, help="Maximum concurrent decoy clients")
     parser.add_argument("--protocol-envelope", help="complete S6P1 detector credential")
     parser.add_argument("--protocol-file", type=Path, help="owner-only file containing S6P1")
+    parser.add_argument("--verify-service", metavar="NAMESPACE/NAME",
+                        help="compare a Named Service's S6P1, lock, claims and observed runtime")
+    parser.add_argument("--registry", type=Path, help="Named Service registry for --verify-service")
     return parser
 
 
@@ -248,6 +254,18 @@ def main() -> int:
             resolve_protocol_envelope(token, component="detector")
         except (ValueError, OSError, UnicodeError) as exc:
             parser.error(f"invalid S6P1: {exc}")
+    if args.verify_service:
+        try:
+            from service_compliance import verify_named_service
+            from Deployment.core_catalog import CoreCatalog
+            from Deployment.service_registry import ServiceRegistry
+            catalog = CoreCatalog(_ROOT)
+            registry = ServiceRegistry(args.registry, catalog=catalog)
+            result = verify_named_service(args.verify_service, registry=registry)
+        except (ValueError, OSError, KeyError) as exc:
+            parser.error(f"service compliance unavailable: {exc}")
+        print(json.dumps(result, sort_keys=True, separators=(",", ":")))
+        return 0 if result["compliant"] else 1
     if args.test:
         run_integration_test()
         return 0

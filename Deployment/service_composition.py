@@ -7,6 +7,7 @@ except ImportError:
 
 def same_endpoint(left, right):
     a,b=endpoint(left),endpoint(right)
+    if 'unix' in (a.scheme,b.scheme):return a.scheme == b.scheme and a.path == b.path
     return (a.hostname,a.port)==(b.hostname,b.port)
 
 
