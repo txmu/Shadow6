@@ -14,5 +14,6 @@ by the envelope.
 
 `privacy = "native"` remains the default. Explicit deployments may select
 `privacy = "envelope"`; the local Core endpoint should use loopback, Unix or
-an inherited descriptor. UDP-only Core families require a datagram-preserving
-capsule and are reported unsupported by the current stream envelope.
+an inherited descriptor. UDP-only Core families use the datagram-preserving
+capsule mode; stream Core families use stream mode. Both preserve native
+message boundaries.

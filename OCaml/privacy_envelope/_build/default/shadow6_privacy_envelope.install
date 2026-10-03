@@ -1,0 +1,8 @@
+lib: [
+  "_build/install/default/lib/shadow6_privacy_envelope/META"
+  "_build/install/default/lib/shadow6_privacy_envelope/dune-package"
+  "_build/install/default/lib/shadow6_privacy_envelope/opam"
+]
+bin: [
+  "_build/install/default/bin/shadow6-privacy-envelope"
+]

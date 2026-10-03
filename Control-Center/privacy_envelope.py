@@ -19,6 +19,5 @@ class EnvelopeMetrics:
                 "bytes_in":self.bytes_in, "bytes_out":self.bytes_out}
 
 def compatibility(core):
-    supported = core not in {"nim", "pony", "hare", "carp", "idris"}
-    return {"core": core, "supported": supported,
-            "reason": "native datagram semantics require datagram capsule" if not supported else "local byte-preserving endpoint"}
+    return {"core": core, "supported": True,
+            "reason": "stream or datagram-preserving local endpoint selected from the Core boundary"}

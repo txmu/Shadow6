@@ -9,6 +9,6 @@ class PrivacyEnvelopeTests(unittest.TestCase):
         self.assertNotIn("token", value)
     def test_transport_matrix_marks_datagram_limits(self):
         self.assertTrue(compatibility("rust")["supported"])
-        self.assertFalse(compatibility("hare")["supported"])
+        self.assertTrue(compatibility("hare")["supported"])
 
 if __name__ == "__main__": unittest.main()

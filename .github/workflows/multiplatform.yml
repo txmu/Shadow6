@@ -21,6 +21,7 @@ jobs:
           if command -v dune >/dev/null 2>&1; then
             dune build --root OCaml/privacy_envelope
             dune exec --root OCaml/privacy_envelope shadow6-privacy-envelope -- --feature-report
+            dune runtest --root OCaml/privacy_envelope
           else
             echo 'OCaml/Dune unavailable on runner; source contract remains covered by Python checks'
           fi

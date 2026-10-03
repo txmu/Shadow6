@@ -1,0 +1,16 @@
+# dune exec --root OCaml/privacy_envelope shadow6-privacy-envelope -- --feature-report
+# OCAMLPARAM: unset
+# Shared cache: enabled-except-user-rules
+# Shared cache location: /root/.cache/dune/db
+# Workspace root: /root/Shadow6-upstream/OCaml/privacy_envelope
+# Auto-detected concurrency: 2
+# Dune context:
+#  { name = "default"
+#  ; kind = "default"
+#  ; profile = Dev
+#  ; merlin = true
+#  ; fdo_target_exe = None
+#  ; build_dir = In_build_dir "default"
+#  ; instrument_with = []
+#  }
+$ /usr/bin/ocamlc.opt -config > /tmp/dune_4d696f_output

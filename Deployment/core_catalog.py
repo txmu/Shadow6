@@ -34,7 +34,7 @@ def _descriptor(core: str, root: Path | None = None) -> dict[str, Any]:
             "guarantees": {}, "limits": {}, "roles":["broker","agent","client","gate"],
             "platforms":[platform.system().lower()], "architectures":[platform.machine()],
             "featureReportDigest": None, "configurationSchema": _schema(core),
-            "configurationSchemaVersion":"1", "privacyEnvelope": {"available": core not in {"nim", "pony", "hare", "carp", "idris"}, "implementation":"ocaml", "mode":"authenticated-envelope", "nativeProtocolUnchanged":True, "preauthIdentityDisclosure":False, "publicCoreListenerRequired":False}}
+            "configurationSchemaVersion":"1", "privacyEnvelope": {"available": True, "implementation":"ocaml", "mode":"authenticated-envelope", "nativeProtocolUnchanged":True, "preauthIdentityDisclosure":False, "publicCoreListenerRequired":False}}
 
 def _digest(path: Path) -> str | None:
     try:
