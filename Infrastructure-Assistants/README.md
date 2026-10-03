@@ -31,3 +31,8 @@ short-lived runbook plan:
 .venv/bin/python Infrastructure-Assistants/shadow6_infra.py execute \
   --plan /tmp/audit-plan.json --public-key /secure/runbook.pub.json
 ```
+
+`observe` preserves the full snapshot when one installed Core has an invalid or
+unavailable feature report. That binary carries `features_error` and receives
+no feature claims. This supports diagnosis of mixed or stale installations;
+it does not turn a failed feature contract into a successful audit.

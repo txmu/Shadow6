@@ -1,5 +1,11 @@
 # Shadow6
 
+For install/run, named services, real privacy telemetry and their current platform
+limits, start with [the lifecycle guide](docs/named-services.md). The optional
+[OCaml Privacy Envelope](docs/privacy-envelope.md) has a client/server E2E test
+suite; [the review record](docs/review-2026-10-03.md) separates implemented controls
+from remaining native-artifact and deployment checks.
+
 Welcome. If this is your first visit, begin with the
 [English guide](docs/getting-started.en.md) or [中文入门指南](docs/getting-started.zh-CN.md).
 You can also run `shadow6 guide --lang en` or `shadow6 guide --lang zh` offline.

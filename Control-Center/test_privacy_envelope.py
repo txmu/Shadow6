@@ -11,4 +11,33 @@ class PrivacyEnvelopeTests(unittest.TestCase):
         self.assertTrue(compatibility("rust")["supported"])
         self.assertTrue(compatibility("hare")["supported"])
 
+
+class ObservationTests(unittest.TestCase):
+    def test_missing_metrics_are_not_zero_observations(self):
+        from privacy_envelope import read_metrics
+        self.assertEqual(read_metrics()['observation'], 'not-configured')
+        self.assertNotIn('sessions', read_metrics())
+
+    def test_actual_private_metrics_fresh_stale_and_rejection(self):
+        import json, tempfile, time
+        from pathlib import Path
+        from privacy_envelope import read_metrics
+        with tempfile.TemporaryDirectory(prefix='shadow6-metrics-') as directory:
+            path = Path(directory)/'metrics'
+            self.assertEqual(read_metrics(path)['observation'], 'unavailable')
+            value = {**EnvelopeMetrics(sessions=4).public(), 'observed_at':int(time.time())}
+            path.write_text(json.dumps(value)); path.chmod(0o600)
+            self.assertEqual(read_metrics(path)['sessions'],4)
+            self.assertEqual(read_metrics(path)['observation'],'current')
+            value['observed_at'] -= 60; path.write_text(json.dumps(value))
+            self.assertEqual(read_metrics(path)['observation'],'stale')
+            value['payload']='secret'; path.write_text(json.dumps(value))
+            with self.assertRaises(ValueError): read_metrics(path)
+            path.chmod(0o644)
+            with self.assertRaises(ValueError): read_metrics(path)
+
+    def test_unsupported_or_unknown_core_does_not_claim_compatibility(self):
+        self.assertFalse(compatibility('nim')['supported'])
+        with self.assertRaises(ValueError): compatibility('unknown')
+
 if __name__ == "__main__": unittest.main()

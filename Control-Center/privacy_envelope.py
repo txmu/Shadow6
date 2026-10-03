@@ -1,5 +1,8 @@
-"""Read-only privacy-envelope policy and bounded telemetry."""
+"""Allowlisted local envelope observations; never invent runtime counters."""
 from dataclasses import dataclass
+import time
+from pathlib import Path
+import sys
 
 @dataclass
 class EnvelopeMetrics:
@@ -18,6 +21,32 @@ class EnvelopeMetrics:
                 "resource_limit_rejection_count":self.resource_rejections,
                 "bytes_in":self.bytes_in, "bytes_out":self.bytes_out}
 
+
+def read_metrics(path=None):
+    if path is None:
+        return {"schema":"shadow6.privacy-envelope-status.v1", "observation":"not-configured"}
+    try:
+        from service_storage import private_read, strict_json
+    except ImportError:
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'Deployment'))
+        from service_storage import private_read, strict_json
+    try:
+        value = strict_json(private_read(path, 16384))
+    except FileNotFoundError:
+        return {"schema":"shadow6.privacy-envelope-status.v1", "observation":"unavailable"}
+    counters = set(EnvelopeMetrics().public()) - {'schema'}
+    if not isinstance(value, dict) or set(value) != counters | {'schema', 'observed_at'} or value['schema'] != 'shadow6.privacy-envelope-status.v1':
+        raise ValueError('invalid envelope metrics schema')
+    if any(type(value[k]) is not int or not 0 <= value[k] <= 2**53-1 for k in counters | {'observed_at'}):
+        raise ValueError('invalid envelope metric')
+    age = int(time.time()) - value['observed_at']
+    return {**value, 'observation': 'current' if 0 <= age <= 5 else 'stale'}
+
+
 def compatibility(core):
-    return {"core": core, "supported": True,
-            "reason": "stream or datagram-preserving local endpoint selected from the Core boundary"}
+    datagram = {'go', 'rust', 'zig', 'd', 'pony', 'hare', 'carp', 'idris'}
+    stream = {'gleam', 'ada'}
+    if core not in datagram | stream | {'nim', 'cpp'}:
+        raise ValueError('unknown Core identity')
+    return {'core':core, 'supported':core not in {'nim', 'cpp'}, 'mode':'datagram' if core in datagram else 'stream' if core in stream else None,
+            'reason':'explicit matching local endpoint required; native interoperability and E2E remain Core-specific' if core not in {'nim', 'cpp'} else 'Native WebRTC/SCTP endpoint mapping requires a separate adapter; a TCP application boundary must be selected explicitly'}

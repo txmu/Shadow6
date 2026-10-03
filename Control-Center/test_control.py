@@ -93,7 +93,7 @@ class ControlCenterTests(unittest.TestCase):
         with mock.patch.object(control, "doctor", return_value={"checks": [
                 {"passed": True, "detail": "secret/path/identity", "name": "private-host"},
                 {"passed": False, "detail": "TOKEN"}]}):
-        self.assertEqual(dispatch("privacy.report"), {"profile": "aggregate-only", "checks": 2,
+            self.assertEqual(dispatch("privacy.report"), {"profile": "aggregate-only", "checks": 2,
                 "passed": 1, "failed": 1, "network_anonymity": False})
 
     def test_safe_errors_and_jsonl_default_permissions(self):

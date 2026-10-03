@@ -28,3 +28,12 @@ shadow6 acceptance --manifest Deployment/example.deployment.json --source-only
 CI supplies native feature reports and checksums with `--artifact-dir`. Cases
 that cannot be run are explicitly `unavailable` or `not-run`; they are never
 silently treated as native verification.
+
+## Named service implementation
+
+Use [the install/run lifecycle guide](../docs/named-services.md) for actual local
+process supervision, explicit locks, drift rejection and privacy observations.
+`shadow6_driver.invocation` describes the S6ABI external-driver contract; Named
+Service uses each built-in family's native CLI and does not assume every native
+executable accepts S6ABI driver flags. Application readiness is reported as
+`process-alive` until a native application E2E check establishes a stronger claim.

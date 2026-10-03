@@ -22,6 +22,7 @@ try:
  ROOT=tree_root(__file__)
 except ImportError:
  ROOT=_HERE.parent
+sys.path.insert(0, str(ROOT / "Control-Center"))
 COMPONENTS={"repo":ROOT/"Online-Repository/shadow6_repo.py","portmap":ROOT/"Gate/portmap.py","go":ROOT/"Core-Go/shadow6-go","rust":ROOT/"Core-Rust/shadow6-rust","zig":ROOT/"Core-Zig/shadow6-zig","ada":ROOT/"Core-Ada/shadow6-ada","d":ROOT/"Core-D/shadow6-d","nim":ROOT/"Core-Nim/shadow6-nim","cpp":ROOT/"Core-Cpp/shadow6-cpp","pony":ROOT/"Core-Pony/shadow6-pony","hare":ROOT/"Core-Hare/shadow6-hare","carp":ROOT/"Core-Carp/shadow6-carp","gleam":ROOT/"Core-Gleam/shadow6-gleam","idris":ROOT/"Core-Idris/shadow6-idris","network":ROOT/"Network-Adapter/shadow6_network.py","network-node":ROOT/"Network-Adapter/shadow6_network.mjs","gate":ROOT/"Gate/shadow6-gate","relay":ROOT/"C11Relay/bridge_relay","guard":ROOT/"Guard/shadow6-guard","control":ROOT/"Control-Center/shadow6_control.py","plugins":ROOT/"Plugin-System/shadow6_plugins.py","sign-plugin":ROOT/"Plugin-System/sign_plugin.py","migrate":ROOT/"Migration/shadow6_migrate.py","auto":ROOT/"Auto-Orchestrator/shadow6_auto.py","detector":ROOT/"Detector/shadow6_detector.py","counterstrike":ROOT/"Detector/counterstrike.py","watch":ROOT/"Detector/watch.py","security":ROOT/"Security-Assistants/shadow6_security.py","infra":ROOT/"Infrastructure-Assistants/shadow6_infra.py","slots":ROOT/"Slot-System/shadow6_slots.py","packages":ROOT/"Package-Manager/shadow6_pkg.py","public6":ROOT/"Public6/shadow6_public.py","init":ROOT/"Service-Init/shadow6_init.py"}
 COMPONENTS["virtual-broker"]=ROOT/"Public6/virtual_broker.py"
 COMPONENTS["virtual-client"]=ROOT/"Public6/virtual_peer.py"
@@ -139,16 +140,37 @@ def run_hands(args):
   print(f"error: {error}",file=sys.stderr)
   return 2
 
+def add_service_options(parser):
+ parser.add_argument("--privacy",choices=("native","envelope"),default="native")
+ parser.add_argument("--envelope-config",type=Path)
+ parser.add_argument("--metrics",type=Path)
+ parser.add_argument("--ttl",type=int,default=3600)
+
+def service_spec(args):
+ result={"endpoint":{"mode":"private"},"ttl":args.ttl}
+ if args.envelope_config: result["envelope_config"]=str(args.envelope_config.absolute())
+ if args.metrics: result["metrics_path"]=str(args.metrics.absolute())
+ return result
+
+def load_service_config(path):
+ from service_storage import private_read, strict_json
+ return strict_json(private_read(path))
+
 def main():
  raw=sys.argv[1:]
  events=bool(raw and raw[0]=="--json-events")
  if events:raw=raw[1:]
- if raw and raw[0] in {"install", "init"} and (len(raw) == 1 or raw[1] == "--json"):
-  registry=ServiceRegistry(); result=registry.init() if raw[0]=="init" else {"schema":"shadow6.lifecycle.v1","stage":"install","verified":True,"platform":__import__("platform").system(),"architecture":__import__("platform").machine()}
+ if raw and raw[0] in {"install", "init"} and raw[1:] in ([], ["--json"]):
+  catalog=CoreCatalog(ROOT)
+  if raw[0]=="init": result=ServiceRegistry(catalog=catalog).init()
+  else:
+   checks=[{"core":c["id"],"available":Path(c["executable"]).is_file(),"executable":os.access(c["executable"],os.X_OK)} for c in catalog.list()]
+   result={"schema":"shadow6.lifecycle.v1","stage":"install","operation":"inspect","verified":any(c["available"] and c["executable"] for c in checks),"cores":checks,"hint":"Use shadow6 install --prefix /absolute/path to install existing artifacts without building."}
   print(json.dumps(result,sort_keys=True,indent=2)); return 0
- if raw and raw[0] in {"run","connect","status","restart","stop","remove","apply"} and len(raw) >= 2:
-  registry=ServiceRegistry(); action=raw[0]; name=raw[1]
-  handlers={"run":registry.run,"connect":lambda n:{"service":n,"endpoint":registry.require_binding(n) and registry.status(n).get("runtime",{}).get("endpoint"),"core":registry.status(n).get("runtime",{}).get("core")},"status":registry.status,"restart":registry.restart,"stop":registry.stop,"remove":registry.remove,"apply":registry.apply}
+ if raw and raw[0] in {"run","connect","status","restart","stop","remove","apply","lock"} and len(raw) >= 2 and not raw[1].startswith("-") and (raw[0] != "connect" or __import__("re").fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}/[A-Za-z0-9][A-Za-z0-9._-]{0,63}", raw[1])):
+  if raw[2:] not in ([], ["--json"]): raise ValueError("unexpected service arguments")
+  registry=ServiceRegistry(catalog=CoreCatalog(ROOT)); action=raw[0]; name=raw[1]
+  handlers={"run":registry.run,"connect":registry.connect,"status":registry.status,"restart":registry.restart,"stop":registry.stop,"remove":registry.remove,"apply":registry.apply,"lock":registry.lock}
   try: result=handlers[action](name)
   except (ValueError,OSError) as exc: print(json.dumps({"schema":"shadow6.lifecycle-error.v1","stage":action,"error":str(exc)})); return 2
   print(json.dumps(result,sort_keys=True,indent=2)); return 0
@@ -208,17 +230,22 @@ def main():
  q=sub.add_parser("service",help="manage named explicitly-bound services")
  ss=q.add_subparsers(dest="service_action",required=True); ss.add_parser("list")
  x=ss.add_parser("inspect"); x.add_argument("name")
- x=ss.add_parser("create"); x.add_argument("name"); x.add_argument("--core"); x.add_argument("--config",type=Path)
- x=ss.add_parser("configure"); x.add_argument("name"); x.add_argument("--core",required=True); x.add_argument("--config",type=Path,required=True)
+ x=ss.add_parser("create"); x.add_argument("name"); x.add_argument("--core"); x.add_argument("--config",type=Path); add_service_options(x)
+ x=ss.add_parser("configure"); x.add_argument("name"); x.add_argument("--core",required=True); x.add_argument("--config",type=Path,required=True); add_service_options(x)
  for action in ("run","connect"):
   x=ss.add_parser(action); x.add_argument("name")
- for action in ("apply","status","restart","stop","remove"):
+ for action in ("lock","apply","status","restart","stop","remove"):
   x=ss.add_parser(action); x.add_argument("name")
- # init/install are fixed component routes; lifecycle dispatch handles them below.
+ for parser in ss.choices.values(): parser.add_argument("--json",action="store_true",help="emit JSON (the default)")
+ for action in ("run","status","restart","stop","remove","apply","lock"):
+  q=sub.add_parser(action,help=action+" a named service"); q.add_argument("name"); q.add_argument("--json",action="store_true")
+ # init retains its native init-system routing when arguments are supplied.
+ q=sub.add_parser("install",help="install existing artifacts without compiling")
+ q.add_argument("--prefix",type=Path,required=True); q.add_argument("--destdir",type=Path)
  q=sub.add_parser("setup",help="create, bind, lock, apply and run a named service")
- q.add_argument("name"); q.add_argument("--core",required=True); q.add_argument("--config",type=Path,required=True); q.add_argument("--privacy",choices=("native","envelope"),default="native"); q.add_argument("--json",action="store_true")
+ q.add_argument("name"); q.add_argument("--core",required=True); q.add_argument("--config",type=Path,required=True); add_service_options(q); q.add_argument("--json",action="store_true")
  q=sub.add_parser("privacy-envelope",help="inspect the optional OCaml authenticated external envelope")
- q.add_argument("action",choices=("status","feature-report","compatibility")); q.add_argument("--core",action="append")
+ q.add_argument("action",choices=("status","feature-report","compatibility","run")); q.add_argument("--core",action="append"); q.add_argument("--metrics",type=Path); q.add_argument("--config",type=Path)
  a=p.parse_args();tail=lambda v:v[1:] if v[:1]==["--"] else v
  if a.command=="tools":
   print(json.dumps({"schema":"shadow6.tools.v1","tools":[{"name":n,"path":str(path),"available":path.is_file()} for n,path in sorted(COMPONENTS.items())]},indent=2));return 0
@@ -240,36 +267,53 @@ def main():
   else: result=catalog.import_file(a.descriptor)
   print(json.dumps(result,ensure_ascii=True,sort_keys=True,indent=2)); return 0
  if a.command=="service":
-  registry=ServiceRegistry()
+  registry=ServiceRegistry(catalog=CoreCatalog(ROOT))
   if a.service_action=="list": result={"schema":"shadow6.service-registry.v1","services":registry.list()}
   elif a.service_action=="inspect": result=registry.inspect(a.name)
   elif a.service_action in {"create","configure"}:
-   config=json.loads(a.config.read_text()) if a.config else None
-   result=(registry.create(a.name,core=a.core,config=config) if a.service_action=="create" else registry.configure(a.name,core=a.core,config=config))
+   config=load_service_config(a.config) if a.config else None
+   result=(registry.create(a.name,core=a.core,config=config,privacy=a.privacy,spec=service_spec(a)) if a.service_action=="create" else registry.configure(a.name,core=a.core,config=config,privacy=a.privacy,spec=service_spec(a)))
+  elif a.service_action=="lock": result=registry.lock(a.name)
   elif a.service_action=="apply": result=registry.apply(a.name)
   elif a.service_action=="status":
    item=registry.status(a.name); result={**item,"privacyTelemetry":item.get("privacyTelemetry",{})}
   elif a.service_action=="restart": result=registry.restart(a.name)
   elif a.service_action=="stop": result=registry.stop(a.name)
   elif a.service_action=="remove": result=registry.remove(a.name)
-  else: result=registry.run(a.name) if a.service_action=="run" else {"service":a.name,"coreBinding":registry.require_binding(a.name),"runtime":registry.status(a.name).get("runtime")}
+  else: result=registry.run(a.name) if a.service_action=="run" else registry.connect(a.name)
   print(json.dumps(result,ensure_ascii=True,sort_keys=True,indent=2)); return 0
- if a.command in {"init","install"}:
-  registry=ServiceRegistry(); result=registry.init() if a.command=="init" else {"schema":"shadow6.lifecycle.v1","stage":"install","verified":True,"platform":__import__("platform").system()}
-  print(json.dumps(result,sort_keys=True,indent=2)); return 0
+ if a.command=="install":
+  import re
+  if any(not path.is_absolute() or not re.fullmatch(r"/[A-Za-z0-9_./-]+",str(path)) or ".." in path.parts for path in (a.prefix,a.destdir) if path is not None):
+   raise ValueError("installation paths must be absolute ASCII paths using letters, digits, slash, dot, underscore or hyphen")
+  return subprocess.run(["make","install-prebuilt","PREFIX="+str(a.prefix)]+(["DESTDIR="+str(a.destdir)] if a.destdir else []),cwd=ROOT,check=False).returncode
  if a.command=="setup":
-  registry=ServiceRegistry();
+  registry=ServiceRegistry(catalog=CoreCatalog(ROOT));
   try:
-   try: registry.inspect(a.name)
-   except ValueError: registry.create(a.name,core=a.core,config=json.loads(a.config.read_text()),privacy=a.privacy,spec={"endpoint":{"mode":"private"}})
-   registry.configure(a.name,core=a.core,config=json.loads(a.config.read_text())); registry.lock(a.name); result=registry.run(a.name)
+   config=load_service_config(a.config); spec=service_spec(a)
+   try: existing=registry.inspect(a.name)
+   except ValueError: existing=registry.create(a.name,core=a.core,config=config,privacy=a.privacy,spec=spec)
+   if existing.get("coreBinding") != registry.catalog.binding(a.core,config) or existing["spec"] != spec or existing["privacy"] != a.privacy:
+    raise ValueError("setup differs from existing service; explicitly stop and service configure first")
+   registry.apply(a.name); result=registry.run(a.name)
   except (ValueError,OSError,json.JSONDecodeError) as exc:
    print(json.dumps({"schema":"shadow6.lifecycle-error.v1","stage":"setup","error":str(exc)}),file=sys.stderr); return 2
   print(json.dumps(result,sort_keys=True,indent=2)); return 0
  if a.command=="privacy-envelope":
-  from privacy_envelope import EnvelopeMetrics, compatibility
-  if a.action=="status": result=EnvelopeMetrics().public()
-  elif a.action=="feature-report": result=json.loads('{"schema":"shadow6.privacy-envelope.v1","implementation":"ocaml","mode":"authenticated-envelope","native_protocol_unchanged":true,"preauth_identity_disclosure":false,"public_core_listener_required":false}')
+  from privacy_envelope import read_metrics, compatibility
+  if a.action=="run":
+   if not a.config: raise ValueError("privacy-envelope run requires --config")
+   from service_runtime import executable
+   return subprocess.run([executable(CoreCatalog(ROOT).envelope_binary()),"--config",str(a.config.absolute())],check=False).returncode
+  if a.action=="status": result=read_metrics(a.metrics)
+  elif a.action=="feature-report":
+   path=CoreCatalog(ROOT).envelope_binary()
+   if path.is_file():
+    from service_runtime import executable
+    probe=subprocess.run([executable(path),"--feature-report"],capture_output=True,text=True,timeout=5,check=True)
+    from service_storage import strict_json
+    result={**strict_json(probe.stdout),"available":True}
+   else: result={"schema":"shadow6.privacy-envelope.v1","implementation":"ocaml","available":False,"build":"make privacy-envelope"}
   else: result={"schema":"shadow6.privacy-envelope-compatibility.v1","cores":[compatibility(c) for c in (a.core or list(CoreCatalog(ROOT)._items))]}
   print(json.dumps(result,sort_keys=True,indent=2)); return 0
  if a.command=="acceptance":
@@ -335,4 +379,8 @@ def main():
   result=subprocess.run(["make",stage]+a.args,cwd=ROOT,check=False)
   if result.returncode:return result.returncode
  return 0
-if __name__=="__main__":raise SystemExit(main())
+if __name__=="__main__":
+ try: raise SystemExit(main())
+ except (ValueError, OSError, subprocess.SubprocessError) as exc:
+  print(json.dumps({"schema":"shadow6.lifecycle-error.v1","error":str(exc)}),file=sys.stderr)
+  raise SystemExit(2)

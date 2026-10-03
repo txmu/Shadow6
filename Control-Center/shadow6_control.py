@@ -510,8 +510,9 @@ def dispatch(method: str, raw_params: Any = None) -> Any:
         return {"profile": "aggregate-only", "checks": len(checks), "passed": passed,
                 "failed": len(checks) - passed, "network_anonymity": False}
     if method == "privacy-envelope.status":
-        from privacy_envelope import EnvelopeMetrics
-        return EnvelopeMetrics().public()
+        from privacy_envelope import read_metrics
+        _only(params, set())
+        return read_metrics(os.environ.get("SHADOW6_ENVELOPE_METRICS"))
     if method == "system.status":
         _only(params, {"root"})
         root = _root(params)

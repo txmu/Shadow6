@@ -1,5 +1,10 @@
 # Getting started
 
+To install existing artifacts without rebuilding, use `shadow6 install --prefix
+/home/admin/shadow6-local` (on one line), then follow the [named service lifecycle](named-services.md).
+The [Privacy Envelope guide](privacy-envelope.md) covers both ends, actual local
+telemetry, resource limits and its E2E checks.
+
 Welcome to Shadow6. You do not need to understand every component before your
 first check. Begin with the installed feature report; it is read-only and tells
 you exactly which Core variants are present.

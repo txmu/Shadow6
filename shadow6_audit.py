@@ -262,6 +262,7 @@ def check_plugins(audit: Audit) -> None:
 def check_core_feature_contract(audit: Audit) -> None:
     # Validate each family independently; parity is a Go/Rust requirement,
     # not a requirement to pretend that every transport has identical features.
+    validated = {}
     for core, relative in CORE_PATHS.items():
         for suffix in ("", "-crosed", "-public6"):
             path = ROOT / (relative + suffix)
@@ -289,25 +290,16 @@ def check_core_feature_contract(audit: Audit) -> None:
                 validate_feature_report(report, core)
                 if not suffix and (report["crosed_max_level"] or report["app_transport"] or report["qubes_isolation"]):
                     raise ValueError("default Core must be least privileged")
+                if not suffix:
+                    validated[relative] = report
                 audit.pass_(f"{relative}{suffix}: valid feature contract")
             except (OSError, ValueError, subprocess.TimeoutExpired) as exc:
                 audit.fail(f"{relative}{suffix}: {exc}")
-    reports = []
-    for relative in ("Core-Go/shadow6-go", "Core-Rust/shadow6-rust"):
-        result = run(str(ROOT / relative), "--feature-report")
-        try:
-            report = json.loads(result.stdout)
-        except json.JSONDecodeError:
-            audit.fail(f"{relative}: invalid feature report")
-            return
-        required = {
-            "core", "version", "crosed_compiled", "crosed_max_level", "app_transport",
-            "qubes_isolation", "gate_compiled", "gate_enabled_by_default", "utf8", "crosed_capabilities",
-        }
-        if result.returncode != 0 or set(report) != required:
-            audit.fail(f"{relative}: incomplete feature contract")
-            return
-        reports.append(report)
+    defaults = ("Core-Go/shadow6-go", "Core-Rust/shadow6-rust")
+    if any(relative not in validated for relative in defaults):
+        audit.skip("Go/Rust parity requires both default reports to pass the shared strict contract")
+        return
+    reports = [validated[relative] for relative in defaults]
     comparable = ("version", "crosed_max_level", "app_transport", "qubes_isolation", "gate_compiled", "gate_enabled_by_default", "utf8", "crosed_capabilities")
     if all(reports[0][field] == reports[1][field] for field in comparable):
         audit.pass_("Core-Go and Core-Rust expose the same Crosed/application/isolation contract")

@@ -549,3 +549,17 @@ status、restart、stop、remove 生命周期。状态持久化 ServiceSpec、Co
 重新配置。此前仅有骨架的 envelope 运行时已补齐：stream 使用 nonce/HMAC challenge，
 datagram 使用 HMAC 前缀并保留 datagram 边界；未认证连接不会建立上游 Core 连接。
 OCaml/Dune 构建和 datagram 边界测试已纳入 CI。
+
+
+### 2026-10-03 后续落实与验证边界
+
+上述生命周期与隐私目标保留。本轮把注册表状态模拟替换为 Linux 实际进程监管，
+增加绑定内容漂移检查、pidfd 停止、TTL、私有原子状态文件，并恢复 Public6 connect
+路由。重复同配置 setup/run 复用进程；配置变更要求显式停止和重新配置。
+`ready` 目前准确报告为 `process-alive`，跨 Core 原生握手就绪和动态 endpoint 发现
+仍是后续需要完成的部分，不把进程存在等同于 E2E 成功。
+
+EPE 的新双端协议为 version 2：密码学随机 nonce、相互 HMAC 握手、双向流和 UDP、
+方向绑定、防重放、会话资源限制、真实私有计数与本地 E2E。加密外层传输、IPv6/Unix
+端点和 WebRTC/SCTP 专用适配仍保留为待落实目标；当前外层本身不声称提供加密。
+详细完成项、测试数与既有二进制审计限制见[本轮记录](review-2026-10-03.md)。

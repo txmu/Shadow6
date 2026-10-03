@@ -71,3 +71,14 @@ control of the host account can read what that account can read.
 Scope: Control Center and unified CLI. This is a targeted hardening review,
 not a penetration test of deployed hosts or a guarantee of anonymity.
 范围为 Control Center 与统一 CLI；不代表对部署主机进行过渗透测试或保证匿名。
+
+## Runtime envelope observations / 外层运行时观测
+
+`privacy-envelope.status` reads the operator-configured
+`SHADOW6_ENVELOPE_METRICS` file. It accepts no path from RPC callers. The CLI
+uses `shadow6 privacy-envelope status --metrics FILE`. Missing configuration,
+missing files and old observations have explicit states; these never turn into
+fabricated zero counters. Files are private and strictly parsed with an allowlist.
+See [the lifecycle guide](named-services.md) and [the envelope guide](privacy-envelope.md).
+Envelope observations include an integer sample time and are local diagnostics;
+`privacy.report` remains the timestamp-free sharing surface.

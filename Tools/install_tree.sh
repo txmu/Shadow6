@@ -38,6 +38,7 @@ esac
 # the Core binaries and the Idris runtime directory, are intentionally kept.
 excludes=(
     "$project_name/.git"
+    "$project_name/OCaml/privacy_envelope/_build"
     "$project_name/.venv"
     "$project_name/.venv-ft"
     "$project_name/.tools"
@@ -89,9 +90,18 @@ tar_arguments+=(--exclude='*/.tmp' --exclude='*/__pycache__' --exclude='*/erl_cr
 # Replacing the tree deletes the destination's previous contents, so refuse a
 # directory that is neither empty nor recognisably a Shadow6 tree. Without this
 # guard a mistyped prefix such as /home or /usr/local would be cleared.
+if [[ -L "$destination" ]]; then
+    echo "refusing to replace a symlink destination" >&2
+    exit 2
+fi
 marker="$destination/.shadow6-tree"
 if [[ -d "$destination" ]] && [[ -n "$(ls -A "$destination" 2>/dev/null)" ]]; then
-    if [[ ! -f "$destination/Makefile" && ! -f "$destination/.shadow6-tree" ]]; then
+    marker_valid=false
+    if [[ -f "$marker" && ! -L "$marker" ]] && [[ "$(wc -c < "$marker")" -le 64 ]] &&
+       [[ "$(head -c 64 -- "$marker")" == $'shadow6-installed-tree\n' ]]; then
+        marker_valid=true
+    fi
+    if [[ "$marker_valid" != true ]]; then
         echo "refusing to replace $destination: it is not an installed Shadow6 tree" >&2
         echo "remove it explicitly if that is really intended" >&2
         exit 2

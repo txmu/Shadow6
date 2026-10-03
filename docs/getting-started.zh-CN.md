@@ -1,5 +1,10 @@
 # 入门指南
 
+已有编译制品可用 `shadow6 install --prefix /home/admin/shadow6-local` 安装而不重编译；
+请换成你有权限写入的 ASCII 绝对路径。
+然后按[命名服务指南](named-services.md)执行 `init`、`setup`、`status`、`stop`。
+[Privacy Envelope 指南](privacy-envelope.md)说明双端配置、真实 telemetry 和 E2E 验证。
+
 欢迎来到 Shadow6。第一次使用时，不必一口气弄懂所有组件。先运行功能报告：
 它只读、不会修改系统，还会如实告诉你当前有哪些 Core 和 Gate 功能。
 

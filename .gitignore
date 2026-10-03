@@ -55,3 +55,6 @@ forged_key.pem
 test_dummy_*
 Shadow6.tar.gz
 Shadow6.zip
+
+OCaml/privacy_envelope/_build/
+OCaml/privacy_envelope/shadow6-privacy-envelope

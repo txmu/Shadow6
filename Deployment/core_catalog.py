@@ -28,17 +28,22 @@ def _descriptor(core: str, root: Path | None = None) -> dict[str, Any]:
     path = root / f"Core-{core.title() if core != 'cpp' else 'Cpp'}" / f"shadow6-{core}"
     return {"schema": DESCRIPTOR_SCHEMA, "id": core, "displayName": f"Shadow6 {core.title()} Core",
             "implementation": {"name": core, "version": "unknown", "language": core},
-            "executable": str(path), "binaryDigest": _digest(path), "publisher": "Shadow6",
+            "executable": str(path), "binaryDigest": None, "publisher": "Shadow6",
             "source": "builtin", "trust": {"status":"builtin"}, "protocolFamily": "core-native",
             "applicationBoundaries": ["stream", "message", "credited"],
             "guarantees": {}, "limits": {}, "roles":["broker","agent","client","gate"],
             "platforms":[platform.system().lower()], "architectures":[platform.machine()],
             "featureReportDigest": None, "configurationSchema": _schema(core),
-            "configurationSchemaVersion":"1", "privacyEnvelope": {"available": True, "implementation":"ocaml", "mode":"authenticated-envelope", "nativeProtocolUnchanged":True, "preauthIdentityDisclosure":False, "publicCoreListenerRequired":False}}
+            "configurationSchemaVersion":"1", "privacyEnvelope": {"available": (root / "OCaml/privacy_envelope/shadow6-privacy-envelope").is_file(), "implementation":"ocaml", "mode":"authenticated-envelope", "nativeProtocolUnchanged":True, "preauthIdentityDisclosure":False, "publicCoreListenerRequired":False}}
 
 def _digest(path: Path) -> str | None:
     try:
-        if path.is_file(): return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+        if path.is_file():
+            if path.stat().st_size > 536870912: return None
+            value = hashlib.sha256()
+            with path.open("rb") as source:
+                for chunk in iter(lambda: source.read(65536), b""): value.update(chunk)
+            return "sha256:" + value.hexdigest()
     except OSError: pass
     return None
 
@@ -61,12 +66,24 @@ def validate_config(descriptor: dict[str, Any], config: dict[str, Any]) -> dict[
     if set(config) - known: raise ValueError("unknown Core configuration field")
     for field in fields:
         if field["required"] and field["id"] not in config: raise ValueError(f"missing Core configuration field: {field['id']}")
-    return {k: config[k] for k in sorted(config)}
+    path = config.get("config_path")
+    if not isinstance(path, str) or not path or len(path.encode()) > 4096 or "\0" in path:
+        raise ValueError("config_path requires a bounded nonempty path")
+    return {"config_path": str(Path(path).expanduser().absolute())}
 
 class CoreCatalog:
     def __init__(self, root: Path | None = None):
-        self.root = root or Path(__file__).resolve().parents[1]
+        if root is None:
+            try:
+                from install_layout import tree_root
+                root = tree_root(__file__)
+            except ImportError:
+                root = Path(__file__).resolve().parents[1]
+        self.root = Path(root)
         self._items = {c: _descriptor(c, self.root) for c in CORE_IDS}
+
+    def envelope_binary(self):
+        return self.root / "OCaml/privacy_envelope/shadow6-privacy-envelope"
 
     def register(self, descriptor: dict[str, Any]) -> dict[str, Any]:
         item = validate_descriptor(descriptor)
@@ -96,7 +113,7 @@ class CoreCatalog:
     def binding(self, core: str, config: dict[str, Any], version: str | None = None) -> dict[str, Any]:
         descriptor = self.inspect(core); normalized = validate_config(descriptor, config)
         payload = {"core":core, "version":version or descriptor["implementation"]["version"],
-                   "binaryDigest":descriptor.get("binaryDigest"), "featureReportDigest":descriptor.get("featureReportDigest"),
+                   "binaryDigest":_digest(Path(descriptor["executable"])), "featureReportDigest":descriptor.get("featureReportDigest"),
                    "configSchemaVersion":descriptor["configurationSchemaVersion"], "config":normalized}
         payload["configDigest"] = "sha256:" + hashlib.sha256(json.dumps(normalized,sort_keys=True,separators=(",",":")).encode()).hexdigest()
         return payload

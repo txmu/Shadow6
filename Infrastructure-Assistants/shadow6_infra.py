@@ -98,7 +98,10 @@ def observe(root: Path) -> dict[str, Any]:
                     if metadata.st_mode & 0o022:
                         item["features_error"] = "unsafe binary permissions; feature execution refused"
                     else:
-                        item["features"] = feature_report(path, root)
+                        try:
+                            item["features"] = feature_report(path, root)
+                        except (SecurityError, ValueError, OSError, subprocess.TimeoutExpired):
+                            item["features_error"] = "invalid or unavailable feature contract; no capability granted"
                 binaries.append(item)
                 all_binaries.append(path)
         components[name] = {

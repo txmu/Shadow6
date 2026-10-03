@@ -67,6 +67,7 @@ COMPONENTS = {
     "guard": {"source": "Guard/main.go", "binaries": ["Guard/shadow6-guard"]},
     "relay": {"source": "C11Relay/c11relay.c", "binaries": ["C11Relay/bridge_relay"]},
     "gate": {"source": "Gate/main.go", "binaries": ["Gate/shadow6-gate"]},
+    "privacy-envelope": {"source": "OCaml/privacy_envelope/src/main.ml", "binaries": ["OCaml/privacy_envelope/shadow6-privacy-envelope"]},
     "orchestrator": {"source": "Auto-Orchestrator/shadow6_auto.py", "binaries": []},
     "detector": {"source": "Detector/detector_core.py", "binaries": []},
     "plugins": {"source": "Plugin-System/shadow6_plugins.py", "binaries": []},

@@ -1,3 +1,4 @@
+.DEFAULT_GOAL := all
 -include config.mk
 
 BUILD_GO ?= 1
@@ -39,8 +40,15 @@ PYTHON_SITE_PACKAGES ?= $(shell $(PYTHON) -c 'import sysconfig; print(sysconfig.
 
 .PHONY: all build benchmark performance-matrix benchmark-test network-adapter-test node-ipc-test network-adapter-benchmark privacy-envelope-test core-go core-rust core-gleam test-gleam core-cpp core-hare test-hare core-carp test-carp core-pony test-pony pony-crosed-variant gate migration i18n crosed-variants public6 public6-variants public6-contract relay guard service-init auto detector plugins package-manager easybuild crosed app-layer extension-system assistants slots control-center android-preflight android-cores android-apk integration-test deployment-test ocaml-control-test acceptance test check audit package install install-tree clean distclean
 
-privacy-envelope-test:
-	@if command -v dune >/dev/null 2>&1; then cd OCaml/privacy_envelope && dune build && dune exec shadow6-privacy-envelope -- --feature-report; else echo 'OCaml/Dune unavailable; privacy envelope build unavailable'; fi
+.PHONY: privacy-envelope
+privacy-envelope:
+	@command -v dune >/dev/null 2>&1 || { echo 'OCaml/Dune required for the explicitly selected envelope target' >&2; exit 1; }
+	@dune build --root OCaml/privacy_envelope
+	@install -m 0755 OCaml/privacy_envelope/_build/default/src/main.exe OCaml/privacy_envelope/shadow6-privacy-envelope
+
+privacy-envelope-test: privacy-envelope
+	@dune runtest --root OCaml/privacy_envelope
+	@S6EPE_BINARY="$(CURDIR)/OCaml/privacy_envelope/shadow6-privacy-envelope" $(PYTHON) -m unittest discover -s OCaml/privacy_envelope/test -p 'test_*.py' -v
 
 all: build
 
@@ -493,7 +501,12 @@ package:
 	@bash Tools/package_release.sh
 
 install: build
+	@$(MAKE) install-prebuilt
+
+.PHONY: install-prebuilt
+install-prebuilt:
 	@install -d "$(DESTDIR)$(PREFIX)/bin"
+	@if test -x OCaml/privacy_envelope/shadow6-privacy-envelope; then install -m 0755 OCaml/privacy_envelope/shadow6-privacy-envelope "$(DESTDIR)$(PREFIX)/bin/shadow6-privacy-envelope"; fi
 	@if test "$(BUILD_CARP)" = 1 && test -x Core-Carp/shadow6-carp; then install -m 0755 Core-Carp/shadow6-carp "$(DESTDIR)$(PREFIX)/bin/shadow6-carp"; fi
 ifeq ($(BUILD_HARE),1)
 	@install -m 0755 Core-Hare/shadow6-hare "$(DESTDIR)$(PREFIX)/bin/shadow6-hare"
@@ -545,7 +558,7 @@ endif
 	@install -d -m 0755 "$(DESTDIR)$(PREFIX)/share/shadow6/modules"
 	@install -m 0644 CLI/shadow6_vcore.py CLI/vcore_adapters.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/"
 	@install -d -m 0755 "$(DESTDIR)$(PREFIX)/share/shadow6/deployment"
-	@install -m 0644 Deployment/__init__.py Deployment/core_catalog.py Deployment/service_registry.py Deployment/shadow6_deployment.py Deployment/shadow6_abi.py Deployment/shadow6_driver.py Deployment/shadow6_acceptance.py "$(DESTDIR)$(PREFIX)/share/shadow6/deployment/"
+	@install -m 0644 Deployment/__init__.py Deployment/core_catalog.py Deployment/service_registry.py Deployment/service_storage.py Deployment/service_runtime.py Deployment/shadow6_deployment.py Deployment/shadow6_abi.py Deployment/shadow6_driver.py Deployment/shadow6_acceptance.py "$(DESTDIR)$(PREFIX)/share/shadow6/deployment/"
 	@install -m 0644 Deployment/shadow6_deployment.py Deployment/shadow6_abi.py Deployment/shadow6_driver.py Deployment/shadow6_acceptance.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/"
 	@install -m 0644 Tools/python_runtime.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/"
 	@install -d -m 0755 "$(DESTDIR)$(PYTHON_SITE_PACKAGES)/libshadow6"
