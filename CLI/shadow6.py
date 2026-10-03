@@ -141,6 +141,15 @@ def main():
  raw=sys.argv[1:]
  events=bool(raw and raw[0]=="--json-events")
  if events:raw=raw[1:]
+ if raw and raw[0] in {"install", "init"} and (len(raw) == 1 or raw[1] == "--json"):
+  registry=ServiceRegistry(); result=registry.init() if raw[0]=="init" else {"schema":"shadow6.lifecycle.v1","stage":"install","verified":True,"platform":__import__("platform").system(),"architecture":__import__("platform").machine()}
+  print(json.dumps(result,sort_keys=True,indent=2)); return 0
+ if raw and raw[0] in {"run","connect","status","restart","stop","remove","apply"} and len(raw) >= 2:
+  registry=ServiceRegistry(); action=raw[0]; name=raw[1]
+  handlers={"run":registry.run,"connect":lambda n:{"service":n,"endpoint":registry.require_binding(n) and registry.status(n).get("runtime",{}).get("endpoint"),"core":registry.status(n).get("runtime",{}).get("core")},"status":registry.status,"restart":registry.restart,"stop":registry.stop,"remove":registry.remove,"apply":registry.apply}
+  try: result=handlers[action](name)
+  except (ValueError,OSError) as exc: print(json.dumps({"schema":"shadow6.lifecycle-error.v1","stage":action,"error":str(exc)})); return 2
+  print(json.dumps(result,sort_keys=True,indent=2)); return 0
  if raw and raw[0] in COMPONENTS and raw[0] not in {"virtual-broker","virtual-client","virtual-agent","deployment","acceptance"}:
   args=raw[1:];return run(raw[0],args[1:] if args[:1]==["--"] else args,events)
  p=argparse.ArgumentParser(prog="shadow6");p.add_argument("--json-events",action="store_true");sub=p.add_subparsers(dest="command",required=True)
@@ -201,6 +210,11 @@ def main():
  x=ss.add_parser("configure"); x.add_argument("name"); x.add_argument("--core",required=True); x.add_argument("--config",type=Path,required=True)
  for action in ("run","connect"):
   x=ss.add_parser(action); x.add_argument("name")
+ for action in ("apply","status","restart","stop","remove"):
+  x=ss.add_parser(action); x.add_argument("name")
+ # init/install are fixed component routes; lifecycle dispatch handles them below.
+ q=sub.add_parser("setup",help="create, bind, lock, apply and run a named service")
+ q.add_argument("name"); q.add_argument("--core",required=True); q.add_argument("--config",type=Path,required=True); q.add_argument("--json",action="store_true")
  a=p.parse_args();tail=lambda v:v[1:] if v[:1]==["--"] else v
  if a.command=="tools":
   print(json.dumps({"schema":"shadow6.tools.v1","tools":[{"name":n,"path":str(path),"available":path.is_file()} for n,path in sorted(COMPONENTS.items())]},indent=2));return 0
@@ -228,8 +242,25 @@ def main():
   elif a.service_action in {"create","configure"}:
    config=json.loads(a.config.read_text()) if a.config else None
    result=(registry.create(a.name,core=a.core,config=config) if a.service_action=="create" else registry.configure(a.name,core=a.core,config=config))
-  else: result={"service":a.name,"coreBinding":registry.require_binding(a.name),"state":"ready"}
+  elif a.service_action=="apply": result=registry.apply(a.name)
+  elif a.service_action=="status": result=registry.status(a.name)
+  elif a.service_action=="restart": result=registry.restart(a.name)
+  elif a.service_action=="stop": result=registry.stop(a.name)
+  elif a.service_action=="remove": result=registry.remove(a.name)
+  else: result=registry.run(a.name) if a.service_action=="run" else {"service":a.name,"coreBinding":registry.require_binding(a.name),"runtime":registry.status(a.name).get("runtime")}
   print(json.dumps(result,ensure_ascii=True,sort_keys=True,indent=2)); return 0
+ if a.command in {"init","install"}:
+  registry=ServiceRegistry(); result=registry.init() if a.command=="init" else {"schema":"shadow6.lifecycle.v1","stage":"install","verified":True,"platform":__import__("platform").system()}
+  print(json.dumps(result,sort_keys=True,indent=2)); return 0
+ if a.command=="setup":
+  registry=ServiceRegistry();
+  try:
+   try: registry.inspect(a.name)
+   except ValueError: registry.create(a.name,core=a.core,config=json.loads(a.config.read_text()),spec={"endpoint":{"mode":"private"}})
+   registry.configure(a.name,core=a.core,config=json.loads(a.config.read_text())); registry.lock(a.name); result=registry.run(a.name)
+  except (ValueError,OSError,json.JSONDecodeError) as exc:
+   print(json.dumps({"schema":"shadow6.lifecycle-error.v1","stage":"setup","error":str(exc)}),file=sys.stderr); return 2
+  print(json.dumps(result,sort_keys=True,indent=2)); return 0
  if a.command=="acceptance":
   deployment_dir = ROOT / "Deployment" if (ROOT / "Deployment").is_dir() else ROOT / "share" / "shadow6" / "deployment"
   sys.path.insert(0, str(deployment_dir))

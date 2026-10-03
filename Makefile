@@ -472,6 +472,7 @@ endif
 deployment-test:
 	@PYTHONPATH=Deployment:Control-Center $(PYTHON) -m unittest -v Deployment/test_deployment.py
 	@PYTHONPATH=Deployment:Control-Center $(PYTHON) -m unittest -v Deployment/test_core_explicit.py
+	@PYTHONPATH=Deployment $(PYTHON) -m unittest -v Deployment/test_service_lifecycle.py
 	@d=$$(mktemp -d /tmp/shadow6-acceptance.XXXXXX); trap 'rm -rf "$$d"' EXIT; PYTHONPATH=CLI:Deployment $(PYTHON) CLI/shadow6.py acceptance --manifest Deployment/example.deployment.json --source-only --output "$$d" >/dev/null
 
 acceptance: deployment-test
