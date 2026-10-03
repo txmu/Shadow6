@@ -88,6 +88,19 @@ def audit_path_literal(script: str) -> str:
 
 
 class LinuxIdrisRuntimeTests(unittest.TestCase):
+    def test_public6_is_rebuilt_before_tests_and_audit(self):
+        # Public6 executables are tracked release products. Checkout alone can
+        # leave their feature contract older than the sources under test.
+        scripts = [step.get("run", "") for step in steps()]
+        rebuild = scripts.index("make public6-variants")
+        self.assertLess(rebuild, scripts.index("make test"))
+        self.assertLess(rebuild, scripts.index("make audit"))
+        recipe = (ROOT / "Makefile").read_text().split("public6-variants:\n", 1)[1].split("\npublic6-contract:", 1)[0]
+        self.assertIn("CROSED_LEVEL=5 APP_TRANSPORT=1 QUBES_ISOLATION=1", recipe)
+        for family in ("Go", "Rust"):
+            self.assertIn(f"Core-{family}/shadow6-{family.lower()}-public6", recipe)
+        self.assertIn("CROSED_LEVEL=0 APP_TRANSPORT=0 QUBES_ISOLATION=0", recipe.split("-public6", 2)[-1])
+
     def test_runtime_restore_preserves_all_tracked_idris_sources(self):
         restore = step_script("Restore executable modes")
         # Execute the actual restoration block, before host interpreter setup.

@@ -903,6 +903,8 @@ jobs:
           readelf -d Core-Cpp/shadow6-cpp | grep -E 'libssl|libcrypto|libstdc\+\+'
           shellcheck configure Core-Cpp/*.sh C11Relay/*.sh Guard/*.sh Tools/*.sh Core-Carp/*.sh Core-Gleam/*.sh
       - run: make crosed-variants BUILD_PONY=1
+      - name: Rebuild Public6 variants from the checked-out sources
+        run: make public6-variants
       - run: make test
       - name: Test Node IPC adapter identities and capsule lifecycle binding
         env:
