@@ -533,3 +533,17 @@ VCore、driver 与 `libshadow6` 按 feature-report/application boundary 发现�
 最新 Node IPC、Control Center 与 strict schema。OCaml 控制面模块提供无外部依赖的有界
 类型检查器，Python strict parser 仍是权威解析器。native 矩阵和跨架构构建交给 CI，
 本机 acceptance 明确区分 source-only 与 native runtime 验证。
+
+## 2026-10-03：Privacy Envelope 与命名服务生命周期
+
+新增可选 OCaml External Privacy Envelope（S6EPE），支持 authenticated-envelope 的
+stream 与 datagram-preserving 模式。它位于公网入口和本地 Core endpoint 之间，只做认证、
+授权、资源限制和不透明字节转发；十二个 Core 的 native wire protocol、magic、frame layout、
+crypto、ACK、重传和 peer compatibility 均未改变。CLI 与 Control Center 提供
+`privacy-envelope status/feature-report/compatibility` 及只读聚合状态，服务可通过
+`privacy = "native"` 或显式 `privacy = "envelope"` 选择外层。
+
+命名服务现在贯通 install、init、setup、create/configure、lock、apply、run、ready、connect、
+status、restart、stop、remove 生命周期。状态持久化 ServiceSpec、CoreBinding、DeploymentLock、
+实际 Core、endpoint、ready 时间和 drift；重复 setup 会复用健康 runtime，Core 变化必须显式
+重新配置。OCaml/Dune 构建和 datagram 边界测试已纳入 CI。
