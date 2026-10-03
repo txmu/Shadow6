@@ -563,3 +563,21 @@ EPE 的新双端协议为 version 2：密码学随机 nonce、相互 HMAC 握手
 方向绑定、防重放、会话资源限制、真实私有计数与本地 E2E。加密外层传输、IPv6/Unix
 端点和 WebRTC/SCTP 专用适配仍保留为待落实目标；当前外层本身不声称提供加密。
 详细完成项、测试数与既有二进制审计限制见[本轮记录](review-2026-10-03.md)。
+
+### 2026-10-03 后续：原生拓扑合同与运行时审计收口
+
+提交 `12479b84` 将 native topology 选择与节点配置实现收敛到共享合同：一次部署的
+broker、agent、client 必须使用同一 Core wire family，不隐式翻译 native 协议；保留
+受限的 Zig broker 控制面声明例外。Auto-Orchestrator 与 Deployment 使用同一节点配置
+实现，避免调度入口和部署入口产生不同的 native realization。
+
+命名服务增加 supervisor contract、实际进程运行器及启动材料漂移检查；Detector 增加
+对已部署服务的合规核验。Service-Init 补充受限 service runner 和 supervisor 能力报告。
+Privacy Envelope 更新了配置、会话、防重放存储、Sodium FFI 与相关测试，并同步更新
+部署、服务连接和 envelope 文档；跨平台 CI 增加对应 topology 测试，并调整 Idris 运行时
+产物叠加方式以保留仓库中的源文件。
+
+本轮部署、拓扑、服务上下文与生命周期、初始化、Detector 合规和 CI 工作流 Python 测试
+通过；有一项 envelope runtime 测试因本地二进制不可用而跳过。OCaml/Dune 测试因环境中
+没有 `dune` 或 `opam` 未运行，因此 OCaml 变更仍需由具备工具链的 CI 验证。详细实现见
+提交 `12479b84`；本中文历史更新单独提交并跳过 CI。
