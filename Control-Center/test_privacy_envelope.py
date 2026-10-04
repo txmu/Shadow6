@@ -92,11 +92,11 @@ class ObservationTests(unittest.TestCase):
         from privacy_envelope import read_metrics
         with tempfile.TemporaryDirectory(prefix='shadow6-webrtc-metrics-') as directory:
             path=Path(directory)/'metrics'
-            value={**EnvelopeMetrics().public(),'schema':'shadow6.privacy-envelope-status.v5',
+            value={**EnvelopeMetrics().public(),'schema':'shadow6.privacy-envelope-status.v6',
                    'observed_at':int(time.time()),'records_in':1,'records_out':1,'timeout_count':0,
                    'shaping_overhead_bytes':0,'shaping_enabled':False,'carrier':'webrtc',
                    'wire_appearance':'standard-webrtc-datachannel','native_send_abandonment_count':0,
-                   'session_rejection_count':0}
+                   'session_rejection_count':0,'active_sessions':0}
             path.write_text(json.dumps(value));path.chmod(0o600)
             self.assertEqual(read_metrics(path)['carrier'],'webrtc')
             for field,replacement in (('wire_appearance','camouflaged'),('native_send_abandonment_count',True),

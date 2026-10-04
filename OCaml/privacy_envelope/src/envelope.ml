@@ -173,6 +173,62 @@ let datagram config metrics =
       end
     with e -> reject metrics e) readable; loop ()
   in Fun.protect ~finally:(fun () -> Hashtbl.iter (fun _ p -> close p.socket) peers; Replay_store.close store; close listener) loop
+let webrtc config metrics =
+  let bind=match config.Config.listen with
+    | Unix.ADDR_INET(ip,_) -> Unix.string_of_inet_addr ip
+    | Unix.ADDR_UNIX _ -> invalid_arg "WebRTC requires an IP bind address" in
+  let path=Option.get config.Config.signal_path and prefix=Option.get config.Config.signal_id in
+  let lock=Mutex.create () and active=ref 0 and preauth=ref 0 in
+  let wake=Condition.create () and jobs=Queue.create () in
+  let retry_delay=ref 0.1 and next_start=ref 0. in
+  let session_id () =
+    let nonce=Crypto.random_nonce () in
+    let b=Buffer.create 64 in
+    for i=0 to 15 do Buffer.add_string b (Printf.sprintf "%02x" (Char.code(Bytes.get nonce i))) done;
+    Bytes.fill nonce 0 (Bytes.length nonce) '\000';prefix^"."^Buffer.contents b in
+  let release pending =
+    Mutex.lock lock;
+    decr active;if pending then decr preauth;
+    Mutex.unlock lock in
+  let start id =
+    let pending=ref true in
+    Fun.protect ~finally:(fun () -> release !pending) (fun () ->
+      try
+        Webrtc_runtime.run ~bind ~channels:config.channels ~auth_key:config.auth_key ~key_epoch:config.key_epoch
+          ~max_frame:config.max_frame ~padding_block:config.padding_block ~shaping_budget:config.shaping_budget
+          ~handshake_timeout:config.handshake_timeout ~idle_timeout:config.idle_timeout ~session_timeout:config.session_timeout
+          ~signal:(Webrtc_signaling.exchange ~path ~id ~timeout:config.handshake_timeout)
+          ~authenticated:(fun () -> Mutex.lock lock;decr preauth;pending:=false;retry_delay:=0.1;next_start:=0.;Mutex.unlock lock;
+            Metrics.update metrics (fun m -> m.authenticated<-Metrics.add m.authenticated 1;m.active_sessions<-Metrics.add m.active_sessions 1))
+          ~session_closed:(fun () -> Metrics.update metrics (fun m -> m.active_sessions<-max 0 (m.active_sessions-1)))
+          ~traffic:(traffic metrics) ~abandoned:(fun n -> Metrics.update metrics (fun m -> m.abandoned<-Metrics.add m.abandoned n));
+        ()
+      with error ->
+        reject metrics error;
+        Mutex.lock lock;next_start:=Unix.gettimeofday () +. !retry_delay;
+        retry_delay:=min 5. (!retry_delay *. 2.);Mutex.unlock lock) in
+  let rec worker () =
+    Mutex.lock lock;
+    while Queue.is_empty jobs do Condition.wait wake lock done;
+    let id=Queue.take jobs in Mutex.unlock lock;
+    start id;worker () in
+  for _=1 to config.max_sessions do ignore(Thread.create worker ()) done;
+  let rec loop () =
+    Metrics.publish config.metrics_path metrics;
+    let admitted=try
+      Mutex.lock lock;
+      if !active>=config.max_sessions || !preauth>=config.max_preauth || Unix.gettimeofday () < !next_start then (Mutex.unlock lock;false)
+      else begin
+        incr active;incr preauth;
+        Metrics.update metrics (fun m -> m.sessions<-Metrics.add m.sessions 1);
+        Queue.add (session_id ()) jobs;
+        Condition.signal wake;Mutex.unlock lock;true
+      end
+    with error -> (try Mutex.unlock lock with _ -> ());raise error in
+    ignore admitted;
+    Thread.delay 0.05;
+    loop () in loop ()
 let serve config =
   let metrics = Metrics.create ~carrier:config.Config.carrier ~shaping_enabled:(config.Config.padding_block <> 0 || config.jitter_ms <> 0 || config.cover_interval <> 0) () in
-  if config.Config.mode = "stream" then stream config metrics else if config.carrier="sctp" then sctp config metrics else datagram config metrics
+  if config.carrier="webrtc" then webrtc config metrics
+  else if config.Config.mode = "stream" then stream config metrics else if config.carrier="sctp" then sctp config metrics else datagram config metrics

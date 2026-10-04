@@ -289,6 +289,9 @@ class ServiceRegistry:
             if item['spec'].get('metrics_path') and fields.get('metrics_path') != item['spec']['metrics_path']:
                 raise ValueError('service metrics path must match envelope metrics_path')
             runtime.validate_envelope(fields)
+            if fields.get('carrier') == 'webrtc' and (
+                    profile_binding['core'] != 'nim' or selected_profile.get('transport') != 'webrtc'):
+                raise ValueError('WebRTC S6EPE bridge requires the explicitly bound Nim/WebRTC Profile')
             runtime.validate_native_private(binding['config']['config_path'])
             extra['envelopeTlsMaterial'] = runtime.envelope_tls_material(fields)
             extra['envelopeTlsDigests'] = {key:digest(private_read(path,limit=16384)) for key,path in extra['envelopeTlsMaterial'].items()}
@@ -556,6 +559,10 @@ class ServiceRegistry:
     @transaction
     def connect(self, name, *, core=None, role=None, adapter=None):
         item, _material = self.connection_inputs(name)
+        if item.get('privacy') == 'envelope':
+            fields = runtime.parse_envelope(private_read(item['spec']['envelope_config']))
+            if fields.get('carrier') == 'webrtc' and (item.get('runtimeObservation') or {}).get('transportReadiness') != 'ready':
+                raise ValueError('WebRTC transport has no active authenticated Named Service session')
         if item['runtime'].get('readiness') not in ('listener-ready', 'application-ready') or not item.get('runtimeObservation'):
             # Check a requested native role against the locked realization first;
             # readiness failure must not hide a binding conflict.

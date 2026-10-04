@@ -54,17 +54,24 @@ Deployment separately verifies the processes and their owned sockets.
 
 The server's upstream and client's listen endpoint must be loopback/private.
 The Linux SCTP message adapter can preserve a compatible native message
-boundary. A real WebRTC/ICE/DTLS/DataChannel provider and bridge are implemented
-and loopback-tested as libraries, but the executable still rejects
-`carrier=webrtc`; no Named Service or Core application boundary is advertised
-for it. A Native Core's WebRTC boundary must be explicitly declared and
-signalled before deployment support can be claimed.
+boundary. The Linux WebRTC/ICE/DTLS/DataChannel executable path is available
+for an explicitly bound Nim/WebRTC Profile. It consumes SDP through a private
+Unix socket owned by the Named Service signalling broker, pairs each envelope
+DataChannel with a native Nim DataChannel, and admits concurrent pairs under
+`max_sessions`, `max_preauth`, and the provider's aggregate queue budget. Each
+pair receives a fresh random signalling ID. `signal_id` in the config is a
+service prefix, not a session identifier. The default raw carrier and the
+other Core Profiles remain unchanged. See the signalling handoff contract
+below and the [Carrier/Adapter Contract](privacy-envelope-carrier-contract.md).
 The [Carrier/Adapter Contract](privacy-envelope-carrier-contract.md) separates
 the stream security engine from transport I/O. Its default raw provider remains
 identifiable; the TLS 1.3 provider encapsulates the hello in a real encrypted
 TLS connection; the dedicated Linux SCTP message provider preserves native
-records. The WebRTC provider preserves native DataChannels and is not yet
-connected to executable configuration or Named Service lifecycle.
+records. The WebRTC provider preserves native DataChannels. Its executable
+session starts only after the configured signalling broker returns an SDP
+answer, completes ICE/DTLS/DataChannel admission, and authenticates the S6EPE
+message handshake. Named Service startup waits for a fresh authenticated
+session observation.
 
 ## Native SCTP message carrier
 
@@ -218,11 +225,11 @@ TLS metrics v3 additionally declare `carrier=tls` and
 `wire_appearance=standard-tls13`; SCTP metrics v4 add `carrier=sctp`,
 `wire_appearance=standard-sctp`, native send abandonment and established-session
 rejection counters. WebRTC metrics v5 report `carrier=webrtc` and
-`wire_appearance=standard-webrtc-datachannel` with the same bounded message
-failure counters; this schema is ready for the bridge but does not assert that
-the current executable or service launcher realizes WebRTC. Snapshots capture
-counters under one lock. Raw remains v2. Control Center strictly recognizes
-v1 through v5 and reports current/stale/unavailable separately. No secret or native payload is
+`wire_appearance=standard-webrtc-datachannel` with bounded message failure
+counters and `active_sessions`; Named Service uses that live counter for
+authenticated WebRTC readiness. Snapshots capture counters under one lock. Raw
+remains v2. Control Center strictly recognizes v1 through v6 and reports
+current/stale/unavailable separately. No secret or native payload is
 written to telemetry. Configuration/key epoch changes invalidate DeploymentLock;
 Named Service revalidates admission and files during supervision.
 

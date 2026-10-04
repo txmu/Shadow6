@@ -50,7 +50,7 @@ let session_event t =
   in loop ()
 let () =
  let observation=Metrics.snapshot (Metrics.create ~carrier:"webrtc" ()) in
- require(String.starts_with ~prefix:"{\"schema\":\"shadow6.privacy-envelope-status.v5\",\"carrier\":\"webrtc\",\"wire_appearance\":\"standard-webrtc-datachannel\"," observation);
+ require(String.starts_with ~prefix:"{\"schema\":\"shadow6.privacy-envelope-status.v6\",\"carrier\":\"webrtc\",\"wire_appearance\":\"standard-webrtc-datachannel\"," observation);
  if not(Carrier_webrtc.available ()) then begin
    if Sys.getenv_opt "S6EPE_WEBRTC_REQUIRED"=Some "1" then failwith "required native WebRTC backend unavailable";
    print_endline "SKIP optional native WebRTC backend unavailable"

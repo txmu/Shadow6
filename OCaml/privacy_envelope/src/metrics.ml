@@ -1,9 +1,9 @@
 type t = { mutable sessions:int; mutable authenticated:int; mutable rejected:int;
   mutable established_rejected:int;mutable abandoned:int;mutable replay:int; mutable resource:int; mutable bytes_in:int; mutable bytes_out:int;
-  mutable records_in:int; mutable records_out:int; mutable timeouts:int; mutable shaping_overhead:int; shaping_enabled:bool; carrier:string; lock:Mutex.t }
+  mutable records_in:int; mutable records_out:int; mutable timeouts:int; mutable shaping_overhead:int; mutable active_sessions:int; shaping_enabled:bool; carrier:string; lock:Mutex.t }
 let create ?(shaping_enabled=false) ?(carrier="raw") () =
   if not (List.mem carrier ["raw";"tls";"sctp";"webrtc"]) then invalid_arg "metrics carrier"; {sessions=0;authenticated=0;rejected=0;established_rejected=0;abandoned=0;replay=0;resource=0;bytes_in=0;bytes_out=0;
-  records_in=0;records_out=0;timeouts=0;shaping_overhead=0;shaping_enabled;carrier;lock=Mutex.create ()}
+  records_in=0;records_out=0;timeouts=0;shaping_overhead=0;active_sessions=0;shaping_enabled;carrier;lock=Mutex.create ()}
 let update m f = Mutex.lock m.lock; Fun.protect ~finally:(fun () -> Mutex.unlock m.lock) (fun () -> f m)
 let add value count = min 9007199254740991 (value + count)
 let snapshot ?(now=Unix.gettimeofday ()) m =
@@ -18,8 +18,8 @@ let snapshot ?(now=Unix.gettimeofday ()) m =
       | "tls" -> 3,"standard-tls13",""
       | "sctp" -> 4,"standard-sctp",
         Printf.sprintf "\"native_send_abandonment_count\":%d,\"session_rejection_count\":%d," m.abandoned m.established_rejected
-      | "webrtc" -> 5,"standard-webrtc-datachannel",
-        Printf.sprintf "\"native_send_abandonment_count\":%d,\"session_rejection_count\":%d," m.abandoned m.established_rejected
+      | "webrtc" -> 6,"standard-webrtc-datachannel",
+        Printf.sprintf "\"native_send_abandonment_count\":%d,\"session_rejection_count\":%d,\"active_sessions\":%d," m.abandoned m.established_rejected m.active_sessions
       | _ -> assert false in
     Printf.sprintf "{\"schema\":\"shadow6.privacy-envelope-status.v%d\",\"carrier\":\"%s\",\"wire_appearance\":\"%s\",%s" version m.carrier appearance extra ^
       String.sub !result (String.length prefix) (String.length !result - String.length prefix));
@@ -35,7 +35,8 @@ let publish path m = match path with None -> () | Some _ when Unix.gettimeofday 
      if not (String.starts_with ~prefix:"{\"schema\":\"shadow6.privacy-envelope-status.v1\"," existing || String.starts_with ~prefix:"{\"schema\":\"shadow6.privacy-envelope-status.v2\"," existing
      || String.starts_with ~prefix:"{\"schema\":\"shadow6.privacy-envelope-status.v3\"," existing
      || String.starts_with ~prefix:"{\"schema\":\"shadow6.privacy-envelope-status.v4\"," existing
-     || String.starts_with ~prefix:"{\"schema\":\"shadow6.privacy-envelope-status.v5\"," existing)
+     || String.starts_with ~prefix:"{\"schema\":\"shadow6.privacy-envelope-status.v5\"," existing
+     || String.starts_with ~prefix:"{\"schema\":\"shadow6.privacy-envelope-status.v6\"," existing)
      then invalid_arg "refusing to replace unrelated metrics file"
    with Unix.Unix_error (Unix.ENOENT,_,_) -> ());
   let temporary, channel = Filename.open_temp_file ~mode:[Open_binary] ~perms:0o600 ~temp_dir:(Filename.dirname path) ".s6-metrics-" ".tmp" in

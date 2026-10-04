@@ -116,7 +116,7 @@ bound. One native accepted message is never partially retried. Receive callbacks
 copy into a bounded queue and never access OCaml values. Queue exhaustion is
 terminal, rather than silent message loss. Each peer admits at most 64 channels,
 73,728 bytes per message, 128 queued events and 16 MiB queued payload; all peers
-together reserve at most 64 MiB of queue budget and 128 peer slots. The pinned
+together reserve at most 64 MiB of queue budget and 256 peer slots. The pinned
 backend uses a fixed worker pool based on online CPU count (minimum four);
 initialization rejects hosts above 256 online CPUs. The provider supplies no
 STUN/TURN servers implicitly. Application/session deadlines still belong to
@@ -133,16 +133,37 @@ Source-built C/OCaml loopback tests establish actual ICE/DTLS connections and
 verify channel metadata, text/binary and empty message boundaries, PR policies,
 whole-message backpressure/retry, closure, queue exhaustion, DTLS fingerprint
 failure and independent encrypted envelope authentication/replay/close controls.
-`Webrtc_bridge` now joins an established encrypted S6EPE DataChannel session to
-an independently established native DataChannel association. It keeps at most
-one pending complete message in each direction, preserves channel metadata and
+`Webrtc_bridge` joins an established encrypted S6EPE DataChannel session to an
+independently established native DataChannel association. It keeps at most one
+pending complete message in each direction, preserves channel metadata and
 native backpressure, forwards authenticated close requests to the local peer,
-and requires authenticated close/FINAL before successful return. A six-peer
-loopback test covers two independent ICE/DTLS associations per process. This is
-still a library boundary: executable `carrier=webrtc` configuration, a standard
-signalling handoff, deployment integration and process-owned ICE/runtime
-observation remain unimplemented. `message_adapters` continues to advertise
-only deployable SCTP. Core-specific boundaries remain independently declared.
+and requires authenticated close/FINAL before successful return.
+`Webrtc_runtime` owns both peer lifecycles and takes its signalling handoff from
+the fixed `Webrtc_signaling` protocol. The local broker socket is owner-only,
+the service prefix is bounded, and every paired session adds a fresh 128-bit
+random suffix so parallel sessions cannot exchange descriptions.
+
+The handoff uses one Unix stream connection per SDP operation. Requests are
+`S6SG1`, a leg byte (`E` envelope or `N` native), a phase byte (`O` offer,
+`P` poll for offer, `A` answer), one ID-length byte, the ID, a four-byte
+big-endian SDP length, then at most 32 KiB of SDP. Replies are `S6SR`, a status
+byte (`O` with SDP or `A` acknowledgement), a four-byte big-endian length and
+the bounded SDP. The envelope leg creates an offer; the native leg receives
+the corresponding offer and returns its answer. The broker routes only equal
+per-session IDs and fails closed on malformed or oversized frames. Signalling
+is outside the encrypted DataChannel and its endpoint/metadata remain
+observable.
+
+The executable admits up to the configured 128 paired sessions (256 native
+peers), bounded by the existing 64 MiB aggregate provider queue, per-process FD
+limits, and `max_preauth`. Each peer reserves one maximum-sized message, keeping
+the worst-case 128-pair queue reservation below the provider aggregate cap.
+S6EPE v6 metrics report active authenticated sessions; Named Service waits for
+that evidence and an owned UDP transport socket before acknowledging startup.
+Deployment admits this realization only for the explicitly bound Nim/WebRTC
+Profile. It does not translate data to another Core family. The broker remains
+a Named Service dependency and must implement this fixed local handoff contract;
+the executable never starts or exposes a public signalling listener itself.
 
 To source-build this optional Linux provider with the pinned dependency in a
 private prefix, set `S6EPE_RTC_INCLUDE` to its `include` directory and include its

@@ -1,6 +1,7 @@
 type tls = { cert_path:string; key_path:string; ca_path:string; peer_name:string }
 type t = { listen : Unix.sockaddr; upstream : Unix.sockaddr; mode : string; role : string;
   carrier:string; tls:tls option; channels:Carrier.channel list; sctp_streams:int;
+  signal_path:string option; signal_id:string option;
   auth_key : string; max_frame : int; handshake_timeout : float; max_preauth : int;
   max_sessions : int; idle_timeout : float; session_timeout : float; metrics_path : string option;
   key_epoch:int; replay_path:string option;
@@ -45,7 +46,7 @@ let private_read ?(limit=16384) path =
     Bytes.to_string data)
 let load path =
   let values = Hashtbl.create 16 in
-  let known = ["listen";"upstream";"mode";"role";"auth_key";"max_frame";"handshake_timeout";"max_preauth";"max_sessions";"idle_timeout";"session_timeout";"metrics_path";"key_epoch";"replay_path";"padding_block";"jitter_ms";"cover_interval";"cover_limit";"shaping_budget";"carrier";"tls_cert";"tls_key";"tls_ca";"tls_peer_name";"message_channels";"sctp_streams"] in
+  let known = ["listen";"upstream";"mode";"role";"auth_key";"max_frame";"handshake_timeout";"max_preauth";"max_sessions";"idle_timeout";"session_timeout";"metrics_path";"key_epoch";"replay_path";"padding_block";"jitter_ms";"cover_interval";"cover_limit";"shaping_budget";"carrier";"tls_cert";"tls_key";"tls_ca";"tls_peer_name";"message_channels";"sctp_streams";"signal_path";"signal_id"] in
   String.split_on_char '\n' (private_read path) |> List.iter (fun raw ->
     let line = String.trim raw in
     if line <> "" && line.[0] <> '#' then
@@ -74,8 +75,21 @@ let load path =
       Some {cert_path;key_path;ca_path;peer_name}
     | "sctp" when mode="message" && Carrier_sctp.available () ->
       if List.exists (Hashtbl.mem values) tls_fields then invalid_arg "SCTP rejects TLS fields";None
+    | "webrtc" when mode="message" && Carrier_webrtc.available () ->
+      if List.exists (Hashtbl.mem values) tls_fields then invalid_arg "WebRTC rejects TLS fields";None
     | _ -> invalid_arg "unsupported carrier/mode" in
   let sctp_streams=number "sctp_streams" 1 64 "4" in
+  let signal_path=Hashtbl.find_opt values "signal_path" and signal_id=Hashtbl.find_opt values "signal_id" in
+  (match carrier,signal_path,signal_id with
+   | "webrtc",Some p,Some id ->
+      if Filename.is_relative p || String.length p>103 || String.contains p '\000' || p=path || Some p=Hashtbl.find_opt values "metrics_path" then invalid_arg "WebRTC signal_path";
+      private_unix p;
+      if id="" || String.length id>31 || not(String.for_all(function 'a'..'z'|'A'..'Z'|'0'..'9'|'.'|'_'|'-' -> true | _ -> false) id) then invalid_arg "WebRTC signal_id prefix"
+   | "webrtc",_,_ -> invalid_arg "WebRTC requires signal_path and signal_id"
+   | _,None,None -> ()
+   | _,_,_ -> invalid_arg "signal fields are WebRTC-only");
+  if carrier="webrtc" && (role<>"server" || not(Hashtbl.mem values "metrics_path")) then
+    invalid_arg "WebRTC requires server role and session metrics";
   let channels=if mode<>"message" then begin
     if Hashtbl.mem values "message_channels" || Hashtbl.mem values "sctp_streams" then invalid_arg "message fields require message mode";[]
   end else begin
@@ -121,7 +135,7 @@ let load path =
   let jitter_ms=number "jitter_ms" 0 20 "0" and cover_interval=number "cover_interval" 0 60 "0" and cover_limit=number "cover_limit" 0 64 "0" in
   if (cover_interval = 0) <> (cover_limit = 0) then invalid_arg "cover limits must be explicit";
   if mode = "datagram" && (padding_block <> 0 || jitter_ms <> 0 || cover_interval <> 0) then invalid_arg "stream shaping only";
-  { listen; upstream; mode; role; carrier; tls; channels; sctp_streams; auth_key;
+  { listen; upstream; mode; role; carrier; tls; channels; sctp_streams; signal_path; signal_id; auth_key;
     max_frame=number "max_frame" 256 (if mode = "datagram" then 65427 else 65507) "16384";
     handshake_timeout=float_of_int (number "handshake_timeout" 1 30 "5");
     max_preauth=number "max_preauth" 1 128 "16";

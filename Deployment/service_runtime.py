@@ -307,6 +307,11 @@ def verify_launch_material(plan):
         LimitResolver().validate_components(plan['componentLimits'], inputs,
             host=HostBudget.from_dict(base['host_budget']),
             process_fds=base['effective_limits']['process_fds'])
+    if 'envelopeConfig' in plan:
+        envelope_fields=parse_envelope(private_read(plan['envelopeConfig']))
+        if envelope_fields.get('carrier')=='webrtc' and (
+                profile['core']!='nim' or profile.get('transport')!='webrtc'):
+            raise ValueError('WebRTC S6EPE requires the locked Nim/WebRTC Profile')
     tls_keys = {'envelopeTlsCert','envelopeTlsKey','envelopeTlsCa'} & set(plan)
     if tls_keys and (len(tls_keys) != 3 or 'envelopeConfig' not in plan):
         raise ValueError('incomplete TLS launch material')
@@ -522,6 +527,15 @@ def supervise(plan_path, ack):
                     if ready_state and not attachment.ready: attachment.acknowledge(ready_state, native_owner)
                     attachment.pump()
                 native = native_observed_endpoints(children[0].pid, native_config)
+                webtransport='unknown'
+                if envelope_fields and envelope_fields.get('carrier')=='webrtc':
+                    try:
+                        status=strict_json(private_read(envelope_fields['metrics_path'],limit=16384))
+                        fresh=(type(status.get('observed_at')) is int and 0<=int(time.time())-status['observed_at']<=5)
+                        webtransport='ready' if (fresh and status.get('schema')=='shadow6.privacy-envelope-status.v6'
+                            and status.get('carrier')=='webrtc' and type(status.get('active_sessions')) is int
+                            and status['active_sessions']>0) else 'pending'
+                    except (OSError,ValueError,KeyError,TypeError): webtransport='pending'
                 if plan.get('envelopeConfig') and any(not private_socket(e) for e in native):
                     raise ValueError('envelope invariant: native Core public exposure rejected')
                 public = sockets(children[1].pid) if plan.get('envelopeConfig') else native
@@ -540,9 +554,13 @@ def supervise(plan_path, ack):
                             parsed = endpoint(target)
                             if not any(endpoint_matches(e,parsed) for e in native):
                                 raise ValueError('Gate upstream is not an observed deployment listener')
-                    transport={'stream':'tcp','datagram':'udp','message':'sctp'}[envelope_fields.get('mode','stream')]
-                    if not any(endpoint_matches(e,upstream,transport=transport) for e in upstream_sockets):
+                    carrier=envelope_fields.get('carrier','raw')
+                    transport={'stream':'tcp','datagram':'udp','message':('udp' if carrier=='webrtc' else 'sctp')}[envelope_fields.get('mode','stream')]
+                    if carrier!='webrtc' and not any(endpoint_matches(e,upstream,transport=transport) for e in upstream_sockets):
                         raise ValueError('envelope upstream is not an observed deployment listener')
+                if envelope_fields and envelope_fields.get('carrier')=='webrtc' and webtransport=='ready':
+                    if not any(e.get('transport')=='udp' for e in public):
+                        webtransport='pending'
                 result = {'limitResolutionDigest': __import__('limits').LimitResolution(resolution).digest,
                           'effectiveLimits':resolution['effective_limits'],
                           'limitsEnforcement':{'process_fds':{'actual':resource.getrlimit(resource.RLIMIT_NOFILE)[0], 'enforced':True}},
@@ -552,7 +570,7 @@ def supervise(plan_path, ack):
                           'endpoint':public[0] if len(public) == 1 else None,
                           'readiness':('control-ready' if any(e.get('observation') == 'process-owned-control-connection' for e in public)
                                        else 'listener-ready') if public else 'process-alive',
-                          'transportReadiness':'unknown','applicationReadiness':'unknown'}
+                          'transportReadiness':webtransport,'applicationReadiness':'unknown'}
                 candidate = ready_state.get('endpoint',{})
                 if (ready_state and candidate.get('boundary') == profile['attachment']['kind']
                         and candidate.get('mode') == profile['attachment']['mode']
@@ -582,10 +600,19 @@ def supervise(plan_path, ack):
                     native_ready = (observation['readiness'] == 'application-ready' if native_config.get('role') == 'client'
                                     else bool(observation['nativeEndpoints']))
                     components_ready = all(sockets(child.pid) for child in children[1:])
-                    if not native_ready or not components_ready:
+                    if envelope_fields and envelope_fields.get('carrier')=='webrtc':
+                        envelope_endpoints=sockets(children[1].pid)
+                        components_ready=(components_ready and
+                                          any(e.get('transport')=='udp' for e in envelope_endpoints))
+                    transport_ready=(observation['transportReadiness']!='pending')
+                    if envelope_fields and envelope_fields.get('carrier')=='webrtc':
+                        transport_ready=observation['transportReadiness']=='ready'
+                    if not native_ready or not components_ready or not transport_ready:
                         if time.monotonic() >= startup_deadline:
-                            raise ValueError('OwnedEndpointReadinessTimeout: ' + core + '/' + str(native_config.get('role'))
-                                + '; observed=' + observation['readiness'] + '; readyEvent=' + str(bool(ready_state)))
+                            issue='AuthenticatedWebRTCSessionTimeout' if not transport_ready else 'OwnedEndpointReadinessTimeout'
+                            raise ValueError(issue + ': ' + core + '/' + str(native_config.get('role'))
+                                + '; observed=' + observation['readiness'] + '; transport=' + observation['transportReadiness']
+                                + '; readyEvent=' + str(bool(ready_state)))
                         for index, process in enumerate(children):
                             code = process.poll()
                             if code is not None:
@@ -698,8 +725,9 @@ def parse_envelope(content):
 def envelope_tls_material(fields):
     carrier = fields.get('carrier','raw')
     keys = {'tls_cert','tls_key','tls_ca','tls_peer_name'}
-    if carrier in {'raw','sctp'}:
+    if carrier in {'raw','sctp','webrtc'}:
         if carrier == 'sctp' and fields.get('mode') != 'message':raise ValueError('SCTP requires message mode')
+        if carrier == 'webrtc' and fields.get('mode') != 'message':raise ValueError('WebRTC requires message mode')
         if keys & set(fields): raise ValueError('raw carrier rejects TLS material')
         return {}
     if carrier != 'tls' or fields.get('mode','stream') != 'stream' or not keys <= set(fields):
@@ -721,13 +749,40 @@ def validate_envelope(fields):
         from .broker_set import private_endpoint, endpoint
     except ImportError:
         from broker_set import private_endpoint, endpoint
-    known={'listen','upstream','mode','role','auth_key','max_frame','handshake_timeout','max_preauth','max_sessions','idle_timeout','session_timeout','metrics_path','key_epoch','replay_path','padding_block','jitter_ms','cover_interval','cover_limit','shaping_budget','carrier','tls_cert','tls_key','tls_ca','tls_peer_name','message_channels','sctp_streams'}
+    known={'listen','upstream','mode','role','auth_key','max_frame','handshake_timeout','max_preauth','max_sessions','idle_timeout','session_timeout','metrics_path','key_epoch','replay_path','padding_block','jitter_ms','cover_interval','cover_limit','shaping_budget','carrier','tls_cert','tls_key','tls_ca','tls_peer_name','message_channels','sctp_streams','signal_path','signal_id'}
     if set(fields)-known: raise ValueError('unknown envelope configuration field')
     if fields.get('role','server') != 'server': raise ValueError('privacy=envelope requires a server admission boundary')
     mode=fields.get('mode','stream')
     if mode not in {'stream','datagram','message'}: raise ValueError('invalid envelope mode')
     if mode == 'message':
-        if fields.get('carrier') != 'sctp':raise ValueError('message mode requires native SCTP carrier')
+        carrier=fields.get('carrier')
+        if carrier not in {'sctp','webrtc'}:raise ValueError('message mode requires SCTP or WebRTC carrier')
+        if carrier=='webrtc':
+            if not {'signal_path','signal_id'} <= set(fields):raise ValueError('WebRTC requires Named Service signalling handoff')
+            try: max_sessions=int(fields.get('max_sessions','32'))
+            except (ValueError,TypeError) as error: raise ValueError('invalid WebRTC session limit') from error
+            if not 1<=max_sessions<=128:raise ValueError('invalid WebRTC session limit')
+            signal_path=fields['signal_path'];signal_id=fields['signal_id']
+            if not Path(signal_path).is_absolute() or len(signal_path.encode())>103 or signal_path in {fields.get('metrics_path'),fields.get('listen'),fields.get('upstream')}:
+                raise ValueError('invalid WebRTC signalling socket path')
+            parent=Path(signal_path).parent
+            try: info=parent.lstat()
+            except OSError as error: raise ValueError('WebRTC signalling directory must exist') from error
+            if not stat.S_ISDIR(info.st_mode) or info.st_uid!=os.geteuid() or info.st_mode&0o077:
+                raise ValueError('WebRTC signalling directory must be private and owner-controlled')
+            if not isinstance(signal_id,str) or re.fullmatch(r'[A-Za-z0-9._-]{1,31}',signal_id) is None:
+                raise ValueError('invalid WebRTC signalling service prefix')
+            if not fields.get('metrics_path'):
+                raise ValueError('WebRTC requires a session metrics path for readiness')
+            metrics_path=fields['metrics_path']
+            if not Path(metrics_path).is_absolute() or metrics_path in {signal_path,fields.get('listen'),fields.get('upstream')}:
+                raise ValueError('invalid WebRTC session metrics path')
+            metrics_parent=Path(metrics_path).parent
+            try: metrics_parent_info=metrics_parent.lstat()
+            except OSError as error: raise ValueError('WebRTC metrics directory must exist') from error
+            if not stat.S_ISDIR(metrics_parent_info.st_mode) or metrics_parent_info.st_uid!=os.geteuid() or metrics_parent_info.st_mode&0o077:
+                raise ValueError('WebRTC metrics directory must be private and owner-controlled')
+        elif {'signal_path','signal_id'} & set(fields):raise ValueError('signal fields require WebRTC carrier')
         streams=int(fields.get('sctp_streams','4'))
         if not 1<=streams<=64:raise ValueError('invalid SCTP stream budget')
         seen=set();control=False
@@ -742,7 +797,7 @@ def validate_envelope(fields):
                 if not (0<=budget<=65535 if kind=='retransmits' else 1<=budget<=60000):raise ValueError('invalid message reliability budget')
             control=control or (channel==0 and match[2]=='ordered' and policy=='reliable')
         if not control:raise ValueError('ordered reliable message control channel required')
-        if any(fields.get(key,'').startswith('unix:') for key in ('listen','upstream')):raise ValueError('SCTP requires IP endpoints')
+        if any(fields.get(key,'').startswith('unix:') for key in ('listen','upstream')):raise ValueError('message carriers require IP endpoints')
     elif {'message_channels','sctp_streams'} & set(fields):raise ValueError('message fields require message mode')
     replay_path=fields.get('replay_path')
     if mode == 'datagram':

@@ -18,6 +18,8 @@ def validate_composition(*, privacy, envelope=None, gate=None, guard=None):
         layers.insert(0,'Gate')
     if privacy == 'envelope':
         if envelope is None: raise ValueError('EPE configuration required')
+        if envelope.get('carrier')=='webrtc' and (gate is not None or guard is not None):
+            raise ValueError('capability unavailable: WebRTC S6EPE cannot compose with Gate or Guard')
         if not private_endpoint(envelope['upstream']): raise ValueError('EPE native boundary must be private')
         if gate is not None:
             if gate.get('role') != 'server': raise ValueError('capability unavailable: EPE -> Gate -> Core requires a Gate server realization')

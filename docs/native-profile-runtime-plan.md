@@ -22,8 +22,10 @@ latest Pony fix and the new Native Profile integration changes.
   This is bounded admission planning; the supervisor does not enforce a
   portable aggregate RSS/CPU budget at runtime.
 - Stopped upgrade restores the exact prior registry bytes if configure, lock
-  or apply fails. S6EPE still has no executable WebRTC config/signaling
-  lifecycle. Non-Linux Named Service process supervision remains unavailable;
+  or apply fails. S6EPE WebRTC executable config/signaling and bounded
+  concurrent Nim/Profile startup are now wired through the private Named
+  Service handoff; this continuation has not yet been locally or CI-verified.
+  Non-Linux Named Service process supervision remains unavailable;
   native init script generation is not lifecycle parity.
 - Focused local runs passed: Auto-Orchestrator 26, Crosed Limits 8, combined
   Deployment ProfileBinding/topology/context 56, Detector compliance 1, and
@@ -107,7 +109,7 @@ CI result. Every available Profile must pass one complete lifecycle contract.
 | Complete material lock | Native binaries/configs, peripheral binaries/configs, credentials/CA/adapters hashed and revalidated before spawn and readiness | Profile contract digest, native Ada/Nim/D TLS references and Guard TLS references added to existing binary/config/EPE TLS locks. Replacement admission preserves old locked record on failure. Finish full schema/material/provider audit. |
 | Portable intent separation | Negative tests reject local paths/private keys/material in exported S6P1 | Audit all setup/export/import/install paths against strict portable contract. |
 | All application attachments | Real eight stream, four seqpacket and Gleam Micro-Mux attach; CLI/libshadow6 with message sizes/backpressure/EOF/drain/errors | Added `libshadow6.Shadow6.open_credited()` for an explicit owner-only S6NA attachment document, with bounded loopback UDP, credit/backpressure and close tests. It is a companion endpoint and is not yet transparently bridged into a Named Service application proxy. |
-| S6EPE v3/WebRTC executable deployment | Source-built real raw/TLS/SCTP/WebRTC providers; signalling, boundary adapters, lock, observation, metrics/doctor and restart/negative CI tests | Existing WebRTC library evidence is historical, not executable deployment. Implement config/signalling/adapter lifecycle without native wire translation. |
+| S6EPE v3/WebRTC executable deployment | Source-built real raw/TLS/SCTP/WebRTC providers; signalling, boundary adapters, lock, observation, metrics/doctor and restart/negative CI tests | Executable WebRTC config, bounded paired-session runtime, fixed local SDP handoff, profile admission and authenticated-session readiness are now wired in source. The Named Service broker implementation, lifecycle integration evidence and CI remain outstanding; do not report full deployment acceptance yet. |
 | Peripheral composition | Policy/capability/order/private/public/transport/boundary validation for every declared legal stack | Added cumulative Gate/S6EPE descriptor and memory estimates to DeploymentLock, revalidated at apply and supervisor launch, and surfaced in Detector compliance. Estimates are conservative configuration checks, not runtime memory attestation; Guard and per-platform Supervisor resource enforcement remain separate work. |
 | Gate/BrokerSet portable routes | Only S6P1.routes drives realized route intent and bounded failover | Audit consumers and drift tests; no migration/quorum/replication claims. |
 | Shared supervisor state machine | Linux pidfd/identity/child/owned socket/transport/readiness; honest native-init capabilities on other platforms | Existing Linux observation retained. Audit platform abstraction, lifecycle parity and stale/degraded/failed transitions for every crash/drift condition. |

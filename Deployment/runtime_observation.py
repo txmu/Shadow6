@@ -193,7 +193,7 @@ def validate_observation(value):
         raise ValueError('invalid observed process ownership')
     if type(value['observedAt']) is not int or value['observedAt'] < 0:
         raise ValueError('invalid observation timestamp')
-    if value['readiness'] not in ('process-alive','unavailable','listener-ready','control-ready','application-ready') or value['transportReadiness'] not in ('unknown','unavailable') or value['applicationReadiness'] not in ('unknown','ready','unavailable'):
+    if value['readiness'] not in ('process-alive','unavailable','listener-ready','control-ready','application-ready') or value['transportReadiness'] not in ('unknown','pending','ready','unavailable') or value['applicationReadiness'] not in ('unknown','ready','unavailable'):
         raise ValueError('invalid observed readiness')
     def address(item):
         if not isinstance(item['host'],str) or type(item['port']) is not int or not 1 <= item['port'] <= 65535:

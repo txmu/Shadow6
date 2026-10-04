@@ -37,7 +37,7 @@ def read_metrics(path=None):
     counters = set(EnvelopeMetrics().public()) - {'schema'}
     if not isinstance(value,dict):raise ValueError('invalid envelope metrics schema')
     extra = set()
-    schemas = {f'shadow6.privacy-envelope-status.v{version}' for version in range(1,6)}
+    schemas = {f'shadow6.privacy-envelope-status.v{version}' for version in range(1,7)}
     if value.get('schema') in schemas - {'shadow6.privacy-envelope-status.v1'}:
         counters |= {'records_in','records_out','timeout_count','shaping_overhead_bytes'}
         extra = {'shaping_enabled'}
@@ -56,10 +56,17 @@ def read_metrics(path=None):
         extra |= {'carrier','wire_appearance'}
         if value.get('carrier') != 'webrtc' or value.get('wire_appearance') != 'standard-webrtc-datachannel':
             raise ValueError('invalid envelope DataChannel carrier observation')
+    if value.get('schema') == 'shadow6.privacy-envelope-status.v6':
+        counters |= {'native_send_abandonment_count','session_rejection_count','active_sessions'}
+        extra |= {'carrier','wire_appearance'}
+        if value.get('carrier') != 'webrtc' or value.get('wire_appearance') != 'standard-webrtc-datachannel':
+            raise ValueError('invalid envelope DataChannel carrier observation')
     if set(value) != counters | {'schema', 'observed_at'} | extra or value.get('schema') not in schemas:
         raise ValueError('invalid envelope metrics schema')
     if any(type(value[k]) is not int or not 0 <= value[k] <= 2**53-1 for k in counters | {'observed_at'}):
         raise ValueError('invalid envelope metric')
+    if value.get('schema') == 'shadow6.privacy-envelope-status.v6' and value['active_sessions']>value['authenticated_sessions']:
+        raise ValueError('invalid active WebRTC session count')
     age = int(time.time()) - value['observed_at']
     return {**value, 'observation': 'current' if 0 <= age <= 5 else 'stale'}
 

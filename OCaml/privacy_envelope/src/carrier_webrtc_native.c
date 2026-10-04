@@ -59,7 +59,7 @@ failed:
     memset(&api,0,sizeof api);dlclose(library);library=NULL;
 }
 int s6_rtc_available(void) { pthread_once(&load_once,load_api);return loaded; }
-#define MAX_PEERS 128
+#define MAX_PEERS 256
 #define MAX_CHANNELS 64
 #define SDP_MAX 32768
 #define SEND_BYTES 262144

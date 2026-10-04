@@ -259,7 +259,8 @@ class SCTPEnvelopeE2E(unittest.TestCase):
         import json, subprocess
         report=json.loads(subprocess.check_output([self.binary,'--feature-report'],timeout=3))
         self.assertIn('message',report['transports'])
-        self.assertEqual(report['carriers']['message_adapters'],['sctp'])
+        self.assertIn('sctp',report['carriers']['message_adapters'])
+        self.assertLessEqual(set(report['carriers']['message_adapters']),{'sctp','webrtc'})
         self.assertEqual(report['message_security'],{
             'key_exchange':'PSK-authenticated-X25519','rekey_records':4096,
             'replay_window':4096,'records_per_channel':1000000,'channels':64,

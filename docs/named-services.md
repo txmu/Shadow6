@@ -163,6 +163,18 @@ replacement requires explicit reconfiguration. S6P1 contains no local TLS file
 paths or digests. See [TLS Carrier configuration](privacy-envelope.md#standard-tls-carrier).
 
 The `--metrics` path must match `metrics_path` in the envelope configuration.
+
+For an explicitly bound Nim/WebRTC Profile, S6EPE accepts
+`mode=message`, `carrier=webrtc`,
+`signal_path=/absolute/private/name-service.sock`, and a `signal_id` service
+prefix (31 ASCII letters/digits/period/underscore/hyphen maximum). The broker
+socket must be owner-only under a private owner-controlled directory. Each
+admitted bridge pair gets its own random session suffix; `max_sessions` and
+`max_preauth` bound concurrent work. The fixed `S6SG1` SDP handoff is
+documented in the [carrier contract](privacy-envelope-carrier-contract.md).
+Named Service waits for a fresh v6 metrics snapshot with an authenticated active
+session before acknowledging WebRTC transport readiness. This path does not
+translate across Core families and cannot compose with Gate.
 For the read-only Control Center API, configure `SHADOW6_ENVELOPE_METRICS` in its
 operator environment, then call `privacy-envelope.status` with empty parameters.
 RPC clients cannot choose arbitrary metrics files. No telemetry is sent off-host.
@@ -180,14 +192,14 @@ private registry; never adopt a PID from an unverified legacy record.
 
 The lifecycle and EPE E2E goals remain active. Current implementation provides
 actual local process supervision and actual aggregate observations. Remaining
-work includes portable process supervision outside Linux, native ready-event
-endpoint discovery for every family, the WebRTC-specific envelope adapter and
-native ready-event support on every family. S6EPE v3 now implements mandatory
-outer encryption and a dedicated Linux SCTP message adapter; see its versioned
-envelope guide. Linux observation includes actual process-owned one-to-one SCTP
-listeners, distinguishes bound sockets from listeners, and checks the envelope
-upstream against the declared transport. This does not declare a Core's
-application boundary or certify twelve-Core message interoperability. The
-remaining capabilities are not represented as verified controls.
+work includes portable process supervision outside Linux and native ready-event
+endpoint discovery for every family. S6EPE v3 implements mandatory outer
+encryption, a Linux SCTP message adapter, and a bounded Linux WebRTC bridge for
+the explicitly bound Nim/WebRTC Profile; see its versioned envelope guide and
+local signalling handoff contract. Linux observation checks actual
+process-owned transport sockets, verifies the envelope's private upstream, and
+for WebRTC waits for active authenticated-session telemetry. This does not
+certify twelve-Core message interoperability. The remaining capabilities are
+not represented as verified controls.
 The [review record](review-2026-10-03.md) lists the checks actually run and the
 existing binary/audit limitations.
