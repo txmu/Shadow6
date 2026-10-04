@@ -943,7 +943,7 @@ jobs:
           set -euo pipefail
           chmod 0755 OCaml/privacy_envelope/shadow6-privacy-envelope OCaml/privacy_envelope/lib/libdatachannel.so.0.23
           LD_LIBRARY_PATH="$PWD/OCaml/privacy_envelope/lib" OCaml/privacy_envelope/shadow6-privacy-envelope --feature-report > "$RUNNER_TEMP/s6epe-features.json"
-          python3 -c 'import json,sys; r=json.load(open(sys.argv[1])); assert r["wire_version"] == 3 and r["payload_encryption"] and "sctp" in r["carriers"]["message_adapters"] and "webrtc" not in r["carriers"]["message_adapters"]' "$RUNNER_TEMP/s6epe-features.json"
+          python3 -c 'import json,sys; r=json.load(open(sys.argv[1])); assert r["wire_version"] == 3 and r["payload_encryption"] and "sctp" in r["carriers"]["message_adapters"] and "webrtc" in r["carriers"]["message_adapters"]' "$RUNNER_TEMP/s6epe-features.json"
       - name: Build every Linux core and component
         run: |
           make build BUILD_ZIG=1 BUILD_ADA=1 BUILD_CPP=1 BUILD_PONY=1
