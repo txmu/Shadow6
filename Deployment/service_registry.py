@@ -479,10 +479,20 @@ class ServiceRegistry:
         item = self.apply(name); binding = self.require_binding(name)
         admit(item['protocolContext'], role=None if item['protocolContext']['role'] == 'all' else item['protocolContext']['role'])
         if runtime.alive(item.get('runtime', {})):
-            existing = self.status(name)
-            if existing['runtime']['readiness'] == 'unavailable':
-                raise ValueError('runtime health unavailable; explicitly restart')
-            return existing
+            # The supervisor refreshes its owned-socket observation every
+            # 200ms, while readers reject observations older than two seconds.
+            # Allow a live supervisor a short bounded window to publish the
+            # next sample before treating health as unavailable.
+            deadline = time.monotonic() + 3
+            while True:
+                existing = self.status(name)
+                if existing['runtime']['readiness'] != 'unavailable':
+                    return existing
+                if not runtime.alive(item['runtime']):
+                    break
+                if time.monotonic() >= deadline:
+                    raise ValueError('runtime health unavailable; explicitly restart')
+                time.sleep(.1)
         material = self._material(name)
         if digest(encoded(material)) != item['deploymentLock']['digest']:
             raise ValueError('deployment drift; explicitly reconfigure and apply')

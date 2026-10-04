@@ -57,6 +57,17 @@ class ServiceLifecycleTests(unittest.TestCase):
         self.registry.remove('home/nas')
         self.assertEqual(self.registry.list(), [])
 
+    def test_idempotent_run_rechecks_transient_unavailable_observation(self):
+        first = self.registry.run('home/nas')
+        stale = json.loads(json.dumps(first))
+        stale['runtime']['readiness'] = 'unavailable'
+        with patch.object(self.registry, 'status', side_effect=[stale, first]) as status, \
+             patch('Deployment.service_registry.time.sleep') as pause:
+            reused = self.registry.run('home/nas')
+        self.assertEqual(reused['runtime']['pid'], first['runtime']['pid'])
+        self.assertEqual(status.call_count, 2)
+        pause.assert_called_once_with(.1)
+
     def test_host_budget_drift_reports_without_shrinking_running_process(self):
         from limits import HostBudget
         item = self.registry.run('home/nas')
