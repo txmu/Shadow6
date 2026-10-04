@@ -253,7 +253,7 @@ def probe(case, node, target, deadline, ca_file, udp_limit=1200):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('action', choices=('catalog', 'run', 'contracts', 'export'))
-    parser.add_argument('--suite', action='append', choices=('adapter','interop','application','public6','features','adversarial','slots','extensions','plugins'))
+    parser.add_argument('--suite', action='append', choices=('adapter','interop','application','public6','features','native-security','adversarial','slots','extensions','plugins'))
     parser.add_argument('--destination', type=Path, help='new directory for a portable contract bundle')
     parser.add_argument('--node', help='tcp/udp/tls/socks5/http/https://numeric-IP:port')
     parser.add_argument('--target', help='tcp://numeric-IP:port of operator-controlled echo target (required for proxy protocols)')
@@ -266,7 +266,7 @@ def main():
     parser.add_argument('--output', type=Path)
     args = parser.parse_args()
     if args.action == 'catalog':
-        print(json.dumps({'schema': 'paranoid-proxy-benchmark.catalog.v1', 'cases': CATALOG, 'contract_suites': ['adapter','interop','application','public6','features','adversarial','slots','extensions','plugins'], 'network_scope': 'generic byte-transparent proxy and operator echo target; no Shadow6 dependency'}, indent=2)); return 0
+        print(json.dumps({'schema': 'paranoid-proxy-benchmark.catalog.v1', 'cases': CATALOG, 'contract_suites': ['adapter','interop','application','public6','features','native-security','adversarial','slots','extensions','plugins'], 'network_scope': 'generic byte-transparent proxy and operator echo target; no Shadow6 dependency'}, indent=2)); return 0
     try:
         if not 1 <= args.udp_limit <= 65507: raise ValueError('--udp-limit must be 1..65507')
         if not math.isfinite(args.timeout) or not 0.1 <= args.timeout <= 10 or not math.isfinite(args.budget) or not 1 <= args.budget <= 300:

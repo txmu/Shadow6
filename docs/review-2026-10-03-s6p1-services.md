@@ -71,8 +71,10 @@ Actions verification. Stale local artifacts have not been relabelled or forged.
 Residual support limits are documented in [service connections](service-connections.md):
 Linux pidfd supervision, explicit private listener contracts for envelope service
 realizations, supported observed stream attachment, Gate pool trust/policy limits,
-and native-only remote activation. EPE v2 remains an admission model, not complete
-outer encrypted cover traffic or anonymity. The new remote run's result must be
+and native-only remote activation. At that historical checkpoint EPE v2 was an
+admission model. It has since been replaced by the authenticated encrypted
+[v3 implementation](privacy-envelope.md), whose bounded shaping does not provide
+anonymity or carrier camouflage. The new remote run's result must be
 observed after submission; local tests cannot certify that matrix.
 
 ## Broker realization follow-up

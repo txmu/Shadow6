@@ -73,7 +73,7 @@ class Tests(unittest.TestCase):
             script = bundle / 'Paranoid-Proxy-Benchmark/paranoid_proxy_benchmark.py'
             result = subprocess.run([sys.executable, '-B', str(script), 'contracts',
                 '--suite', 'adversarial', '--suite', 'application', '--suite', 'features',
-                '--suite', 'public6'], cwd=directory, capture_output=True, text=True, timeout=120)
+                '--suite', 'public6', '--suite', 'native-security'], cwd=directory, capture_output=True, text=True, timeout=120)
             self.assertIn(result.returncode, (0,1) if os.name == 'nt' else (0,), result.stdout + result.stderr)
             report = json.loads(result.stdout)
             self.assertGreater(sum(len(row['results']) for row in report['results']), 450)

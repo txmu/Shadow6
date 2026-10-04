@@ -427,7 +427,7 @@ ifeq ($(BUILD_APP),1)
 endif
 ifeq ($(BUILD_CROSED),1)
 	@$(PYTHON) -m unittest -v Crosed/test_crosed.py
-	@PYTHONPATH=Crosed $(PYTHON) -m unittest -v Crosed/test_feature_contract.py
+	@PYTHONPATH=Crosed $(PYTHON) -m unittest -v Crosed/test_feature_contract.py Crosed/test_security_capabilities.py
 	@PYTHONPATH=Crosed $(PYTHON) -m unittest -v Crosed/test_install_layout.py
 endif
 ifeq ($(BUILD_ASSISTANTS),1)

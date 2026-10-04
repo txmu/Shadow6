@@ -5,6 +5,8 @@ limits, start with [the lifecycle guide](docs/named-services.md). The optional
 [OCaml Privacy Envelope](docs/privacy-envelope.md) has a client/server E2E test
 suite; [the review record](docs/review-2026-10-03.md) separates implemented controls
 from remaining native-artifact and deployment checks.
+The [native security capability matrix](docs/native-security-capabilities.md)
+distinguishes each family's native security from the independent S6EPE domain.
 
 Welcome. If this is your first visit, begin with the
 [English guide](docs/getting-started.en.md) or [中文入门指南](docs/getting-started.zh-CN.md).

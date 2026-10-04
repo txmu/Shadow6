@@ -16,6 +16,7 @@ SUITES = {
     'application': ('Application-Layer', 'test_protocols.py'),
     'public6': ('Public6', 'test_public6.py'),
     'features': ('Crosed', 'test_feature_contract.py'),
+    'native-security': ('Crosed', 'test_security_capabilities.py'),
     'slots': ('Slot-System', 'test_slots.py'),
     'extensions': ('Extension-System', 'test_extensions.py'),
     'plugins': ('Plugin-System', 'test_plugins.py'),
@@ -42,6 +43,20 @@ FILES += [
     'Security-Assistants/shadow6_security.py',
 ]
 FILES += [f'plugins/{plugin}/{name}' for plugin in ('maze-runner','number-guess','rock-paper-scissors') for name in ('main.py','plugin.json')]
+# The native security inventory is a source contract, including its evidence.
+# Export the evidence itself so validation remains independent of the checkout.
+FILES += [
+    'Crosed/security_capabilities.py', 'Crosed/security_capabilities.json',
+    'docs/native-security-capabilities.md', 'Core-Go/control.go',
+    'Core-Gleam/src/shadow6_forward.erl', 'Core-Gleam/README.md',
+    'Core-Cpp/src/net.hpp', 'Core-Cpp/README.md',
+    'Core-Zig/src/crypto.zig', 'Core-Zig/README.md',
+    'Core-Ada/src/platform.c', 'Core-Ada/src/relay.adb',
+    'Core-D/README.md', 'Core-Nim/src/rtc_bridge.c', 'Core-Nim/src/frames.nim',
+    'Core-Pony/crypto/session.c', 'Core-Pony/README.md',
+    'Core-Hare/README.md', 'Core-Carp/README.md',
+    'Core-Idris/ffi/native_chain.h', 'Core-Idris/README.md',
+]
 PLUGIN_CASES = ('test_bundled_plugins_are_signed_and_discoverable',
     'test_modified_code_and_manifest_are_rejected',
     'test_capabilities_are_deny_by_default_at_policy_boundary',

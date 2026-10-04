@@ -15,6 +15,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT / "Crosed"))
 from feature_contract import CORE_PATHS, runtime_environment, validate_feature_report
+from security_capabilities import load_matrix
 
 
 class Audit:
@@ -354,6 +355,11 @@ def main() -> int:
     args = parser.parse_args()
     audit = Audit()
     check_sources(audit)
+    try:
+        matrix = load_matrix(source_root=ROOT)
+        audit.pass_(f"native security capability matrix: {len(matrix['cores'])} source contracts validated")
+    except (ValueError, OSError) as error:
+        audit.fail(f"native security capability matrix: {error}")
     check_plugins(audit)
     if not args.source_only:
         check_core_feature_contract(audit)

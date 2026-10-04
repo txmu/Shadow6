@@ -1,0 +1,686 @@
+{
+  "schema": "shadow6.native-security-capabilities.v1",
+  "security_domain": "native-core",
+  "evidence_kind": "source-contract",
+  "outer_domain": {
+    "component": "S6EPE",
+    "independent": true,
+    "mandatory_encryption": true,
+    "native_protocol_translation": false
+  },
+  "cores": [
+    {
+      "core": "shadow6-go",
+      "transport": "kcp",
+      "scope": "native broker/agent/client data path",
+      "capabilities": {
+        "encryption": {
+          "status": "native",
+          "detail": "AES-GCM bounded records over encrypted KCP."
+        },
+        "authentication": {
+          "status": "native",
+          "detail": "Pinned Ed25519 control authorization binds the client/agent ephemeral exchange; AEAD authenticates payload."
+        },
+        "fresh_keys": {
+          "status": "native",
+          "detail": "Fresh X25519 exchange per authorized tunnel; random nonce prefix per record connection."
+        },
+        "replay": {
+          "status": "limited",
+          "detail": "KCP supplies ordered delivery and discovery has a bounded nonce cache. The AEAD reader accepts transmitted nonces without an independent receive-counter check; do not claim standalone AEAD record replay rejection."
+        },
+        "session_lifecycle": {
+          "status": "native",
+          "detail": "Authenticated empty AEAD record propagates half-close; nonce exhaustion rejects writes."
+        },
+        "rekey": {
+          "status": "not-declared",
+          "detail": "No application-managed in-session ratchet is declared; a fresh session is distinct from an in-session key update."
+        },
+        "shaping": {
+          "status": "not-declared",
+          "detail": "Pacing and reliable windows do not declare traffic-analysis padding, jitter or cover."
+        },
+        "persistent_replay": {
+          "status": "not-declared",
+          "detail": "No durable native data replay ledger is declared. Fresh session keys are separate from persistence; Crosed authorization ledgers are out of scope."
+        }
+      },
+      "evidence": [
+        {
+          "path": "Core-Go/data.go",
+          "contains": "connection.aead.Open"
+        },
+        {
+          "path": "Core-Go/data.go",
+          "contains": "ecdh.X25519().GenerateKey"
+        },
+        {
+          "path": "Core-Go/control.go",
+          "contains": "tls.VersionTLS13"
+        }
+      ],
+      "legacy_modes": []
+    },
+    {
+      "core": "shadow6-rust",
+      "transport": "quic",
+      "scope": "native broker/agent/client data path",
+      "capabilities": {
+        "encryption": {
+          "status": "transport",
+          "detail": "Quinn/rustls QUIC TLS encrypts and authenticates packets."
+        },
+        "authentication": {
+          "status": "native",
+          "detail": "Signed control authorization and pinned identity/certificate verification precede native QUIC application access."
+        },
+        "fresh_keys": {
+          "status": "transport",
+          "detail": "TLS/QUIC establishes fresh connection traffic secrets."
+        },
+        "replay": {
+          "status": "transport",
+          "detail": "QUIC connection packet-number protection; this is connection-scoped, not a durable replay ledger."
+        },
+        "session_lifecycle": {
+          "status": "transport",
+          "detail": "Native QUIC stream/session lifecycle and stream limits."
+        },
+        "rekey": {
+          "status": "transport",
+          "detail": "QUIC key-update capability belongs to the transport library; no separate application ratchet or measured update interval is claimed."
+        },
+        "shaping": {
+          "status": "not-declared",
+          "detail": "Pacing and reliable windows do not declare traffic-analysis padding, jitter or cover."
+        },
+        "persistent_replay": {
+          "status": "not-declared",
+          "detail": "No durable native data replay ledger is declared. Fresh session keys are separate from persistence; Crosed authorization ledgers are out of scope."
+        }
+      },
+      "evidence": [
+        {
+          "path": "Core-Rust/src/main.rs",
+          "contains": "QuicServerConfig::try_from"
+        },
+        {
+          "path": "Core-Rust/src/main.rs",
+          "contains": "QuicClientConfig::try_from"
+        }
+      ],
+      "legacy_modes": []
+    },
+    {
+      "core": "shadow6-gleam",
+      "transport": "secure-stream",
+      "scope": "native broker/agent/client data path",
+      "capabilities": {
+        "encryption": {
+          "status": "native",
+          "detail": "Directional ChaCha20-Poly1305 secure-stream records; Micro-Mux is a distinct bounded datagram mode."
+        },
+        "authentication": {
+          "status": "native",
+          "detail": "Ed25519-authorized ephemeral exchange and authenticated record headers."
+        },
+        "fresh_keys": {
+          "status": "native",
+          "detail": "X25519 exchange and directional HKDF-style HMAC derivation."
+        },
+        "replay": {
+          "status": "native",
+          "detail": "Exact stream receive sequence; Micro-Mux retains bounded session replay tombstones across actor termination."
+        },
+        "session_lifecycle": {
+          "status": "native",
+          "detail": "Authenticated close and bounded stream lifetime; raw premature EOF rejects."
+        },
+        "rekey": {
+          "status": "not-declared",
+          "detail": "No application-managed in-session ratchet is declared; a fresh session is distinct from an in-session key update."
+        },
+        "shaping": {
+          "status": "not-declared",
+          "detail": "Pacing and reliable windows do not declare traffic-analysis padding, jitter or cover."
+        },
+        "persistent_replay": {
+          "status": "not-declared",
+          "detail": "No durable native data replay ledger is declared. Fresh session keys are separate from persistence; Crosed authorization ledgers are out of scope."
+        }
+      },
+      "evidence": [
+        {
+          "path": "Core-Gleam/src/shadow6_forward.erl",
+          "contains": "unauthenticated_remote_close"
+        },
+        {
+          "path": "Core-Gleam/src/shadow6_forward.erl",
+          "contains": "shadow6_sodium:x25519"
+        },
+        {
+          "path": "Core-Gleam/README.md",
+          "contains": "Restarting"
+        }
+      ],
+      "legacy_modes": [
+        {
+          "mode": "micro-mux",
+          "limitation": "Replay tombstones survive actor termination in a live session, not process restart with a reused configured key."
+        }
+      ]
+    },
+    {
+      "core": "shadow6-cpp",
+      "transport": "sctp-tls13",
+      "scope": "native broker/agent/client data path",
+      "capabilities": {
+        "encryption": {
+          "status": "transport",
+          "detail": "TLS 1.3 protects native SCTP associations and WebSocket control."
+        },
+        "authentication": {
+          "status": "native",
+          "detail": "Mutually authenticated pinned Ed25519 TLS identities and signed short-lived access tickets."
+        },
+        "fresh_keys": {
+          "status": "transport",
+          "detail": "Fresh TLS 1.3 handshake; tickets, session cache and early data disabled."
+        },
+        "replay": {
+          "status": "transport",
+          "detail": "TLS record protection and native ticket replay admission; no durable data replay ledger claim."
+        },
+        "session_lifecycle": {
+          "status": "transport",
+          "detail": "TLS close and SCTP association lifecycle plus native tunnel/half-close bounds."
+        },
+        "rekey": {
+          "status": "transport",
+          "detail": "TLS 1.3 supports transport key updates; this implementation declares no explicit application key-update schedule."
+        },
+        "shaping": {
+          "status": "not-declared",
+          "detail": "Pacing and reliable windows do not declare traffic-analysis padding, jitter or cover."
+        },
+        "persistent_replay": {
+          "status": "not-declared",
+          "detail": "No durable native data replay ledger is declared. Fresh session keys are separate from persistence; Crosed authorization ledgers are out of scope."
+        }
+      },
+      "evidence": [
+        {
+          "path": "Core-Cpp/src/net.hpp",
+          "contains": "TLS1_3_VERSION"
+        },
+        {
+          "path": "Core-Cpp/src/net.hpp",
+          "contains": "SSL_CTX_set_max_early_data"
+        },
+        {
+          "path": "Core-Cpp/README.md",
+          "contains": "nonce-bearing access tickets"
+        }
+      ],
+      "legacy_modes": []
+    },
+    {
+      "core": "shadow6-zig",
+      "transport": "enet",
+      "scope": "native broker/agent/client data path",
+      "capabilities": {
+        "encryption": {
+          "status": "native",
+          "detail": "ChaCha20-Poly1305 ENet-style bounded native frames."
+        },
+        "authentication": {
+          "status": "native",
+          "detail": "Ed25519-signed X25519 control grants bind both endpoint keys and transport domain."
+        },
+        "fresh_keys": {
+          "status": "native",
+          "detail": "Ephemeral X25519 root and random channel identifiers derive directional keys."
+        },
+        "replay": {
+          "status": "native",
+          "detail": "Bounded reliable receive/reassembly window and authenticated sequence/ACK domains."
+        },
+        "session_lifecycle": {
+          "status": "native",
+          "detail": "Authenticated OPEN/CLOSE, retry and lifetime bounds."
+        },
+        "rekey": {
+          "status": "not-declared",
+          "detail": "No application-managed in-session ratchet is declared; a fresh session is distinct from an in-session key update."
+        },
+        "shaping": {
+          "status": "not-declared",
+          "detail": "Pacing and reliable windows do not declare traffic-analysis padding, jitter or cover."
+        },
+        "persistent_replay": {
+          "status": "not-declared",
+          "detail": "No durable native data replay ledger is declared. Fresh session keys are separate from persistence; Crosed authorization ledgers are out of scope."
+        }
+      },
+      "evidence": [
+        {
+          "path": "Core-Zig/src/crypto.zig",
+          "contains": "std.crypto.dh.X25519"
+        },
+        {
+          "path": "Core-Zig/README.md",
+          "contains": "ChaCha20-Poly1305"
+        },
+        {
+          "path": "Core-Zig/README.md",
+          "contains": "authenticated ACKs"
+        }
+      ],
+      "legacy_modes": []
+    },
+    {
+      "core": "shadow6-ada",
+      "transport": "cell-relay",
+      "scope": "native broker/agent/client data path",
+      "capabilities": {
+        "encryption": {
+          "status": "native",
+          "detail": "ChaCha20-Poly1305 fixed 512-byte cells with independent direction keys."
+        },
+        "authentication": {
+          "status": "native",
+          "detail": "Ed25519 control grants bind ephemeral endpoint keys; encrypted confirmation precedes relay."
+        },
+        "fresh_keys": {
+          "status": "native",
+          "detail": "Random X25519 secret per grant; direction-bound digest derivation."
+        },
+        "replay": {
+          "status": "native",
+          "detail": "Expected cell serial and bounded message reassembly; agent retains a bounded ephemeral grant cache."
+        },
+        "session_lifecycle": {
+          "status": "native",
+          "detail": "Authenticated final cells; idle and session deadlines; raw EOF invalid."
+        },
+        "rekey": {
+          "status": "not-declared",
+          "detail": "No application-managed in-session ratchet is declared; a fresh session is distinct from an in-session key update."
+        },
+        "shaping": {
+          "status": "native",
+          "detail": "Fixed-size cells carry random padding; this is native framing, not an anonymity or cover-traffic guarantee."
+        },
+        "persistent_replay": {
+          "status": "not-declared",
+          "detail": "No durable native data replay ledger is declared. Fresh session keys are separate from persistence; Crosed authorization ledgers are out of scope."
+        }
+      },
+      "evidence": [
+        {
+          "path": "Core-Ada/src/platform.c",
+          "contains": "crypto_aead_chacha20poly1305_ietf_encrypt"
+        },
+        {
+          "path": "Core-Ada/src/runtime.adb",
+          "contains": "shadow6-ada-cell-v1"
+        },
+        {
+          "path": "Core-Ada/src/relay.adb",
+          "contains": "raw EOF"
+        }
+      ],
+      "legacy_modes": []
+    },
+    {
+      "core": "shadow6-d",
+      "transport": "secure-stream",
+      "scope": "native broker/agent/client data path",
+      "capabilities": {
+        "encryption": {
+          "status": "native",
+          "detail": "Directional HKDF ChaCha20-Poly1305 records."
+        },
+        "authentication": {
+          "status": "native",
+          "detail": "Pinned Ed25519-signed X25519 hello/transcript and control allowlists."
+        },
+        "fresh_keys": {
+          "status": "native",
+          "detail": "Fresh ephemeral X25519 exchange per session."
+        },
+        "replay": {
+          "status": "native",
+          "detail": "Monotonic sequence state; retained UDP mode acknowledges duplicates without redelivery."
+        },
+        "session_lifecycle": {
+          "status": "native",
+          "detail": "Authenticated close, 24-hour stream lifetime; UDP has 60-second lifetime and counter bounds."
+        },
+        "rekey": {
+          "status": "not-declared",
+          "detail": "No application-managed in-session ratchet is declared; a fresh session is distinct from an in-session key update."
+        },
+        "shaping": {
+          "status": "not-declared",
+          "detail": "Pacing and reliable windows do not declare traffic-analysis padding, jitter or cover."
+        },
+        "persistent_replay": {
+          "status": "not-declared",
+          "detail": "No durable native data replay ledger is declared. Fresh session keys are separate from persistence; Crosed authorization ledgers are out of scope."
+        }
+      },
+      "evidence": [
+        {
+          "path": "Core-D/README.md",
+          "contains": "ChaCha20-Poly1305"
+        },
+        {
+          "path": "Core-D/README.md",
+          "contains": "authenticated close records"
+        },
+        {
+          "path": "Core-D/src/runtime.d",
+          "contains": "module"
+        }
+      ],
+      "legacy_modes": [
+        {
+          "mode": "embedded-udp",
+          "limitation": "One authenticated source-bound session with bounded lifetime and immutable retransmissions; it is distinct from the standalone stream."
+        }
+      ]
+    },
+    {
+      "core": "shadow6-nim",
+      "transport": "webrtc",
+      "scope": "native broker/agent/client data path",
+      "capabilities": {
+        "encryption": {
+          "status": "transport",
+          "detail": "WebRTC DataChannel DTLS encryption over its SCTP/ICE lifecycle."
+        },
+        "authentication": {
+          "status": "native",
+          "detail": "Ed25519 peer signatures bind SDP including DTLS fingerprints, destination, session and expiry."
+        },
+        "fresh_keys": {
+          "status": "transport",
+          "detail": "Fresh WebRTC DTLS connection secrets; signed SDP pins the transport endpoint."
+        },
+        "replay": {
+          "status": "transport",
+          "detail": "DTLS/SCTP transport protection plus strict native application frame receive sequence."
+        },
+        "session_lifecycle": {
+          "status": "native",
+          "detail": "Bounded queues and application close/half-close layered on DataChannel lifecycle."
+        },
+        "rekey": {
+          "status": "not-declared",
+          "detail": "No application ratchet is declared. Do not infer an in-session DTLS rekey schedule from the WebRTC label."
+        },
+        "shaping": {
+          "status": "not-declared",
+          "detail": "Pacing and reliable windows do not declare traffic-analysis padding, jitter or cover."
+        },
+        "persistent_replay": {
+          "status": "not-declared",
+          "detail": "No durable native data replay ledger is declared. Fresh session keys are separate from persistence; Crosed authorization ledgers are out of scope."
+        }
+      },
+      "evidence": [
+        {
+          "path": "Core-Nim/src/runtime.nim",
+          "contains": "DTLS fingerprints"
+        },
+        {
+          "path": "Core-Nim/src/rtc_bridge.c",
+          "contains": "rtcCreatePeerConnection"
+        },
+        {
+          "path": "Core-Nim/src/frames.nim",
+          "contains": "result.sequence == expected"
+        }
+      ],
+      "legacy_modes": []
+    },
+    {
+      "core": "shadow6-pony",
+      "transport": "udp",
+      "scope": "native broker/agent/client data path",
+      "capabilities": {
+        "encryption": {
+          "status": "native",
+          "detail": "ChaCha20-Poly1305 directional data/ACK nonce domains."
+        },
+        "authentication": {
+          "status": "native",
+          "detail": "Pinned Ed25519 signed hello/response; identity selectors do not replace signature verification."
+        },
+        "fresh_keys": {
+          "status": "native",
+          "detail": "Fresh X25519 exchange with random hello nonce per session."
+        },
+        "replay": {
+          "status": "native",
+          "detail": "Bounded ordered reliable windows and immutable retransmission ciphertext."
+        },
+        "session_lifecycle": {
+          "status": "native",
+          "detail": "Idle expiration, bounded retries and reconnect backoff; do not claim a TLS-style authenticated half-close."
+        },
+        "rekey": {
+          "status": "not-declared",
+          "detail": "No application-managed in-session ratchet is declared; a fresh session is distinct from an in-session key update."
+        },
+        "shaping": {
+          "status": "not-declared",
+          "detail": "Pacing and reliable windows do not declare traffic-analysis padding, jitter or cover."
+        },
+        "persistent_replay": {
+          "status": "not-declared",
+          "detail": "No durable native data replay ledger is declared. Fresh session keys are separate from persistence; Crosed authorization ledgers are out of scope."
+        }
+      },
+      "evidence": [
+        {
+          "path": "Core-Pony/crypto/session.c",
+          "contains": "crypto_scalarmult_curve25519_base"
+        },
+        {
+          "path": "Core-Pony/README.md",
+          "contains": "AEAD nonces include frame kind"
+        },
+        {
+          "path": "Core-Pony/README.md",
+          "contains": "Idle sessions expire"
+        }
+      ],
+      "legacy_modes": []
+    },
+    {
+      "core": "shadow6-hare",
+      "transport": "udp",
+      "scope": "native broker/agent/client data path",
+      "capabilities": {
+        "encryption": {
+          "status": "native",
+          "detail": "ChaCha20 payload plus keyed fixed-size session authenticator."
+        },
+        "authentication": {
+          "status": "native",
+          "detail": "Pinned Ed25519 signed challenge/response authenticates fresh exchange and packet context."
+        },
+        "fresh_keys": {
+          "status": "native",
+          "detail": "Fresh X25519 exchange and independent direction keys in online modes."
+        },
+        "replay": {
+          "status": "native",
+          "detail": "Authenticated monotonic nonce state and bounded receive/reorder windows."
+        },
+        "session_lifecycle": {
+          "status": "native",
+          "detail": "Bounded reliable datagrams and application drain behavior; no TLS stream-close equivalence is claimed."
+        },
+        "rekey": {
+          "status": "not-declared",
+          "detail": "No application-managed in-session ratchet is declared; a fresh session is distinct from an in-session key update."
+        },
+        "shaping": {
+          "status": "native",
+          "detail": "Fixed 1024-byte native packets; no cover/jitter guarantee."
+        },
+        "persistent_replay": {
+          "status": "not-declared",
+          "detail": "No durable native data replay ledger is declared. Fresh session keys are separate from persistence; Crosed authorization ledgers are out of scope."
+        }
+      },
+      "evidence": [
+        {
+          "path": "Core-Hare/README.md",
+          "contains": "ChaCha20 payload"
+        },
+        {
+          "path": "Core-Hare/README.md",
+          "contains": "fresh X25519 keys"
+        },
+        {
+          "path": "Core-Hare/src/runtime.ha",
+          "contains": "nonce_number"
+        }
+      ],
+      "legacy_modes": [
+        {
+          "mode": "legacy-abc",
+          "limitation": "Bounded datagram contract remains distinct from three-role reliable mode; no universal stream ABI."
+        }
+      ]
+    },
+    {
+      "core": "shadow6-carp",
+      "transport": "udp",
+      "scope": "native broker/agent/client data path",
+      "capabilities": {
+        "encryption": {
+          "status": "native",
+          "detail": "Three XChaCha20-Poly1305 layers in bounded fixed native packets."
+        },
+        "authentication": {
+          "status": "native",
+          "detail": "Pinned Ed25519 exchange authenticates online X25519 keys; all layer tags and schema verified."
+        },
+        "fresh_keys": {
+          "status": "native",
+          "detail": "Online ephemeral X25519 exchange; offline encode/decode uses configured symmetric keys."
+        },
+        "replay": {
+          "status": "mode-dependent",
+          "detail": "Online monotonic replay/window state; offline decode intentionally has no replay/session state."
+        },
+        "session_lifecycle": {
+          "status": "native",
+          "detail": "Bounded online datagrams, retries and session resources; offline transform has no session lifecycle."
+        },
+        "rekey": {
+          "status": "not-declared",
+          "detail": "No application-managed in-session ratchet is declared; a fresh session is distinct from an in-session key update."
+        },
+        "shaping": {
+          "status": "native",
+          "detail": "Fixed-size onion framing/padding; no traffic-analysis or anonymity guarantee."
+        },
+        "persistent_replay": {
+          "status": "not-declared",
+          "detail": "No durable native data replay ledger is declared. Fresh session keys are separate from persistence; Crosed authorization ledgers are out of scope."
+        }
+      },
+      "evidence": [
+        {
+          "path": "Core-Carp/src/runtime.h",
+          "contains": "crypto_aead_xchacha20poly1305_ietf_decrypt_detached"
+        },
+        {
+          "path": "Core-Carp/src/runtime.h",
+          "contains": "crypto_scalarmult_curve25519"
+        },
+        {
+          "path": "Core-Carp/README.md",
+          "contains": "Offline decoding intentionally"
+        }
+      ],
+      "legacy_modes": [
+        {
+          "mode": "offline-encode-decode",
+          "limitation": "Static symmetric layer keys; no online authentication exchange, replay state or session lifecycle."
+        },
+        {
+          "mode": "legacy-online",
+          "limitation": "Retained bounded A/B/C datagrams are not the three-role reliable contract."
+        }
+      ]
+    },
+    {
+      "core": "shadow6-idris",
+      "transport": "udp",
+      "scope": "native broker/agent/client data path",
+      "capabilities": {
+        "encryption": {
+          "status": "native",
+          "detail": "Direction-bound XChaCha20-Poly1305 native frames; offline AES helpers are separate."
+        },
+        "authentication": {
+          "status": "native",
+          "detail": "Three-role S6I3 exchange uses pinned Ed25519 signatures; legacy native link uses an owned PSK."
+        },
+        "fresh_keys": {
+          "status": "mode-dependent",
+          "detail": "Three-role mode exchanges fresh X25519 keys; legacy mode uses a configured master key and fresh sender session identifier."
+        },
+        "replay": {
+          "status": "native",
+          "detail": "Authenticated session pin and bounded sequence/gap/reliable-window checks during a live process."
+        },
+        "session_lifecycle": {
+          "status": "native",
+          "detail": "Bounded datagram packet/idle/retry lifecycle; dependent types do not prove the OS/C implementation."
+        },
+        "rekey": {
+          "status": "not-declared",
+          "detail": "No application-managed in-session ratchet is declared; a fresh session is distinct from an in-session key update."
+        },
+        "shaping": {
+          "status": "not-declared",
+          "detail": "Pacing and reliable windows do not declare traffic-analysis padding, jitter or cover."
+        },
+        "persistent_replay": {
+          "status": "not-declared",
+          "detail": "No durable native data replay ledger is declared. Fresh session keys are separate from persistence; Crosed authorization ledgers are out of scope."
+        }
+      },
+      "evidence": [
+        {
+          "path": "Core-Idris/ffi/native_chain.h",
+          "contains": "crypto_scalarmult_base"
+        },
+        {
+          "path": "Core-Idris/README.md",
+          "contains": "XChaCha20-Poly1305"
+        },
+        {
+          "path": "Core-Idris/README.md",
+          "contains": "rotate it before restart"
+        }
+      ],
+      "legacy_modes": [
+        {
+          "mode": "legacy-native-psk",
+          "limitation": "Rotate the master key before restart for cross-restart replay threats; fresh sender ID is not durable replay state."
+        }
+      ]
+    }
+  ]
+}
