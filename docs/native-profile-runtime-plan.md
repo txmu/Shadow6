@@ -1,5 +1,43 @@
 # Native Profile Runtime implementation and evidence ledger
 
+## Latest worktree continuation (2026-10-04; uncommitted)
+
+This section supersedes status statements below for the current worktree. It
+records local implementation and tests; CI evidence is still required for the
+latest Pony fix and the new Native Profile integration changes.
+
+- `shadow6 auto realize --file ... --namespace ... --output-dir ...` now
+  generates fresh private native configs, binds all-local topology nodes to
+  the Named Service registry, locks and applies the batch, and leaves startup
+  explicit. It rejects remote deploy roots, Gate compositions and reused
+  output paths. The command has generated-config permission and remote-reject
+  tests. This is topology realization, not the complete guided UI/setup flow.
+- S6NA credited attachment configuration and its 32-byte key are included in
+  the Named Service material lock, component Limits, pre-spawn verification
+  and `libshadow6.open_credited_for_service`. The companion preserves records
+  and enforces credit/backpressure. Transparent bridging from every local
+  application endpoint is still open.
+- Limits now include Guard and credited S6NA estimates alongside Gate and
+  S6EPE, with per-process FD, aggregate host FD and aggregate memory checks.
+  This is bounded admission planning; the supervisor does not enforce a
+  portable aggregate RSS/CPU budget at runtime.
+- Stopped upgrade restores the exact prior registry bytes if configure, lock
+  or apply fails. S6EPE still has no executable WebRTC config/signaling
+  lifecycle. Non-Linux Named Service process supervision remains unavailable;
+  native init script generation is not lifecycle parity.
+- Focused local runs passed: Auto-Orchestrator 26, Crosed Limits 8, combined
+  Deployment ProfileBinding/topology/context 56, Detector compliance 1, and
+  libshadow6 13 tests. Groups overlap. Python compile and CLI help checks
+  passed. The CI-matched 136-test source-only acceptance set passed with one
+  explicit skip; source acceptance reported 3 pass, 0 fail, 3 unavailable and
+  1 not-run. No Hare, Carp, Pony, Idris or other Core binary was built locally.
+- Actions run `37205139095` exposed two failures: the existing envelope drift
+  fixture used invalid preauth/session limits, and Pony's consumed-field
+  replacement was not assignable. Both are corrected in this worktree but
+  have not yet been pushed for CI confirmation. No default/Crosed/Public6
+  matrix, complete 13 Profile lifecycle gate, full release workflow, Android
+  build or archive packaging has run for this worktree.
+
 ## Current integration checkpoint (2026-10-04, local commit `bccbecb6`)
 
 The user has prioritized integration work across the existing Profile-driven

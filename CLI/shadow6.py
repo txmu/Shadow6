@@ -147,6 +147,7 @@ def add_service_options(parser):
  parser.add_argument("--protocol-file",type=Path,help="owner-only S6P1 token file")
  parser.add_argument("--gate-config",type=Path)
  parser.add_argument("--guard-config",type=Path)
+ parser.add_argument("--credited-config",type=Path,help="lock an owner-only S6NA credited companion attachment")
  parser.add_argument("--privacy",choices=("native","envelope"),default="native")
  parser.add_argument("--envelope-config",type=Path)
  parser.add_argument("--metrics",type=Path)
@@ -159,7 +160,7 @@ def service_spec(args):
  from service_storage import private_read, strict_json
  overrides = strict_json(private_read(args.limits_overrides)) if args.limits_overrides else {}
  result={"ttl":args.ttl,"limits":validate_policy({"mode":args.limits_mode,"operator_overrides":overrides})}
- for component in ("gate","guard"):
+ for component in ("gate","guard","credited"):
   path=getattr(args,component+"_config")
   if path: result[component+"_config"]=str(path.absolute())
  if args.envelope_config: result["envelope_config"]=str(args.envelope_config.absolute())

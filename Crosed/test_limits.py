@@ -62,17 +62,75 @@ class LimitsTests(unittest.TestCase):
         inputs = {
             'gate': {'limits': {'max_connections': 64, 'max_frame_bytes': 8192, 'idle_seconds': 60}},
             'envelope': {'max_sessions': '24', 'max_preauth': '8', 'max_frame': '4096', 'idle_timeout': '30'},
+            'guard': {'role':'broker_guard', 'broker_shield': {'enabled':True, 'max_conn_per_ip':32}},
         }
-        limits = self.resolver.resolve_components(inputs, host=self.host, process_fds=512)
+        limits = self.resolver.resolve_components(inputs, host=self.host, process_fds=1024)
         self.assertEqual(limits['components']['gate']['estimated_fds'], 144)
         self.assertEqual(limits['components']['envelope']['estimated_memory_bytes'], 196608)
-        self.resolver.validate_components(limits, inputs, host=self.host, process_fds=512)
+        self.assertEqual(limits['components']['guard']['max_active_connections'], 256)
+        self.assertEqual(limits['components']['guard']['max_active_datagram_workers'], 0)
+        self.assertEqual(limits['components']['guard']['estimated_fds'], 529)
+        self.assertEqual(limits['components']['guard']['max_connections_per_ip'], 32)
+        self.assertEqual(limits['components']['guard']['estimated_memory_bytes'],
+            256 * 96 * 1024 + 256 * 512)
+        self.assertEqual(limits['estimated_peak_process_fds'], 529)
+        self.assertEqual(limits['estimated_total_fds'], 737)
+        self.assertEqual(limits['estimated_total_memory_bytes'],
+            196608 + 64 * 8192 + 256 * 96 * 1024 + 256 * 512)
+        self.resolver.validate_components(limits, inputs, host=self.host, process_fds=1024)
         changed = copy.deepcopy(inputs); changed['gate']['limits']['max_connections'] = 65
         with self.assertRaisesRegex(ValueError, 'ComponentLimitsDrift'):
-            self.resolver.validate_components(limits, changed, host=self.host, process_fds=512)
+            self.resolver.validate_components(limits, changed, host=self.host, process_fds=1024)
         with self.assertRaisesRegex(ValueError, 'ComponentLimitExceedsProcessFds'):
             self.resolver.resolve_components({'gate': {'limits': {'max_connections': 300}}}, host=self.host, process_fds=512)
         with self.assertRaisesRegex(ValueError, 'EnvelopePreauthExceedsSessions'):
             self.resolver.resolve_components({'envelope': {'max_sessions': '4', 'max_preauth': '5'}}, host=self.host, process_fds=512)
+        with self.assertRaisesRegex(ValueError, 'InvalidGuardLimitConfig'):
+            self.resolver.resolve_components({'guard': {'role':'client_guard'}}, host=self.host, process_fds=512)
+        agent = {'role':'agent_guard',
+            'spa_config': {'enabled':True}, 'lpd_limiter': {'enabled':True},
+            'anti_probe': {'enabled':True}}
+        resolved = self.resolver.resolve_components({'guard':agent}, host=self.host, process_fds=1024)
+        guard_limits = resolved['components']['guard']
+        self.assertEqual(guard_limits['tracked_state_entries'], 300_000)
+        self.assertEqual(guard_limits['max_active_connections'], 256)
+        self.assertEqual(guard_limits['max_active_datagram_workers'], 256)
+        self.assertEqual(guard_limits['estimated_fds'], 789)
+        self.assertEqual(guard_limits['estimated_memory_bytes'],
+            300_000 * 512 + 256 * 80 * 1024 + 256 * 16 * 1024)
+        with self.assertRaisesRegex(ValueError, 'ComponentLimitExceedsProcessFds'):
+            self.resolver.resolve_components({'guard':agent}, host=self.host, process_fds=512)
+        small_fd_host = HostBudget(self.host.memory_bytes, 700, self.host.cpu_units, 'linux')
+        combined = {'gate':{'limits':{'max_connections':100}}, 'guard':inputs['guard']}
+        with self.assertRaisesRegex(ValueError, 'ComponentLimitExceedsHostFds'):
+            self.resolver.resolve_components(combined, host=small_fd_host, process_fds=700)
+        with self.assertRaisesRegex(ValueError, 'InvalidGuardLimitConfig'):
+            self.resolver.resolve_components({'guard': {'role':'broker_guard',
+                'broker_shield': {'enabled':True, 'unexpected':1}}}, host=self.host, process_fds=1024)
+
+    def test_credited_attachment_limits_are_bounded_and_host_admitted(self):
+        config = {'schema':'shadow6.s6na-attachment.v1','core':'go',
+            'key_file':'/private/key','bind':['127.0.0.1',41000],
+            'peer':['127.0.0.1',41001], 'limits':{
+                'max_message':4096,'max_inflight':8192,'max_streams':8,
+                'max_window':16,'payload_bytes':128,'window_frames':8}}
+        result = self.resolver.resolve_components({'credited':config},
+            host=self.host, process_fds=512)
+        row = result['components']['credited']
+        self.assertEqual(row['estimated_fds'],17)
+        self.assertEqual(row['max_message'],4096)
+        self.assertEqual(row['window_frames'],8)
+        self.assertEqual(row['estimated_memory_bytes'],
+            2 * 8192 + 8 * (128 + 128) + 8192 * 512 + 8 * 256)
+        self.resolver.validate_components(result, {'credited':config},
+            host=self.host, process_fds=512)
+        with self.assertRaisesRegex(ValueError,'InvalidCreditedLimitConfig'):
+            self.resolver.resolve_components({'credited':{**config,
+                'limits':{**config['limits'],'unexpected':1}}}, host=self.host, process_fds=512)
+        with self.assertRaisesRegex(ValueError,'ComponentLimitExceedsHostMemory'):
+            self.resolver.resolve_components({'credited':{**config,
+                'limits':{**config['limits'],'max_inflight':256 * 1024 * 1024,
+                          'max_message':256 * 1024 * 1024}}},
+                host=HostBudget(512 * 1024 * 1024, 4096, 2, 'linux'), process_fds=512)
 
 if __name__ == '__main__': unittest.main()

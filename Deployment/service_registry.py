@@ -149,12 +149,12 @@ class ServiceRegistry:
 
     @staticmethod
     def _spec(spec):
-        if not isinstance(spec, dict) or set(spec) - {'ttl', 'envelope_config', 'metrics_path', 'gate_config', 'guard_config', 'limits'}:
+        if not isinstance(spec, dict) or set(spec) - {'ttl', 'envelope_config', 'metrics_path', 'gate_config', 'guard_config', 'credited_config', 'limits'}:
             raise ValueError('unknown service specification field')
         if type(spec.get('ttl', 3600)) is not int or not 30 <= spec.get('ttl', 3600) <= 86400:
             raise ValueError('service ttl must be 30..86400 seconds')
         validate_policy(spec.get('limits'))
-        for key in ('envelope_config', 'metrics_path', 'gate_config', 'guard_config'):
+        for key in ('envelope_config', 'metrics_path', 'gate_config', 'guard_config', 'credited_config'):
             if key in spec and (not isinstance(spec[key], str) or not Path(spec[key]).is_absolute()):
                 raise ValueError('service file references must be absolute paths')
 
@@ -224,15 +224,19 @@ class ServiceRegistry:
         item = self.inspect(name)
         if runtime.alive(item.get('runtime', {})):
             raise ValueError('stop the service before upgrading')
-        original = json.loads(json.dumps(item))
+        original_services = json.loads(json.dumps(self.services))
+        original_registry = private_read(self.path)
         try:
             self.configure(name, core=core, config=config, privacy=privacy,
                            spec=spec, context=context, profile=profile)
             self.lock(name)
             return self.apply(name)
         except BaseException:
-            self.services[name] = original
-            self._save()
+            self.services = original_services
+            try:
+                atomic_write(self.path, original_registry)
+            except BaseException as restore_error:
+                raise ValueError('UpgradeRollbackFailed') from restore_error
             raise
 
     def _material(self, name):
@@ -261,6 +265,17 @@ class ServiceRegistry:
             if native_id != context['identity']['id']: raise ValueError('native identity realization differs from S6P1')
         native_materials = native_material_paths(profile_binding, native)
         extra = {'nativeMaterials': native_materials, 'nativeMaterialDigests': {key:digest(private_read(path,limit=16384)) for key,path in native_materials.items()}}
+        credited_path = item['spec'].get('credited_config')
+        if credited_path:
+            try:
+                from .credited_attachment import validate_attachment, credited_core
+            except ImportError:
+                from credited_attachment import validate_attachment, credited_core
+            if context['role'] not in ('client', 'all') or not isinstance(native, dict) or native.get('role') != 'client':
+                raise ValueError('S6NA credited attachment requires a realized client service')
+            extra['creditedAttachment'] = validate_attachment(
+                credited_path, root=self.catalog.root,
+                expected_core=credited_core(binding['core'], profile_binding))
         extra['runtimeMaterials'] = runtime.runtime_material_paths(self.catalog.root)
         extra['runtimeMaterialDigests'] = {key:runtime.runtime_material_digest(key,path) for key,path in extra['runtimeMaterials'].items()}
         fields = None
@@ -312,6 +327,12 @@ class ServiceRegistry:
         gate_path = item['spec'].get('gate_config')
         if gate_path:
             inputs['gate'] = strict_json(private_read(gate_path))
+        guard_path = item['spec'].get('guard_config')
+        if guard_path:
+            inputs['guard'] = strict_json(private_read(guard_path))
+        credited = item['spec'].get('credited_config')
+        if credited:
+            inputs['credited'] = strict_json(private_read(credited, limit=16384))
         if item['privacy'] == 'envelope':
             inputs['envelope'] = runtime.parse_envelope(private_read(item['spec']['envelope_config']))
         return inputs
@@ -342,9 +363,15 @@ class ServiceRegistry:
             if self._component_limit_inputs(name):
                 raise ValueError('LegacyComponentLimitsLock: explicitly stop and relock')
         else:
-            LimitResolver().validate_components(component_resolution, self._component_limit_inputs(name),
-                host=HostBudget.from_dict(resolution['host_budget']),
-                process_fds=resolution['effective_limits']['process_fds'])
+            try:
+                LimitResolver().validate_components(component_resolution, self._component_limit_inputs(name),
+                    host=HostBudget.from_dict(resolution['host_budget']),
+                    process_fds=resolution['effective_limits']['process_fds'])
+            except ValueError as error:
+                # A post-lock config edit can make its limits malformed before
+                # the material digest comparison below. Report that as locked
+                # deployment drift while preserving the admission detail.
+                raise ValueError('deployment drift; locked component limits no longer validate: ' + str(error)) from error
         if item['deploymentLock']['digest'] != digest(encoded(self._material(name))):
             raise ValueError('deployment drift; explicitly reconfigure and apply')
         if not runtime.alive(item.get('runtime', {})):
@@ -363,6 +390,10 @@ class ServiceRegistry:
         plan = {'limitResolution': item['deploymentLock']['limitResolution'], 'componentLimits': item['deploymentLock']['componentLimits'], 'root': str(self.catalog.root), 'core': binding['core'], 'profileBinding': self.require_profile_binding(name), 'binary': binary,
                 'config': binding['config']['config_path'], 'launchAdapter':self.catalog.inspect(binding['core']).get('launchAdapter','native-config'), 'ttl': item['spec'].get('ttl', 3600),
                 'protocolContext':item['protocolContext'], 'contextDigest':material['contextDigest'], 'lockDigest':item['deploymentLock']['digest']}
+        if material.get('creditedAttachment'):
+            plan['creditedAttachment'] = material['creditedAttachment']
+            plan['creditedConfig'] = material['creditedAttachment']['configPath']
+            plan['creditedKey'] = material['creditedAttachment']['keyPath']
         if item['privacy'] == 'envelope':
             plan.update(envelopeConfig=item['spec']['envelope_config'], envelopeBinary=str(self.catalog.envelope_binary()))
         if item['privacy'] == 'envelope': plan.update(material['envelopeTlsMaterial'])
@@ -379,6 +410,9 @@ class ServiceRegistry:
             if component + 'Config' in plan:
                 plan['launchDigests'][component + 'Config'] = material[component + 'ConfigDigest']
                 plan['launchDigests'][component + 'Binary'] = material[component + 'BinaryDigest']
+        if material.get('creditedAttachment'):
+            plan['launchDigests']['creditedConfig'] = material['creditedAttachment']['configDigest']
+            plan['launchDigests']['creditedKey'] = material['creditedAttachment']['keyDigest']
         plan['launchDigests'].update(material.get('envelopeTlsDigests',{}))
         plan['launchDigests'].update({'nativeMaterial:' + key:value for key,value in material['nativeMaterialDigests'].items()})
         plan['launchDigests'].update({'runtimeMaterial:' + key:value for key,value in material['runtimeMaterialDigests'].items()})
@@ -505,6 +539,19 @@ class ServiceRegistry:
         if digest(encoded(material)) != item['deploymentLock']['digest']:
             raise ValueError('deployment drift; explicitly reconfigure and apply')
         return item, material
+
+    @transaction
+    def credited_attachment(self, name):
+        """Return lock-checked S6NA companion material for a ready client."""
+        self.connect(name, role='client')
+        item = self.inspect(name)
+        material = self._material(name)
+        attachment = material.get('creditedAttachment')
+        if attachment is None:
+            raise ValueError('Named Service has no S6NA credited attachment')
+        if digest(encoded(material)) != item['deploymentLock']['digest']:
+            raise ValueError('deployment drift; explicitly reconfigure and apply')
+        return item, attachment
 
     @transaction
     def connect(self, name, *, core=None, role=None, adapter=None):

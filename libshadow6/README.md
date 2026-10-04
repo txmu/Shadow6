@@ -62,6 +62,15 @@ does not alter or infer Named Service/Core wire compatibility. Both peers need
 matching local configurations and the same secret key, provisioned through a
 separate trusted channel.
 
+To bind that companion to a Named Service, set `--credited-config` during
+`shadow6 setup` or `shadow6 service configure`, then lock/apply the service.
+This includes the attachment document, S6NA key digest, component resource
+estimate and adapter implementation in the service material check. After the
+client service is running, `Shadow6.open_credited_for_service(name)` requires
+its observed client role and rechecks the lock before opening the companion.
+The S6NA records remain a separate application path; this call does not
+forward records into the Core's native application socket.
+
 Keep deployment in a strict `shadow6.deployment.v1` manifest and run
 `shadow6 deployment validate` and `shadow6 deployment plan` before opening an
 application session. The facade consumes the Core's declared boundary through

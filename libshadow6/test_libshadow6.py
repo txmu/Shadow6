@@ -57,6 +57,25 @@ class LibShadow6Tests(unittest.TestCase):
             with self.assertRaisesRegex(libshadow6.Shadow6Error, "S6NA_CLOSED"):
                 left.application_credit()
 
+    def test_named_service_credited_entry_uses_locked_material(self):
+        from unittest.mock import Mock
+        facade = object.__new__(libshadow6.Shadow6)
+        facade._closed = False
+        facade._attachments = set()
+        item = {'coreBinding':{'core':'go'},
+                'profileBinding':{'core':'go','profile':'go-kcp'}}
+        attachment = {'configPath':'/private/s6na.json',
+            'configDigest':'sha256:' + 'a' * 64,
+            'keyPath':'/private/s6na.key','keyDigest':'sha256:' + 'b' * 64,
+            'core':'go'}
+        result = object()
+        with patch('Deployment.service_registry.ServiceRegistry.credited_attachment',
+                   return_value=(item, attachment)) as resolve, \
+             patch.object(facade, 'open_credited', return_value=result) as open_attachment:
+            self.assertIs(facade.open_credited_for_service('home/nas'), result)
+        resolve.assert_called_once_with('home/nas')
+        open_attachment.assert_called_once_with('/private/s6na.json', _expected=attachment)
+
     def test_open_selects_matching_boundary_and_context_stops_capsule(self):
         class Runtime(libshadow6.Shadow6):
             def __init__(self):

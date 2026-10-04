@@ -95,6 +95,10 @@ def verify_named_service(name: str, *, registry: ServiceRegistry | None = None) 
             inputs = {}
             if item.get('spec', {}).get('gate_config'):
                 inputs['gate'] = strict_json(private_read(item['spec']['gate_config']))
+            if item.get('spec', {}).get('guard_config'):
+                inputs['guard'] = strict_json(private_read(item['spec']['guard_config']))
+            if item.get('spec', {}).get('credited_config'):
+                inputs['credited'] = strict_json(private_read(item['spec']['credited_config'], limit=16384))
             if item.get('privacy') == 'envelope':
                 from Deployment.service_runtime import parse_envelope
                 inputs['envelope'] = parse_envelope(private_read(item['spec']['envelope_config']))

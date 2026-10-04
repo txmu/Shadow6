@@ -173,7 +173,7 @@ class LimitResolver:
         plans whose conservative descriptor or memory estimate exceeds the
         same host snapshot and inherited supervisor descriptor ceiling.
         """
-        if not isinstance(inputs, dict) or set(inputs) - {'gate', 'envelope'}:
+        if not isinstance(inputs, dict) or set(inputs) - {'gate', 'envelope', 'guard', 'credited'}:
             raise ValueError('InvalidComponentLimitsInput')
         process_fds = integer(process_fds, 'process_fds')
         output = {}
@@ -220,18 +220,148 @@ class LimitResolver:
                 max_frame=frame, idle_timeout=idle, estimated_fds=fds,
                 estimated_memory_bytes=memory,
                 enforced_by='S6EPE.config.max_sessions/max_preauth/max_frame')
+        guard = inputs.get('guard')
+        if guard is not None:
+            guard_fields = {'role','target_backend','spa_config','lpd_limiter','anti_probe',
+                            'stealth_timing','broker_shield'}
+            if not isinstance(guard, dict) or set(guard) - guard_fields:
+                raise ValueError('InvalidGuardLimitConfig')
+            features = {
+                name: guard.get(name, {}) for name in
+                ('spa_config','lpd_limiter','anti_probe','stealth_timing','broker_shield')}
+            if any(not isinstance(value, dict) for value in features.values()):
+                raise ValueError('InvalidGuardLimitConfig')
+            feature_fields = {
+                'spa_config': {'enabled','listen_host','secret','knock_port','public_tcp_port','agent_tcp_port','unlock_window'},
+                'lpd_limiter': {'enabled','rate','burst','public_port','agent_port'},
+                'anti_probe': {'enabled','public_port','local_port','max_fails','ban_duration_sec'},
+                'stealth_timing': {'enabled','broker_wss_addr','server_name','chaff_interval_ms','jitter_min_ms','jitter_max_ms'},
+                'broker_shield': {'enabled','public_host','public_port','local_broker_port','secret_path','max_conn_per_ip','tls_cert_file','tls_key_file'},
+            }
+            if any(set(features[name]) - allowed for name, allowed in feature_fields.items()):
+                raise ValueError('InvalidGuardLimitConfig')
+            enabled = {}
+            for name, value in features.items():
+                active = value.get('enabled', False)
+                if type(active) is not bool:
+                    raise ValueError('InvalidGuardLimitConfig')
+                enabled[name] = active
+            if guard.get('role') not in ('agent_guard','client_guard','broker_guard'):
+                raise ValueError('InvalidGuardLimitConfig')
+            if guard['role'] == 'agent_guard' and not any(
+                    enabled[name] for name in ('spa_config','lpd_limiter','anti_probe')):
+                raise ValueError('InvalidGuardLimitConfig')
+            if guard['role'] == 'client_guard' and not enabled['stealth_timing']:
+                raise ValueError('InvalidGuardLimitConfig')
+            if guard['role'] == 'broker_guard' and not enabled['broker_shield']:
+                raise ValueError('InvalidGuardLimitConfig')
+            tracked = 0
+            if enabled['spa_config']: tracked += 2 * 50_000
+            if enabled['lpd_limiter']: tracked += 50_000
+            if enabled['anti_probe']: tracked += 3 * 50_000
+            broker = features['broker_shield']
+            per_ip = broker.get('max_conn_per_ip', 0)
+            if type(per_ip) is not int or not 0 <= per_ip <= 10_000:
+                raise ValueError('InvalidGuardLimitConfig')
+            if enabled['broker_shield']:
+                per_ip = per_ip or 64
+                if per_ip < 1: raise ValueError('InvalidGuardLimitConfig')
+            else:
+                per_ip = 0
+            # Guard's fixed ceilings are enforced in Guard/main.go. Its SPA,
+            # LPD and BrokerShield each have separate 256-slot pools. SPA
+            # copies both directions, LPD allocates bounded request/reply
+            # datagrams, and BrokerShield admits bounded HTTP/WebSocket streams.
+            # These conservative estimates are planning bounds, not RSS claims.
+            spa_connections = 256 if enabled['spa_config'] else 0
+            broker_connections = 256 if enabled['broker_shield'] else 0
+            datagram_workers = 256 if enabled['lpd_limiter'] else 0
+            active_connections = spa_connections + broker_connections
+            listeners = (2 * int(enabled['spa_config']) +
+                         2 * int(enabled['lpd_limiter']) +
+                         int(enabled['anti_probe']) +
+                         int(enabled['broker_shield']))
+            fds = (16 + listeners + 2 * spa_connections + datagram_workers +
+                   2 * broker_connections)
+            # SPA: two 32 KiB io.Copy buffers and bounded connection state.
+            # Broker: 16 KiB max headers, two 32 KiB relay buffers and state.
+            # LPD: two <=4 KiB datagrams plus bounded worker state.
+            tracked += broker_connections  # BrokerShield's per-host counter map.
+            memory = (tracked * 512 + spa_connections * 80 * 1024 +
+                      broker_connections * 96 * 1024 + datagram_workers * 16 * 1024)
+            output['guard'] = dict(
+                max_tracked_ips=50_000,
+                max_active_connections=active_connections,
+                max_active_datagram_workers=datagram_workers,
+                max_connections_per_ip=per_ip if enabled['broker_shield'] else 0,
+                tracked_state_entries=tracked,
+                estimated_fds=fds,
+                estimated_memory_bytes=memory,
+                enforced_by='Guard.maxTrackedIPs/SPA-slots/BrokerShield-boundedListener')
+        credited = inputs.get('credited')
+        if credited is not None:
+            fields = {'schema','core','key_file','bind','peer','side','stream','limits'}
+            if (not isinstance(credited, dict) or set(credited) - fields or
+                    not {'schema','core','key_file','bind','peer'} <= set(credited) or
+                    credited['schema'] != 'shadow6.s6na-attachment.v1'):
+                raise ValueError('InvalidCreditedLimitConfig')
+            limits = credited.get('limits', {})
+            limit_fields = {'max_message','max_streams','max_inflight','max_window',
+                            'reassembly_seconds','max_extensions','payload_bytes','window_frames'}
+            if not isinstance(limits, dict) or set(limits) - limit_fields:
+                raise ValueError('InvalidCreditedLimitConfig')
+            bounds = {
+                'max_message': (16 * 1024 * 1024, 1024, 256 * 1024 * 1024),
+                'max_streams': (64, 1, 4096),
+                'max_inflight': (16 * 1024 * 1024, 1024, 512 * 1024 * 1024),
+                'max_window': (64, 1, 4096),
+                'reassembly_seconds': (30, 1, 300),
+                'max_extensions': (16, 0, 128),
+                'payload_bytes': (0, 0, 65536),
+                'window_frames': (0, 0, 4096),
+            }
+            resolved = {name: limit(limits, name, default, low, high)
+                        for name, (default, low, high) in bounds.items()}
+            if (resolved['max_inflight'] < resolved['max_message'] or
+                    (resolved['payload_bytes'] != 0 and resolved['payload_bytes'] < 64)):
+                raise ValueError('InvalidCreditedLimitConfig')
+            # A connected companion owns one UDP socket. The S6NA adapter
+            # bounds queued outbound and reassembly bytes separately; pending
+            # frames and maps are added as conservative metadata overhead.
+            payload = resolved['payload_bytes'] or 65536
+            window = min(resolved['max_window'], resolved['window_frames'] or 64)
+            memory = (2 * resolved['max_inflight'] + window * (payload + 128) +
+                      8192 * 512 + resolved['max_streams'] * 256)
+            output['credited'] = dict(
+                max_message=resolved['max_message'], max_streams=resolved['max_streams'],
+                max_inflight=resolved['max_inflight'], max_window=resolved['max_window'],
+                reassembly_seconds=resolved['reassembly_seconds'],
+                max_extensions=resolved['max_extensions'], payload_bytes=payload,
+                window_frames=window, estimated_fds=17,
+                estimated_memory_bytes=memory,
+                enforced_by='S6NA.Limits/DataFrameCredit/UDP-peer-pin')
+        # Components run as separate supervised processes and receive the
+        # same per-process RLIMIT. Check both the busiest child and the total
+        # planned descriptor footprint; memory is cumulative across the set.
+        peak_fds = max((row['estimated_fds'] for row in output.values()), default=0)
         total_fds = sum(row['estimated_fds'] for row in output.values())
         total_memory = sum(row['estimated_memory_bytes'] for row in output.values())
-        if total_fds > process_fds:
+        if peak_fds > process_fds:
             raise ValueError('ComponentLimitExceedsProcessFds')
+        if total_fds > host.fd_ceiling:
+            raise ValueError('ComponentLimitExceedsHostFds')
         if total_memory > host.memory_bytes // 2:
             raise ValueError('ComponentLimitExceedsHostMemory')
         return dict(schema='shadow6.component-limit-resolution.v1',
-            process_fds=process_fds, host_budget=host.to_dict(), components=output)
+            process_fds=process_fds, estimated_peak_process_fds=peak_fds,
+            estimated_total_fds=total_fds, estimated_total_memory_bytes=total_memory,
+            host_budget=host.to_dict(), components=output)
 
     def validate_components(self, resolution, inputs, *, host: HostBudget, process_fds: int):
         if not isinstance(resolution, dict) or set(resolution) != {
-                'schema','process_fds','host_budget','components'}:
+                'schema','process_fds','estimated_peak_process_fds',
+                'estimated_total_fds','estimated_total_memory_bytes',
+                'host_budget','components'}:
             raise ValueError('InvalidComponentLimitsSchema')
         expected = self.resolve_components(inputs, host=host, process_fds=process_fds)
         if canonical(expected) != canonical(resolution):

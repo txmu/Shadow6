@@ -78,6 +78,21 @@ under `output_dir`. Set `SHADOW6_SERVICE_REGISTRY` to choose the private
 registry file. Start each node separately with `shadow6 run namespace/node`.
 No Core is built and no service manager is activated.
 
+For a one-shot realization, the CLI can supply the namespace and a fresh
+private output directory directly:
+
+```sh
+install -d -m 700 "$HOME/.config/shadow6/realized"
+shadow6 auto realize --file topology.yaml --namespace lab \
+  --output-dir "$HOME/.config/shadow6/realized/lab-1"
+```
+
+The command rejects remote SSH/deploy-root nodes, existing output directories,
+Gate compositions and unavailable Profiles. It generates new role keys and
+owner-only native configs, locks and applies the local Named Services, then
+prints their names and states. It never starts the services; use `shadow6 run`
+for each node after reviewing the applied records.
+
 ```yaml
 global:
   output_dir: generated-native

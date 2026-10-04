@@ -665,9 +665,26 @@ def generate_random_sni() -> str:
     vowels = "aeiou"
     return "".join(secrets.choice(consonants) + secrets.choice(vowels) for _ in range(secrets.randbelow(3) + 3)) + ".shadow6.invalid"
 
-async def execute_mtd_rotation(topo: dict):
-    """Perform Zero-Touch full-dimensional rotation and deploy."""
+def validate_local_intent_topology(topo: dict, namespace: str | None = None):
     topo = validate_topology(topo)
+    global_cfg = topo.get('global', {})
+    if namespace is not None:
+        if global_cfg.get('named_service_namespace') not in (None, namespace):
+            raise ValueError('CLI namespace conflicts with topology intent')
+        global_cfg['named_service_namespace'] = namespace
+    if not global_cfg.get('named_service_namespace'):
+        raise ValueError('local intent realization requires a Named Service namespace')
+    if global_cfg.get('broker_adapter'):
+        raise ValueError('capability unavailable: intent realization requires an explicit Gate component config')
+    for node in topo['nodes']:
+        if node.get('deploy_root') or (node.get('ssh_host') and not is_loopback_host(node['ssh_host'])):
+            raise ValueError('intent realization accepts only local nodes; use auto apply for remote deployment')
+    return topo
+
+
+async def execute_mtd_rotation(topo: dict, *, materialize_only: bool = False):
+    """Perform Zero-Touch full-dimensional rotation and deploy."""
+    topo = validate_local_intent_topology(topo) if materialize_only else validate_topology(topo)
     if topo.get('global',{}).get('broker_adapter') and any(n.get('ssh_host') and n.get('init_system','auto') != 'none' for n in topo['nodes']):
         raise ValueError('capability unavailable: native-only SSH activation cannot attest Gate realization; use local Named Service supervision or init_system=none staged artifacts')
     console.print("[bold magenta][*] Initiating MTD Full-Dimensional Rotation...[/bold magenta]")
@@ -776,9 +793,51 @@ async def execute_mtd_rotation(topo: dict):
             config_paths=generated_config_paths,
             namespace=global_cfg['named_service_namespace'])
         console.print(f"[green][+] Locked and applied {len(service_results)} local Named Services; start each explicitly with shadow6 run.[/green]")
+    if materialize_only:
+        return service_results
     if tasks:
         await asyncio.gather(*(bounded_deploy(node, config) for node, config in tasks))
     console.print("[bold cyan][+] MTD Epoch Rotation & Deployment Complete.[/bold cyan]")
+
+
+async def realize_local_intent(topo: dict, *, namespace: str, output_dir: Path):
+    """Generate fresh private configs and lock/apply local Named Services."""
+    topo = validate_local_intent_topology(topo, namespace)
+    output_dir = Path(output_dir).expanduser().absolute()
+    parent = output_dir.parent
+    parent_info = parent.lstat()
+    geteuid = getattr(os, 'geteuid', None)
+    if (not stat.S_ISDIR(parent_info.st_mode) or stat.S_ISLNK(parent_info.st_mode)
+            or (geteuid is not None and parent_info.st_uid != geteuid())
+            or parent_info.st_mode & 0o022):
+        raise ValueError('intent output parent must be owner-controlled and private')
+    output_dir.mkdir(mode=0o700, exist_ok=False)
+    output_info = output_dir.lstat()
+    if (not stat.S_ISDIR(output_info.st_mode) or stat.S_ISLNK(output_info.st_mode)
+            or (geteuid is not None and output_info.st_uid != geteuid())):
+        raise ValueError('intent output directory must be owner-controlled')
+    os.chmod(output_dir, 0o700)
+    topo['global']['output_dir'] = str(output_dir)
+    try:
+        return await execute_mtd_rotation(topo, materialize_only=True)
+    except BaseException:
+        # This directory did not exist before the call. Remove only the exact
+        # role files this generator can create, and preserve unexpected files.
+        for node in topo['nodes']:
+            candidate = output_dir / (node['name'] + '.json')
+            try:
+                info = candidate.lstat()
+                if (stat.S_ISREG(info.st_mode) and
+                        (geteuid is None or info.st_uid == geteuid()) and
+                        info.st_nlink == 1 and stat.S_IMODE(info.st_mode) == 0o600):
+                    candidate.unlink()
+            except FileNotFoundError:
+                pass
+        try:
+            output_dir.rmdir()
+        except OSError:
+            pass
+        raise
 
 async def mtd_daemon_loop(yaml_path: str):
     """Continuous MTD rotation daemon."""
@@ -859,6 +918,23 @@ def send_client_knock(
 def apply(file: str = typer.Option(..., "-f", help="Topology YAML file")):
     """Applies the declarative topology to the network."""
     apply_topology(file)
+
+@app_cli.command("realize")
+def realize(
+    file: str = typer.Option(..., "-f", "--file", help="Local intent topology YAML"),
+    namespace: str = typer.Option(..., "--namespace", help="Named Service namespace"),
+    output_dir: Path = typer.Option(..., "--output-dir", help="New private directory for generated configs"),
+):
+    """Generate private local configs and apply them as stopped Named Services."""
+    try:
+        records = asyncio.run(realize_local_intent(
+            load_topology_file(file), namespace=namespace, output_dir=output_dir))
+    except (OSError, ValueError) as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    console.print(json.dumps([
+        {"name": record["name"], "state": record["state"]}
+        for record in records
+    ], sort_keys=True))
 
 @app_cli.command()
 def client_knock(

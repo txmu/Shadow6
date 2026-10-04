@@ -13,6 +13,7 @@ import urllib.request
 import asyncio
 import tempfile
 import shlex
+from unittest.mock import patch
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from shadow6_auto import (
@@ -24,6 +25,7 @@ from shadow6_auto import (
     parse_interval,
     generate_random_sni,
     execute_mtd_rotation,
+    realize_local_intent,
     format_host_port,
     load_topology_file,
     validate_topology,
@@ -246,6 +248,44 @@ class NativeOrchestrationTests(unittest.TestCase):
                 if core in ('carp','idris'):
                     agent=load(Path(directory)/'agent.json');client=load(Path(directory)/'client.json')
                     self.assertEqual(agent['key_material'][128:],client['key_material'][128:])
+
+    def test_local_intent_realization_generates_private_configs_and_applies_services(self):
+        topology={'version':'1.0','global':{'broker_scheme':'ws'},'nodes':[
+            {'name':role,'type':role,'engines':['shadow6-go']} for role in ('broker','agent','client')]}
+        with tempfile.TemporaryDirectory(prefix='shadow6-intent-') as parent:
+            output=Path(parent)/'realized'
+            seen={}
+            def capture(*, topology, config_paths, namespace):
+                seen['topology']=topology
+                seen['config_paths']=config_paths
+                seen['namespace']=namespace
+                return [{'name':namespace+'/'+role,'state':'applied'}
+                        for role in ('broker','agent','client')]
+            with patch('Deployment.topology_services.materialize_local_topology', side_effect=capture):
+                result=asyncio.run(realize_local_intent(
+                    topology,namespace='home',output_dir=output))
+            self.assertEqual(seen['namespace'],'home')
+            self.assertEqual(seen['topology']['global']['named_service_namespace'],'home')
+            self.assertEqual([row['state'] for row in result],['applied']*3)
+            self.assertEqual(stat.S_IMODE(output.stat().st_mode),0o700)
+            for role,path in seen['config_paths'].items():
+                self.assertEqual(stat.S_IMODE(path.stat().st_mode),0o600)
+                document=json.loads(path.read_text())
+                self.assertEqual(document['role'],role)
+                self.assertIn(role,document)
+
+    def test_local_intent_rejects_remote_deploy_before_creating_output(self):
+        topology={'version':'1.0','global':{'broker_scheme':'ws'},'nodes':[
+            {'name':'broker','type':'broker','engines':['shadow6-go']},
+            {'name':'agent','type':'agent','engines':['shadow6-go'],'ssh_host':'127.0.0.1',
+             'ssh_port':2222,'known_hosts':'/tmp/shadow6-known-hosts','deploy_root':'/tmp/stage',
+             'init_system':'none'},
+            {'name':'client','type':'client','engines':['shadow6-go']}]}
+        with tempfile.TemporaryDirectory(prefix='shadow6-intent-reject-') as parent:
+            output=Path(parent)/'must-not-exist'
+            with self.assertRaisesRegex(ValueError,'only local nodes'):
+                asyncio.run(realize_local_intent(topology,namespace='home',output_dir=output))
+            self.assertFalse(output.exists())
 
     def test_gleam_micro_mux_selection(self):
         with tempfile.TemporaryDirectory() as directory:

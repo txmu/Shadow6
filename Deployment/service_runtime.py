@@ -163,7 +163,8 @@ def runtime_material_paths(root):
     here = Path(__file__).absolute().parent
     files = {name: str(here / (name + '.py')) for name in (
         'service_runtime','service_registry','runtime_observation','application_attachment',
-        'service_storage','profile_registry','protocol_context','service_composition','broker_set')}
+        'credited_attachment','service_storage','profile_registry','protocol_context',
+        'service_composition','broker_set')}
     # The installed CLI adapter lives with the Python modules, not inside the
     # installed Core artifact tree. Lock the implementation actually used by
     # this invocation so an installed Named Service can be prepared there.
@@ -174,6 +175,13 @@ def runtime_material_paths(root):
                  limits=str(Path(limits.__file__).absolute()),
                  native_profiles=str(Path(native_profiles.__file__).absolute()),
                  feature_contract=str(Path(feature_contract.__file__).absolute()))
+    s6na_adapter = Path(root) / 'Network-Adapter/shadow6_network.py'
+    if not s6na_adapter.is_file():
+        s6na_adapter = here.parent / 'Network-Adapter/shadow6_network.py'
+    if not s6na_adapter.is_file():
+        s6na_adapter = here.parent / 'modules/shadow6_network.py'
+    if s6na_adapter.is_file():
+        files['s6na_adapter'] = str(s6na_adapter)
     provider = Path(root) / 'OCaml/privacy_envelope/lib/libdatachannel.so.0.23'
     if provider.exists() or provider.is_symlink():
         files['envelope_webrtc_provider'] = str(provider)
@@ -227,7 +235,7 @@ def feature_report(binary: str) -> dict:
 
 def verify_launch_material(plan):
     required = {'root','core','profileBinding','binary','config','ttl','launchDigests','runtimeMaterials'}
-    allowed = {'envelopeTlsCert','envelopeTlsKey','envelopeTlsCa'} | required | {'launchAdapter','protocolContext','contextDigest','lockDigest','nativeMaterials','componentMaterials','limitResolution','componentLimits'} | {c + k for c in ('envelope','gate','guard') for k in ('Config','Binary')}
+    allowed = {'envelopeTlsCert','envelopeTlsKey','envelopeTlsCa'} | required | {'launchAdapter','protocolContext','contextDigest','lockDigest','nativeMaterials','componentMaterials','limitResolution','componentLimits','creditedAttachment','creditedConfig','creditedKey'} | {c + k for c in ('envelope','gate','guard') for k in ('Config','Binary')}
     if not isinstance(plan,dict) or not required <= set(plan) or set(plan) - allowed:
         raise ValueError('invalid launch plan fields')
     if not isinstance(plan['core'],str) or re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._:-]{0,63}',plan['core']) is None:
@@ -256,7 +264,20 @@ def verify_launch_material(plan):
     for component in ('envelope','gate','guard'):
         if (component + 'Config' in plan) != (component + 'Binary' in plan):
             raise ValueError('incomplete launch component realization')
-    for key in ('root','binary','config') + tuple(k for k in plan if k.endswith(('Config','Binary')) or k.startswith('envelopeTls')):
+    credited_keys = {'creditedAttachment','creditedConfig','creditedKey'} & set(plan)
+    if credited_keys and len(credited_keys) != 3:
+        raise ValueError('incomplete S6NA credited attachment realization')
+    if credited_keys:
+        try:
+            from .credited_attachment import validate_attachment, credited_core
+        except ImportError:
+            from credited_attachment import validate_attachment, credited_core
+        expected_credited_core = credited_core(plan['core'], profile)
+        locked_attachment = validate_attachment(plan['creditedConfig'], root=plan['root'], expected_core=expected_credited_core)
+        if (locked_attachment != plan['creditedAttachment'] or
+                plan['creditedKey'] != locked_attachment['keyPath']):
+            raise ValueError('S6NA attachment material differs from deployment lock')
+    for key in ('root','binary','config') + tuple(k for k in plan if k.endswith(('Config','Binary','Key')) or k.startswith('envelopeTls')):
         if not isinstance(plan[key],str) or not Path(plan[key]).is_absolute():
             raise ValueError('absolute launch paths required')
     expected = plan.get('launchDigests')
@@ -265,10 +286,17 @@ def verify_launch_material(plan):
         if component + 'Config' in plan:
             files[component + 'Config'] = 'private'
             files[component + 'Binary'] = 'executable'
+    if credited_keys:
+        files['creditedConfig'] = 'private'
+        files['creditedKey'] = 'credited-key'
     if 'componentLimits' in plan:
         inputs = {}
         if 'gateConfig' in plan:
             inputs['gate'] = strict_json(private_read(plan['gateConfig']))
+        if 'guardConfig' in plan:
+            inputs['guard'] = strict_json(private_read(plan['guardConfig']))
+        if 'creditedConfig' in plan:
+            inputs['credited'] = strict_json(private_read(plan['creditedConfig'], limit=16384))
         if 'envelopeConfig' in plan:
             inputs['envelope'] = parse_envelope(private_read(plan['envelopeConfig']))
         from limits import LimitResolver, HostBudget
@@ -306,7 +334,8 @@ def verify_launch_material(plan):
         digest = expected[key]
         if not isinstance(digest,str) or re.fullmatch(r'sha256:[0-9a-f]{64}',digest) is None:
             raise ValueError('invalid locked launch digest')
-        actual = executable_digest(plan[key]) if kind == 'executable' else 'sha256:' + hashlib.sha256(private_read(plan[key],limit=16384 if kind == 'tls-private' else 1048576)).hexdigest()
+        read_limit = 32 if kind == 'credited-key' else 16384 if kind == 'tls-private' else 1048576
+        actual = executable_digest(plan[key]) if kind == 'executable' else 'sha256:' + hashlib.sha256(private_read(plan[key],limit=read_limit)).hexdigest()
         if actual != digest:
             raise ValueError(f'deployment drift before launch: {key}; explicitly reconfigure')
     for key,path in native_materials.items():

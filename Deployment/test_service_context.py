@@ -251,7 +251,7 @@ class ContextDriftAndScope(unittest.TestCase):
         atomic_write(config,b'listen=127.0.0.1:14434\nupstream=127.0.0.1:14433\nauth_key=abcdefghijklmnop\n')
         self.create(privacy='envelope',spec={'envelope_config':str(config)})
         first=self.registry.lock('home/nas')['digest']
-        atomic_write(config,config.read_bytes()+b'max_sessions=4\n')
+        atomic_write(config,config.read_bytes()+b'max_sessions=4\nmax_preauth=4\n')
         with self.assertRaisesRegex(ValueError,'drift'):self.registry.apply('home/nas')
         self.registry.lock('home/nas');binary.write_text('#!/bin/false\n# changed\n')
         with self.assertRaisesRegex(ValueError,'drift'):self.registry.apply('home/nas')

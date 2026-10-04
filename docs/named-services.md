@@ -2,10 +2,13 @@
 
 Native Profile source contracts are available through `shadow6 core profiles`
 or `shadow6 core profiles gleam`. Gleam secure-stream and Micro-Mux have
-separate Profile IDs and attachment semantics. Profile selection is currently
-integrated into fleet/native realization and Named Service ProfileBinding.
-The local message adapter has focused supervisor/library/stdio tests; real
-all-Profile and credited attachment lifecycle remains an implementation gate.
+separate Profile IDs and attachment semantics. Profile selection is integrated
+into fleet/native realization and Named Service ProfileBinding. The local
+message adapter has focused supervisor/library/stdio tests. S6NA companion
+config/key material can be included in a client service lock with
+`--credited-config`, then opened through `Shadow6.open_credited_for_service()`.
+That is a separately locked S6NA endpoint; transparent forwarding into the
+Native Core application proxy and real all-Profile verification remain open.
 The source catalog must not be interpreted as thirteen available Named Service
 implementations. See [the active requirement ledger](native-profile-runtime-plan.md).
 

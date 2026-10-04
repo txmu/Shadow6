@@ -77,8 +77,11 @@ length-prefixed records on local stdio. Seqpacket empty records mean EOF/drain;
 Micro-Mux empty datagrams remain data, and EOF/half-close is explicitly unsupported.
 Only one seqpacket attachment can consume each native flow; subsequent opens
 return `UnsupportedApplicationBoundary:AttachmentConsumed`. Credited providers
-remain an explicit capability error here; S6NA's separate credit contract must
-not be silently substituted for a native message or stream boundary.
+remain an explicit capability error on this native local-proxy path. A client
+service may separately lock S6NA config/key material with `--credited-config`
+and `libshadow6.Shadow6.open_credited_for_service(name)` opens that companion
+after checking the running client and deployment lock. It does not bridge S6NA
+records into the Native Core's local application endpoint.
 
 Readiness progresses only with evidence: process-owned
 `listener-ready`, or an owned endpoint with a validated `application-ready`

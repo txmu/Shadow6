@@ -163,7 +163,11 @@ class ProfileBindingTests(unittest.TestCase):
     def test_upgrade_failure_restores_previous_lock_atomically(self):
         old = profiles('go')[0]
         self.create(old); self.registry.lock('test/profile')
-        before = self.registry.path.read_bytes()
+        # A valid, privately owned registry need not already use the manager's
+        # compact serialization. Rollback must preserve its exact bytes.
+        value = json.loads(self.registry.path.read_text())
+        before = (json.dumps(value, indent=2, ensure_ascii=True) + '\n').encode()
+        atomic_write(self.registry.path, before)
         path = self.directory / 'bad-upgrade.json'
         atomic_write(path, json.dumps({'role':'client','client':{'transport':'micro-mux'}}).encode())
         with self.assertRaisesRegex(ValueError, 'ProfileConfigMismatch'):
@@ -171,6 +175,25 @@ class ProfileBindingTests(unittest.TestCase):
                 config={'config_path':str(path)}, context=minimal_context('gleam'))
         self.assertEqual(self.registry.path.read_bytes(), before)
         self.assertEqual(self.registry.apply('test/profile')['state'], 'applied')
+
+    def test_upgrade_apply_failure_restores_raw_registry_after_lock_writes(self):
+        from unittest.mock import patch
+        old = profiles('go')[0]
+        self.create(old); self.registry.lock('test/profile')
+        value = json.loads(self.registry.path.read_text())
+        before = (json.dumps(value, sort_keys=False, indent=2) + '\n').encode()
+        atomic_write(self.registry.path, before)
+        path = self.directory / 'upgrade-apply-failure.json'
+        atomic_write(path, json.dumps({'role':'client',
+            'client':{'transport':'secure-stream'}}).encode())
+        with patch.object(self.registry, 'apply', side_effect=RuntimeError('injected apply failure')):
+            with self.assertRaisesRegex(RuntimeError, 'injected apply failure'):
+                self.registry.upgrade('test/profile', core='gleam',
+                    profile='gleam-secure-stream', config={'config_path':str(path)},
+                    context=minimal_context('gleam'))
+        self.assertEqual(self.registry.path.read_bytes(), before)
+        self.assertEqual(self.registry.inspect('test/profile')['profileBinding']['core'], 'go')
+        self.assertEqual(self.registry.inspect('test/profile')['state'], 'locked')
 
     def test_guard_tls_external_material_is_locked_and_rechecked(self):
         profile = profiles('go')[0]
@@ -182,7 +205,9 @@ class ProfileBindingTests(unittest.TestCase):
             'enabled': True, 'tls_cert_file': str(cert), 'tls_key_file': str(key)}}).encode())
         self.catalog.component_binary = lambda component: Path(self.catalog.inspect('go')['executable'])
         self.registry.configure('test/profile', core='go', profile=profile['id'],
-            config=self.registry.require_binding('test/profile')['config'], spec={'guard_config': str(config)})
+            config=self.registry.require_binding('test/profile')['config'], spec={
+                'guard_config': str(config),
+                'limits': {'mode':'custom','operator_overrides':{'process_fds':768}}})
         self.registry.lock('test/profile')
         _, plan = self.registry.launch_plan('test/profile')
         material_key = 'guard.broker_shield.tls_key_file'
@@ -195,6 +220,30 @@ class ProfileBindingTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'drift before launch: componentMaterial'):
             service_runtime.verify_launch_material(plan)
         with self.assertRaisesRegex(ValueError, 'deployment drift'):
+            self.registry.apply('test/profile')
+
+    def test_credited_attachment_config_key_and_limits_are_locked(self):
+        profile = profiles('go')[0]
+        item = self.create(profile)
+        key = self.directory / 's6na.key'
+        atomic_write(key, b'k' * 32)
+        attachment = self.directory / 's6na.json'
+        atomic_write(attachment, json.dumps({
+            'schema':'shadow6.s6na-attachment.v1','core':'go',
+            'key_file':str(key),'bind':['127.0.0.1',41000],
+            'peer':['127.0.0.1',41001],'side':0,'stream':0,
+            'limits':{'max_message':4096,'max_inflight':4096,
+                      'payload_bytes':128,'window_frames':32}}).encode())
+        self.registry.configure('test/profile', core='go', profile=profile['id'],
+            config=item['coreBinding']['config'],
+            spec={'credited_config':str(attachment)})
+        lock = self.registry.lock('test/profile')
+        self.assertEqual(lock['componentLimits']['components']['credited']['max_message'],4096)
+        _, plan = self.registry.launch_plan('test/profile')
+        self.assertEqual(plan['creditedAttachment']['keyPath'],str(key))
+        service_runtime.verify_launch_material(plan)
+        atomic_write(key, b'x' * 32)
+        with self.assertRaisesRegex(ValueError,'deployment drift'):
             self.registry.apply('test/profile')
 
     def test_doctor_uses_locked_profile_and_reports_missing_feature_contract(self):

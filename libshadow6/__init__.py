@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import re
 import shutil
@@ -191,7 +192,7 @@ class Shadow6:
         from Deployment.connection_plan import open_local_session
         return open_local_session(self.connection_plan(name))
 
-    def open_credited(self, config: str | os.PathLike[str]) -> CreditedSession:
+    def open_credited(self, config: str | os.PathLike[str], *, _expected=None) -> CreditedSession:
         """Open an explicit S6NA credited companion from an owner-only config.
 
         This is an optional outer application attachment. It does not change
@@ -202,9 +203,15 @@ class Shadow6:
         path = Path(config).expanduser().absolute()
         try:
             from Deployment.service_storage import private_read, strict_json
-            value = strict_json(private_read(path, limit=16384))
+            config_bytes = private_read(path, limit=16384)
+            value = strict_json(config_bytes)
         except (OSError, ValueError) as error:
             raise Shadow6Error("invalid private S6NA attachment config") from error
+        config_digest = "sha256:" + hashlib.sha256(config_bytes).hexdigest()
+        if _expected is not None:
+            if (not isinstance(_expected, dict) or _expected.get("configPath") != str(path)
+                    or _expected.get("configDigest") != config_digest):
+                raise Shadow6Error("S6NA attachment config differs from Named Service lock")
         fields = {"schema", "core", "key_file", "bind", "peer", "side", "stream", "limits"}
         if not isinstance(value, dict) or set(value) - fields or not {"schema", "core", "key_file", "bind", "peer"} <= set(value) or value["schema"] != "shadow6.s6na-attachment.v1":
             raise Shadow6Error("invalid S6NA attachment schema")
@@ -213,7 +220,7 @@ class Shadow6:
         if not isinstance(value["key_file"], str) or not Path(value["key_file"]).is_absolute():
             raise Shadow6Error("S6NA key_file must be absolute")
         key_path = Path(value["key_file"])
-        module_roots = []
+        module_roots = [CoreCatalog().root / "Network-Adapter"]
         for parent in Path(__file__).resolve().parents:
             module_roots.extend((parent / "Network-Adapter", parent / "share/shadow6/modules"))
         module = next((root for root in module_roots if (root / "shadow6_network.py").is_file()), None)
@@ -225,6 +232,8 @@ class Shadow6:
         from shadow6_network import DatagramEndpoint, Limits, load_key
         try:
             key = load_key(key_path)
+            if _expected is not None and hashlib.sha256(key).hexdigest() != _expected.get("keyDigest", "").removeprefix("sha256:"):
+                raise ValueError("S6NA attachment key differs from Named Service lock")
             bind, peer = value["bind"], value["peer"]
             if (not isinstance(bind, list) or len(bind) != 2 or not isinstance(peer, list) or len(peer) != 2
                     or not isinstance(bind[0], str) or not isinstance(peer[0], str)
@@ -243,6 +252,22 @@ class Shadow6:
             raise Shadow6Error("invalid S6NA attachment material") from error
         self._attachments.add(session)
         return session
+
+    def open_credited_for_service(self, name: str) -> CreditedSession:
+        """Open the lock-bound S6NA companion declared by a running client service."""
+        if not isinstance(name, str) or not name:
+            raise ValueError("Named Service name is required")
+        try:
+            from Deployment.service_registry import ServiceRegistry
+            from Deployment.credited_attachment import credited_core
+            item, material = ServiceRegistry().credited_attachment(name)
+        except (OSError, ValueError) as error:
+            raise Shadow6Error(str(error)) from error
+        attachment = material
+        expected_core = credited_core(item.get("coreBinding", {}).get("core"), item.get("profileBinding"))
+        if attachment.get("core") != expected_core:
+            raise Shadow6Error("S6NA attachment Core differs from Named Service")
+        return self.open_credited(attachment["configPath"], _expected=attachment)
 
     def features(self, component: str | None = None) -> dict:
         args = ("features", "--format", "json")
