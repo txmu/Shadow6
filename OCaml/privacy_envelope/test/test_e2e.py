@@ -103,6 +103,92 @@ class EnvelopeE2E(unittest.TestCase):
             time.sleep(.05)
         self.fail(f'{key} did not reach {minimum}')
 
+    def tls_options(self, role):
+        from tls_fixtures import identities
+        if not hasattr(self,'tls_material'):
+            self.tls_material=identities()
+            for name,data in self.tls_material.items():
+                file=self.root/(name+'.pem');file.write_bytes(data);file.chmod(0o600)
+        return dict(carrier='tls',tls_cert=str(self.root/(role+'_cert.pem')),
+                    tls_key=str(self.root/(role+'_key.pem')),tls_ca=str(self.root/'ca.pem'),
+                    tls_peer_name='epe-client' if role=='server' else 'epe-server')
+
+    def test_tls_carrier_roundtrip_half_close_and_actual_wire(self):
+        import select
+        server,metrics=self.launch('tls-server','stream','server',self.echo('stream'),**self.tls_options('server'))
+        proxy=socket.socket();proxy.bind(('127.0.0.1',0));proxy.listen(1);proxy.settimeout(3)
+        self.addCleanup(proxy.close)
+        wire=[];failures=[]
+        def relay():
+            try:
+                peer,_=proxy.accept()
+                with peer,socket.create_connection(('127.0.0.1',server),timeout=3) as target:
+                    peer.settimeout(3);readers=[peer,target]
+                    deadline=time.monotonic()+8
+                    while readers and time.monotonic()<deadline:
+                        readable,_,_=select.select(readers,[],[],.05)
+                        for source in readable:
+                            data=source.recv(65536)
+                            destination=target if source is peer else peer
+                            if not data:
+                                readers.remove(source);destination.shutdown(socket.SHUT_WR)
+                            else:
+                                wire.append((source is peer,data));destination.sendall(data)
+            except OSError as error:failures.append(error)
+        thread=threading.Thread(target=relay,daemon=True);thread.start()
+        self.addCleanup(thread.join,3)
+        client,_=self.launch('tls-client','stream','client',proxy.getsockname()[1],**self.tls_options('client'))
+        payload=b'native-core-payload-marker-'+secrets.token_bytes(100000)
+        with socket.create_connection(('127.0.0.1',client),timeout=3) as sock:
+            sock.sendall(payload);sock.shutdown(socket.SHUT_WR)
+            self.assertEqual(exact(sock,len(payload)),payload)
+            self.assertEqual(sock.recv(1),b'')
+        thread.join(3);self.assertFalse(thread.is_alive());self.assertFalse(failures)
+        captured=b''.join(data for _,data in wire)
+        client_wire=b''.join(data for direction,data in wire if direction)
+        self.assertEqual(client_wire[0],22)
+        self.assertNotIn(b'S6EP3',captured)
+        self.assertNotIn(b'native-core-payload-marker-',captured)
+        result=self.metrics(metrics,'bytes_out',len(payload))
+        self.assertEqual(result['authenticated_sessions'],1)
+        self.assertEqual(result['carrier'],'tls')
+        self.assertEqual(result['wire_appearance'],'standard-tls13')
+        self.assertEqual(result['preauth_rejection_count'],0)
+
+    def test_tls_configuration_rejects_invalid_material_and_mode_before_listen(self):
+        options=self.tls_options('server')
+        base=dict(mode='stream',role='server',listen=f'127.0.0.1:{port()}',
+                  upstream=f'127.0.0.1:{port()}',auth_key=KEY,**options)
+        cases=({'mode':'datagram'},{'carrier':'raw'},{'tls_peer_name':'*'},
+               {'tls_cert':base['tls_key']},{'tls_key':str(self.root/'absent.pem')})
+        for index,override in enumerate(cases):
+            with self.subTest(override=tuple(override)):
+                config=self.root/f'bad-tls-{index}.conf'
+                config.write_text(''.join(f'{k}={v}\n' for k,v in {**base,**override}.items()));config.chmod(0o600)
+                result=subprocess.run([self.binary,'--config',str(config)],capture_output=True,timeout=3)
+                self.assertNotEqual(result.returncode,0)
+        key=self.root/'server_key.pem';key.chmod(0o644)
+        config=self.root/'unsafe-key.conf'
+        config.write_text(''.join(f'{k}={v}\n' for k,v in base.items()));config.chmod(0o600)
+        result=subprocess.run([self.binary,'--config',str(config)],capture_output=True,timeout=3)
+        self.assertNotEqual(result.returncode,0)
+
+    def test_tls_authentication_does_not_bypass_envelope_proof(self):
+        import ssl
+        native=socket.socket();native.bind(('127.0.0.1',0));native.listen(1);native.settimeout(.2)
+        self.addCleanup(native.close)
+        server,metrics=self.launch('tls-proof','stream','server',native.getsockname()[1],**self.tls_options('server'))
+        context=ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        context.minimum_version=context.maximum_version=ssl.TLSVersion.TLSv1_3
+        context.load_verify_locations(str(self.root/'ca.pem'))
+        context.load_cert_chain(str(self.root/'client_cert.pem'),str(self.root/'client_key.pem'))
+        with socket.create_connection(('127.0.0.1',server),timeout=3) as raw:
+            with context.wrap_socket(raw,server_hostname='epe-server') as secured:
+                with self.assertRaises((EOFError,ssl.SSLError)):
+                    Peer(secured,'incorrect-envelope-secret')
+        self.metrics(metrics,'preauth_rejection_count',1)
+        with self.assertRaises(TimeoutError):native.accept()
+
     def test_stream_client_server_bidirectional_large_payload_half_close(self):
         server, metrics = self.launch('server', 'stream', 'server', self.echo('stream'))
         client, _ = self.launch('client', 'stream', 'client', server)

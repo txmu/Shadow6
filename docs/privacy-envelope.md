@@ -14,8 +14,8 @@ there is no authenticated plaintext forwarding mode.
 
 ## Build and run
 
-Requirements: OCaml 4.14+, Dune 3.8+, Digestif and libsodium development files.
-The opam manifest declares `conf-libsodium`. Explicit operator setup may install
+Requirements: OCaml 4.14+, Dune 3.8+, Digestif, libsodium and OpenSSL 3 development files.
+The opam manifest declares `conf-libsodium` and `conf-openssl`. Explicit operator setup may install
 these dependencies; ordinary `shadow6 run` never invokes a toolchain or builds.
 
 ```sh
@@ -56,8 +56,46 @@ The server's upstream and client's listen endpoint must be loopback/private.
 WebRTC/ICE and SCTP are not implemented by a TCP/UDP envelope; choose an actual
 compatible application socket or its dedicated adapter explicitly.
 The [Carrier/Adapter Contract](privacy-envelope-carrier-contract.md) separates
-the stream security engine from transport I/O. Its current raw provider remains
-identifiable; the message interface does not yet advertise an SCTP/WebRTC provider.
+the stream security engine from transport I/O. Its default raw provider remains
+identifiable; the TLS 1.3 provider encapsulates the hello in a real encrypted
+TLS connection; the message interface does not yet advertise an SCTP/WebRTC provider.
+
+## Standard TLS Carrier
+
+Stream endpoints can explicitly select `carrier=tls` on both sides. Add:
+
+```ini
+carrier=tls
+tls_cert=/absolute/private/server-cert.pem
+tls_key=/absolute/private/server-key.pem
+tls_ca=/absolute/private/ca.pem
+tls_peer_name=epe-client
+```
+
+The client supplies its own certificate/key and the expected server SAN instead.
+Material is single-certificate PEM and unencrypted PKCS8 Ed25519 key; local
+certificates and the trusted CA use Ed25519 signatures. The CA must be a CA.
+Each material file is distinct, absolute, owner-controlled, single-link, regular,
+non-symlink, mode 0600 and at most 16 KiB. The expected peer identity is verified
+against an exact SAN (DNS or numeric IP); CN fallback and wildcards are rejected.
+These files are included in the local DeploymentLock and rechecked by the
+supervisor. They never enter portable S6P1 intent. Datagram TLS is rejected.
+
+The outer connection uses TLS 1.3 with X25519 key agreement and mutual
+certificate authentication. Tickets, session caching, resumption and early data
+are disabled. The complete S6EPE hello, proofs, secretstream headers and records
+travel inside that connection. The independent envelope PSK remains required;
+a valid TLS certificate alone cannot reach the native upstream. There is no
+fallback to raw on TLS failure. Handshake and close have explicit time budgets;
+nonblocking partial I/O and backpressure preserve every byte. Authenticated
+close_notify is consumed after the envelope FINAL to avoid TCP reset truncation;
+raw EOF or application data after FINAL fails closed.
+
+Loopback wire recordings verify genuine TLS handshake records and absence of
+inner hello/payload markers; tests also verify mutual authentication failures,
+wrong SAN/CA, actual large-payload half-close and blocked write retry. These
+checks establish encryption of the inner hello, not browser fingerprint matching,
+anonymity or resistance to active identification and blocking.
 
 ## Stream contract
 
@@ -125,7 +163,8 @@ session. Cover and padding consume a session byte budget (64..16777216).
 Exhaustion closes the session. Datagram shaping is rejected. These controls
 reduce some length/framing clues; they do not guarantee anonymity, DPI evasion,
 undetectability or resistance to blocking. IP addresses, timing and volume remain
-observable. The v3 hello itself is identifiable.
+observable. The raw v3 hello itself is identifiable; TLS conceals that inner hello, while
+TLS handshake properties and connection metadata remain observable.
 
 ## Runtime truth and verification
 
@@ -133,7 +172,9 @@ Feature reports declare encryption, transports, endpoint support, replay,
 persistence capability, shaping and limits; they are claims, not OS observation.
 Metrics v2 is a private atomic snapshot with sample time, session/authentication/
 rejection/byte/record/timeout counters, shaping overhead and enabled state.
-Control Center retains strict v1 compatibility for older installed artifacts and
+TLS metrics v3 additionally declare `carrier=tls` and
+`wire_appearance=standard-tls13`; raw remains v2. Control Center retains strict
+v1/v2 compatibility for older installed artifacts and
 reports current/stale/unavailable separately. No secret or native payload is
 written to telemetry. Configuration/key epoch changes invalidate DeploymentLock;
 Named Service revalidates admission and files during supervision.

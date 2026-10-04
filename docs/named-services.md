@@ -111,6 +111,11 @@ shadow6 privacy-envelope status --metrics /absolute/path/server.metrics
 shadow6 service status home/private
 ```
 
+TLS Carrier certificate, private key and CA digests are local DeploymentLock
+material. The same files are rechecked before launch and during supervision;
+replacement requires explicit reconfiguration. S6P1 contains no local TLS file
+paths or digests. See [TLS Carrier configuration](privacy-envelope.md#standard-tls-carrier).
+
 The `--metrics` path must match `metrics_path` in the envelope configuration.
 For the read-only Control Center API, configure `SHADOW6_ENVELOPE_METRICS` in its
 operator environment, then call `privacy-envelope.status` with empty parameters.

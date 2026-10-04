@@ -36,6 +36,23 @@ class ObservationTests(unittest.TestCase):
             path.chmod(0o644)
             with self.assertRaises(ValueError): read_metrics(path)
 
+    def test_tls_carrier_observation_is_strict_and_aggregate(self):
+        import json, tempfile, time
+        from pathlib import Path
+        from privacy_envelope import read_metrics
+        with tempfile.TemporaryDirectory(prefix='shadow6-tls-metrics-') as directory:
+            path=Path(directory)/'metrics'
+            value={**EnvelopeMetrics().public(),'schema':'shadow6.privacy-envelope-status.v3',
+                   'observed_at':int(time.time()),'records_in':1,'records_out':1,'timeout_count':0,
+                   'shaping_overhead_bytes':0,'shaping_enabled':False,'carrier':'tls',
+                   'wire_appearance':'standard-tls13'}
+            path.write_text(json.dumps(value));path.chmod(0o600)
+            self.assertEqual(read_metrics(path)['carrier'],'tls')
+            self.assertEqual(read_metrics(path)['observation'],'current')
+            for key,replacement in (('carrier','webrtc'),('wire_appearance','DPI-proof'),('extra',True)):
+                bad={**value,key:replacement};path.write_text(json.dumps(bad))
+                with self.assertRaises(ValueError):read_metrics(path)
+
     def test_future_timestamp_remains_stale_without_clock_tolerance(self):
         import json, tempfile
         from pathlib import Path

@@ -4,7 +4,8 @@
 | --- | --- | --- |
 | Native Core feature reports | PUBLIC_INTENTIONAL | Native contracts remain unchanged. |
 | Control Center Web API | LOCAL_ONLY | Loopback, bearer authenticated, bounded and read-only by default. |
-| S6EPE v3 hello | PUBLIC_INTENTIONAL | Version magic, ephemeral public key, random nonce and epoch; no Core identity or product credential. Identifiable by DPI. |
+| S6EPE v3 hello on raw carrier | PUBLIC_INTENTIONAL | Version magic, ephemeral public key, random nonce and epoch; no Core identity or product credential. Identifiable by DPI. |
+| TLS Carrier hello/proofs/records | ENCRYPTED_AUTHENTICATED | Genuine mTLS 1.3 encapsulates the entire envelope exchange; certificates, SNI, IPs, timing and volume remain observable. |
 | S6EPE v3 payload records | ENCRYPTED_AUTHENTICATED | Directional XChaCha20-Poly1305 secretstream/AEAD; no plaintext fallback. |
 | Core/Gate behind envelope | LOCAL_ONLY | Private declaration must also match actual process-owned listeners. |
 | Metrics and optional replay state | LOCAL_ONLY | Private bounded aggregate counters / nonce hashes; no payload, PSK or credentials. |
@@ -22,6 +23,7 @@ native protocol semantics. Unknown observations remain unavailable.
 
 Optional padding/jitter/cover records have explicit byte, count and lifetime
 limits and default off. S6EPE does not provide anonymity, undetectability or a
-promise against DPI/blocking; traffic metadata and its v3 hello remain visible.
+promise against DPI/blocking; traffic metadata remains visible; the v3 hello is visible on raw and encrypted
+inside the TLS Carrier. No browser fingerprint equivalence is claimed.
 Historical 10.3 review documents describe the preceding v2 implementation and
 verification, not the v3 wire introduced in this follow-up.

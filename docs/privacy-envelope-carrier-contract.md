@@ -24,7 +24,12 @@ generic in `Session.Make`. The active default wrappers instantiate `Raw_stream`,
 preserving the existing v3 wire and least-privileged configuration. Partial
 handshake I/O is tested with a separate provider type and the resulting keys
 are tested in both directions. Raw-provider tests exercise readiness and
-half-close. This abstraction alone does **not** provide camouflage.
+half-close. This abstraction alone does **not** provide camouflage. The implemented
+`Carrier_tls` provider uses genuine mutually authenticated TLS 1.3, including
+S6EPE hello encapsulation, buffered readiness, partial I/O, backpressure and
+authenticated half-close. Its bounded finish step consumes peer close_notify
+and rejects further application bytes after envelope FINAL. See the
+[configuration and tested limits](privacy-envelope.md#standard-tls-carrier).
 
 ## Message operations
 

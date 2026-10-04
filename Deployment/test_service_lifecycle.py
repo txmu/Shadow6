@@ -159,6 +159,27 @@ class ServiceLifecycleTests(unittest.TestCase):
         self.assertEqual(value['authenticated_sessions'],1)
         self.assertEqual(value['observation'],'current')
 
+    def test_tls_registry_lock_and_plan_keep_material_out_of_s6p1(self):
+        config=self.root/'tls-envelope.conf'
+        atomic_write(self.config,b'{"listen_addr":"127.0.0.1:14433"}')
+        fields={'listen':'127.0.0.1:14444','upstream':'127.0.0.1:14433',
+                'auth_key':'test-only-key-0123456789abcdef','carrier':'tls','tls_peer_name':'epe-client'}
+        for key in ('tls_cert','tls_key','tls_ca'):
+            path=self.root/(key+'.pem');atomic_write(path,('test-only-'+key).encode());fields[key]=str(path)
+        atomic_write(config,''.join(f'{k}={v}\n' for k,v in fields.items()).encode())
+        self.catalog.envelope_binary=lambda:self.binary
+        self.registry.configure('home/nas',core='go',config={'config_path':str(self.config)},privacy='envelope',
+                                spec={'envelope_config':str(config)})
+        lock=self.registry.lock('home/nas');_,plan=self.registry.launch_plan('home/nas')
+        self.assertEqual(plan['envelopeTlsKey'],fields['tls_key'])
+        self.assertIn('envelopeTlsKey',plan['launchDigests'])
+        self.assertNotIn(str(self.root),json.dumps(plan['protocolContext']))
+        service_runtime.verify_launch_material(plan)
+        atomic_write(fields['tls_key'],b'replaced-key')
+        with self.assertRaisesRegex(ValueError,'drift'):self.registry.apply('home/nas')
+        with self.assertRaisesRegex(ValueError,'drift before launch'):service_runtime.verify_launch_material(plan)
+        self.assertNotEqual(self.registry.lock('home/nas')['digest'],lock['digest'])
+
     def test_cli_public6_help_not_intercepted(self):
         result = subprocess.run([sys.executable,str(ROOT/'CLI/shadow6.py'),'connect','--help'], capture_output=True, text=True, timeout=10)
         self.assertEqual(result.returncode,0,result.stderr)
@@ -247,7 +268,9 @@ class LaunchLockTests(unittest.TestCase):
     def test_all_critical_peripheral_digests_are_checked(self):
         import hashlib
         for component in ('envelope','gate','guard'):
-            plan=self.plan();config=self.root/(component+'.json');atomic_write(config,b'{}')
+            plan=self.plan();config=self.root/(component+'.json')
+            original=b'listen=127.0.0.1:14444\nupstream=127.0.0.1:14433\nauth_key=test-only-key-0123456789abcdef\n' if component == 'envelope' else b'{}'
+            atomic_write(config,original)
             binary=self.root/(component+'-binary');binary.write_bytes(self.binary.read_bytes());binary.chmod(0o700)
             plan[component+'Config']=str(config);plan[component+'Binary']=str(binary)
             plan['launchDigests'][component+'Config']='sha256:'+hashlib.sha256(config.read_bytes()).hexdigest()
@@ -256,9 +279,43 @@ class LaunchLockTests(unittest.TestCase):
             atomic_write(config,b'{"drift":true}')
             with self.assertRaisesRegex(ValueError,'drift before launch: '+component+'Config'):
                 service_runtime.verify_launch_material(plan)
-            atomic_write(config,b'{}');binary.write_text('#!/bin/false\n')
+            atomic_write(config,original);binary.write_text('#!/bin/false\n')
             with self.assertRaisesRegex(ValueError,'drift before launch: '+component+'Binary'):
                 service_runtime.verify_launch_material(plan)
+
+    def test_tls_material_is_exact_private_and_locked(self):
+        import hashlib
+        plan=self.plan(); config=self.root/'tls-envelope.conf'
+        fields={'mode':'stream','carrier':'tls','listen':'127.0.0.1:14444',
+                'upstream':'127.0.0.1:14433','auth_key':'test-only-key-0123456789abcdef',
+                'tls_peer_name':'epe-client'}
+        for name,key in (('Cert','tls_cert'),('Key','tls_key'),('Ca','tls_ca')):
+            path=self.root/(name+'.pem');atomic_write(path,('test-'+name).encode())
+            fields[key]=str(path);plan['envelopeTls'+name]=str(path)
+            plan['launchDigests']['envelopeTls'+name]='sha256:'+hashlib.sha256(path.read_bytes()).hexdigest()
+        atomic_write(config,''.join(f'{key}={value}\n' for key,value in fields.items()).encode())
+        plan.update(envelopeConfig=str(config),envelopeBinary=str(self.binary))
+        plan['launchDigests']['envelopeConfig']='sha256:'+hashlib.sha256(config.read_bytes()).hexdigest()
+        plan['launchDigests']['envelopeBinary']=service_runtime.executable_digest(self.binary)
+        service_runtime.validate_envelope(fields);service_runtime.verify_launch_material(plan)
+        for name in ('Cert','Key','Ca'):
+            path=Path(plan['envelopeTls'+name]);original=path.read_bytes()
+            atomic_write(path,b'replaced')
+            with self.assertRaisesRegex(ValueError,'drift before launch: envelopeTls'+name):
+                service_runtime.verify_launch_material(plan)
+            atomic_write(path,original)
+        without_tls={k:v for k,v in plan.items() if not k.startswith('envelopeTls')}
+        without_tls['launchDigests']={k:v for k,v in plan['launchDigests'].items() if not k.startswith('envelopeTls')}
+        with self.assertRaisesRegex(ValueError,'differs from envelope configuration'):
+            service_runtime.verify_launch_material(without_tls)
+        path=Path(fields['tls_key']);path.chmod(0o644)
+        with self.assertRaises(ValueError): service_runtime.verify_launch_material(plan)
+        path.chmod(0o600)
+        for overrides in ({'carrier':'raw'},{'mode':'datagram'},{'tls_peer_name':'*'},
+                          {'tls_cert':fields['tls_key']}):
+            with self.subTest(overrides=overrides),self.assertRaises(ValueError):
+                service_runtime.validate_envelope({**fields,**overrides})
+        with self.assertRaises(ValueError):service_runtime.parse_envelope(b'carrier=tls\ncarrier=raw\n')
 
 
 class ObservationTruthTests(unittest.TestCase):

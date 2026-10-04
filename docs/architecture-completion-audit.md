@@ -27,7 +27,7 @@ in both directions, and requires the process to remain alive. The original
 test passed thirty local repeats; packet loss/startup timing remains an
 inference, not an established production root cause.
 
-Current local validation: 22 matrix/feature tests, seven Linux/Windows workflow
+Prior carrier-refactor validation: 22 matrix/feature tests, seven Linux/Windows workflow
 tests, seven portable PPB tests including exported native security validation,
 and ten EPE E2E tests passed. EPE E2E used the existing executable and therefore
 does not validate the newly refactored OCaml source. Source-only audit: seven
@@ -37,13 +37,40 @@ the full platform matrix remain Actions gates; no OCaml toolchain is present
 on the local PATH. No archive was produced and no native build variant was
 compiled locally in this work.
 
+## TLS Carrier progress
+
+Run `37163881988` has passed the OCaml producer and Windows ARM64 producer;
+several native jobs remain pending/in progress and no final green result has
+been established. The TLS change is not yet part of that run.
+
+An existing extracted OCaml 5.3 toolchain was found under `/tmp`; no dependency
+was downloaded. Only the small privacy-envelope component was source-built.
+Its dune crypto/datagram/carrier tests and focused Python suites passed: actual
+raw/TLS envelope processes, TLS native binding tests, private aggregate metrics,
+and Deployment lifecycle/admission tests: 19 envelope/native-TLS tests, 66
+source-built Deployment tests and seven Control Center observation tests passed.
+Source-only audit: seven passed, zero failed, one explicit binary-check skip. The baseline Deployment suite without
+`S6EPE_BINARY` had one explicit unavailable-binary skip; the source-built combined
+rerun supplies the binary. No Native Core build, full release workflow, platform
+package or archive ran locally.
+
+TLS encapsulation now uses one genuine mTLS 1.3 channel for all envelope bytes,
+keeps the independent S6EPE proof mandatory, enforces SAN verification/private
+bounded Ed25519 material, and supports nonblocking buffered I/O/backpressure.
+A real half-close test found unread TLS close_notify causing TCP reset truncation;
+consuming the authenticated alert after envelope FINAL fixed the test without
+accepting unauthenticated EOF. Wire recordings verify standard TLS records and
+absence of inner hello/payload markers. Browser mimicry and DPI resistance are
+not established. TLS material digests stay in local DeploymentLock/launch plans;
+TLS metrics v3 identify the configured carrier and appearance.
+
 ## Requirement evidence and remaining gates
 
 | Item | Starting implementation evidence | Completion evidence still required |
 | --- | --- | --- |
 | 1. Native independence | Deployment/topology_contract.py admits native families; OCaml envelope forwards opaque bytes | Review all new carrier paths for absence of native wire parsing or translation |
 | 2. S6EPE v3 security | OCaml/privacy_envelope/src/{forward,session,replay_store,metrics}.ml implement directional crypto, stream ratchet/final, bounded replay/persistence/shaping and observations | Source-built negative tests for every requested control, including carrier integration and restart behavior; optional datagram persistence must satisfy explicit deployment requirements |
-| 3. Carrier contract | carrier.mli defines separate stream/message interfaces; Forward.Make_handshake and Session.Make use stream provider operations; active provider is raw | Source-build the new carrier tests; implement natural providers and prove hello encapsulation on actual wire; raw identification stays explicit |
+| 3. Carrier contract | carrier.mli defines separate stream/message interfaces; Forward.Make_handshake and Session.Make use stream provider operations; raw default plus explicit mTLS 1.3 provider; source-built loopback wire observation verifies inner hello concealment, independent PSK admission, backpressure and authenticated half-close | Continue dedicated message-provider work and CI interoperability verification; raw identification stays explicit |
 | 4. SCTP and WebRTC | docs/privacy-envelope.md explicitly declares these adapters unavailable | Dedicated implementations and real integration tests preserving messages, streams/channels, ordering, close, budgets, backpressure and ICE/DTLS/SCTP lifecycle |
 | 5. Composition | docs/service-connections.md describes Guard/EPE/Gate/Core stacks | Validate nested composition and document native/outer encryption domains separately from S6NA adaptation and routing |
 | 6. Portable admission | Deployment/protocol_context.py and Detector/service_compliance.py share realization admission | Recheck required/forbidden components and credential scopes across setup/lock/run/connect/install; demonstrate local facts cannot enter portable intent |

@@ -1,4 +1,6 @@
+type tls = { cert_path:string; key_path:string; ca_path:string; peer_name:string }
 type t = { listen : Unix.sockaddr; upstream : Unix.sockaddr; mode : string; role : string;
+  carrier:string; tls:tls option;
   auth_key : string; max_frame : int; handshake_timeout : float; max_preauth : int;
   max_sessions : int; idle_timeout : float; session_timeout : float; metrics_path : string option;
   key_epoch:int; replay_path:string option;
@@ -43,7 +45,7 @@ let private_read ?(limit=16384) path =
     Bytes.to_string data)
 let load path =
   let values = Hashtbl.create 16 in
-  let known = ["listen";"upstream";"mode";"role";"auth_key";"max_frame";"handshake_timeout";"max_preauth";"max_sessions";"idle_timeout";"session_timeout";"metrics_path";"key_epoch";"replay_path";"padding_block";"jitter_ms";"cover_interval";"cover_limit";"shaping_budget"] in
+  let known = ["listen";"upstream";"mode";"role";"auth_key";"max_frame";"handshake_timeout";"max_preauth";"max_sessions";"idle_timeout";"session_timeout";"metrics_path";"key_epoch";"replay_path";"padding_block";"jitter_ms";"cover_interval";"cover_limit";"shaping_budget";"carrier";"tls_cert";"tls_key";"tls_ca";"tls_peer_name"] in
   String.split_on_char '\n' (private_read path) |> List.iter (fun raw ->
     let line = String.trim raw in
     if line <> "" && line.[0] <> '#' then
@@ -57,6 +59,20 @@ let load path =
   let number k lo hi value = bounded k lo hi (int_of_string (default k value)) in
   let mode = default "mode" "stream" and role = default "role" "server" in
   if not (List.mem mode ["stream";"datagram"]) || not (List.mem role ["server";"client"]) then invalid_arg "mode/role";
+  let carrier = default "carrier" "raw" in
+  let tls_fields = ["tls_cert";"tls_key";"tls_ca";"tls_peer_name"] in
+  let tls = match carrier with
+    | "raw" -> if List.exists (Hashtbl.mem values) tls_fields then invalid_arg "TLS fields require TLS carrier"; None
+    | "tls" when mode = "stream" ->
+      let cert_path=get "tls_cert" and key_path=get "tls_key" and ca_path=get "tls_ca" and peer_name=get "tls_peer_name" in
+      let paths=[cert_path;key_path;ca_path] in
+      List.iter (fun p -> if Filename.is_relative p || p=path then invalid_arg "TLS material path"; ignore (private_read p)) paths;
+      if List.length (List.sort_uniq String.compare paths) <> 3 then invalid_arg "distinct TLS material required";
+      if String.length peer_name < 1 || String.length peer_name > 253 ||
+         not (String.for_all (function 'a'..'z'|'A'..'Z'|'0'..'9'|'.'|'-'|':' -> true | _ -> false) peer_name)
+      then invalid_arg "TLS peer name";
+      Some {cert_path;key_path;ca_path;peer_name}
+    | _ -> invalid_arg "unsupported carrier/mode" in
   let auth_key = get "auth_key" in
   if String.length auth_key < 16 || String.length auth_key > 256 then invalid_arg "auth_key";
   let listen = endpoint (get "listen") and upstream = endpoint (get "upstream") in
@@ -68,6 +84,8 @@ let load path =
   if mode = "datagram" && (socket_domain listen = Unix.PF_UNIX || socket_domain upstream = Unix.PF_UNIX) then invalid_arg "Unix datagram endpoint unavailable";
   let metrics_path = Hashtbl.find_opt values "metrics_path" in
   Option.iter (fun p -> if Filename.is_relative p || p = path then invalid_arg "metrics_path") metrics_path;
+  Option.iter (fun t -> if List.exists (fun p -> Some p=metrics_path) [t.cert_path;t.key_path;t.ca_path]
+    then invalid_arg "TLS material cannot be metrics output") tls;
   let replay_path = Hashtbl.find_opt values "replay_path" in
   Option.iter (fun p -> if mode <> "datagram" || Filename.is_relative p || p = path || Some p = metrics_path then invalid_arg "replay_path"; private_unix p) replay_path;
   let padding_block=number "padding_block" 0 4096 "0" in
@@ -75,7 +93,7 @@ let load path =
   let jitter_ms=number "jitter_ms" 0 20 "0" and cover_interval=number "cover_interval" 0 60 "0" and cover_limit=number "cover_limit" 0 64 "0" in
   if (cover_interval = 0) <> (cover_limit = 0) then invalid_arg "cover limits must be explicit";
   if mode = "datagram" && (padding_block <> 0 || jitter_ms <> 0 || cover_interval <> 0) then invalid_arg "stream shaping only";
-  { listen; upstream; mode; role; auth_key;
+  { listen; upstream; mode; role; carrier; tls; auth_key;
     max_frame=number "max_frame" 256 (if mode = "datagram" then 65427 else 65507) "16384";
     handshake_timeout=float_of_int (number "handshake_timeout" 1 30 "5");
     max_preauth=number "max_preauth" 1 128 "16";

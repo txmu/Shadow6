@@ -37,14 +37,16 @@ let bridge remote local (config:Config.t) (receiving, sending) metrics ~shaping 
     let prefix = Bytes.create 4 in Bytes.set_int32_be prefix 0 (Int32.of_int (Bytes.length cipher));
     Bytes.cat prefix cipher
   in
+  let attempt f = try Some (f ()) with
+    Unix.Unix_error ((Unix.EAGAIN|Unix.EWOULDBLOCK|Unix.EINTR),_,_) -> None in
   let rec loop () =
-    if !inbound || !outbound || Bytes.length !plain > 0 || Bytes.length !wire > 0 then begin
-      let now = Unix.gettimeofday () in
-      if now >= deadline || now -. !last >= config.idle_timeout then raise Timeout;
       if not !inbound && Bytes.length !plain = 0 && not !local_shutdown then
         (Unix.shutdown local Unix.SHUTDOWN_SEND; local_shutdown := true);
       if not !outbound && Bytes.length !wire = 0 && not !remote_shutdown then
         (C.shutdown_send remote; remote_shutdown := true);
+    if !inbound || !outbound || Bytes.length !plain > 0 || Bytes.length !wire > 0 then begin
+      let now = Unix.gettimeofday () in
+      if now >= deadline || now -. !last >= config.idle_timeout then raise Timeout;
       let ready = C.poll remote ~local
         ~local_read:(!outbound && Bytes.length !wire = 0)
         ~local_write:(Bytes.length !plain > 0)
@@ -52,7 +54,9 @@ let bridge remote local (config:Config.t) (receiving, sending) metrics ~shaping 
         ~carrier_write:(Bytes.length !wire > 0) ~timeout:0.1 in
       if ready.local_read then begin
         let buffer = Bytes.create config.max_frame in
-        let count = Unix.read local buffer 0 (Bytes.length buffer) in
+        match attempt (fun () -> Unix.read local buffer 0 (Bytes.length buffer)) with
+        | None -> ()
+        | Some count -> begin
         if count = 0 then (outbound := false; wire := frame Bytes.empty Sodium.final)
         else begin
           let tag = if (!tx_records+1) mod 4096 = 0 then Sodium.rekey else Sodium.message in
@@ -60,10 +64,13 @@ let bridge remote local (config:Config.t) (receiving, sending) metrics ~shaping 
           metrics (config.role = "client") count
         end;
         last := Unix.gettimeofday ()
+        end
       end;
       if ready.carrier_read then begin
         let target, used = if !header_used < 4 then header, header_used else !body, body_used in
-        let count = C.read remote target !used (Bytes.length target - !used) in
+        match attempt (fun () -> C.read remote target !used (Bytes.length target - !used)) with
+        | None -> ()
+        | Some count -> begin
         if count = 0 then raise Exit;
         used := !used + count; last := Unix.gettimeofday ();
         if !header_used = 4 && Bytes.length !body = 0 then begin
@@ -90,9 +97,12 @@ let bridge remote local (config:Config.t) (receiving, sending) metrics ~shaping 
           end;
           header_used := 0; body_used := 0; body := Bytes.empty
         end
+        end
       end;
       let send writable write pending = if writable then begin
-        let count = write !pending 0 (Bytes.length !pending) in
+        match attempt (fun () -> write !pending 0 (Bytes.length !pending)) with
+        | None -> ()
+        | Some count ->
         if count = 0 then raise Exit;
         pending := Bytes.sub !pending count (Bytes.length !pending-count);
         last := Unix.gettimeofday ()

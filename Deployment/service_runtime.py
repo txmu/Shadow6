@@ -106,7 +106,7 @@ def executable_digest(path):
 
 def verify_launch_material(plan):
     required = {'root','core','binary','config','ttl','launchDigests'}
-    allowed = required | {'launchAdapter','protocolContext','contextDigest','lockDigest'} | {c + k for c in ('envelope','gate','guard') for k in ('Config','Binary')}
+    allowed = {'envelopeTlsCert','envelopeTlsKey','envelopeTlsCa'} | required | {'launchAdapter','protocolContext','contextDigest','lockDigest'} | {c + k for c in ('envelope','gate','guard') for k in ('Config','Binary')}
     if not isinstance(plan,dict) or not required <= set(plan) or set(plan) - allowed:
         raise ValueError('invalid launch plan fields')
     if not isinstance(plan['core'],str) or re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._:-]{0,63}',plan['core']) is None:
@@ -118,7 +118,7 @@ def verify_launch_material(plan):
     for component in ('envelope','gate','guard'):
         if (component + 'Config' in plan) != (component + 'Binary' in plan):
             raise ValueError('incomplete launch component realization')
-    for key in ('root','binary','config') + tuple(k for k in plan if k.endswith(('Config','Binary'))):
+    for key in ('root','binary','config') + tuple(k for k in plan if k.endswith(('Config','Binary')) or k.startswith('envelopeTls')):
         if not isinstance(plan[key],str) or not Path(plan[key]).is_absolute():
             raise ValueError('absolute launch paths required')
     expected = plan.get('launchDigests')
@@ -127,15 +127,23 @@ def verify_launch_material(plan):
         if component + 'Config' in plan:
             files[component + 'Config'] = 'private'
             files[component + 'Binary'] = 'executable'
+    tls_keys = {'envelopeTlsCert','envelopeTlsKey','envelopeTlsCa'} & set(plan)
+    if tls_keys and (len(tls_keys) != 3 or 'envelopeConfig' not in plan):
+        raise ValueError('incomplete TLS launch material')
+    files.update({key:'tls-private' for key in tls_keys})
     if not isinstance(expected,dict) or set(expected) != set(files):
         raise ValueError('launch plan requires exact locked file digests')
     for key,kind in files.items():
         digest = expected[key]
         if not isinstance(digest,str) or re.fullmatch(r'sha256:[0-9a-f]{64}',digest) is None:
             raise ValueError('invalid locked launch digest')
-        actual = executable_digest(plan[key]) if kind == 'executable' else 'sha256:' + hashlib.sha256(private_read(plan[key])).hexdigest()
+        actual = executable_digest(plan[key]) if kind == 'executable' else 'sha256:' + hashlib.sha256(private_read(plan[key],limit=16384 if kind == 'tls-private' else 1048576)).hexdigest()
         if actual != digest:
             raise ValueError(f'deployment drift before launch: {key}; explicitly reconfigure')
+    if 'envelopeConfig' in plan:
+        actual_tls = envelope_tls_material(parse_envelope(private_read(plan['envelopeConfig'])))
+        if actual_tls != {key:plan[key] for key in tls_keys}:
+            raise ValueError('TLS launch material differs from envelope configuration')
     verify_launch_admission(plan)
 
 
@@ -361,17 +369,51 @@ def validate_native_private(config):
     return value
 
 
+def parse_envelope(content):
+    fields = {}
+    for line in content.decode('utf-8').splitlines():
+        line = line.strip()
+        if not line or line.startswith('#'): continue
+        key, separator, value = line.partition('=')
+        key = key.strip()
+        if not separator or not key or key in fields:
+            raise ValueError('invalid envelope configuration fields')
+        fields[key] = value.strip()
+    return fields
+
+
+def envelope_tls_material(fields):
+    carrier = fields.get('carrier','raw')
+    keys = {'tls_cert','tls_key','tls_ca','tls_peer_name'}
+    if carrier == 'raw':
+        if keys & set(fields): raise ValueError('raw carrier rejects TLS material')
+        return {}
+    if carrier != 'tls' or fields.get('mode','stream') != 'stream' or not keys <= set(fields):
+        raise ValueError('TLS carrier requires stream mode and complete material')
+    if re.fullmatch(r'[A-Za-z0-9.:-]{1,253}',fields['tls_peer_name']) is None:
+        raise ValueError('invalid TLS peer name')
+    material = {name:fields[key] for name,key in (
+        ('envelopeTlsCert','tls_cert'),('envelopeTlsKey','tls_key'),('envelopeTlsCa','tls_ca'))}
+    if len(set(material.values())) != 3 or any(not Path(path).is_absolute() for path in material.values()):
+        raise ValueError('TLS material requires distinct absolute paths')
+    if fields.get('metrics_path') in material.values():
+        raise ValueError('TLS material conflicts with metrics path')
+    for path in material.values(): private_read(path,limit=16384)
+    return material
+
+
 def validate_envelope(fields):
     try:
         from .broker_set import private_endpoint, endpoint
     except ImportError:
         from broker_set import private_endpoint, endpoint
-    known={'listen','upstream','mode','role','auth_key','max_frame','handshake_timeout','max_preauth','max_sessions','idle_timeout','session_timeout','metrics_path','key_epoch','replay_path','padding_block','jitter_ms','cover_interval','cover_limit','shaping_budget'}
+    known={'listen','upstream','mode','role','auth_key','max_frame','handshake_timeout','max_preauth','max_sessions','idle_timeout','session_timeout','metrics_path','key_epoch','replay_path','padding_block','jitter_ms','cover_interval','cover_limit','shaping_budget','carrier','tls_cert','tls_key','tls_ca','tls_peer_name'}
     if set(fields)-known: raise ValueError('unknown envelope configuration field')
     if fields.get('role','server') != 'server': raise ValueError('privacy=envelope requires a server admission boundary')
     if fields.get('mode','stream') not in {'stream','datagram'}: raise ValueError('invalid envelope mode')
     if not {'listen','upstream','auth_key'} <= set(fields):
         raise ValueError('envelope requires listen/upstream/auth_key')
+    envelope_tls_material(fields)
     endpoint(fields['listen'])
     if not private_endpoint(fields['upstream']):
         raise ValueError('envelope invariant: native upstream must be literal loopback')

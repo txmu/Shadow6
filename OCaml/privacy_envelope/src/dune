@@ -1,10 +1,10 @@
 (library
  (name s6epe_core)
  (wrapped false)
- (modules config carrier envelope crypto session forward rate_limit metrics feature_report sodium replay_store)
+ (modules config carrier carrier_tls envelope crypto session forward rate_limit metrics feature_report sodium replay_store)
  (libraries unix threads digestif.c)
- (foreign_stubs (language c) (names sodium_stubs carrier_stubs) (flags (:standard -Wall -Wextra -Werror)))
- (c_library_flags -lsodium))
+ (foreign_stubs (language c) (names sodium_stubs carrier_stubs carrier_tls_native carrier_tls_stubs) (flags (:standard -Wall -Wextra -Werror)))
+ (c_library_flags -lsodium -lssl -lcrypto))
 (executable
  (name main)
  (public_name shadow6-privacy-envelope)

@@ -7,6 +7,7 @@ let traffic metrics inbound count = Metrics.update metrics (fun m ->
   if inbound then (m.bytes_in <- Metrics.add m.bytes_in count; m.records_in <- Metrics.add m.records_in 1)
   else (m.bytes_out <- Metrics.add m.bytes_out count; m.records_out <- Metrics.add m.records_out 1))
 let stream config metrics =
+  let tls_context = Option.map Carrier_tls.make_context config.Config.tls in
   let listener = Unix.socket ~cloexec:true (Config.socket_domain config.Config.listen) Unix.SOCK_STREAM 0 in
   Unix.setsockopt listener Unix.SO_REUSEADDR true; Unix.bind listener config.Config.listen;
   Unix.listen listener config.max_sessions;
@@ -30,13 +31,25 @@ let stream config metrics =
               let remote = if config.role = "server" then client else begin
                 let fd = Forward.connect config.upstream config.handshake_timeout in upstream := Some fd; fd end in
               Metrics.update metrics (fun m -> m.sessions <- Metrics.add m.sessions 1);
-              let keys = Forward.handshake remote config in
-              Metrics.update metrics (fun m -> m.authenticated <- Metrics.add m.authenticated 1);
-              change (fun () -> decr preauth; pending := false);
-              let target = match !upstream with Some fd -> fd | None ->
-                let fd = Forward.connect config.upstream config.handshake_timeout in upstream := Some fd; fd in
-              Session.bridge client target config keys (traffic metrics)
-                ~shaping:(fun n -> Metrics.update metrics (fun m -> m.shaping_overhead <- Metrics.add m.shaping_overhead n))
+              let run handshake bridge transport =
+                let keys = handshake transport config in
+                Fun.protect ~finally:(fun () -> let rx,tx=keys in Sodium.close rx;Sodium.close tx) (fun () ->
+                  Metrics.update metrics (fun m -> m.authenticated <- Metrics.add m.authenticated 1);
+                  change (fun () -> decr preauth; pending := false);
+                  let target = match !upstream with Some fd -> fd | None ->
+                    let fd = Forward.connect config.upstream config.handshake_timeout in upstream := Some fd; fd in
+                  let local=if config.role="server" then target else client in
+                  bridge transport local config keys (traffic metrics)
+                    ~shaping:(fun n -> Metrics.update metrics (fun m -> m.shaping_overhead <- Metrics.add m.shaping_overhead n)))
+              in
+              (match tls_context,config.tls with
+                | None,None -> run Forward.Raw_handshake.run Session.Raw_session.bridge (Carrier.Raw_stream.of_fd remote)
+                | Some ctx,Some tls ->
+                  let module H=Forward.Make_handshake(Carrier_tls) in
+                  let module S=Session.Make(Carrier_tls) in
+                  let transport=Carrier_tls.create ctx remote ~server:(config.role="server") ~peer_name:tls.peer_name ~timeout:config.handshake_timeout in
+                  Fun.protect ~finally:(fun () -> Carrier_tls.close transport) (fun () -> run H.run S.bridge transport; Carrier_tls.finish transport)
+                | _ -> invalid_arg "carrier configuration")
             with error -> (match error with Session.Timeout -> Metrics.update metrics (fun m -> m.timeouts <- Metrics.add m.timeouts 1) | _ -> reject metrics error))
         in
         (try ignore (Thread.create worker ()) with error -> close client; change (fun () -> decr active; decr preauth); reject metrics error)
@@ -104,5 +117,5 @@ let datagram config metrics =
     with e -> reject metrics e) readable; loop ()
   in Fun.protect ~finally:(fun () -> Hashtbl.iter (fun _ p -> close p.socket) peers; Replay_store.close store; close listener) loop
 let serve config =
-  let metrics = Metrics.create ~shaping_enabled:(config.Config.padding_block <> 0 || config.jitter_ms <> 0 || config.cover_interval <> 0) () in
+  let metrics = Metrics.create ~carrier:config.Config.carrier ~shaping_enabled:(config.Config.padding_block <> 0 || config.jitter_ms <> 0 || config.cover_interval <> 0) () in
   if config.Config.mode = "stream" then stream config metrics else datagram config metrics

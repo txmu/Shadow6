@@ -210,18 +210,13 @@ class ServiceRegistry:
             if not path:
                 raise ValueError('envelope privacy requires --envelope-config')
             content = private_read(path)
-            fields = {}
-            for line in content.decode('utf-8').splitlines():
-                line = line.strip()
-                if not line or line.startswith('#'): continue
-                key, separator, value = line.partition('=')
-                if not separator or key.strip() in fields:
-                    raise ValueError('invalid envelope configuration fields')
-                fields[key.strip()] = value.strip()
+            fields = runtime.parse_envelope(content)
             if item['spec'].get('metrics_path') and fields.get('metrics_path') != item['spec']['metrics_path']:
                 raise ValueError('service metrics path must match envelope metrics_path')
             runtime.validate_envelope(fields)
             runtime.validate_native_private(binding['config']['config_path'])
+            extra['envelopeTlsMaterial'] = runtime.envelope_tls_material(fields)
+            extra['envelopeTlsDigests'] = {key:digest(private_read(path,limit=16384)) for key,path in extra['envelopeTlsMaterial'].items()}
             extra['envelopeConfigDigest'] = digest(content)
             extra['envelopeBinaryDigest'] = digest(Path(runtime.executable(self.catalog.envelope_binary())).read_bytes())
         for component in ('gate', 'guard'):
@@ -282,6 +277,7 @@ class ServiceRegistry:
                 'protocolContext':item['protocolContext'], 'contextDigest':material['contextDigest'], 'lockDigest':item['deploymentLock']['digest']}
         if item['privacy'] == 'envelope':
             plan.update(envelopeConfig=item['spec']['envelope_config'], envelopeBinary=str(self.catalog.envelope_binary()))
+        if item['privacy'] == 'envelope': plan.update(material['envelopeTlsMaterial'])
         for component in ('gate', 'guard'):
             if item['spec'].get(component + '_config'):
                 plan[component + 'Config'] = item['spec'][component + '_config']
@@ -291,6 +287,7 @@ class ServiceRegistry:
             if component + 'Config' in plan:
                 plan['launchDigests'][component + 'Config'] = material[component + 'ConfigDigest']
                 plan['launchDigests'][component + 'Binary'] = material[component + 'BinaryDigest']
+        plan['launchDigests'].update(material.get('envelopeTlsDigests',{}))
         path = self.path.parent / (hashlib.sha256(name.encode()).hexdigest() + '.runtime.json')
         atomic_write(path, encoded(plan))
         return path, plan

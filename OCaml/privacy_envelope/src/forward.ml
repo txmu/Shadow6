@@ -17,9 +17,12 @@ module Make_handshake (C:Carrier.STREAM) = struct
   let exact fd data write deadline =
     let rec loop off = if off < Bytes.length data then begin
       C.wait fd ~write ~deadline;
-      let n = if write then C.write fd data off (Bytes.length data-off)
-        else C.read fd data off (Bytes.length data-off) in
-      if n = 0 then raise Exit; loop (off+n)
+      let next = try
+        let n = if write then C.write fd data off (Bytes.length data-off)
+          else C.read fd data off (Bytes.length data-off) in
+        if n = 0 then raise Exit; off+n
+      with Unix.Unix_error ((Unix.EAGAIN|Unix.EWOULDBLOCK|Unix.EINTR),_,_) -> off in
+      loop next
     end in loop 0
 let run fd config =
   let deadline = Unix.gettimeofday () +. config.Config.handshake_timeout in
