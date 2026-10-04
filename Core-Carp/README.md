@@ -100,11 +100,14 @@ receive still consumes its original iteration budget and validates its source.
 three backend paths through the real native trio, without stdin/stdout routing
 or an internal benchmark protocol.
 
-### Optional flow-controlled application ingress
+### Optional flow-controlled application attachment
 
 The chain client role accepts an inherited nonblocking `SOCK_SEQPACKET`
 descriptor through `SHADOW6_APP_FLOW_FD` (strict decimal descriptor syntax).
-Each record is one application datagram, and reads pause when the native send
-window has no credit. Unset retains UDP ingress. An empty record (the EOF marker) stops admission and drains
-the in-flight window; malformed/oversized records are rejected, while invalid
-descriptors and hard read errors fail closed. The existing UDP reverse path is otherwise unchanged.
+Each record is one application datagram in both directions, and reads pause
+when the native send window has no credit. Replies are acknowledged only after
+the complete seqpacket record is accepted; transient socket backpressure keeps
+the ordered receive slot for retry. Unset retains the UDP path. An empty record
+(the EOF marker) stops admission and drains the in-flight window while retaining
+the endpoint for replies. Malformed/oversized records are rejected, while
+invalid descriptors and hard read errors fail closed.

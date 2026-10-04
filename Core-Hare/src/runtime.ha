@@ -41,6 +41,27 @@ fn recv_application(flow_fd: int, app: net::socket, packet: []u8,
 	};
 };
 
+// Attached clients return complete application records through the inherited
+// seqpacket endpoint. Would-block leaves the authenticated receive slot queued
+// so the peer retransmits it and the record can be retried before ACK.
+fn send_application(flow_fd: int, role: str, app: net::socket,
+	local: ip::addr, local_port: u16, payload: []u8) bool = {
+	if (flow_fd >= 0) {
+		if (len(payload) == 0) { fmt::errorln("empty application record is reserved for EOF")!; rt::exit(2); };
+		match (rt::send(flow_fd, &payload[0], len(payload), rt::MSG_DONTWAIT | rt::MSG_NOSIGNAL)) {
+		case let n: size =>
+			if (n != len(payload)) { fmt::errorln("application flow egress was partial")!; rt::exit(2); };
+			return true;
+		case let err: rt::errno =>
+			if (err == rt::EAGAIN || err == rt::EINTR) return false;
+			fmt::errorln("application flow egress failed")!; rt::exit(2);
+		};
+	};
+	if (role == "agent") return udp::send(app, payload) is size;
+	if (local_port != 0) return udp::sendto(app, payload, local, local_port) is size;
+	return false;
+};
+
 const WINDOW: size = 256z;
 // POSIX POLLNVAL is 0x20; Hare 0.24.2 does not expose it in unix::poll.
 const POLLNVAL: i16 = 0x20;
@@ -190,6 +211,7 @@ fn runtime(c: *configuration) void = {
 	const owned_flow_fd = flow_fd_from_env();
 	if (owned_flow_fd >= 0 && c.role != "client") rt::exit(2);
 	let flow_fd = owned_flow_fd;
+	let flow_eof = false;
 	defer if (owned_flow_fd >= 0) rt::close(owned_flow_fd)!;
 	const sock = udp::listen(ip::LOCAL_V6, c.listen)!; defer io::close(sock)!;
 	socket_buffers(sock);
@@ -283,24 +305,8 @@ fn runtime(c: *configuration) void = {
 				const slot = (expected % WINDOW: u64): size;
 				if (queued_sequences[slot] != expected) break;
 				const payload_size = queued_sizes[slot]: size;
-				const delivered = if (flow_fd >= 0) {
-					match (rt::send(flow_fd, &queued_plain[slot*980], payload_size,
-						rt::MSG_DONTWAIT | rt::MSG_NOSIGNAL)) {
-					case let n: size =>
-						if (n != payload_size) { fmt::errorln("application flow egress was partial")!; rt::exit(2); };
-						yield true;
-					case let err: rt::errno =>
-						if (err == rt::EAGAIN || err == rt::EINTR) yield false;
-						fmt::errorln("application flow egress failed")!; rt::exit(2);
-					};
-				} else if (c.role == "agent") {
-					if (udp::send(app, queued_plain[slot*980 .. slot*980+payload_size]) is net::error) break;
-					true
-				} else if (local_port != 0) {
-					if (udp::sendto(app, queued_plain[slot*980 .. slot*980+payload_size], local, local_port) is net::error) break;
-					true
-				} else false;
-				if (!delivered) break;
+				if (!send_application(flow_fd, c.role, app, local, local_port,
+					queued_plain[slot*980 .. slot*980+payload_size])) break;
 				if (!send_ack(sock, addr, port, tx[..], ack_counter[..], packet[..], queued_nonces[slot*12 .. slot*12+12])) rt::exit(2);
 				queued_sequences[slot] = 0; queued_sizes[slot] = 0;
 				wipe(&queued_plain[slot*980], 980); wipe(&queued_nonces[slot*12], 12); expected += 1;
@@ -317,7 +323,7 @@ fn runtime(c: *configuration) void = {
 			case => poller[1].revents = 0; continue;
 			};
 			if (flow_fd >= 0 && n == 0) {
-				flow_fd = -1; poller[1].fd = -1; poller[1].revents = 0;
+				flow_eof = true; poller[1].fd = -1; poller[1].revents = 0;
 				if (pending_count == 0) break;
 				continue;
 			};
@@ -337,9 +343,9 @@ fn runtime(c: *configuration) void = {
 			pending_at[slot] = monotonic_millis() + 100; pending_count += 1;
 			wipe(&plain[0], 980);
 		};
-		if (owned_flow_fd >= 0 && flow_fd < 0 && pending_count == 0) break;
+		if (owned_flow_fd >= 0 && flow_eof && pending_count == 0) break;
 	};
-	if (owned_flow_fd >= 0 && (flow_fd >= 0 || pending_count != 0)) rt::exit(2);
+	if (owned_flow_fd >= 0 && (!flow_eof || pending_count != 0)) rt::exit(2);
 };
 
 // One fixed route, with end-to-end signed admission and no data-plane keys.

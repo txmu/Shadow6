@@ -74,11 +74,14 @@ datagram limit and legacy `simplex`/`abc` endpoint modes.
 `integration/stack_test.py --engine shadow6-hare --benchmark` tests native,
 Python Companion and Node.js Companion paths with the same application workload.
 
-### Optional flow-controlled application ingress
+### Optional flow-controlled application attachment
 
 The client runtime role `SHADOW6_APP_FLOW_FD` may name an inherited,
 nonblocking `SOCK_SEQPACKET` descriptor using strict decimal syntax. Each record
-is one application datagram, and the runtime polls it only when the native send
-window has a free slot. An unset variable preserves UDP ingress. An empty record (the EOF marker) stops admission and drains the in-flight window; malformed/oversized records are
-rejected, while an invalid descriptor or hard read error fails closed with
-status 2. The existing UDP reverse path is otherwise unchanged.
+is one application datagram in both directions, and the runtime polls it only
+when the native send window has a free slot. A full output socket leaves the
+authenticated response queued and unacknowledged until retransmission can
+enqueue the complete record. An unset variable preserves the UDP path. An empty
+record (the EOF marker) stops admission and drains the in-flight window;
+malformed/oversized records are rejected, while an invalid descriptor or hard
+read error fails closed with status 2.

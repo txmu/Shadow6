@@ -2,6 +2,7 @@ use "net"
 use "time"
 use "collections"
 use @s6_app_flow_recv[I32](fd: I32, out: Pointer[U8] tag, capacity: USize)
+use @s6_app_flow_send[I32](fd: I32, data: Pointer[U8] tag, size: USize)
 use @s6_app_flow_close[None](fd: I32)
 
 interface tag DatagramReceiver
@@ -216,9 +217,10 @@ actor Runtime is DatagramReceiver
       end
     end
   be established() => _reconnect_attempt = 0
-  be flow_closed() =>
+  be flow_closed() => _flow_done = true
+  be flow_drained() =>
     if _flow_fd >= 0 then @s6_app_flow_close(_flow_fd); _flow_fd = -1 end
-  be flow_drained() => _flow_done = true
+    _flow_done = true
   be flow_failed() => failed()
   be relay_retired(id: String, relay: RelaySession) =>
     try if _relays(id)? is relay then _relays.remove(id)? end end
@@ -364,6 +366,7 @@ actor ClientSession is DatagramReceiver
   var _handshake_sent: U64 = 0
   var _closed: Bool = false
   var _flow_fd: I32 = -1
+  var _flow_attached: Bool = false
   var _flow_eof: Bool = false
   var _flow_drained: Bool = false
   var _network_output: Array[Array[U8] val] iso = recover iso Array[Array[U8] val](16) end
@@ -374,6 +377,7 @@ actor ClientSession is DatagramReceiver
     _owner = owner; _network = network; _peer = peer; _id = id; _out = out; _client = true
     if flow_fd >= 0 then _local = target end
     _flow_fd = flow_fd
+    _flow_attached = flow_fd >= 0
     _app = SocketActor(auth, cfg.bind_host, cfg.application_port.string(), this, true, flow_fd < 0)
     try
       _hello = _handshake.start(cfg.seed, cfg.peer_key, Time.now()._1.u64())?
@@ -416,8 +420,9 @@ actor ClientSession is DatagramReceiver
       for wire in _session.retransmit(now)?.values() do _send(wire) end
       _flush_output()
       _read_flow()?
-      if _flow_eof and (_session.pending_count() == 0) then
+      if _flow_eof and (_session.pending_count() == 0) and (_app_output.size() == 0) then
         _flow_drained = true
+        _flow_fd = -1
         _owner.flow_drained(); _close()
       end
     else _close() end
@@ -467,7 +472,7 @@ actor ClientSession is DatagramReceiver
     _send(wire)
     _last_activity = Time.nanos()
   fun ref _read_flow() ? =>
-    if (_flow_fd < 0) or (_stage != 3) then return end
+    if (_flow_fd < 0) or _flow_eof or (_stage != 3) then return end
     var count: USize = 0
     while (count < 16) and _session.can_send() do
       let input = recover iso Array[U8](1173) end
@@ -475,7 +480,7 @@ actor ClientSession is DatagramReceiver
       let result = @s6_app_flow_recv(_flow_fd, input.cpointer(), input.size())
       if result == -1 then return end
       if result == -2 then
-        _flow_fd = -1; _flow_eof = true
+        _flow_eof = true
         _owner.flow_closed()
         return
       elseif result == -3 then
@@ -529,13 +534,15 @@ actor ClientSession is DatagramReceiver
       // Normal ordered traffic needs neither a receive-map entry nor a
       // temporary delivery array. Drain the map only after actual reordering.
       let payload: Array[U8] val = consume packet
-      _deliver(payload)
+      if not _deliver(payload) then return end
     elseif not _session.accept_receive(sequence, consume packet) then return end
     _last_activity = Time.nanos()
     let ack = Frame.empty()
     _send(token.seal(consume ack, sequence, 3)?)
     if _session.has_buffered() then
-      for payload in _session.deliver().values() do _deliver(payload) end
+      for payload in _session.deliver().values() do
+        if not _deliver(payload) then return end
+      end
     end
   fun ref _send(wire: Array[U8] val) =>
     _network_output.push(wire)
@@ -546,17 +553,45 @@ actor ClientSession is DatagramReceiver
     end
   fun ref _flush_output() =>
     _flush_network()
-    if _app_output.size() > 0 then
+    if _flow_attached and (_app_output.size() > 0) then
+      let pending = recover iso Array[Array[U8] val](16) end
+      var blocked = false
+      for payload in _app_output.values() do
+        if blocked then
+          pending.push(payload)
+        else
+          let result = @s6_app_flow_send(_flow_fd, payload.cpointer(), payload.size())
+          if result == 0 then
+            blocked = true
+            pending.push(payload)
+          elseif result < 0 then
+            _close(); return
+          end
+        end
+      end
+      _app_output = consume pending
+    elseif (not _flow_attached) and (_app_output.size() > 0) then
       match _local
       | let local: NetAddress val =>
         _app.send_batch(_app_output = recover iso Array[Array[U8] val](16) end, local)
       end
     end
-  fun ref _deliver(payload: Array[U8] val) =>
-    match _local
-    | let local: NetAddress val =>
+  fun ref _deliver(payload: Array[U8] val): Bool =>
+    if _flow_attached then
+      if _app_output.size() >= 256 then
+        _close(); return false
+      end
       _app_output.push(payload)
-      if _app_output.size() >= 16 then _flush_output() end
+      _flush_output()
+      not _closed
+    else
+      match _local
+      | let local: NetAddress val =>
+        _app_output.push(payload)
+        if _app_output.size() >= 16 then _flush_output() end
+        true
+      | None => true
+      end
     end
   fun _same(a: Array[U8] iso, b: Array[U8] box): Bool =>
     if a.size() != b.size() then return false end

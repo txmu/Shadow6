@@ -46,6 +46,16 @@ int s6_app_flow_recv(int fd, unsigned char *out, size_t capacity) {
     return (int)n;
 }
 
+/* Send one complete application record without blocking the Pony scheduler.
+ * 1 means queued, 0 means retry later, and -1 means the endpoint failed. */
+int s6_app_flow_send(int fd, const unsigned char *data, size_t size) {
+    if (fd < 0 || !data || size == 0 || size > 1172) return -1;
+    ssize_t n = send(fd, data, size, MSG_DONTWAIT | MSG_NOSIGNAL);
+    if (n == (ssize_t)size) return 1;
+    if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)) return 0;
+    return -1;
+}
+
 void s6_app_flow_close(int fd) { if (fd >= 0) (void)close(fd); }
 
 static uint64_t read64(const unsigned char *p) {

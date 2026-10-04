@@ -179,6 +179,17 @@ static int packet_finish(struct packet *p, bool accepted) {
                     struct carp_received *item = &chain_reordered[chain_next_receive & (CARP_WINDOW - 1)];
                     if (chain_role == 2)
                         ok = send(application_fd, item->bytes, item->length, 0) == (ssize_t)item->length;
+                    else if (application_flow_enabled) {
+                        if (!item->length) { sodium_memzero(p, sizeof *p); exit(2); }
+                        ssize_t sent = send(application_flow_fd, item->bytes, item->length,
+                            MSG_DONTWAIT | MSG_NOSIGNAL);
+                        if (sent < 0 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)) {
+                            /* Keep the reorder slot and withhold ACK. The peer's
+                             * retransmission retries this whole seqpacket record. */
+                            sodium_memzero(p, sizeof *p); return 2;
+                        }
+                        ok = sent == (ssize_t)item->length;
+                    }
                     else
                         ok = application_peer.sin_port && sendto(application_fd, item->bytes, item->length, 0,
                             (struct sockaddr *)&application_peer, sizeof application_peer) == (ssize_t)item->length;
@@ -334,7 +345,7 @@ static struct packet chain_receive(void) {
     if (!can_send) f[1].revents = 0;
     if (!burst || !(f[0].revents | f[1].revents)) {
         f[0] = (struct pollfd){.fd=udp_fd,.events=POLLIN};
-        f[1] = (struct pollfd){.fd=application_flow_enabled ? application_flow_fd : application_fd,.events=(can_send && !application_flow_eof) ? POLLIN : 0};
+        f[1] = (struct pollfd){.fd=application_flow_enabled ? (application_flow_eof ? -1 : application_flow_fd) : application_fd,.events=(can_send && !application_flow_eof) ? POLLIN : 0};
         int timeout = chain_inflight ? 1 : 5;
         if (poll(f, 2, timeout) <= 0) return p;
         burst = 256;
@@ -350,7 +361,9 @@ static struct packet chain_receive(void) {
             struct msghdr message = {.msg_iov=&iov,.msg_iovlen=1};
             n = recvmsg(application_flow_fd, &message, MSG_DONTWAIT);
             if (n == 0) {
-                application_flow_eof = 1; close(application_flow_fd); application_flow_fd = -1; f[1].fd = -1;
+                /* Stop reading, but retain the endpoint for replies while the
+                 * accepted native send window drains. */
+                application_flow_eof = 1; f[1].fd = -1; f[1].revents = 0;
                 sodium_memzero(input, sizeof input); return p;
             }
             if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)) { f[1].revents = 0; return p; }
@@ -460,6 +473,7 @@ static struct packet packet_receive(void) {
                 sodium_memzero(chain_pending, sizeof chain_pending);
                 sodium_memzero(chain_reordered, sizeof chain_reordered);
                 if (application_fd >= 0) close(application_fd);
+                if (application_flow_fd >= 0) close(application_flow_fd);
                 close(udp_fd); exit(0);
             }
             return chain_receive();

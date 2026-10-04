@@ -94,13 +94,15 @@ out-of-order delivery, duplicates, and byte-identical lost-ACK retransmission.
 Source/native crypto checks alone do not establish that the actor tests passed;
 use the results of the focused Pony Actions job for the current commit.
 
-### Optional flow-controlled application ingress
+### Optional flow-controlled application attachment
 
 A client may receive an inherited nonblocking `SOCK_SEQPACKET` descriptor through
 `SHADOW6_APP_FLOW_FD` (a strict decimal descriptor number). The producer sends
 one application datagram per record; Pony reads at most while its native reliable
-send window has credit. The existing application UDP socket remains the reply
-path and is not also admitted as a producer when this mode is enabled. Unset
-keeps the legacy UDP producer path. An empty record (the stream EOF marker) stops admission and
-lets outstanding native frames drain; malformed or oversized records are
-rejected. Invalid descriptors and hard read errors fail with status 2.
+send window has credit. Replies return through the same seqpacket endpoint. A
+bounded 256-record output queue retries transient backpressure on actor ticks;
+queue exhaustion and hard socket errors fail the session. The application UDP
+socket is not used for attached replies. Unset keeps the legacy UDP path. An
+empty record stops admission and lets accepted native frames and queued replies
+drain; malformed or oversized records are rejected. Invalid descriptors and
+hard read errors fail with status 2.
