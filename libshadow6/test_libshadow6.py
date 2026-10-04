@@ -61,7 +61,38 @@ class LibShadow6Tests(unittest.TestCase):
         with patch.object(facade, 'connection_plan', return_value=plan), \
              patch.object(facade, 'open_credited_for_service', return_value=expected) as open_s6na:
             self.assertIs(facade.open_application('service/client'), expected)
-        open_s6na.assert_called_once_with('service/client')
+            open_s6na.assert_called_once_with('service/client')
+
+    def test_connect_waits_for_the_locked_native_boundary_to_be_observed(self):
+        facade = object.__new__(libshadow6.Shadow6)
+        facade._closed = False
+        adapter = {"provider": "native", "profile": "idris-udp", "boundary": "message"}
+        pending = {"lockDigest": "lock", "applicationAdapter": adapter,
+                   "readiness": "listener-ready", "applicationBoundary": None}
+        ready = {"lockDigest": "lock", "applicationAdapter": adapter,
+                 "readiness": "application-ready", "applicationBoundary": "message",
+                 "endpoint": {"boundary": "message"}}
+        expected = object()
+        with patch.object(facade, "connection_plan", side_effect=[pending, ready]), \
+             patch("time.sleep") as pause, \
+             patch("Deployment.connection_plan.open_local_session", return_value=expected) as attach:
+            self.assertIs(facade.connect("service/client"), expected)
+        pause.assert_called_once_with(.1)
+        attach.assert_called_once_with(ready)
+
+    def test_local_session_dispatch_uses_locked_profile_when_observation_is_missing(self):
+        from Deployment.connection_plan import open_local_session
+        from Deployment.profile_registry import bind_profile
+        profile = bind_profile("idris")
+        plan = {"core": "idris", "profileBinding": profile,
+                "applicationAdapter": {"provider": "native", "boundary": "message"},
+                "readiness": "listener-ready", "endpoint": None}
+        expected = object()
+        with patch("Deployment.connection_plan.LocalMessageSession", return_value=expected) as message, \
+             patch("Deployment.connection_plan.LocalSession") as stream:
+            self.assertIs(open_local_session(plan), expected)
+        message.assert_called_once_with(plan)
+        stream.assert_not_called()
 
     def test_s6na_credited_attachment_preserves_records_and_rearms_credit(self):
         from Deployment.service_storage import atomic_write

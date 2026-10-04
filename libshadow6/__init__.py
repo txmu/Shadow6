@@ -327,6 +327,26 @@ class Shadow6:
         selected = plan.get("applicationAdapter", {}).get("provider", "native")
         if adapter == "s6na" and selected != "s6na":
             raise Shadow6Error("Named Service has no lock-bound S6NA application adapter")
+        expected = plan.get("applicationAdapter", {}).get("boundary")
+        if expected in {"stream", "message"}:
+            import time
+            deadline = time.monotonic() + 3
+            locked_digest = plan.get("lockDigest")
+            while True:
+                endpoint = plan.get("endpoint")
+                observed = plan.get("applicationBoundary")
+                if observed is None and isinstance(endpoint, dict):
+                    observed = endpoint.get("boundary")
+                if plan.get("readiness") == "application-ready" and observed == expected:
+                    break
+                if time.monotonic() >= deadline:
+                    break
+                time.sleep(.1)
+                refreshed = self.connection_plan(name)
+                if (refreshed.get("lockDigest") != locked_digest or
+                        refreshed.get("applicationAdapter") != plan.get("applicationAdapter")):
+                    raise Shadow6Error("Named Service application binding changed during connect")
+                plan = refreshed
         if adapter == "s6na" or (adapter == "auto" and selected == "s6na"):
             return self.open_credited_for_service(name)
         from Deployment.connection_plan import open_local_session

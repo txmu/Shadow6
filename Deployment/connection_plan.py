@@ -186,9 +186,29 @@ class LocalSession:
 
 
 def open_local_session(plan):
-    if plan.get('applicationBoundary') == 'message': return LocalMessageSession(plan)
-    if plan.get('applicationBoundary') == 'credited': raise ValueError('UnsupportedApplicationBoundary: credited provider required')
-    return LocalSession(plan)
+    if not isinstance(plan, dict):
+        raise ValueError('UnsupportedApplicationBoundary: connection plan required')
+    adapter = plan.get('applicationAdapter')
+    if isinstance(adapter, dict) and adapter.get('provider') == 's6na':
+        raise ValueError('UnsupportedApplicationBoundary: credited provider required')
+    profile = None
+    if plan.get('profileBinding') is not None:
+        profile = validate_profile_binding(plan['profileBinding'], core=plan.get('core'))
+    boundary = plan.get('applicationBoundary')
+    if profile is not None:
+        expected = profile['applicationBoundary']['kind']
+        if boundary is not None and boundary != expected:
+            raise ValueError('ProfileCapabilityMismatch: application boundary differs from ProfileBinding')
+        boundary = expected
+    if isinstance(adapter, dict) and adapter.get('provider') == 'native':
+        declared = adapter.get('boundary')
+        if boundary is not None and declared != boundary:
+            raise ValueError('ProfileCapabilityMismatch: native adapter boundary differs')
+        boundary = declared if boundary is None else boundary
+    if boundary == 'message': return LocalMessageSession(plan)
+    if boundary == 'stream': return LocalSession(plan)
+    if boundary == 'credited': raise ValueError('UnsupportedApplicationBoundary: credited provider required')
+    raise ValueError('UnsupportedApplicationBoundary: no locked local application boundary')
 
 
 class LocalMessageSession:
