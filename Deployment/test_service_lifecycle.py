@@ -147,6 +147,19 @@ class ServiceLifecycleTests(unittest.TestCase):
         finally:
             cli('stop','test/go')
 
+    def test_failed_first_setup_does_not_leave_a_service_record(self):
+        if not (ROOT/'Core-Go/shadow6-go').is_file():
+            self.skipTest('existing Go binary unavailable')
+        registry_path = self.root/'failed-setup.json'
+        binding = self.root/'missing-native-binding.json'
+        atomic_write(binding, json.dumps({'config_path':str(self.root/'missing-native.json')}).encode())
+        environment = {**os.environ, 'SHADOW6_SERVICE_REGISTRY':str(registry_path)}
+        result = subprocess.run([sys.executable, str(ROOT/'CLI/shadow6.py'), 'setup',
+            'test/failed', '--core', 'go', '--profile', 'go-kcp', '--config', str(binding)],
+            capture_output=True, text=True, env=environment, timeout=12)
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertEqual(ServiceRegistry(registry_path, CoreCatalog(ROOT)).list(), [])
+
     def test_pid_identity_mismatch_never_signals(self):
         with patch('Deployment.service_runtime.signal.pidfd_send_signal') as signal:
             service_runtime.stop({'pid':os.getpid(),'processIdentity':'wrong'})

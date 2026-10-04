@@ -321,6 +321,7 @@ def main():
   return subprocess.run(["make","install-prebuilt","PREFIX="+str(a.prefix)]+(["DESTDIR="+str(a.destdir)] if a.destdir else []),cwd=ROOT,check=False).returncode
  if a.command=="setup":
   registry=ServiceRegistry(catalog=CoreCatalog(ROOT));
+  created=False
   try:
    from profile_availability import inspect_profile
    availability=inspect_profile(registry.catalog,a.core,a.profile)
@@ -328,12 +329,18 @@ def main():
     print(json.dumps({"schema":"shadow6.lifecycle-error.v1","stage":"setup","error":"ProfileUnavailable","profile":availability['profile'],"diagnostics":availability['diagnostics']},sort_keys=True),file=sys.stderr); return 2
    config=load_service_config(a.config); spec=service_spec(a); context=service_context(a)
    try: existing=registry.inspect(a.name)
-   except ValueError: existing=registry.create(a.name,core=a.core,profile=a.profile,config=config,privacy=a.privacy,spec=spec,context=context)
+   except ValueError:
+    existing=registry.create(a.name,core=a.core,profile=a.profile,config=config,privacy=a.privacy,spec=spec,context=context)
+    created=True
    if existing.get("profileBinding") != bind_profile(a.core,a.profile) or existing.get("coreBinding") != registry.catalog.binding(a.core,config) or existing["spec"] != spec or existing["privacy"] != a.privacy or existing["protocolContext"] != context:
     raise ValueError("setup differs from existing service; explicitly stop and service configure first")
    registry.apply(a.name); result=registry.run(a.name) if a.start_service else registry.status(a.name)
   except (ValueError,OSError,json.JSONDecodeError) as exc:
-   print(json.dumps({"schema":"shadow6.lifecycle-error.v1","stage":"setup","error":str(exc)}),file=sys.stderr); return 2
+   error=str(exc)
+   if created:
+    try: registry.remove(a.name)
+    except (ValueError,OSError) as cleanup_error: error += '; failed to remove incomplete service: '+str(cleanup_error)
+   print(json.dumps({"schema":"shadow6.lifecycle-error.v1","stage":"setup","error":error}),file=sys.stderr); return 2
   print(json.dumps(result,sort_keys=True,indent=2)); return 0
  if a.command=="privacy-envelope":
   from privacy_envelope import read_metrics, compatibility
