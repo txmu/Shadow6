@@ -28,13 +28,21 @@ class InstalledImports(unittest.TestCase):
             code='''import sys,json
 sys.path.insert(0,sys.argv[1])
 from libshadow6 import Shadow6
+from libshadow6.webrtc_signal import WebrtcClientReflector
 from Deployment import encode_control
+from Deployment.credited_attachment import credited_core
 from Deployment.service_registry import ServiceRegistry
 from Deployment.core_catalog import CoreCatalog
 from Deployment.profile_registry import profiles, select_profile, profile_digest
 from Deployment.profile_availability import inspect_profile, installed_profiles
 from Deployment.application_attachment import NativeRecordAttachment
+from Deployment.supervisor_contract import capabilities
+from Deployment.system_operations import operation_request
 assert len(profiles()) == 13
+assert callable(WebrtcClientReflector)
+assert credited_core('go', {'profile':'go-kcp'}) == 'go'
+assert capabilities('launchd')['systemOperationInterface'] == 'available'
+assert operation_request(backend='systemd', operation='status', service='home/nas', plan_path='/private/launch.json', lock_digest='sha256:'+'a'*64, now=1000)['expiresAt'] == 1060
 assert profile_digest(select_profile('gleam', 'gleam-micro-mux')).startswith('sha256:')
 from Deployment.protocol_context import minimal_context
 from Deployment.connection_plan import resolve_connection
