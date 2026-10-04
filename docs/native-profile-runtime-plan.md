@@ -1,5 +1,59 @@
 # Native Profile Runtime implementation and evidence ledger
 
+## Current integration checkpoint (2026-10-04, local commit `bccbecb6`)
+
+The user has prioritized integration work across the existing Profile-driven
+architecture. This checkpoint records the latest local evidence and supersedes
+older statements below about the current Linux failure and source state; it does
+not claim completion of the full architecture or CI acceptance.
+
+- The `Crosed/native_profiles.py` authority remains the 13-Profile source for
+  Deployment, Core Catalog, feature contracts, connection planning, Detector,
+  Control Center, CLI, benchmark selection, and installation availability.
+  S6P1 routes feed BrokerSet realization, and the resulting realization and
+  resolved limits are part of the Named Service lock/runtime/Detector path.
+- Read-only Control Center service list/status/doctor/connect and authenticated
+  loopback HTTP views use the same Registry/lock/observation as the CLI. The
+  APIs remain read-only by default. Control Center returns installed Profile
+  prerequisites separately from source contracts.
+- Local regression evidence for this checkpoint: Profile/attachment group 39
+  passed; Deployment lifecycle/context group 65 passed (one explicit skip);
+  Control Center group 35 passed; Network Adapter group 10 passed;
+  Auto-Orchestrator group 19 passed; Service-Init group 7 passed; Detector
+  service compliance 1 passed; Hare and Pony source-only contract checks passed.
+  Idris FFI passed GCC syntax-only validation. No Hare, Idris, or Pony Core
+  binary was compiled locally.
+- Nine Profile lifecycles previously passed against matching installed
+  artifacts: Go, Rust, both Gleam Profiles, Ada, Nim, Zig, D, and C++. Hare,
+  Pony, Carp, and Idris still lack a current full Named Service lifecycle
+  result. The Idris CI artifact passed a direct lightweight stack test, but the
+  updated FFI return path needs a newly built CI artifact and Named Service
+  rerun.
+- Commit `bccbecb6` fixes the latest observed Linux provider-digest failure by
+  applying the bounded executable-material contract to the compiled WebRTC
+  provider. It also fixes installed-tree adapter resolution and the Idris
+  launcher/application-response path. Actions run `37197057798` predates this
+  commit; its Linux job failed on the provider digest, so this repair has no CI
+  result yet. The run's Idris success also predates the current launcher/FFI
+  source.
+- Cross-platform Native Supervisor remains best-effort. Linux uses pidfd,
+  process identity, owned sockets and readiness evidence. Other platforms
+  expose partial/degraded capability and do not infer readiness from a live
+  PID or service-manager active bit. No cross-platform lifecycle parity is
+  claimed.
+
+Still open: intent-only native config/credential realization, all 13 real
+Profile lifecycle runs on current CI artifacts, credited S6NA application
+attachment, executable S6EPE WebRTC signalling plus Named Service integration,
+complete peripheral-resource consumption of Limits, and full stopped-service
+upgrade/reconfiguration transaction coverage. Platform matrix, public6/crosed
+release variants, full release workflow and archive packaging were not run in
+this checkpoint. No push or fresh CI run was performed.
+
+The dated audit sections below are historical evidence; where their status
+differs from this checkpoint, use this section for the local state at
+`bccbecb6` and query Actions before stating current CI status.
+
 The active objective is the operator's full Profile-driven Named Service and
 Application Runtime. This ledger preserves its scope across continuations.
 No row may pass on code existence, a catalog count, process liveness, benchmark
