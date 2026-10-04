@@ -554,9 +554,11 @@ actor ClientSession is DatagramReceiver
   fun ref _flush_output() =>
     _flush_network()
     if _flow_attached and (_app_output.size() > 0) then
+      let outgoing: Array[Array[U8] val] val = consume _app_output
+      _app_output = recover iso Array[Array[U8] val](16) end
       let pending = recover iso Array[Array[U8] val](16) end
       var blocked = false
-      for payload in _app_output.values() do
+      for payload in outgoing.values() do
         if blocked then
           pending.push(payload)
         else
