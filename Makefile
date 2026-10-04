@@ -427,7 +427,7 @@ ifeq ($(BUILD_APP),1)
 endif
 ifeq ($(BUILD_CROSED),1)
 	@$(PYTHON) -m unittest -v Crosed/test_crosed.py
-	@PYTHONPATH=Crosed $(PYTHON) -m unittest -v Crosed/test_feature_contract.py Crosed/test_native_profiles.py Crosed/test_limits.py Crosed/test_security_capabilities.py Deployment/test_profile_realization.py Deployment/test_profile_availability.py Deployment/test_profile_binding.py Deployment/test_message_attachment.py
+	@PYTHONPATH=Crosed $(PYTHON) -m unittest -v Crosed/test_feature_contract.py Crosed/test_native_profiles.py Crosed/test_limits.py Crosed/test_security_capabilities.py Deployment/test_profile_realization.py Deployment/test_profile_availability.py Deployment/test_profile_binding.py Deployment/test_message_attachment.py Deployment/test_topology_services.py
 	@PYTHONPATH=Crosed $(PYTHON) -m unittest -v Crosed/test_install_layout.py
 endif
 ifeq ($(BUILD_ASSISTANTS),1)
@@ -564,12 +564,12 @@ endif
 	@install -d -m 0755 "$(DESTDIR)$(PREFIX)/share/shadow6/modules"
 	@install -m 0644 CLI/shadow6_vcore.py CLI/vcore_adapters.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/"
 	@install -d -m 0755 "$(DESTDIR)$(PREFIX)/share/shadow6/deployment"
-	@install -m 0644 Deployment/__init__.py Deployment/protocol_context.py Deployment/topology_contract.py Deployment/profile_registry.py Deployment/profile_availability.py Deployment/native_realization.py Deployment/connection_plan.py Deployment/broker_set.py Deployment/runtime_observation.py Deployment/application_attachment.py Deployment/service_composition.py Deployment/core_catalog.py Deployment/service_registry.py Deployment/service_storage.py Deployment/service_runtime.py Deployment/shadow6_deployment.py Deployment/shadow6_abi.py Deployment/shadow6_driver.py Deployment/shadow6_acceptance.py "$(DESTDIR)$(PREFIX)/share/shadow6/deployment/"
+	@install -m 0644 Deployment/__init__.py Deployment/protocol_context.py Deployment/topology_contract.py Deployment/profile_registry.py Deployment/profile_availability.py Deployment/native_realization.py Deployment/topology_services.py Deployment/connection_plan.py Deployment/broker_set.py Deployment/runtime_observation.py Deployment/application_attachment.py Deployment/service_composition.py Deployment/core_catalog.py Deployment/service_registry.py Deployment/service_storage.py Deployment/service_runtime.py Deployment/shadow6_deployment.py Deployment/shadow6_abi.py Deployment/shadow6_driver.py Deployment/shadow6_acceptance.py "$(DESTDIR)$(PREFIX)/share/shadow6/deployment/"
 	@install -m 0644 Deployment/shadow6_deployment.py Deployment/shadow6_abi.py Deployment/shadow6_driver.py Deployment/shadow6_acceptance.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/"
 	@install -m 0644 Tools/python_runtime.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/"
 	@install -d -m 0755 "$(DESTDIR)$(PYTHON_SITE_PACKAGES)/libshadow6"
 	@install -d -m 0755 "$(DESTDIR)$(PYTHON_SITE_PACKAGES)/Deployment"
-	@install -m 0644 Deployment/__init__.py Deployment/protocol_context.py Deployment/topology_contract.py Deployment/profile_registry.py Deployment/profile_availability.py Deployment/native_realization.py Deployment/connection_plan.py Deployment/broker_set.py Deployment/runtime_observation.py Deployment/application_attachment.py Deployment/service_composition.py Deployment/core_catalog.py Deployment/service_registry.py Deployment/service_storage.py Deployment/service_runtime.py Deployment/shadow6_deployment.py Deployment/shadow6_abi.py Deployment/shadow6_driver.py Deployment/shadow6_acceptance.py "$(DESTDIR)$(PYTHON_SITE_PACKAGES)/Deployment/"
+	@install -m 0644 Deployment/__init__.py Deployment/protocol_context.py Deployment/topology_contract.py Deployment/profile_registry.py Deployment/profile_availability.py Deployment/native_realization.py Deployment/topology_services.py Deployment/connection_plan.py Deployment/broker_set.py Deployment/runtime_observation.py Deployment/application_attachment.py Deployment/service_composition.py Deployment/core_catalog.py Deployment/service_registry.py Deployment/service_storage.py Deployment/service_runtime.py Deployment/shadow6_deployment.py Deployment/shadow6_abi.py Deployment/shadow6_driver.py Deployment/shadow6_acceptance.py "$(DESTDIR)$(PYTHON_SITE_PACKAGES)/Deployment/"
 	@install -m 0644 libshadow6/__init__.py "$(DESTDIR)$(PYTHON_SITE_PACKAGES)/libshadow6/"
 	@install -m 0644 Network-Adapter/shadow6_network.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/"
 	@install -m 0644 Network-Adapter/shadow6_network.mjs "$(DESTDIR)$(PREFIX)/share/shadow6/modules/"

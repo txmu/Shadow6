@@ -165,6 +165,79 @@ class LimitResolution:
 
 
 class LimitResolver:
+    def resolve_components(self, inputs, *, host: HostBudget, process_fds: int):
+        """Bound Gate/S6EPE resource settings against the locked host budget.
+
+        Component schemas remain owned by their implementations. This shared
+        layer reads only their declared concurrency/frame ceilings and rejects
+        plans whose conservative descriptor or memory estimate exceeds the
+        same host snapshot and inherited supervisor descriptor ceiling.
+        """
+        if not isinstance(inputs, dict) or set(inputs) - {'gate', 'envelope'}:
+            raise ValueError('InvalidComponentLimitsInput')
+        process_fds = integer(process_fds, 'process_fds')
+        output = {}
+
+        def limit(row, name, default, low, high):
+            value = row.get(name, default)
+            if type(value) is not int or not low <= value <= high:
+                raise ValueError('InvalidComponentLimit: ' + name)
+            return value
+
+        gate = inputs.get('gate')
+        if gate is not None:
+            if not isinstance(gate, dict): raise ValueError('InvalidGateLimitConfig')
+            values = gate.get('limits', {})
+            if not isinstance(values, dict) or set(values) - {'max_connections','max_frame_bytes','idle_seconds'}:
+                raise ValueError('InvalidGateLimitConfig')
+            connections = limit(values, 'max_connections', 128, 1, 4096)
+            frame = limit(values, 'max_frame_bytes', 65507, 1024, 65507)
+            idle = limit(values, 'idle_seconds', 120, 5, 86400)
+            fds = 16 + 2 * connections
+            memory = connections * frame
+            output['gate'] = dict(max_connections=connections, max_frame_bytes=frame,
+                idle_seconds=idle, estimated_fds=fds, estimated_memory_bytes=memory,
+                enforced_by='Gate.config.limits')
+
+        envelope = inputs.get('envelope')
+        if envelope is not None:
+            if not isinstance(envelope, dict): raise ValueError('InvalidEnvelopeLimitConfig')
+            def number(name, default, low, high):
+                raw = envelope.get(name, str(default))
+                if not isinstance(raw, str) or not raw.isascii() or not raw.isdecimal():
+                    raise ValueError('InvalidComponentLimit: ' + name)
+                value = int(raw)
+                if not low <= value <= high: raise ValueError('InvalidComponentLimit: ' + name)
+                return value
+            sessions = number('max_sessions', 32, 1, 128)
+            preauth = number('max_preauth', 16, 1, 128)
+            frame = number('max_frame', 16384, 256, 65507)
+            idle = number('idle_timeout', 30, 1, 300)
+            if preauth > sessions: raise ValueError('EnvelopePreauthExceedsSessions')
+            fds = 16 + 2 * sessions
+            memory = 2 * sessions * frame
+            output['envelope'] = dict(max_sessions=sessions, max_preauth=preauth,
+                max_frame=frame, idle_timeout=idle, estimated_fds=fds,
+                estimated_memory_bytes=memory,
+                enforced_by='S6EPE.config.max_sessions/max_preauth/max_frame')
+        total_fds = sum(row['estimated_fds'] for row in output.values())
+        total_memory = sum(row['estimated_memory_bytes'] for row in output.values())
+        if total_fds > process_fds:
+            raise ValueError('ComponentLimitExceedsProcessFds')
+        if total_memory > host.memory_bytes // 2:
+            raise ValueError('ComponentLimitExceedsHostMemory')
+        return dict(schema='shadow6.component-limit-resolution.v1',
+            process_fds=process_fds, host_budget=host.to_dict(), components=output)
+
+    def validate_components(self, resolution, inputs, *, host: HostBudget, process_fds: int):
+        if not isinstance(resolution, dict) or set(resolution) != {
+                'schema','process_fds','host_budget','components'}:
+            raise ValueError('InvalidComponentLimitsSchema')
+        expected = self.resolve_components(inputs, host=host, process_fds=process_fds)
+        if canonical(expected) != canonical(resolution):
+            raise ValueError('ComponentLimitsDrift')
+        return expected
+
     def resolve(self, profile, policy=None, host=None):
         policy = validate_policy(policy); host = host or HostBudget.capture()
         model = profile.get('limit_model')

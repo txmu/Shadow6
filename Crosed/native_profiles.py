@@ -108,7 +108,9 @@ def _record(row):
 
 def _limit_model(boundary):
     """Native maxima are not mislabeled as expandable protocol capacity."""
-    safe = {'process_fds': 256}
+    # Leave room for the default optional Gate (128 bounded connections) and
+    # envelope sidecar while keeping the descriptor ceiling finite.
+    safe = {'process_fds': 512}
     recommended = {'process_fds': 1024}
     hard = {'process_fds': None}
     capacities = {'process_fds': dict(memory_per_unit=1024, fds_per_unit=1,

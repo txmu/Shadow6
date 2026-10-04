@@ -525,13 +525,15 @@ def validate_topology(topo: Any) -> dict:
     global_cfg = topo.get("global", {})
     if not isinstance(global_cfg, dict):
         raise ValueError("global topology settings must be a mapping")
-    if set(global_cfg) - {"stealth_mode", "broker_scheme", "broker_path", "output_dir", "mtd_rotation_interval", "gleam_transport", "native_profile", "broker_adapter"}:
+    if set(global_cfg) - {"stealth_mode", "broker_scheme", "broker_path", "output_dir", "mtd_rotation_interval", "gleam_transport", "native_profile", "broker_adapter", "named_service_namespace"}:
         raise ValueError("unknown global topology fields")
     if "stealth_mode" in global_cfg and type(global_cfg["stealth_mode"]) is not bool:
         raise ValueError("stealth_mode must be boolean")
-    for field in ("output_dir", "mtd_rotation_interval", "broker_scheme", "broker_path"):
+    for field in ("output_dir", "mtd_rotation_interval", "broker_scheme", "broker_path", "named_service_namespace"):
         if field in global_cfg and (not isinstance(global_cfg[field], str) or not global_cfg[field] or len(global_cfg[field]) > 4096 or any(ord(c) < 32 for c in global_cfg[field])):
             raise ValueError(f"invalid global.{field}")
+    if "named_service_namespace" in global_cfg and not SAFE_NAME_RE.fullmatch(global_cfg["named_service_namespace"]):
+        raise ValueError("global.named_service_namespace must be a safe service namespace")
     broker_path = global_cfg.get("broker_path", "/ws")
     if not broker_path.startswith("/") or broker_path == "/" or any(c in broker_path for c in "?#\\ "):
         raise ValueError("global.broker_path must be a non-root absolute URL path")
@@ -734,6 +736,7 @@ async def execute_mtd_rotation(topo: dict):
         console.print(f"[yellow]{profile['id']} provides best-effort delivery; loss, ordering and recovery are not assured.[/yellow]")
 
     tasks = []
+    generated_config_paths = {}
     deployment_slots = asyncio.Semaphore(8)
 
     async def bounded_deploy(node, config):
@@ -755,6 +758,7 @@ async def execute_mtd_rotation(topo: dict):
             _write_secure_json(output_dir / f"{node['name']}.gate.json", strict_json(private_read(adapter['config_path'])))
         filename = output_dir / f"{node['name']}.json"
         _write_secure_json(filename, config_data)
+        generated_config_paths[node['name']] = filename
         console.print(f"[green][+] Generated rotated config for {node['name']} -> {filename} (Perms 600)[/green]")
         
         # 4. Zero-Touch Provisioning
@@ -763,6 +767,15 @@ async def execute_mtd_rotation(topo: dict):
         ):
             tasks.append((node, json.dumps(config_data)))
     
+    service_results = []
+    if global_cfg.get('named_service_namespace'):
+        if adapter:
+            raise ValueError('capability unavailable: generated Gate topology must be configured as an explicit Named Service component')
+        from Deployment.topology_services import materialize_local_topology
+        service_results = materialize_local_topology(topology=topo,
+            config_paths=generated_config_paths,
+            namespace=global_cfg['named_service_namespace'])
+        console.print(f"[green][+] Locked and applied {len(service_results)} local Named Services; start each explicitly with shadow6 run.[/green]")
     if tasks:
         await asyncio.gather(*(bounded_deploy(node, config) for node, config in tasks))
     console.print("[bold cyan][+] MTD Epoch Rotation & Deployment Complete.[/bold cyan]")

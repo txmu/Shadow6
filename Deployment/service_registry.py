@@ -105,7 +105,7 @@ class ServiceRegistry:
                 if binding is None: raise ValueError('ProfileBinding requires CoreBinding')
                 validate_profile_binding(profile, core=binding['core'], current=False)
             lock = item.get('deploymentLock')
-            if lock is not None and (not isinstance(lock, dict) or set(lock) not in ({'schema','digest','coreBinding'}, {'schema','digest','coreBinding','contextDigest'}, {'schema','digest','coreBinding','contextDigest','limitResolution'}, {'schema','digest','coreBinding','profileBinding','contextDigest'}, {'schema','digest','coreBinding','profileBinding','contextDigest','limitResolution'}) or lock['schema'] != 'shadow6.deployment-lock.v2'):
+            if lock is not None and (not isinstance(lock, dict) or set(lock) not in ({'schema','digest','coreBinding'}, {'schema','digest','coreBinding','contextDigest'}, {'schema','digest','coreBinding','contextDigest','limitResolution'}, {'schema','digest','coreBinding','contextDigest','limitResolution','componentLimits'}, {'schema','digest','coreBinding','profileBinding','contextDigest'}, {'schema','digest','coreBinding','profileBinding','contextDigest','limitResolution'}, {'schema','digest','coreBinding','profileBinding','contextDigest','limitResolution','componentLimits'}) or lock['schema'] != 'shadow6.deployment-lock.v2'):
                 raise ValueError('invalid deployment lock')
             if lock is not None and 'profileBinding' in lock:
                 validate_profile_binding(lock['profileBinding'], core=lock['coreBinding']['core'], current=False)
@@ -213,6 +213,28 @@ class ServiceRegistry:
             raise
         return replacement
 
+    @transaction
+    def upgrade(self, name, *, core, config, privacy=None, spec=None, context=None, profile=None):
+        """Atomically stage, lock and apply a stopped service replacement.
+
+        This commits registry intent only; it never builds, installs, activates,
+        or starts a Core. A failed admission or apply restores the previous
+        record and its lock byte-for-byte.
+        """
+        item = self.inspect(name)
+        if runtime.alive(item.get('runtime', {})):
+            raise ValueError('stop the service before upgrading')
+        original = json.loads(json.dumps(item))
+        try:
+            self.configure(name, core=core, config=config, privacy=privacy,
+                           spec=spec, context=context, profile=profile)
+            self.lock(name)
+            return self.apply(name)
+        except BaseException:
+            self.services[name] = original
+            self._save()
+            raise
+
     def _material(self, name):
         item = self.inspect(name); binding = self.require_binding(name)
         check_binding(item['protocolContext'], binding['core'], self.catalog)
@@ -284,6 +306,16 @@ class ServiceRegistry:
         extra['composition'] = validate_composition(privacy=item['privacy'], envelope=fields, gate=components.get('gate'), guard=components.get('guard'))
         return {'contextDigest':context_digest(item['protocolContext']), 'name': name, 'spec': item['spec'], 'privacy': item['privacy'], 'binding': binding, 'profileBinding': profile_binding, 'nativeConfigDigest': config_hash, **extra}
 
+    def _component_limit_inputs(self, name):
+        item = self.inspect(name)
+        inputs = {}
+        gate_path = item['spec'].get('gate_config')
+        if gate_path:
+            inputs['gate'] = strict_json(private_read(gate_path))
+        if item['privacy'] == 'envelope':
+            inputs['envelope'] = runtime.parse_envelope(private_read(item['spec']['envelope_config']))
+        return inputs
+
     @transaction
     def lock(self, name):
         item = self.inspect(name)
@@ -291,7 +323,10 @@ class ServiceRegistry:
             raise ValueError('stop service before locking')
         material = self._material(name)
         resolution = LimitResolver().resolve(validate_profile_binding(self.require_profile_binding(name)), item['spec'].get('limits')).to_dict()
-        item['deploymentLock'] = {'schema': 'shadow6.deployment-lock.v2', 'limitResolution': resolution, 'digest': digest(encoded(material)), 'coreBinding': self.require_binding(name), 'profileBinding': self.require_profile_binding(name), 'contextDigest':context_digest(item['protocolContext'])}
+        components = LimitResolver().resolve_components(self._component_limit_inputs(name),
+            host=HostBudget.from_dict(resolution['host_budget']),
+            process_fds=resolution['effective_limits']['process_fds'])
+        item['deploymentLock'] = {'schema': 'shadow6.deployment-lock.v2', 'limitResolution': resolution, 'componentLimits': components, 'digest': digest(encoded(material)), 'coreBinding': self.require_binding(name), 'profileBinding': self.require_profile_binding(name), 'contextDigest':context_digest(item['protocolContext'])}
         item['state'] = 'locked'; self._save(); return item['deploymentLock']
 
     @transaction
@@ -302,6 +337,14 @@ class ServiceRegistry:
         resolution = item['deploymentLock'].get('limitResolution')
         if resolution is None: raise ValueError('LegacyLimitsLock: explicitly stop and relock')
         LimitResolver().validate(resolution, validate_profile_binding(self.require_profile_binding(name)), item['spec'].get('limits'), check_host=True)
+        component_resolution = item['deploymentLock'].get('componentLimits')
+        if component_resolution is None:
+            if self._component_limit_inputs(name):
+                raise ValueError('LegacyComponentLimitsLock: explicitly stop and relock')
+        else:
+            LimitResolver().validate_components(component_resolution, self._component_limit_inputs(name),
+                host=HostBudget.from_dict(resolution['host_budget']),
+                process_fds=resolution['effective_limits']['process_fds'])
         if item['deploymentLock']['digest'] != digest(encoded(self._material(name))):
             raise ValueError('deployment drift; explicitly reconfigure and apply')
         if not runtime.alive(item.get('runtime', {})):
@@ -317,7 +360,7 @@ class ServiceRegistry:
         if digest(encoded(material)) != item['deploymentLock']['digest']:
             raise ValueError('deployment drift while preparing launch plan')
         binary = runtime.executable(self.catalog.inspect(binding['core'])['executable'])
-        plan = {'limitResolution': item['deploymentLock']['limitResolution'], 'root': str(self.catalog.root), 'core': binding['core'], 'profileBinding': self.require_profile_binding(name), 'binary': binary,
+        plan = {'limitResolution': item['deploymentLock']['limitResolution'], 'componentLimits': item['deploymentLock']['componentLimits'], 'root': str(self.catalog.root), 'core': binding['core'], 'profileBinding': self.require_profile_binding(name), 'binary': binary,
                 'config': binding['config']['config_path'], 'launchAdapter':self.catalog.inspect(binding['core']).get('launchAdapter','native-config'), 'ttl': item['spec'].get('ttl', 3600),
                 'protocolContext':item['protocolContext'], 'contextDigest':material['contextDigest'], 'lockDigest':item['deploymentLock']['digest']}
         if item['privacy'] == 'envelope':
@@ -331,6 +374,7 @@ class ServiceRegistry:
         plan['componentMaterials'] = material['componentMaterials']
         plan['nativeMaterials'] = material['nativeMaterials']
         plan['launchDigests'] = {'binary':binding['binaryDigest'], 'config':material['nativeConfigDigest']}
+        plan['launchDigests']['componentLimits'] = digest(encoded(item['deploymentLock']['componentLimits']))
         for component in ('envelope','gate','guard'):
             if component + 'Config' in plan:
                 plan['launchDigests'][component + 'Config'] = material[component + 'ConfigDigest']

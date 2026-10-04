@@ -1,6 +1,7 @@
 """Linux local service supervision: fixed Core argv, bounded lifetime, PID identity."""
 import os
 import hashlib
+import json
 import re
 import signal
 import stat
@@ -226,7 +227,7 @@ def feature_report(binary: str) -> dict:
 
 def verify_launch_material(plan):
     required = {'root','core','profileBinding','binary','config','ttl','launchDigests','runtimeMaterials'}
-    allowed = {'envelopeTlsCert','envelopeTlsKey','envelopeTlsCa'} | required | {'launchAdapter','protocolContext','contextDigest','lockDigest','nativeMaterials','componentMaterials','limitResolution'} | {c + k for c in ('envelope','gate','guard') for k in ('Config','Binary')}
+    allowed = {'envelopeTlsCert','envelopeTlsKey','envelopeTlsCa'} | required | {'launchAdapter','protocolContext','contextDigest','lockDigest','nativeMaterials','componentMaterials','limitResolution','componentLimits'} | {c + k for c in ('envelope','gate','guard') for k in ('Config','Binary')}
     if not isinstance(plan,dict) or not required <= set(plan) or set(plan) - allowed:
         raise ValueError('invalid launch plan fields')
     if not isinstance(plan['core'],str) or re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._:-]{0,63}',plan['core']) is None:
@@ -237,10 +238,12 @@ def verify_launch_material(plan):
         from profile_registry import native_material_paths, validate_profile_binding, validate_profile_realization
     profile = validate_profile_binding(plan['profileBinding'], core=plan['core'])
     if 'limitResolution' in plan:
-        from limits import LimitResolver
+        from limits import LimitResolver, HostBudget
         LimitResolver().validate(plan['limitResolution'], profile)
     elif 'lockDigest' in plan:
         raise ValueError('LegacyLimitsLock: explicitly relock')
+    if ('componentLimits' in plan) != ('componentLimits' in plan.get('launchDigests', {})):
+        raise ValueError('component limits require exact launch digest')
     native = strict_json(private_read(plan['config']))
     validate_profile_realization(plan['profileBinding'], native, plan.get('protocolContext'))
     native_materials = native_material_paths(plan['profileBinding'], native)
@@ -262,6 +265,20 @@ def verify_launch_material(plan):
         if component + 'Config' in plan:
             files[component + 'Config'] = 'private'
             files[component + 'Binary'] = 'executable'
+    if 'componentLimits' in plan:
+        inputs = {}
+        if 'gateConfig' in plan:
+            inputs['gate'] = strict_json(private_read(plan['gateConfig']))
+        if 'envelopeConfig' in plan:
+            inputs['envelope'] = parse_envelope(private_read(plan['envelopeConfig']))
+        from limits import LimitResolver, HostBudget
+        limit_resolution = plan.get('limitResolution')
+        if not isinstance(limit_resolution, dict):
+            raise ValueError('component limits require host limit resolution')
+        base = LimitResolver().validate(limit_resolution, profile)
+        LimitResolver().validate_components(plan['componentLimits'], inputs,
+            host=HostBudget.from_dict(base['host_budget']),
+            process_fds=base['effective_limits']['process_fds'])
     tls_keys = {'envelopeTlsCert','envelopeTlsKey','envelopeTlsCa'} & set(plan)
     if tls_keys and (len(tls_keys) != 3 or 'envelopeConfig' not in plan):
         raise ValueError('incomplete TLS launch material')
@@ -278,8 +295,13 @@ def verify_launch_material(plan):
     if plan['runtimeMaterials'] != runtime_materials:
         raise ValueError('runtime implementation material differs from approved launch plan')
     material_keys = {'nativeMaterial:' + key for key in native_materials} | {'componentMaterial:' + key for key in component_materials} | {'runtimeMaterial:' + key for key in runtime_materials}
-    if not isinstance(expected,dict) or set(expected) != set(files) | material_keys:
+    exact = set(files) | material_keys | ({'componentLimits'} if 'componentLimits' in plan else set())
+    if not isinstance(expected,dict) or set(expected) != exact:
         raise ValueError('launch plan requires exact locked file digests')
+    if 'componentLimits' in plan:
+        actual = 'sha256:' + hashlib.sha256(json.dumps(plan['componentLimits'], sort_keys=True, separators=(',', ':'), ensure_ascii=True).encode()).hexdigest()
+        if expected['componentLimits'] != actual:
+            raise ValueError('deployment drift before launch: componentLimits')
     for key,kind in files.items():
         digest = expected[key]
         if not isinstance(digest,str) or re.fullmatch(r'sha256:[0-9a-f]{64}',digest) is None:

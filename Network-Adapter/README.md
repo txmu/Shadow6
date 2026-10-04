@@ -143,3 +143,12 @@ frame of credit. After close, available credit is zero and operations fail with
 clears endpoint timers, queues, pending frames, and reassembly state. This is local
 producer admission for the optional Gleam Micro-Mux companion path; it changes
 neither the Micro-Mux nor native Core wire format.
+
+`libshadow6.Shadow6.open_credited()` is the application attachment facade for
+the same optional companion contract. It reads an owner-only
+`shadow6.s6na-attachment.v1` file, a separate owner-only 32-byte S6NA key, and
+numeric pinned UDP endpoints. Its `CreditedSession` preserves complete records,
+exposes application credit, and fails with the versioned S6NA backpressure and
+closed errors. The caller must provision the matching peer and secret through
+an independent trusted channel; S6NA does not become an implicit Core transport
+or make unrelated Native Core families wire-compatible.

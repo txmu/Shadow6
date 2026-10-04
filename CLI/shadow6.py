@@ -257,6 +257,7 @@ def main():
  x=ss.add_parser("inspect"); x.add_argument("name")
  x=ss.add_parser("create"); x.add_argument("name"); x.add_argument("--core"); x.add_argument("--profile"); x.add_argument("--config",type=Path); add_service_options(x)
  x=ss.add_parser("configure"); x.add_argument("name"); x.add_argument("--core",required=True); x.add_argument("--profile"); x.add_argument("--config",type=Path,required=True); add_service_options(x)
+ x=ss.add_parser("upgrade",help="atomically replace, lock and apply a stopped service"); x.add_argument("name"); x.add_argument("--core",required=True); x.add_argument("--profile"); x.add_argument("--config",type=Path,required=True); add_service_options(x)
  for action in ("run","connect"):
   x=ss.add_parser(action); x.add_argument("name")
  for action in ("lock","apply","status","restart","stop","remove","doctor"):
@@ -301,9 +302,11 @@ def main():
   registry=ServiceRegistry(catalog=CoreCatalog(ROOT))
   if a.service_action=="list": result={"schema":"shadow6.service-registry.v2","services":registry.list()}
   elif a.service_action=="inspect": result=registry.inspect(a.name)
-  elif a.service_action in {"create","configure"}:
+  elif a.service_action in {"create","configure","upgrade"}:
    config=load_service_config(a.config) if a.config else None
-   result=(registry.create(a.name,core=a.core,profile=a.profile,config=config,privacy=a.privacy,spec=service_spec(a),context=service_context(a)) if a.service_action=="create" else registry.configure(a.name,core=a.core,profile=a.profile,config=config,privacy=a.privacy,spec=service_spec(a),context=service_context(a)))
+   if a.service_action=="create": result=registry.create(a.name,core=a.core,profile=a.profile,config=config,privacy=a.privacy,spec=service_spec(a),context=service_context(a))
+   elif a.service_action=="upgrade": result=registry.upgrade(a.name,core=a.core,profile=a.profile,config=config,privacy=a.privacy,spec=service_spec(a),context=service_context(a))
+   else: result=registry.configure(a.name,core=a.core,profile=a.profile,config=config,privacy=a.privacy,spec=service_spec(a),context=service_context(a))
   elif a.service_action=="lock": result=registry.lock(a.name)
   elif a.service_action=="apply": result=registry.apply(a.name)
   elif a.service_action=="doctor": result=registry.doctor(a.name)

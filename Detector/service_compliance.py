@@ -89,6 +89,26 @@ def verify_named_service(name: str, *, registry: ServiceRegistry | None = None) 
         except (ValueError, KeyError, TypeError) as error:
             findings.append('limits-host-budget-drift' if str(error).startswith('HostBudgetDrift')
                             else 'limits-resolution-drift')
+    component_resolution = None
+    if lock_valid and resolution is not None:
+        try:
+            inputs = {}
+            if item.get('spec', {}).get('gate_config'):
+                inputs['gate'] = strict_json(private_read(item['spec']['gate_config']))
+            if item.get('privacy') == 'envelope':
+                from Deployment.service_runtime import parse_envelope
+                inputs['envelope'] = parse_envelope(private_read(item['spec']['envelope_config']))
+            component_resolution = lock.get('componentLimits')
+            if component_resolution is None:
+                if inputs:
+                    raise ValueError('component lock missing')
+            else:
+                from Deployment.profile_registry import HostBudget
+                LimitResolver().validate_components(component_resolution, inputs,
+                    host=HostBudget.from_dict(resolution['host_budget']),
+                    process_fds=resolution['effective_limits']['process_fds'])
+        except (OSError, ValueError, KeyError, TypeError):
+            findings.append('component-limits-resolution-drift')
 
     runtime = current.get("runtime", {})
     observation = current.get("runtimeObservation")
@@ -145,6 +165,7 @@ def verify_named_service(name: str, *, registry: ServiceRegistry | None = None) 
                          "core": binding["core"], "profileBinding": item.get("profileBinding"), "role": native_role,
                          "applicationBoundaries": sorted(claimed),
                          "effectiveLimits": resolution['effective_limits'] if resolution else None,
+                         "componentLimits": component_resolution,
                          "limitResolutionDigest": LimitResolution(resolution).digest if resolution else None,
                          "limitsEnforcement": observation.get('limitsEnforcement') if observation else None,
                          "ownedEndpoints": observation.get("endpoints", []) if observation else []}}

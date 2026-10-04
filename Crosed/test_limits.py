@@ -52,10 +52,27 @@ class LimitsTests(unittest.TestCase):
         with self.assertRaises(ValueError): self.resolver.validate(changed, profile)
         with self.assertRaisesRegex(ValueError,'HostBudgetDrift'):
             self.resolver.validate(original, profile, check_host=True)
-        self.assertEqual(original['effective_limits']['process_fds'],256)
+        self.assertEqual(original['effective_limits']['process_fds'],512)
 
     def test_low_host_cannot_change_immutable_native_capacity(self):
         with self.assertRaises(ValueError):
             self.resolver.resolve(profiles()[0], host=HostBudget(1024,128,1,'linux'))
+
+    def test_gate_and_envelope_limits_are_bounded_and_drift_checked(self):
+        inputs = {
+            'gate': {'limits': {'max_connections': 64, 'max_frame_bytes': 8192, 'idle_seconds': 60}},
+            'envelope': {'max_sessions': '24', 'max_preauth': '8', 'max_frame': '4096', 'idle_timeout': '30'},
+        }
+        limits = self.resolver.resolve_components(inputs, host=self.host, process_fds=512)
+        self.assertEqual(limits['components']['gate']['estimated_fds'], 144)
+        self.assertEqual(limits['components']['envelope']['estimated_memory_bytes'], 196608)
+        self.resolver.validate_components(limits, inputs, host=self.host, process_fds=512)
+        changed = copy.deepcopy(inputs); changed['gate']['limits']['max_connections'] = 65
+        with self.assertRaisesRegex(ValueError, 'ComponentLimitsDrift'):
+            self.resolver.validate_components(limits, changed, host=self.host, process_fds=512)
+        with self.assertRaisesRegex(ValueError, 'ComponentLimitExceedsProcessFds'):
+            self.resolver.resolve_components({'gate': {'limits': {'max_connections': 300}}}, host=self.host, process_fds=512)
+        with self.assertRaisesRegex(ValueError, 'EnvelopePreauthExceedsSessions'):
+            self.resolver.resolve_components({'envelope': {'max_sessions': '4', 'max_preauth': '5'}}, host=self.host, process_fds=512)
 
 if __name__ == '__main__': unittest.main()

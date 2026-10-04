@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
+import socket
+import time
 import subprocess
 import tempfile
 import unittest
@@ -11,6 +14,49 @@ import libshadow6
 
 
 class LibShadow6Tests(unittest.TestCase):
+    def test_s6na_credited_attachment_preserves_records_and_rearms_credit(self):
+        from Deployment.service_storage import atomic_write
+        with tempfile.TemporaryDirectory(prefix="shadow6-s6na-app-") as raw:
+            root = Path(raw)
+            reservations = []
+            for _ in range(2):
+                sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                sock.bind(("127.0.0.1", 0)); reservations.append(sock)
+            left_port, right_port = [sock.getsockname()[1] for sock in reservations]
+            for sock in reservations: sock.close()
+            key = os.urandom(32)
+            sessions = []
+            for side, local, remote in ((0,left_port,right_port),(1,right_port,left_port)):
+                key_path = root / f"key-{side}"
+                config_path = root / f"config-{side}.json"
+                atomic_write(key_path, key)
+                document = {"schema":"shadow6.s6na-attachment.v1", "core":"go",
+                    "key_file":str(key_path), "bind":["127.0.0.1",local],
+                    "peer":["127.0.0.1",remote], "side":side, "stream":0,
+                    "limits":{"max_message":4096,"max_inflight":4096,
+                               "payload_bytes":128,"window_frames":64}}
+                atomic_write(config_path, json.dumps(document).encode())
+                facade = object.__new__(libshadow6.Shadow6)
+                facade._closed = False; facade._attachments = set()
+                sessions.append(facade.open_credited(config_path))
+            left, right = sessions
+            self.addCleanup(left.close); self.addCleanup(right.close)
+
+            for i in range(64):
+                self.assertEqual(left.send_record(bytes([i]) * 64), 63-i)
+            with self.assertRaisesRegex(libshadow6.Shadow6Error, "S6NA_BACKPRESSURE"):
+                left.send_record(b"overflow")
+            self.assertEqual(right.receive_record(timeout=1), bytes([0]) * 64)
+            self.assertEqual(len(right._received), 63)
+            left.endpoint.poll(0)
+            self.assertGreater(left.application_credit(), 0)
+            right.send_record(b"whole-record-reply")
+            self.assertEqual(left.receive_record(timeout=1), b"whole-record-reply")
+            owner = left._owner
+            owner.close()
+            with self.assertRaisesRegex(libshadow6.Shadow6Error, "S6NA_CLOSED"):
+                left.application_credit()
+
     def test_open_selects_matching_boundary_and_context_stops_capsule(self):
         class Runtime(libshadow6.Shadow6):
             def __init__(self):

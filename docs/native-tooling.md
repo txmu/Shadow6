@@ -67,6 +67,32 @@ operators using native configuration; this initial topology adapter deliberately
 supports a smaller explicit contract. Domain policy, host hooks, discovery and
 custom lifetimes are not translated for these four cores.
 
+Add `global.named_service_namespace` to this topology to bind generated local
+configuration to the Named Service authority. Auto creates one
+`namespace/node` record per local Broker/Agent/Client, binds the selected
+Profile and S6P1 role/identity, locks and applies each record, and leaves
+startup explicit. It refuses remote nodes, Gate-adapted topologies, existing
+service names and unavailable Profile artifacts; if a batch fails it removes
+all records created by that batch. Generated config files remain owner-only
+under `output_dir`. Set `SHADOW6_SERVICE_REGISTRY` to choose the private
+registry file. Start each node separately with `shadow6 run namespace/node`.
+No Core is built and no service manager is activated.
+
+```yaml
+global:
+  output_dir: generated-native
+  named_service_namespace: lab
+nodes:
+  - {name: broker, type: broker, engines: [shadow6-go], listen_port: 41000}
+  - {name: agent, type: agent, engines: [shadow6-go], listen_port: 41004, target_port: 9000}
+  - {name: client, type: client, engines: [shadow6-go], listen_port: 41002}
+```
+
+For an existing stopped service, `shadow6 service upgrade NAME --core CORE
+--profile PROFILE --config BINDING` validates, locks and applies a replacement
+as one registry transaction. Failure restores the prior record and lock;
+success does not start the Core. `shadow6 run NAME` remains explicit.
+
 Generated JSON is the adapter contract, with a `core` field. Hare/Pony are
 rendered into the exact flat native JSON fields. Carp/Idris JSON includes a
 192-hex-character `key_material` value and port fields; Idris also has explicit

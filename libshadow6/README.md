@@ -51,6 +51,17 @@ the session or leaving the facade context stops its capsule; Control Center TTL
 cleanup is the abandoned-client backstop. Sessions also expose `status()`,
 `pause()`, and `resume()` through the same Control Center lifecycle methods.
 
+For an explicitly configured S6NA companion, `Shadow6.open_credited(path)`
+opens a separate bounded application attachment from an owner-only
+`shadow6.s6na-attachment.v1` document. It requires absolute pinned UDP
+endpoints, an owner-only 32-byte key file, and a selected S6NA family. The
+returned `CreditedSession` exposes `application_credit()`, whole-record
+`send_record()` and bounded `receive_record()`; exhausted frame credit raises
+`S6NA_BACKPRESSURE`, and closing invalidates queued credit. This companion
+does not alter or infer Named Service/Core wire compatibility. Both peers need
+matching local configurations and the same secret key, provisioned through a
+separate trusted channel.
+
 Keep deployment in a strict `shadow6.deployment.v1` manifest and run
 `shadow6 deployment validate` and `shadow6 deployment plan` before opening an
 application session. The facade consumes the Core's declared boundary through

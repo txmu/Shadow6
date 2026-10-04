@@ -3,11 +3,12 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
 
-__all__ = ["Shadow6", "Shadow6Error", "Session", "run"]
+__all__ = ["Shadow6", "Shadow6Error", "Session", "CreditedSession", "run"]
 
 try:
     from Deployment.core_catalog import CoreCatalog
@@ -65,6 +66,79 @@ class Session:
         self.close()
 
 
+class CreditedSession:
+    """One S6NA application stream with bounded records and explicit credit."""
+    def __init__(self, owner: "Shadow6", endpoint, stream: int, maximum: int = 64):
+        from collections import deque
+        if type(stream) is not int or not 0 <= stream < endpoint.adapter.limits.max_streams:
+            endpoint.close()
+            raise ValueError("invalid S6NA application stream")
+        if type(maximum) is not int or not 1 <= maximum <= 64:
+            endpoint.close()
+            raise ValueError("invalid S6NA receive window")
+        self._owner = owner
+        self.endpoint, self.stream, self.maximum = endpoint, stream, maximum
+        self._received = deque()
+        self._closed = False
+
+    def application_credit(self) -> int:
+        self._ensure_open()
+        return self.endpoint.adapter.application_credit()
+
+    def send_record(self, data: bytes) -> int:
+        self._ensure_open()
+        try:
+            self.endpoint.send_flow_controlled(self.stream, data)
+        except Exception as error:
+            if type(error).__name__ == "AdapterBackpressure":
+                raise Shadow6Error("S6NA_BACKPRESSURE") from error
+            raise
+        return self.application_credit()
+
+    def receive_record(self, timeout: float = 0.0) -> bytes | None:
+        import time
+        self._ensure_open()
+        if not isinstance(timeout, (int, float)) or isinstance(timeout, bool) or not 0 <= timeout <= 30:
+            raise ValueError("S6NA receive timeout must be 0..30 seconds")
+        if self._received:
+            return self._received.popleft()
+        deadline = time.monotonic() + timeout
+        while True:
+            wait = min(.2, max(0.0, deadline - time.monotonic())) if timeout else 0.0
+            completed, events = self.endpoint.poll(wait)
+            if events:
+                self.close()
+                raise Shadow6Error("S6NA_UNEXPECTED_EXTENSION")
+            for stream, record in completed:
+                if stream != self.stream or len(self._received) >= self.maximum:
+                    self.close()
+                    raise Shadow6Error("S6NA_APPLICATION_WINDOW_VIOLATION")
+                self._received.append(record)
+            if self._received:
+                return self._received.popleft()
+            if time.monotonic() >= deadline:
+                return None
+
+    def _ensure_open(self):
+        if self._closed:
+            raise Shadow6Error("S6NA_CLOSED")
+
+    def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        self._received.clear()
+        self.endpoint.close()
+        self._owner._attachments.discard(self)
+
+    def __enter__(self):
+        self._ensure_open()
+        return self
+
+    def __exit__(self, *_exc):
+        self.close()
+
+
 def _cli() -> str:
     value = os.environ.get("SHADOW6_CLI") or shutil.which("shadow6")
     if not value:
@@ -96,6 +170,7 @@ class Shadow6:
         else:
             self.cli = _cli()
         self._sessions: set[Session] = set()
+        self._attachments: set[CreditedSession] = set()
         self._closed = False
 
     def call(self, *args: str, input: str | None = None, timeout: float = 30) -> str:
@@ -115,6 +190,59 @@ class Shadow6:
         """Open a bounded local application session from actual ready state."""
         from Deployment.connection_plan import open_local_session
         return open_local_session(self.connection_plan(name))
+
+    def open_credited(self, config: str | os.PathLike[str]) -> CreditedSession:
+        """Open an explicit S6NA credited companion from an owner-only config.
+
+        This is an optional outer application attachment. It does not change
+        or infer the selected Native Core's wire family or application boundary.
+        """
+        if self._closed:
+            raise Shadow6Error("Shadow6 facade is closed")
+        path = Path(config).expanduser().absolute()
+        try:
+            from Deployment.service_storage import private_read, strict_json
+            value = strict_json(private_read(path, limit=16384))
+        except (OSError, ValueError) as error:
+            raise Shadow6Error("invalid private S6NA attachment config") from error
+        fields = {"schema", "core", "key_file", "bind", "peer", "side", "stream", "limits"}
+        if not isinstance(value, dict) or set(value) - fields or not {"schema", "core", "key_file", "bind", "peer"} <= set(value) or value["schema"] != "shadow6.s6na-attachment.v1":
+            raise Shadow6Error("invalid S6NA attachment schema")
+        if not isinstance(value["core"], str) or not re.fullmatch(r"[a-z][a-z0-9-]{0,31}", value["core"]):
+            raise Shadow6Error("invalid S6NA Profile family")
+        if not isinstance(value["key_file"], str) or not Path(value["key_file"]).is_absolute():
+            raise Shadow6Error("S6NA key_file must be absolute")
+        key_path = Path(value["key_file"])
+        module_roots = []
+        for parent in Path(__file__).resolve().parents:
+            module_roots.extend((parent / "Network-Adapter", parent / "share/shadow6/modules"))
+        module = next((root for root in module_roots if (root / "shadow6_network.py").is_file()), None)
+        if module is None:
+            raise Shadow6Error("S6NA runtime module is unavailable")
+        import sys
+        if str(module) not in sys.path:
+            sys.path.insert(0, str(module))
+        from shadow6_network import DatagramEndpoint, Limits, load_key
+        try:
+            key = load_key(key_path)
+            bind, peer = value["bind"], value["peer"]
+            if (not isinstance(bind, list) or len(bind) != 2 or not isinstance(peer, list) or len(peer) != 2
+                    or not isinstance(bind[0], str) or not isinstance(peer[0], str)
+                    or type(bind[1]) is not int or type(peer[1]) is not int):
+                raise ValueError("invalid pinned S6NA endpoints")
+            limits_value = value.get("limits", {})
+            if not isinstance(limits_value, dict) or set(limits_value) - set(Limits.__dataclass_fields__):
+                raise ValueError("invalid S6NA limits")
+            side = value.get("side", 0)
+            if type(side) is not int or side not in (0, 1):
+                raise ValueError("invalid S6NA direction")
+            endpoint = DatagramEndpoint(value["core"], key, tuple(bind), tuple(peer),
+                side=side, limits=Limits(**limits_value))
+            session = CreditedSession(self, endpoint, value.get("stream", 0))
+        except (OSError, TypeError, ValueError) as error:
+            raise Shadow6Error("invalid S6NA attachment material") from error
+        self._attachments.add(session)
+        return session
 
     def features(self, component: str | None = None) -> dict:
         args = ("features", "--format", "json")
@@ -213,11 +341,14 @@ class Shadow6:
         if self._closed:
             return
         errors = []
-        for session in tuple(self._sessions):
+        for session in tuple(getattr(self, "_sessions", ())):
             try:
                 session.close()
             except Shadow6Error as error:
                 errors.append(error)
+        for attachment in tuple(getattr(self, "_attachments", ())):
+            attachment.close()
+            self._attachments.discard(attachment)
         self._closed = True
         if errors:
             raise Shadow6Error(f"failed to stop {len(errors)} owned capsule session(s)") from errors[0]

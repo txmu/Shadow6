@@ -65,16 +65,16 @@ CI result. Every available Profile must pass one complete lifecycle contract.
 | Producer failures first | Latest Actions job/step results and logs for the reviewed commit | Actions run 37172827272 completed successfully, including OpenBSD arm64. The present worktree remains uncommitted and unverified by CI. |
 | Single Native Profile Registry | All 13 complete contracts; every consumer derives Profile facts from it; no duplicate transport maps or implicit selectors | Source registry and initial consumers implemented. Audit remaining integration, Service-Init, Detector, S6ABI and network catalog; add concrete component admission and platform/runtime requirements. |
 | Strong family/Profile binding | Illegal mixed trios and Profile/config mismatches rejected before any spawn | Existing family checks preserved; explicit topology Profile selection and config transport conflict checks added. Named Service ProfileBinding is now explicit and checked against config, S6P1 boundary, lock, launch plan, runtime identity and connection observation; real all-Profile integration remains open. |
-| Unique Named Service authority | ServiceSpec + embedded S6P1 + CoreBinding + ProfileBinding + DeploymentLock; run only locked material | ProfileBinding and explicit stopped reconfiguration of legacy records implemented. Setup prepares/applies; run requires existing lock. Complete intent-based config realization and every Profile lifecycle remain open. |
+| Unique Named Service authority | ServiceSpec + embedded S6P1 + CoreBinding + ProfileBinding + DeploymentLock; run only locked material | ProfileBinding and explicit stopped reconfiguration implemented. Auto-Orchestrator can materialize generated all-local topologies into locked/applied services when `named_service_namespace` is set; it does not start them. Remote topology and Gate compositions are rejected pending explicit realization. |
 | Complete material lock | Native binaries/configs, peripheral binaries/configs, credentials/CA/adapters hashed and revalidated before spawn and readiness | Profile contract digest, native Ada/Nim/D TLS references and Guard TLS references added to existing binary/config/EPE TLS locks. Replacement admission preserves old locked record on failure. Finish full schema/material/provider audit. |
 | Portable intent separation | Negative tests reject local paths/private keys/material in exported S6P1 | Audit all setup/export/import/install paths against strict portable contract. |
-| All application attachments | Real eight stream, four seqpacket and Gleam Micro-Mux attach; CLI/libshadow6 with message sizes/backpressure/EOF/drain/errors | Shared boundary source contracts preserved; implement runtime-owned attachments and explicit S6ABI stream/message/credited methods and tests. |
+| All application attachments | Real eight stream, four seqpacket and Gleam Micro-Mux attach; CLI/libshadow6 with message sizes/backpressure/EOF/drain/errors | Added `libshadow6.Shadow6.open_credited()` for an explicit owner-only S6NA attachment document, with bounded loopback UDP, credit/backpressure and close tests. It is a companion endpoint and is not yet transparently bridged into a Named Service application proxy. |
 | S6EPE v3/WebRTC executable deployment | Source-built real raw/TLS/SCTP/WebRTC providers; signalling, boundary adapters, lock, observation, metrics/doctor and restart/negative CI tests | Existing WebRTC library evidence is historical, not executable deployment. Implement config/signalling/adapter lifecycle without native wire translation. |
-| Peripheral composition | Policy/capability/order/private/public/transport/boundary validation for every declared legal stack | Registry references current admission, not universal compatibility. Expand concrete per-Profile stack checks and negative integration tests. |
+| Peripheral composition | Policy/capability/order/private/public/transport/boundary validation for every declared legal stack | Added cumulative Gate/S6EPE descriptor and memory estimates to DeploymentLock, revalidated at apply and supervisor launch, and surfaced in Detector compliance. Estimates are conservative configuration checks, not runtime memory attestation; Guard and per-platform Supervisor resource enforcement remain separate work. |
 | Gate/BrokerSet portable routes | Only S6P1.routes drives realized route intent and bounded failover | Audit consumers and drift tests; no migration/quorum/replication claims. |
 | Shared supervisor state machine | Linux pidfd/identity/child/owned socket/transport/readiness; honest native-init capabilities on other platforms | Existing Linux observation retained. Audit platform abstraction, lifecycle parity and stale/degraded/failed transitions for every crash/drift condition. |
 | One-command installed experience | Intent-based setup/run for available Profiles, ordered sidecars, idempotence, actionable missing-runtime diagnostics | Setup still requires operator-supplied native config; now prepares lock/apply and run starts separately. Implement registry-driven intent realization with no install/build during run. |
-| Upgrade/reconfiguration safety | Explicit stop/upgrade-or-configure/relock/apply/run; drift detection and failure rollback | Verify transaction and lock preservation, reject live replacement and all implicit policy/family fallback. |
+| Upgrade/reconfiguration safety | Explicit stop/upgrade-or-configure/relock/apply/run; drift detection and failure rollback | Added explicit `service upgrade` as stopped configure→lock→apply with record rollback on failure. It does not build, install or start runtime processes; full UI entry points and end-to-end failure injection remain open. |
 | Shared consumer truth | Detector/Control Center/CLI/libshadow6/fleet/Deployment/Service-Init consume the same spec/bindings/lock/observation | Initial registry consumer migration only; remaining authority and GUI/API drift audit outstanding. |
 | Architecture completion matrix | All legal Profiles pass registry/config/lock/apply/run/status/connect/restart/stop/remove/doctor; boundary, crash/stale/drift, capabilities and peripheral matrices | Registry pair tests and focused realization tests added to CI/default gate. Real lifecycle, library, optional composition and provider matrices outstanding. Toolchain absences must produce explicit reasons. |
 | Current documentation | README/getting-started/core-matrix/named-services/service-connections/Deployment/S6EPE/security/audit describe implementation plus verified CI | Current source registry documentation added. Broad documentation update follows actual implementation and CI evidence; historical claims must stay labeled. |
@@ -207,6 +207,40 @@ transactions and the complete existing UI/UX/documentation pass. In particular,
 client stream attachment combined with an EPE public admission endpoint still
 needs separate typed application/public observations; the current refusal is
 not to be reported as supported lifecycle completion.
+
+## Integration pass (2026-10-04)
+
+- Auto-Orchestrator's local generated topology can now be materialized as
+  Named Services under an explicit namespace. Each node gets its selected
+  Profile, generated native configuration and S6P1 role/identity, then is
+  locked and applied as a batch. No service starts implicitly. Remote nodes
+  and generated Gate compositions fail with an actionable explicit error.
+- `libshadow6` exposes an explicit credited S6NA companion attachment. The
+  private attachment document pins endpoints/key path and role; send credit,
+  bounded receive, backpressure/recovery and facade close are covered by a
+  loopback integration test. The application-side named-service bridge is
+  still missing, so this does not close the full attachment matrix.
+- Gate and S6EPE resource configuration now feeds one component-limit
+  resolution. The lock, `apply`, immutable launch plan, supervisor pre-spawn
+  validation and Detector recompute it. Limits are aggregated across enabled
+  Gate/EPE components and compared with the same host snapshot and Core
+  `process_fds` ceiling. This is a bounded estimate; Guard memory/FD budgets
+  and non-Linux runtime enforcement are still open.
+- `shadow6 service upgrade NAME --core CORE --profile PROFILE --config ...`
+  performs a stopped configure/lock/apply transaction and restores the exact
+  previous registry bytes on failure. It does not start, build or install.
+- S6EPE WebRTC remains library-only. `Config.load` does not admit a WebRTC
+  carrier and `main` has no bounded offer/answer signaling lifecycle. The
+  current tests establish native carrier/session library behavior only; do
+  not treat this area as integrated until signaling, executable startup,
+  local application boundary, lock/observation and negative lifecycle tests
+  exist.
+- Targeted verification for this pass: Deployment ProfileBinding plus local
+  topology tests (20); Detector compliance test (1); credited libshadow6
+  integration suite (12, from the preceding focused run); Crosed Limits tests
+  (7 after adding aggregate Gate/EPE cases). No Hare, Idris or Pony binary was
+  built. Full release workflow, platform CI and archive generation were not
+  run.
 
 2026-10-04 unified Limits continuation: user additionally requires all Profile
 resource dimensions, Gate/S6EPE/Supervisor/Deployment/Detector/Control consumers,

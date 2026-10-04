@@ -57,6 +57,10 @@ class ProfileBindingTests(unittest.TestCase):
                 _, plan = self.registry.launch_plan(name)
                 self.assertEqual(plan['profileBinding'], expected)
                 service_runtime.verify_launch_material(plan)
+                altered = copy.deepcopy(plan)
+                altered['componentLimits']['process_fds'] += 1
+                with self.assertRaisesRegex(ValueError, 'InvalidComponentLimitsSchema|ComponentLimitsDrift|deployment drift before launch: componentLimits'):
+                    service_runtime.verify_launch_material(altered)
                 self.assertNotIn('profileBinding', item['protocolContext'])
                 self.assertNotIn('config_path', json.dumps(item['protocolContext']))
                 self.registry.remove(name)
@@ -141,6 +145,30 @@ class ProfileBindingTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'ProfileConfigMismatch'):
             self.registry.configure('test/profile', core='gleam', profile=profile['id'],
                 config={'config_path': str(path)})
+        self.assertEqual(self.registry.path.read_bytes(), before)
+        self.assertEqual(self.registry.apply('test/profile')['state'], 'applied')
+
+    def test_upgrade_commits_replacement_lock_without_starting_service(self):
+        old = profiles('go')[0]
+        self.create(old); self.registry.lock('test/profile')
+        path = self.directory / 'upgrade-gleam.json'
+        atomic_write(path, json.dumps({'role':'client','client':{'transport':'secure-stream'}}).encode())
+        result = self.registry.upgrade('test/profile', core='gleam', profile='gleam-secure-stream',
+            config={'config_path':str(path)}, context=minimal_context('gleam'))
+        self.assertEqual(result['state'], 'applied')
+        self.assertEqual(result['profileBinding']['profile'], 'gleam-secure-stream')
+        self.assertIsNone(result.get('runtime'))
+        self.assertTrue(self.registry.doctor('test/profile')['lockValid'])
+
+    def test_upgrade_failure_restores_previous_lock_atomically(self):
+        old = profiles('go')[0]
+        self.create(old); self.registry.lock('test/profile')
+        before = self.registry.path.read_bytes()
+        path = self.directory / 'bad-upgrade.json'
+        atomic_write(path, json.dumps({'role':'client','client':{'transport':'micro-mux'}}).encode())
+        with self.assertRaisesRegex(ValueError, 'ProfileConfigMismatch'):
+            self.registry.upgrade('test/profile', core='gleam', profile='gleam-secure-stream',
+                config={'config_path':str(path)}, context=minimal_context('gleam'))
         self.assertEqual(self.registry.path.read_bytes(), before)
         self.assertEqual(self.registry.apply('test/profile')['state'], 'applied')
 
