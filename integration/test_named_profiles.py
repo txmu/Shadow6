@@ -16,11 +16,13 @@ import time
 import unittest
 from contextlib import nullcontext
 
-ROOT = Path(os.environ.get('SHADOW6_NAMED_TEST_ROOT', Path(__file__).resolve().parents[1])).resolve()
+SOURCE_ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(os.environ.get('SHADOW6_NAMED_TEST_ROOT', SOURCE_ROOT)).resolve()
 if not (ROOT / 'Makefile').is_file():
     raise ValueError('Named Profile test root must be an explicit Shadow6 tree')
-sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / 'integration'))
+ENTRY_ROOT = ROOT if (ROOT / 'CLI/shadow6_connect.py').is_file() else SOURCE_ROOT
+sys.path.insert(0, str(SOURCE_ROOT))
+sys.path.insert(0, str(SOURCE_ROOT / 'integration'))
 from Deployment.core_catalog import CoreCatalog
 from Deployment.profile_registry import profiles
 from Deployment.protocol_context import minimal_context, pack_protocol
@@ -72,9 +74,9 @@ class NamedProfileTests(unittest.TestCase):
                     else 'it-' + engine + '-' + role + '.json') for role in profile['roles']}
             environment = {**os.environ, 'SHADOW6_ROOT': str(ROOT), 'SHADOW6_SERVICE_REGISTRY': str(registry.path)}
             def cli(*arguments):
-                result = subprocess.run([sys.executable, str(ROOT / 'CLI/shadow6.py'), *arguments],
+                result = subprocess.run([sys.executable, str(ENTRY_ROOT / 'CLI/shadow6.py'), *arguments],
                     capture_output=True, env=environment, timeout=45)
-                self.assertEqual(result.returncode, 0, result.stderr.decode(errors='replace') + result.stdout.decode(errors='replace'))
+                self.assertEqual(result.returncode, 0, repr(arguments) + ': ' + result.stderr.decode(errors='replace') + result.stdout.decode(errors='replace'))
                 return strict_json(result.stdout)
             for role in ('broker', 'agent', 'client'):
                 context = minimal_context(profile['core']); context['role'] = role
@@ -97,7 +99,7 @@ class NamedProfileTests(unittest.TestCase):
             facade_cli.write_text('#!' + sys.executable + '\nimport os,sys\n'
                 + 'os.environ["SHADOW6_SERVICE_REGISTRY"]=' + repr(str(registry.path)) + '\n'
                 + 'os.environ["SHADOW6_ROOT"]=' + repr(str(ROOT)) + '\n'
-                + 'os.execv(sys.executable,[sys.executable,' + repr(str(ROOT / 'CLI/shadow6.py')) + ',*sys.argv[1:]])\n')
+                + 'os.execv(sys.executable,[sys.executable,' + repr(str(ENTRY_ROOT / 'CLI/shadow6.py')) + ',*sys.argv[1:]])\n')
             facade_cli.chmod(0o700)
             with Shadow6(cli=facade_cli) as facade:
                 for cycle in range(2):
@@ -121,7 +123,9 @@ class NamedProfileTests(unittest.TestCase):
                         payload = b'named-profile:' + profile['id'].encode()
                         if message:
                             session.send_record(payload)
-                            self.assertEqual(session.receive_record(), payload)
+                            received = session.receive_record()
+                            if received != payload:
+                                self.fail('message reply differs: ' + repr(received) + '; states=' + repr({role:cli('status',names[role])['state'] for role in names}))
                             with self.assertRaisesRegex(ValueError, 'UnsupportedApplicationHalfClose'):
                                 session.half_close()
                         else:
@@ -141,7 +145,7 @@ class NamedProfileTests(unittest.TestCase):
                 before = registry.inspect(names['client'])['deploymentLock']
                 original = configs['client'].read_bytes()
                 atomic_write(configs['client'], original + b'\n')
-                failed = subprocess.run([sys.executable, str(ROOT / 'CLI/shadow6.py'),
+                failed = subprocess.run([sys.executable, str(ENTRY_ROOT / 'CLI/shadow6.py'),
                     'run', names['client']], capture_output=True, env=environment, timeout=15)
                 self.assertNotEqual(failed.returncode, 0)
                 registry._load()

@@ -250,6 +250,10 @@ static int idris_app_flow_fd(void) {
     if(getsockopt((int)fd,SOL_SOCKET,SO_TYPE,&kind,&kind_len)||kind!=SOCK_SEQPACKET)return -2;
     int flags=fcntl((int)fd,F_GETFL);
     if(flags<0||fcntl((int)fd,F_SETFL,flags|O_NONBLOCK)<0)return -2;
+#ifdef SO_NOSIGPIPE
+    int no_sigpipe=1;
+    if(setsockopt((int)fd,SOL_SOCKET,SO_NOSIGPIPE,&no_sigpipe,sizeof no_sigpipe))return -2;
+#endif
     return (int)fd;
 }
 
@@ -260,6 +264,19 @@ static ssize_t idris_app_flow_recv(int fd,unsigned char *buffer,size_t capacity,
     if(n>=0){*truncated=(message.msg_flags&MSG_TRUNC)!=0;return n;}
     if(errno==EAGAIN||errno==EWOULDBLOCK||errno==EINTR)return -1;
     return -2;
+}
+
+/* SOCK_SEQPACKET sends one complete application record or no record. A full
+ * local queue leaves the native receive window unacknowledged for retry. */
+static int idris_app_flow_send(int fd,const unsigned char *record,size_t length) {
+    int flags=MSG_DONTWAIT;
+#ifdef MSG_NOSIGNAL
+    flags|=MSG_NOSIGNAL;
+#endif
+    ssize_t n=send(fd,record,length,flags);
+    if(n==(ssize_t)length)return 1;
+    if(n<0&&(errno==EAGAIN||errno==EWOULDBLOCK||errno==EINTR))return 0;
+    return -1;
 }
 
 static void put64(unsigned char *p, uint64_t n) { for (int i=7;i>=0;--i){p[i]=(unsigned char)n;n>>=8;} }
@@ -463,9 +480,15 @@ int idris_native_relay(int role,const char *bind_ip,unsigned int bind_port,const
                             }
                             while(reordered[next_deliver&(IDRIS_CHAIN_WINDOW-1)].sequence==next_deliver){
                                 struct idris_received_packet *item=&reordered[next_deliver&(IDRIS_CHAIN_WINDOW-1)];
-                                int delivered=role==1?
-                                    (app_peer.sin_port&&sendto(local,item->bytes,item->length,0,(struct sockaddr*)&app_peer,sizeof app_peer)==(ssize_t)item->length):
-                                    send(local,item->bytes,item->length,0)==(ssize_t)item->length;
+                                int delivered;
+                                if(role==1&&flow_fd>=0){
+                                    delivered=idris_app_flow_send(flow_fd,item->bytes,item->length);
+                                    if(delivered<0)goto done;
+                                }else if(role==1){
+                                    delivered=app_peer.sin_port&&sendto(local,item->bytes,item->length,0,(struct sockaddr*)&app_peer,sizeof app_peer)==(ssize_t)item->length;
+                                }else{
+                                    delivered=send(local,item->bytes,item->length,0)==(ssize_t)item->length;
+                                }
                                 if(!delivered)break;
                                 size_t an=0;if(native_seal_ack(frame,&an,direction==1?2:1,next_deliver,send_session,key)||
                                    sendto(net,frame,an,0,(struct sockaddr*)&peer_sa,sizeof peer_sa)!=(ssize_t)an)goto done;

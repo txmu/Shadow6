@@ -229,6 +229,19 @@ class ServiceLifecycleTests(unittest.TestCase):
 class LaunchLockTests(unittest.TestCase):
     setUp = ServiceLifecycleTests.setUp
     cleanup_process = ServiceLifecycleTests.cleanup_process
+    def test_compiled_provider_uses_bounded_executable_material_contract(self):
+        provider = self.root / 'libdatachannel.so.0.23'
+        provider.write_bytes(b'\0' * (1048576 + 1))
+        provider.chmod(0o700)
+        self.assertEqual(service_runtime.runtime_material_digest('envelope_webrtc_provider', provider),
+                         service_runtime.executable_digest(provider))
+        with self.assertRaises(ValueError):
+            service_runtime.source_material_digest(provider)
+        link = self.root / 'provider-link'
+        link.symlink_to(provider)
+        with self.assertRaises(ValueError):
+            service_runtime.runtime_material_digest('envelope_webrtc_provider', link)
+
     def plan(self):
         import hashlib
         material = service_runtime.runtime_material_paths(ROOT)
@@ -237,7 +250,7 @@ class LaunchLockTests(unittest.TestCase):
                 'runtimeMaterials':material,
                 'launchDigests':{'binary':service_runtime.executable_digest(self.binary),
                                 'config':'sha256:'+hashlib.sha256(self.config.read_bytes()).hexdigest(),
-                                **{'runtimeMaterial:' + key:service_runtime.source_material_digest(path) for key,path in material.items()}}}
+                                **{'runtimeMaterial:' + key:service_runtime.runtime_material_digest(key,path) for key,path in material.items()}}}
 
 
     def test_running_material_drift_stops_the_actual_component_group(self):

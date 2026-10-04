@@ -240,7 +240,7 @@ class ServiceRegistry:
         native_materials = native_material_paths(profile_binding, native)
         extra = {'nativeMaterials': native_materials, 'nativeMaterialDigests': {key:digest(private_read(path,limit=16384)) for key,path in native_materials.items()}}
         extra['runtimeMaterials'] = runtime.runtime_material_paths(self.catalog.root)
-        extra['runtimeMaterialDigests'] = {key:runtime.source_material_digest(path) for key,path in extra['runtimeMaterials'].items()}
+        extra['runtimeMaterialDigests'] = {key:runtime.runtime_material_digest(key,path) for key,path in extra['runtimeMaterials'].items()}
         fields = None
         components = {}
         if item['privacy'] == 'envelope':

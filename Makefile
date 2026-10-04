@@ -758,6 +758,7 @@ ifeq ($(BUILD_IDRIS),1)
 	else \
 		echo "Warning: Idris2 build completed but binary not found at expected location"; \
 	fi
+	@$(PYTHON) Tools/normalize_idris_launcher.py Core-Idris/shadow6-idris shadow6-idris_app
 else
 	@echo "ERROR: Idris2 not found; install Idris2 or set IDRIS2=/path/to/idris2" >&2
 	@exit 1
@@ -770,7 +771,7 @@ ifeq ($(BUILD_IDRIS),1)
 	@if [ -f Core-Idris/shadow6-idris ]; then \
 		install -m 0755 Core-Idris/shadow6-idris Core-Idris/shadow6-idris-crosed; \
 		if [ -d Core-Idris/shadow6-idris_app ]; then cp -a Core-Idris/shadow6-idris_app Core-Idris/shadow6-idris-crosed_app; fi; \
-		sed -i.bak 's/shadow6-idris_app/shadow6-idris-crosed_app/g' Core-Idris/shadow6-idris-crosed; \
+		$(PYTHON) Tools/normalize_idris_launcher.py Core-Idris/shadow6-idris-crosed shadow6-idris-crosed_app; \
 		echo "✓ Crosed variant saved"; \
 	fi
 	@echo "Rebuilding default L0 variant..."

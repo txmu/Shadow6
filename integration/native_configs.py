@@ -49,7 +49,7 @@ def generate_commands(engine: str, binary: Path, root: Path, target_port: int,
             Encoding.Raw, PublicFormat.Raw) for role, seed in seeds.items()}
         binding = os.urandom(32)
         commands = {}
-        root.mkdir(parents=True, exist_ok=True)
+        root.mkdir(mode=0o700, parents=True, exist_ok=True)
         for role in ("broker", "agent", "client"):
             path = root / f"{role}.config"
             if engine == "shadow6-hare":

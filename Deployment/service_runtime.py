@@ -163,7 +163,13 @@ def runtime_material_paths(root):
     files = {name: str(here / (name + '.py')) for name in (
         'service_runtime','service_registry','runtime_observation','application_attachment',
         'service_storage','profile_registry','protocol_context','service_composition','broker_set')}
-    files.update(native_config=str(Path(root) / 'CLI/native_config.py'),
+    # The installed CLI adapter lives with the Python modules, not inside the
+    # installed Core artifact tree. Lock the implementation actually used by
+    # this invocation so an installed Named Service can be prepared there.
+    config_adapter = here.parent / 'CLI/native_config.py'
+    if not config_adapter.is_file():
+        config_adapter = here / 'native_config.py'
+    files.update(native_config=str(config_adapter),
                  limits=str(Path(limits.__file__).absolute()),
                  native_profiles=str(Path(native_profiles.__file__).absolute()),
                  feature_contract=str(Path(feature_contract.__file__).absolute()))
@@ -171,6 +177,13 @@ def runtime_material_paths(root):
     if provider.exists() or provider.is_symlink():
         files['envelope_webrtc_provider'] = str(provider)
     return files
+
+
+def runtime_material_digest(key, path):
+    # The optional provider is compiled native code, not a small Python source
+    # file. Apply the same bounded, owner-controlled executable check used for
+    # Core and peripheral binaries.
+    return executable_digest(path) if key == 'envelope_webrtc_provider' else source_material_digest(path)
 
 def feature_report(binary: str) -> dict:
     import selectors
@@ -279,7 +292,7 @@ def verify_launch_material(plan):
         if expected['nativeMaterial:' + key] != actual:
             raise ValueError('deployment drift before launch: nativeMaterial:' + key)
     for key,path in runtime_materials.items():
-        if expected['runtimeMaterial:' + key] != source_material_digest(path):
+        if expected['runtimeMaterial:' + key] != runtime_material_digest(key, path):
             raise ValueError('deployment drift before launch: runtimeMaterial:' + key)
     for key,path in component_materials.items():
         actual = 'sha256:' + hashlib.sha256(private_read(path,limit=16384)).hexdigest()
@@ -353,7 +366,9 @@ def supervise(plan_path, ack):
     plan = strict_json(private_read(plan_path))
     verify_launch_material(plan)
     root = Path(plan['root'])
-    sys.path.insert(0, str(root / 'CLI'))
+    # The locked adapter path is the implementation selected during apply.
+    # Installed trees keep Python modules outside the Core artifact tree.
+    sys.path.insert(0, str(Path(plan['runtimeMaterials']['native_config']).parent))
     from native_config import load, prepare
     import tempfile
     children = []
@@ -520,7 +535,10 @@ def supervise(plan_path, ack):
                         if time.monotonic() >= startup_deadline:
                             raise ValueError('OwnedEndpointReadinessTimeout: ' + core + '/' + str(native_config.get('role'))
                                 + '; observed=' + observation['readiness'] + '; readyEvent=' + str(bool(ready_state)))
-                        if any(p.poll() is not None for p in children): raise ValueError('native process exited before readiness')
+                        for index, process in enumerate(children):
+                            code = process.poll()
+                            if code is not None:
+                                raise ValueError(labels[index] + ' process exited before readiness (exit ' + str(code) + ')')
                         time.sleep(.05); continue
                     break
                 except ValueError as error:
