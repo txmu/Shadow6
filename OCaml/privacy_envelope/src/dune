@@ -1,9 +1,9 @@
 (library
  (name s6epe_core)
  (wrapped false)
- (modules config envelope crypto session forward rate_limit metrics feature_report sodium replay_store)
+ (modules config carrier envelope crypto session forward rate_limit metrics feature_report sodium replay_store)
  (libraries unix threads digestif.c)
- (foreign_stubs (language c) (names sodium_stubs) (flags (:standard -Wall -Wextra -Werror)))
+ (foreign_stubs (language c) (names sodium_stubs carrier_stubs) (flags (:standard -Wall -Wextra -Werror)))
  (c_library_flags -lsodium))
 (executable
  (name main)

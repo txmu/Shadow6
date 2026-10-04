@@ -4,6 +4,9 @@ S6EPE is an optional, separate authenticated encrypted outer component. Native
 Core bytes and datagram boundaries remain opaque; no twelve-Core wire protocol
 changes. Guard owns perimeter/exposure policy, S6EPE owns outer sessions, Gate
 owns routing/relay/BrokerSet realization, and Core owns its native data plane.
+The [native capability matrix](native-security-capabilities.md) documents
+existing Core encryption/authentication and its mode-specific limits. S6EPE
+does not imply that the enclosed native transport lacks cryptographic security.
 
 V3 deliberately rejects v2's authentication-only wire. Upgrade both outer ends
 together. Core peers retain their native protocols. Encryption is mandatory;
@@ -52,6 +55,9 @@ Deployment separately verifies the processes and their owned sockets.
 The server's upstream and client's listen endpoint must be loopback/private.
 WebRTC/ICE and SCTP are not implemented by a TCP/UDP envelope; choose an actual
 compatible application socket or its dedicated adapter explicitly.
+The [Carrier/Adapter Contract](privacy-envelope-carrier-contract.md) separates
+the stream security engine from transport I/O. Its current raw provider remains
+identifiable; the message interface does not yet advertise an SCTP/WebRTC provider.
 
 ## Stream contract
 

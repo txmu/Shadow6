@@ -10,3 +10,7 @@
  (name test_crypto)
  (modules test_crypto)
  (libraries s6epe_core))
+(test
+ (name test_carrier)
+ (modules test_carrier)
+ (libraries s6epe_core))

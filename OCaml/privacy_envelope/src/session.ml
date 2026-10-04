@@ -1,8 +1,8 @@
 (* One bounded record in each direction; local native bytes stay opaque. *)
 exception Timeout
-let bridge client upstream config (receiving, sending) metrics ~shaping =
-  let remote, local = if config.Config.role = "server" then client, upstream else upstream, client in
-  Unix.set_nonblock remote; Unix.set_nonblock local;
+module Make (C:Carrier.STREAM) = struct
+let bridge remote local (config:Config.t) (receiving, sending) metrics ~shaping =
+  Unix.set_nonblock local;
   let deadline = Unix.gettimeofday () +. config.session_timeout in
   let last = ref (Unix.gettimeofday ()) in
   let inbound = ref true and outbound = ref true in
@@ -44,13 +44,13 @@ let bridge client upstream config (receiving, sending) metrics ~shaping =
       if not !inbound && Bytes.length !plain = 0 && not !local_shutdown then
         (Unix.shutdown local Unix.SHUTDOWN_SEND; local_shutdown := true);
       if not !outbound && Bytes.length !wire = 0 && not !remote_shutdown then
-        (Unix.shutdown remote Unix.SHUTDOWN_SEND; remote_shutdown := true);
-      let readers = (if !inbound && Bytes.length !plain = 0 then [remote] else []) @
-                    (if !outbound && Bytes.length !wire = 0 then [local] else []) in
-      let writers = (if Bytes.length !plain > 0 then [local] else []) @
-                    (if Bytes.length !wire > 0 then [remote] else []) in
-      let r,w,_ = Unix.select readers writers [] 0.1 in
-      if List.mem local r then begin
+        (C.shutdown_send remote; remote_shutdown := true);
+      let ready = C.poll remote ~local
+        ~local_read:(!outbound && Bytes.length !wire = 0)
+        ~local_write:(Bytes.length !plain > 0)
+        ~carrier_read:(!inbound && Bytes.length !plain = 0)
+        ~carrier_write:(Bytes.length !wire > 0) ~timeout:0.1 in
+      if ready.local_read then begin
         let buffer = Bytes.create config.max_frame in
         let count = Unix.read local buffer 0 (Bytes.length buffer) in
         if count = 0 then (outbound := false; wire := frame Bytes.empty Sodium.final)
@@ -61,9 +61,9 @@ let bridge client upstream config (receiving, sending) metrics ~shaping =
         end;
         last := Unix.gettimeofday ()
       end;
-      if List.mem remote r then begin
+      if ready.carrier_read then begin
         let target, used = if !header_used < 4 then header, header_used else !body, body_used in
-        let count = Unix.read remote target !used (Bytes.length target - !used) in
+        let count = C.read remote target !used (Bytes.length target - !used) in
         if count = 0 then raise Exit;
         used := !used + count; last := Unix.gettimeofday ();
         if !header_used = 4 && Bytes.length !body = 0 then begin
@@ -91,13 +91,14 @@ let bridge client upstream config (receiving, sending) metrics ~shaping =
           header_used := 0; body_used := 0; body := Bytes.empty
         end
       end;
-      let send fd pending = if List.mem fd w then begin
-        let count = Unix.write fd !pending 0 (Bytes.length !pending) in
+      let send writable write pending = if writable then begin
+        let count = write !pending 0 (Bytes.length !pending) in
         if count = 0 then raise Exit;
         pending := Bytes.sub !pending count (Bytes.length !pending-count);
         last := Unix.gettimeofday ()
       end in
-      send local plain; send remote wire;
+      send ready.local_write (Unix.write local) plain;
+      send ready.carrier_write (C.write remote) wire;
       if !outbound && Bytes.length !wire = 0 && config.cover_interval > 0 && !covers < config.cover_limit &&
          Unix.gettimeofday () -. !last_cover >= float_of_int config.cover_interval then begin
         wire := frame ~cover:true Bytes.empty Sodium.message;
@@ -106,3 +107,8 @@ let bridge client upstream config (receiving, sending) metrics ~shaping =
       loop ()
     end
   in Fun.protect ~finally:(fun () -> Sodium.close receiving; Sodium.close sending) loop
+end
+module Raw_session = Make(Carrier.Raw_stream)
+let bridge client upstream config keys metrics ~shaping =
+  let remote, local = if config.Config.role = "server" then client, upstream else upstream, client in
+  Raw_session.bridge (Carrier.Raw_stream.of_fd remote) local config keys metrics ~shaping

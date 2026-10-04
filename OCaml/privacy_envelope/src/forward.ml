@@ -5,12 +5,6 @@ let wait fd write deadline =
   if remaining <= 0. then raise Exit;
   let r,w,_ = Unix.select (if write then [] else [fd]) (if write then [fd] else []) [] remaining in
   if r=[] && w=[] then raise Exit
-let exact fd data write deadline =
-  let rec loop off = if off < Bytes.length data then begin
-    wait fd write deadline;
-    let n = if write then Unix.write fd data off (Bytes.length data-off) else Unix.read fd data off (Bytes.length data-off) in
-    if n = 0 then raise Exit; loop (off+n)
-  end in loop 0
 let connect endpoint timeout =
   let fd = Unix.socket ~cloexec:true (Config.socket_domain endpoint) Unix.SOCK_STREAM 0 in
   try
@@ -19,7 +13,15 @@ let connect endpoint timeout =
     wait fd true (Unix.gettimeofday () +. timeout);
     (match Unix.getsockopt_error fd with None -> () | Some _ -> raise Exit); fd
   with e -> Unix.close fd; raise e
-let handshake fd config =
+module Make_handshake (C:Carrier.STREAM) = struct
+  let exact fd data write deadline =
+    let rec loop off = if off < Bytes.length data then begin
+      C.wait fd ~write ~deadline;
+      let n = if write then C.write fd data off (Bytes.length data-off)
+        else C.read fd data off (Bytes.length data-off) in
+      if n = 0 then raise Exit; loop (off+n)
+    end in loop 0
+let run fd config =
   let deadline = Unix.gettimeofday () +. config.Config.handshake_timeout in
   let pk, sk = Sodium.keypair () in
   Fun.protect ~finally:(fun () -> Bytes.fill sk 0 (Bytes.length sk) '\000') (fun () ->
@@ -54,6 +56,9 @@ let handshake fd config =
     let receiving = Sodium.init_pull rx_key remote_header in
     Bytes.fill rx_key 0 32 '\000'; Bytes.fill tx_key 0 32 '\000';
     receiving, sending)
+end
+module Raw_handshake = Make_handshake(Carrier.Raw_stream)
+let handshake fd config = Raw_handshake.run (Carrier.Raw_stream.of_fd fd) config
 let pack ?(epoch=1) ~key ~direction payload =
   let stamp = Printf.sprintf "%016x" (int_of_float (Unix.gettimeofday ())) |> Bytes.of_string in
   let nonce = Bytes.sub (Crypto.random_nonce ()) 0 24 in
