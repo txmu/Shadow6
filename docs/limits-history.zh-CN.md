@@ -22,6 +22,8 @@ CLI 接受 `--limits-mode safe|elastic|custom` 和 owner-only JSON 文件
 RLIMIT_NOFILE，消息适配器使用锁定的记录上限。Linux 观察检查实际进程
 的 FD 限制，doctor 输出锁定解析明细与当前主机预算。预算改变要求显式
 停止、重新锁定；不会自动缩减正在运行的服务。
+Named Service 的 systemd/procd 定义采用锁定的主机 FD ceiling；Detector
+重新验证同一解析结果及运行观察，报告限额或预算 drift。
 
 ## 验证记录与未完成范围
 

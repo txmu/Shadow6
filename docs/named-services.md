@@ -119,7 +119,9 @@ See [the full context, topology and lifecycle contract](service-connections.md).
 The native Service-Init track can generate an explicit backend definition from
 the same locked component runner with `shadow6 init --system SYSTEM --named-service NAME`; `shadow6 init --system SYSTEM --capabilities` reports
 that backend's available and partial guarantees. Generated definitions are not
-activated implicitly. Linux local supervision uses pidfd, boot/start identity,
+activated implicitly. Named systemd and procd definitions use the locked host
+descriptor ceiling, so the runner can detect host budget drift at startup.
+Linux local supervision uses pidfd, boot/start identity,
 component ownership, `/proc` socket ownership and bounded ready events. Native
 service managers on other platforms own activation and restart policy; exact
 process identity and owned socket observation are explicitly reported as

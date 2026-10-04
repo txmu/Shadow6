@@ -36,10 +36,11 @@ class ContextTests(unittest.TestCase):
         # Source-only acceptance runs have no compiled Go Core. Tests that
         # exercise locking still need a real, owner-controlled executable to
         # validate the binary digest without depending on checkout artifacts.
-        binary = self.directory/'fixture-core'
-        binary.write_text('#!/bin/false\n')
-        binary.chmod(0o700)
-        self.catalog._items['go']['executable'] = str(binary)
+        for core in ('go', 'rust'):
+            binary = self.directory/('fixture-' + core)
+            binary.write_text('#!/bin/false\n')
+            binary.chmod(0o700)
+            self.catalog._items[core]['executable'] = str(binary)
         self.registry = ServiceRegistry(self.directory/'registry.json', self.catalog)
 
     def create(self, context=None, **kwargs):

@@ -59,6 +59,16 @@ class ServiceComplianceIntegrationTests(unittest.TestCase):
                 self.assertEqual(result["evidence"]["realization"], "DeploymentLock")
                 self.assertEqual(result["evidence"]["observed"], "OS-process-and-socket")
                 self.assertTrue(result["evidence"]["ownedEndpoints"], result)
+                original = registry.path.read_bytes()
+                stored = json.loads(original)
+                try:
+                    stored["services"]["verify/broker"]["deploymentLock"]["limitResolution"]["effective_limits"]["process_fds"] += 1
+                    atomic_write(registry.path, json.dumps(stored).encode())
+                    drifted = verify_named_service("verify/broker", registry=registry)
+                    self.assertIn("limits-resolution-drift", drifted["findings"])
+                    self.assertFalse(drifted["compliant"])
+                finally:
+                    atomic_write(registry.path, original)
                 port = int(address.rsplit(":", 1)[1])
                 self.assertTrue(any(item.get("port") == port for item in result["evidence"]["ownedEndpoints"]))
                 plan_path, _ = registry.launch_plan("verify/broker")

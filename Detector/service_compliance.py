@@ -6,7 +6,8 @@ import time
 from urllib.parse import urlsplit
 
 from Deployment.core_catalog import CoreCatalog
-from Deployment.profile_registry import validate_profile_binding, validate_profile_realization
+from Deployment.profile_registry import (LimitResolution, LimitResolver,
+                                         validate_profile_binding, validate_profile_realization)
 from Deployment.service_registry import ServiceRegistry, digest, encoded
 from Deployment.service_storage import private_read, strict_json
 from Deployment.runtime_observation import validate_observation, private_socket
@@ -79,6 +80,15 @@ def verify_named_service(name: str, *, registry: ServiceRegistry | None = None) 
                       and lock.get("digest") == digest(encoded(material)))
     if not lock_valid:
         findings.append("deployment-lock-missing-or-drifted")
+    resolution = None
+    if lock_valid and selected_profile is not None:
+        try:
+            resolution = LimitResolver().validate(
+                lock.get('limitResolution'), selected_profile,
+                item.get('spec', {}).get('limits'), check_host=True)
+        except (ValueError, KeyError, TypeError) as error:
+            findings.append('limits-host-budget-drift' if str(error).startswith('HostBudgetDrift')
+                            else 'limits-resolution-drift')
 
     runtime = current.get("runtime", {})
     observation = current.get("runtimeObservation")
@@ -87,6 +97,10 @@ def verify_named_service(name: str, *, registry: ServiceRegistry | None = None) 
     else:
         try:
             validate_observation(observation)
+            if (resolution is None or
+                    observation.get('limitResolutionDigest') != LimitResolution(resolution).digest or
+                    observation.get('effectiveLimits') != resolution['effective_limits']):
+                findings.append('runtime-limits-drift')
             if time.time() - observation["observedAt"] > 5:
                 findings.append("runtime-observation-stale")
             if runtime.get('profileBinding') != item.get('profileBinding'):
@@ -130,4 +144,7 @@ def verify_named_service(name: str, *, registry: ServiceRegistry | None = None) 
                          "observed": "OS-process-and-socket" if observation else "unavailable",
                          "core": binding["core"], "profileBinding": item.get("profileBinding"), "role": native_role,
                          "applicationBoundaries": sorted(claimed),
+                         "effectiveLimits": resolution['effective_limits'] if resolution else None,
+                         "limitResolutionDigest": LimitResolution(resolution).digest if resolution else None,
+                         "limitsEnforcement": observation.get('limitsEnforcement') if observation else None,
                          "ownedEndpoints": observation.get("endpoints", []) if observation else []}}

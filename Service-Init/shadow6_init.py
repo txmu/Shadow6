@@ -35,7 +35,10 @@ def rc_variable(name: str) -> str:
     return "s6_" + name.replace("-", "_").replace(".", "_")
 
 
-def generate_init_script(system: str, name: str, bin_path: str, conf_path: str) -> str:
+def generate_init_script(system: str, name: str, bin_path: str, conf_path: str, *, fd_ceiling: int | None = None) -> str:
+    if fd_ceiling is not None and (type(fd_ceiling) is not int or not 1 <= fd_ceiling <= 2**53 - 1):
+        raise ValueError("invalid locked descriptor ceiling")
+    nofile = 4096 if fd_ceiling is None else fd_ceiling
     if not SAFE_NAME_RE.fullmatch(name):
         raise ValueError(f"unsafe service name: {name!r}")
     if any(unicodedata.category(character) in {"Cc", "Cs"} for character in bin_path + conf_path) or not Path(bin_path).is_absolute() or not Path(conf_path).is_absolute():
@@ -48,7 +51,7 @@ def generate_init_script(system: str, name: str, bin_path: str, conf_path: str) 
     if system == "systemd":
         quote = lambda value: '"' + value.replace("%", "%%").replace("\\", "\\\\").replace('"', '\\"') + '"'
         exec_quote = lambda value: quote(value).replace("$", "$$")
-        return f"[Unit]\nDescription={name}\nAfter=network-online.target\nWants=network-online.target\n[Service]\nType=simple\nExecStart={exec_quote(bin_path)} --config {exec_quote(conf_path)}\nRestart=on-failure\nRestartSec=5\nUMask=0077\nLimitCORE=0\nLimitNOFILE=4096\nTasksMax=512\nNoNewPrivileges=true\nPrivateTmp=true\nProtectSystem=strict\nProtectHome=true\nProtectKernelTunables=true\nProtectKernelModules=true\nProtectControlGroups=true\nRestrictSUIDSGID=true\nLockPersonality=true\nMemoryDenyWriteExecute=true\nReadOnlyPaths={quote(conf_path)}\n[Install]\nWantedBy=multi-user.target\n"
+        return f"[Unit]\nDescription={name}\nAfter=network-online.target\nWants=network-online.target\n[Service]\nType=simple\nExecStart={exec_quote(bin_path)} --config {exec_quote(conf_path)}\nRestart=on-failure\nRestartSec=5\nUMask=0077\nLimitCORE=0\nLimitNOFILE={nofile}\nTasksMax=512\nNoNewPrivileges=true\nPrivateTmp=true\nProtectSystem=strict\nProtectHome=true\nProtectKernelTunables=true\nProtectKernelModules=true\nProtectControlGroups=true\nRestrictSUIDSGID=true\nLockPersonality=true\nMemoryDenyWriteExecute=true\nReadOnlyPaths={quote(conf_path)}\n[Install]\nWantedBy=multi-user.target\n"
     if system == "openrc":
         return f"#!/sbin/openrc-run\numask 077\nname=\"{name}\"\ncommand={shell_bin}\ncommand_args={command_args}\ncommand_background=true\npidfile=\"/run/{name}.pid\"\n"
     if system == "runit":
@@ -69,7 +72,7 @@ def generate_init_script(system: str, name: str, bin_path: str, conf_path: str) 
             "#!/bin/sh /etc/rc.common\nSTART=95\nSTOP=05\nUSE_PROCD=1\n\nstart_service() {\n"
             f"    procd_open_instance\n    procd_set_param command {shell_bin} --config {shell_conf}\n"
             "    procd_set_param respawn 3600 5 5\n    procd_set_param stdout 1\n    procd_set_param stderr 1\n"
-            "    procd_set_param limits core=\"0\" nofile=\"4096 4096\"\n    procd_close_instance\n}\n\n"
+            f"    procd_set_param limits core=\"0\" nofile=\"{nofile} {nofile}\"\n    procd_close_instance\n}}\n\n"
             f"service_triggers() {{\n    procd_add_reload_trigger {shlex.quote(name)}\n}}\n"
         )
     if system == "launchd":
@@ -118,6 +121,8 @@ def main() -> int:
             from Deployment.core_catalog import CoreCatalog
             registry=ServiceRegistry(args.registry,catalog=CoreCatalog(root))
             plan_path,plan=registry.launch_plan(args.named_service)
+            from Deployment.profile_registry import HostBudget
+            locked_fds=HostBudget.from_dict(plan["limitResolution"]["host_budget"]).fd_ceiling
             if here.name == 'bin':
                 runner = here/'shadow6-service-runner'
             elif here.name == 'modules':
@@ -125,7 +130,7 @@ def main() -> int:
             else:
                 runner = root/'Service-Init/shadow6_service_runner.py'
             name='shadow6-'+hashlib.sha256(args.named_service.encode()).hexdigest()[:24]
-            print(generate_init_script(backend,name,str(runner),str(plan_path)),end='')
+            print(generate_init_script(backend,name,str(runner),str(plan_path),fd_ceiling=locked_fds),end='')
             return 0
         if not all((args.name,args.binary,args.config)):
             raise ValueError('legacy service requires --name/--binary/--config')

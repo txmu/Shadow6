@@ -34,6 +34,17 @@ class InitTests(unittest.TestCase):
         self.assertIn('ExecStart="/opt/$${BIN}%%i" --config "/etc/$${CONF}%%n"', script)
         self.assertIn('ReadOnlyPaths="/etc/${CONF}%%n"', script)
 
+    def test_named_service_keeps_locked_host_fd_ceiling(self):
+        for system, expected in (("systemd", "LimitNOFILE=1024"),
+                                 ("procd", 'nofile="1024 1024"')):
+            script = generate_init_script(system, "s6", "/opt/shadow6-service-runner",
+                                          "/run/shadow6/plan.json", fd_ceiling=1024)
+            self.assertIn(expected, script)
+        for value in (0, -1, True, 1.5, 2**53):
+            with self.assertRaises(ValueError):
+                generate_init_script("systemd", "s6", "/bin/core", "/etc/core.json",
+                                     fd_ceiling=value)
+
     def test_rc_service_identifier_and_pid_tracking(self):
         script = generate_init_script("rc.d", "shadow6-a.b", "/bin/core", "/etc/core.json")
         self.assertEqual(rc_variable("shadow6-a.b"), "s6_shadow6_a_b")
