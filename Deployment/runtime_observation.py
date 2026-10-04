@@ -204,7 +204,7 @@ def validate_observation(value):
         if not isinstance(endpoints,list) or len(endpoints) > 64:
             raise ValueError('invalid observed endpoint list')
         for item in endpoints:
-            if isinstance(item,dict) and set(item) == {'host','port','remoteHost','remotePort','transport','observation'} and item['transport'] == 'tcp' and item['observation'] == 'process-owned-control-connection':
+            if isinstance(item,dict) and set(item) == {'host','port','remoteHost','remotePort','transport','observation'} and item['transport'] in ('tcp', 'udp') and item['observation'] == 'process-owned-control-connection':
                 address(item)
                 address({'host':item['remoteHost'], 'port':item['remotePort']})
                 continue

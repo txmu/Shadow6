@@ -472,7 +472,7 @@ jobs:
               validate_feature_report(report, 'shadow6-pony')
               assert report['crosed_max_level'] == level, (binary, report)
               assert report['app_transport'] is (level == 5), (binary, report)
-              assert report['qubes_isolation'] is False, (binary, report)
+              assert report['qubes_isolation'] is (level == 5), (binary, report)
           PY
       - name: Validate Pony Profile through Named Service lifecycle
         timeout-minutes: 10

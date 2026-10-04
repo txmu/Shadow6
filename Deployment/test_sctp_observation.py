@@ -53,6 +53,17 @@ class ControlObservationTests(unittest.TestCase):
                     self.assertEqual(len(actual), 1)
                     self.assertEqual(actual[0]['observation'], 'process-owned-control-connection')
                     self.assertEqual((actual[0]['remoteHost'], actual[0]['remotePort']), ('127.0.0.1',port))
+                    validate_observation = observation.validate_observation
+                    value = dict(observedAt=0, pid=os.getpid(),
+                        processIdentity=service_runtime.identity(os.getpid()),
+                        processes=[dict(pid=child.pid, processIdentity=service_runtime.identity(child.pid))],
+                        nativeEndpoints=actual, endpoints=actual, endpoint=None,
+                        readiness='control-ready', transportReadiness='unknown',
+                        applicationReadiness='unknown')
+                    validate_observation(value)
+                    with self.assertRaises(ValueError):
+                        validate_observation({**value, 'endpoints':[
+                            {**actual[0], 'transport':'sctp'}]})
                     wrong = dict(role='agent', agent={'broker_addrs':[f'ws://127.0.0.1:{port % 65535 + 1}/ws']})
                     self.assertEqual(service_runtime.native_observed_endpoints(child.pid, wrong), [])
                     self.assertEqual(service_runtime.native_observed_endpoints(child.pid, {'role':'client'}), [])

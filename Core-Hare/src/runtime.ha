@@ -283,11 +283,24 @@ fn runtime(c: *configuration) void = {
 				const slot = (expected % WINDOW: u64): size;
 				if (queued_sequences[slot] != expected) break;
 				const payload_size = queued_sizes[slot]: size;
-				if (c.role == "agent") {
+				const delivered = if (flow_fd >= 0) {
+					match (rt::send(flow_fd, &queued_plain[slot*980], payload_size,
+						rt::MSG_DONTWAIT | rt::MSG_NOSIGNAL)) {
+					case let n: size =>
+						if (n != payload_size) { fmt::errorln("application flow egress was partial")!; rt::exit(2); };
+						yield true;
+					case let err: rt::errno =>
+						if (err == rt::EAGAIN || err == rt::EINTR) yield false;
+						fmt::errorln("application flow egress failed")!; rt::exit(2);
+					};
+				} else if (c.role == "agent") {
 					if (udp::send(app, queued_plain[slot*980 .. slot*980+payload_size]) is net::error) break;
+					true
 				} else if (local_port != 0) {
 					if (udp::sendto(app, queued_plain[slot*980 .. slot*980+payload_size], local, local_port) is net::error) break;
-				} else break;
+					true
+				} else false;
+				if (!delivered) break;
 				if (!send_ack(sock, addr, port, tx[..], ack_counter[..], packet[..], queued_nonces[slot*12 .. slot*12+12])) rt::exit(2);
 				queued_sequences[slot] = 0; queued_sizes[slot] = 0;
 				wipe(&queued_plain[slot*980], 980); wipe(&queued_nonces[slot*12], 12); expected += 1;
