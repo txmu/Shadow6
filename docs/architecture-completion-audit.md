@@ -1,3 +1,12 @@
+## Unified Limits authority (2026-10-04)
+
+`Crosed/limits.py` and the `Deployment/profile_registry.py` facade are the
+single Limits authority. DeploymentLock records host budget, safe defaults,
+recommended values, operator requests, host-derived and protocol hard caps,
+effective values, sources, and enforcement owners. Supervisor and runtime
+observation revalidate the same resolution. Host changes report drift and do
+not silently shrink a running service; elastic values remain bounded.
+
 ## Active Profile-driven Runtime completion gate (2026-10-04)
 
 Latest continuation adds strict ProfileBinding across records/locks/launch and

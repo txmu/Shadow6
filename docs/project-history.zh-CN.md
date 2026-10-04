@@ -581,3 +581,9 @@ Privacy Envelope 更新了配置、会话、防重放存储、Sodium FFI 与相�
 通过；有一项 envelope runtime 测试因本地二进制不可用而跳过。OCaml/Dune 测试因环境中
 没有 `dune` 或 `opam` 未运行，因此 OCaml 变更仍需由具备工具链的 CI 验证。详细实现见
 提交 `12479b84`；本中文历史更新单独提交并跳过 CI。
+# 2026-10-04：统一弹性 Limits（实现记录）
+
+Deployment 锁定阶段现在由共享 Profile Registry 与 `LimitResolver` 生成唯一
+`LimitResolution`。解析结果同时记录主机预算、保守默认、推荐值、操作员请求、
+主机派生上限、协议硬上限、有效值与执行者，并写入 DeploymentLock。safe、elastic
+和 custom 都受协议硬上限约束；主机预算下降只报告 drift，不动态缩小运行中的服务。
