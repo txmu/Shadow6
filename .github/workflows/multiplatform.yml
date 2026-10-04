@@ -205,7 +205,7 @@ jobs:
         uses: msys2/setup-msys2@66cd2cce69caa17b53920067426061ca1de3a884 # v2
         with:
           msystem: MSYS
-          install: iperf3 python
+          install: iperf3 python pacman-contrib
       - name: Install iperf3 on Linux
         if: matrix.os == 'linux'
         run: |

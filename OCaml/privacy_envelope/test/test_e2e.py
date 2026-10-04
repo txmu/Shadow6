@@ -204,9 +204,28 @@ class EnvelopeE2E(unittest.TestCase):
             self.children[-1].terminate();self.children[-1].wait(timeout=3)
             metrics.unlink()
             self.launch('server','datagram','server',native,replay_path=str(state),listen=f'127.0.0.1:{server}')
-            sock.sendto(packet,address)
-            with self.assertRaises(TimeoutError):sock.recv(8192)
-        self.metrics(metrics,'replay_rejection_count',1)
+            # Establish actual post-restart authenticated forwarding before the
+            # negative probe. A metrics file alone is not a packet-path check.
+            fresh = b'post-restart-fresh-payload'
+            sock.sendto(capsule(KEY,b'S6EPE/3 request',fresh,int(time.time())),address)
+            self.assertEqual(open_capsule(KEY,b'S6EPE/3 response',sock.recv(8192)),fresh)
+            before = self.metrics(metrics,'bytes_in',len(fresh))
+            self.assertEqual(before['bytes_in'],len(fresh))
+            # UDP provides no delivery acknowledgement for rejected traffic.
+            # Repeat only the exact replay, bounded to five probes, and still
+            # require both a rejection observation and zero native delivery.
+            observed = None
+            for _ in range(5):
+                sock.sendto(packet,address)
+                with self.assertRaises(TimeoutError):sock.recv(8192)
+                current = json.loads(metrics.read_text())
+                if current['replay_rejection_count'] >= 1:
+                    observed = current
+                    break
+            self.assertIsNotNone(observed,'no post-restart replay rejection observed')
+            self.assertEqual(observed['bytes_in'],len(fresh))
+            self.assertEqual(observed['bytes_out'],len(fresh))
+            self.assertIsNone(self.children[-1].poll())
 
     def test_padding_zero_record_cover_limit_and_budget_fail_closed(self):
         server,metrics=self.launch('shaped','stream','server',self.echo('stream'),padding_block=128,jitter_ms=2,cover_interval=1,cover_limit=1)

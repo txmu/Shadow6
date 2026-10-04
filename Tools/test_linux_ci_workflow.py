@@ -88,6 +88,15 @@ def audit_path_literal(script: str) -> str:
 
 
 class LinuxIdrisRuntimeTests(unittest.TestCase):
+    def test_windows_iperf_setup_installs_its_cache_cleanup_command(self):
+        workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        setup = next(step for step in workflow['jobs']['iperf3-matrix']['steps']
+                     if step.get('name') == 'Install MSYS2 iperf3 on Windows')
+        # The pinned action's cache save invokes paccache, provided by
+        # pacman-contrib. Minimal MSYS archives do not guarantee it is present.
+        self.assertIn('pacman-contrib', setup['with']['install'].split())
+        self.assertIn('iperf3', setup['with']['install'].split())
+
     def test_public6_is_rebuilt_before_tests_and_audit(self):
         # Public6 executables are tracked release products. Checkout alone can
         # leave their feature contract older than the sources under test.
