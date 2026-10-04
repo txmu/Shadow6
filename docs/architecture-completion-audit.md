@@ -1,3 +1,14 @@
+## Unified Limits implementation status (2026-10-04)
+
+`Crosed/limits.py` is the shared bounded resolver, exposed to Deployment by the
+`Deployment/profile_registry.py` import facade. Named Service locks record the
+resolution; its supervisor enforces the process file-descriptor ceiling and
+record adapter, while runtime observation checks the same resolution. Host
+changes require an explicit relock and do not trigger an implicit shrink.
+Gate, S6EPE, Detector, Control Center and other components do not yet consume
+all their resource dimensions from this result. This is an implementation
+milestone, not completion of the requested cross-component Limits rollout.
+
 ## Active Profile-driven Runtime completion gate (2026-10-04)
 
 Latest continuation adds strict ProfileBinding across records/locks/launch and

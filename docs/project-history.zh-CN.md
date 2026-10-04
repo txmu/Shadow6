@@ -581,3 +581,11 @@ Privacy Envelope 更新了配置、会话、防重放存储、Sodium FFI 与相�
 通过；有一项 envelope runtime 测试因本地二进制不可用而跳过。OCaml/Dune 测试因环境中
 没有 `dune` 或 `opam` 未运行，因此 OCaml 变更仍需由具备工具链的 CI 验证。详细实现见
 提交 `12479b84`；本中文历史更新单独提交并跳过 CI。
+# 2026-10-04：统一弹性 Limits（实现记录）
+
+本阶段为 13 个 Native Profile 声明了统一限额模型；Named Service 的锁记录
+`LimitResolution`，其 supervisor 执行进程 FD 上限与消息记录上限，runtime
+observation 校验解析结果。host budget 变化会要求显式 relock，不隐式缩减运行中的
+服务。Gate、S6EPE、Detector、Control Center 等外围组件尚未全部改为消费此结果，
+因此这是部分实现记录，不代表完整跨组件验收。测试和剩余限制见
+`docs/limits-history.zh-CN.md`。

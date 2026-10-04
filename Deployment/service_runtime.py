@@ -507,8 +507,9 @@ def supervise(plan_path, ack):
                 return result
             deadline = time.monotonic() + plan['ttl']
             time.sleep(.3)
-            if stopping or any(p.poll() is not None for p in children):
-                raise ValueError('early process exit')
+            exited = [(index, child.poll()) for index, child in enumerate(children) if child.poll() is not None]
+            if stopping or exited:
+                raise ValueError('early process exit: ' + repr(exited[:4]))
             while True:
                 try:
                     observation = observe_children()
