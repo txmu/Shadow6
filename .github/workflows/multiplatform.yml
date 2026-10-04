@@ -64,7 +64,7 @@ jobs:
           install -m 0755 OCaml/privacy_envelope/_build/default/src/main.exe "$artifact_dir/shadow6-privacy-envelope"
           install -m 0755 "$LD_LIBRARY_PATH/libdatachannel.so.0.23" "$artifact_dir/lib/libdatachannel.so.0.23"
           "$artifact_dir/shadow6-privacy-envelope" --feature-report > "$artifact_dir/feature-report.json"
-          python3 -c 'import json,sys; r=json.load(open(sys.argv[1])); assert r["wire_version"] == 3 and r["payload_encryption"] and "webrtc" in r["carriers"]["message_adapters"]' "$artifact_dir/feature-report.json"
+          python3 -c 'import json,sys; r=json.load(open(sys.argv[1])); assert r["wire_version"] == 3 and r["payload_encryption"] and "sctp" in r["carriers"]["message_adapters"] and "webrtc" not in r["carriers"]["message_adapters"]' "$artifact_dir/feature-report.json"
       - uses: actions/upload-artifact@v6
         with:
           name: shadow6-s6epe-linux-runtime
@@ -876,7 +876,7 @@ jobs:
           set -euo pipefail
           chmod 0755 OCaml/privacy_envelope/shadow6-privacy-envelope OCaml/privacy_envelope/lib/libdatachannel.so.0.23
           LD_LIBRARY_PATH="$PWD/OCaml/privacy_envelope/lib" OCaml/privacy_envelope/shadow6-privacy-envelope --feature-report > "$RUNNER_TEMP/s6epe-features.json"
-          python3 -c 'import json,sys; r=json.load(open(sys.argv[1])); assert r["wire_version"] == 3 and r["payload_encryption"] and "webrtc" in r["carriers"]["message_adapters"]' "$RUNNER_TEMP/s6epe-features.json"
+          python3 -c 'import json,sys; r=json.load(open(sys.argv[1])); assert r["wire_version"] == 3 and r["payload_encryption"] and "sctp" in r["carriers"]["message_adapters"] and "webrtc" not in r["carriers"]["message_adapters"]' "$RUNNER_TEMP/s6epe-features.json"
       - name: Build every Linux core and component
         run: |
           make build BUILD_ZIG=1 BUILD_ADA=1 BUILD_CPP=1 BUILD_PONY=1
