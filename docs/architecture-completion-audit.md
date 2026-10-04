@@ -1,3 +1,66 @@
+## Active Profile-driven Runtime completion gate (2026-10-04)
+
+Latest continuation adds strict ProfileBinding across records/locks/launch and
+runtime identities/connection plans/Detector; explicit legacy reconfiguration;
+run-from-existing-lock; setup preparation plus explicit --run; shared bounded
+feature probing for named doctor; native/Guard external TLS material locks; and
+truthful stale/degraded/failed observation states. Focused and installed-source
+checks pass, including an existing real Go broker. Thirteen real Profile
+lifecycle integration, message/credited sessions, executable WebRTC, remaining
+startup acknowledgement and cross-platform supervisor gates are still open.
+The requirement ledger supersedes earlier next-work descriptions below.
+
+
+The current operator objective is the full Named Service/Application Runtime
+for twelve native families and thirteen explicit Profiles. The acceptance rule
+is: every Profile advertised as **available** by features/network catalog must
+pass the same setup/run/status/connect/restart/stop/remove/doctor contract.
+Adding a future Profile must require a registry entry and contract compliance,
+not new lifecycle branches. Completion remains **unproven**.
+
+Current source progress: `Crosed/native_profiles.py` is the shared Native
+Profile source authority. Feature-report boundary validation, Core Catalog,
+Deployment transport realization, Auto-Orchestrator Profile selection, CLI Core
+artifact routing, native datagram family selection, Benchmark artifact and
+pressure-profile lists now derive their facts from it. C++ config `sctp` and
+feature transport `sctp-tls13` remain distinct. Gleam secure-stream and Micro-Mux
+have explicit IDs and separate boundaries; the legacy Gleam topology selector
+normalizes immediately through the registry, with conflicts rejected.
+`shadow6 core profiles [CORE]` exposes source contracts without asserting host
+availability. Source contracts reference existing security/composition/platform
+authorities; peripheral compatibility still requires implementation admission.
+
+Focused evidence: registry tests exercise all 12 by 13 family/Profile pairs,
+unknown and conflicting selection, contract drift and detached records;
+realization tests verify distinct Gleam transports, legacy normalization and
+conflicting config rejection. Existing feature, CLI, Benchmark, fleet and
+Deployment regressions have passed. Actual staged `install-prebuilt` checks
+verify the new module from outside the source tree and under isolated Python
+imports. These are source and existing-service regressions, **not** proof of
+thirteen real Named Service lifecycle integrations. CI includes the new focused
+contracts and the default test gate includes them.
+
+Authoritative Actions observation: run `37172827272` at commit
+`b42cae9e776676b1238f2a05133e313d967fee4a` is now completed successfully, including
+OpenBSD arm64. Its successful Linux and envelope producers cover that
+commit, not the present uncommitted registry changes. No Native Core build,
+dependency installation, release workflow or archive packaging ran locally.
+
+The current worktree adds a required Linux CI gate that drives public Named
+Service setup/run/status/doctor/restart/stop/remove and real libshadow6 data
+through both Gleam Profiles and every other built Profile. It has no CI result
+yet. A focused existing-binary Go run passed both lifecycle cycles. The older
+local Rust binary predates structured application readiness and failed that
+gate; setup now rejects mismatched installed feature contracts earlier. No
+fallback or local twelve-Core rebuild was introduced. Message fixture tests
+prove FD ownership, record boundaries, bounded backpressure, EOF/drain and
+handshake binding for the local adapter, not native wire/trio interoperability.
+
+The requirement ledger and remaining implementation gates are in
+[native-profile-runtime-plan.md](native-profile-runtime-plan.md). The sections
+below record earlier milestones; their historical test totals and CI states
+must not be taken as the current completion verdict.
+
 # Architecture completion evidence
 
 This is an incomplete implementation audit against the operator's twelve-item

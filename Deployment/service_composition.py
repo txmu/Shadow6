@@ -94,3 +94,26 @@ def broker_realization(context, *, native, gate=None):
         raise ValueError('capability unavailable: native broker endpoint must explicitly target the Gate BrokerSet listener')
     return {'adapter':'gate','brokerSets':[route['id']], 'gatePatch':patch,
             'nativeEndpoint':targets[0]}
+
+
+def component_material_paths(component, config):
+    """Fixed external credential references, never arbitrary path discovery."""
+    from pathlib import Path
+    if component not in ('gate', 'guard') or not isinstance(config, dict):
+        raise ValueError('invalid component material declaration')
+    if component == 'gate': return {}
+    shield = config.get('broker_shield', {})
+    if not isinstance(shield, dict): raise ValueError('invalid Guard broker_shield')
+    fields = ('tls_cert_file', 'tls_key_file')
+    present = [field for field in fields if shield.get(field)]
+    if present and len(present) != len(fields):
+        raise ValueError('complete Guard TLS material required')
+    result = {}
+    for field in present:
+        path = shield[field]
+        if not isinstance(path, str) or len(path.encode()) > 4096 or not Path(path).is_absolute() or '\0' in path:
+            raise ValueError('Guard TLS material requires bounded absolute paths')
+        result['guard.broker_shield.' + field] = path
+    if len(set(result.values())) != len(result):
+        raise ValueError('Guard TLS material paths must be distinct')
+    return result

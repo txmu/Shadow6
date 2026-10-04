@@ -1,5 +1,6 @@
 """Shared, strict feature-report contract for every registered Core family."""
 import os
+import json
 import re
 from pathlib import Path
 
@@ -13,6 +14,9 @@ def runtime_environment(root, relative):
     """
     relative = str(relative).replace("\\", "/")
     root = Path(root)
+    if Path(relative).is_absolute():
+        try: relative = str(Path(relative).relative_to(root)).replace("\\", "/")
+        except ValueError: pass
     if relative.startswith("Core-Idris/"):
         directories = [
             root / "Core-Idris",
@@ -22,6 +26,8 @@ def runtime_environment(root, relative):
         ]
     elif relative.startswith("Core-Nim/"):
         directories = [root / "Core-Nim"]
+    elif relative.startswith('OCaml/privacy_envelope/'):
+        directories = [root / 'OCaml/privacy_envelope/lib']
     else:
         directories = []
     environment = os.environ.copy()
@@ -35,15 +41,10 @@ def runtime_environment(root, relative):
     return environment
 
 
-TRANSPORTS = {"shadow6-go": "kcp", "shadow6-rust": "quic", "shadow6-pony": "udp", "shadow6-gleam": "secure-stream", "shadow6-zig": "enet",
-              "shadow6-ada": "cell-relay", "shadow6-d": "secure-stream", "shadow6-nim": "webrtc",
-              "shadow6-cpp": "sctp-tls13", "shadow6-hare": "udp",
-              "shadow6-carp": "udp", "shadow6-idris": "udp"}
-CORE_PATHS = {name: f"Core-{suffix}/{name}" for name, suffix in (
-    ("shadow6-go", "Go"), ("shadow6-rust", "Rust"), ("shadow6-pony", "Pony"), ("shadow6-gleam", "Gleam"), ("shadow6-zig", "Zig"),
-    ("shadow6-ada", "Ada"), ("shadow6-d", "D"), ("shadow6-nim", "Nim"),
-    ("shadow6-cpp", "Cpp"), ("shadow6-hare", "Hare"),
-    ("shadow6-carp", "Carp"), ("shadow6-idris", "Idris"))}
+from native_profiles import (application_boundaries, artifact_map, profiles, transport_map)
+
+TRANSPORTS = transport_map()
+CORE_PATHS = artifact_map()
 CONFIGURABLE_CORES = frozenset(CORE_PATHS) - {"shadow6-idris"}
 CAPABILITY_LEVELS = {"observe.version": 1, "observe.health": 1, "policy.request": 2,
     "policy.config": 2, "transport.metadata": 3, "transport.application": 3,
@@ -51,23 +52,12 @@ CAPABILITY_LEVELS = {"observe.version": 1, "observe.health": 1, "policy.request"
 BOOLEAN_FIELDS = {"crosed_compiled", "app_transport", "qubes_isolation", "gate_compiled",
                   "gate_enabled_by_default", "utf8"}
 COMMON_FIELDS = BOOLEAN_FIELDS | {"core", "version", "crosed_max_level", "crosed_capabilities"}
-APP_TRANSPORT_MODES = {
-    "shadow6-pony": ["udp", "seqpacket-fd"],
-    "shadow6-hare": ["udp", "seqpacket-fd"],
-    "shadow6-carp": ["udp", "seqpacket-fd"],
-    "shadow6-idris": ["udp", "seqpacket-fd"],
-}
-SEQPACKET_MAX_RECORD = {
-    "shadow6-pony": 1172,
-    "shadow6-hare": 978,
-    "shadow6-carp": 986,
-    "shadow6-idris": 1024,
-}
-STREAM_CONNECTION_LIMIT = {
-    "shadow6-go": 64, "shadow6-rust": 256, "shadow6-gleam": 1,
-    "shadow6-zig": 16, "shadow6-ada": 1, "shadow6-d": 1,
-    "shadow6-nim": 1, "shadow6-cpp": 64,
-}
+APP_TRANSPORT_MODES = {'shadow6-' + p['core']: ['udp', 'seqpacket-fd']
+    for p in profiles() if p['applicationBoundary']['mode'] == 'seqpacket-fd'}
+SEQPACKET_MAX_RECORD = {'shadow6-' + p['core']: p['limits']['max_record']
+    for p in profiles() if p['applicationBoundary']['mode'] == 'seqpacket-fd'}
+STREAM_CONNECTION_LIMIT = {'shadow6-' + p['core']: p['limits']['local_connection_limit']
+    for p in profiles() if p['applicationBoundary']['kind'] == 'stream'}
 MESSAGE_BOUNDARY_FIELDS = {
     "kind", "mode", "roles", "max_record", "message_preserving",
     "backpressure", "producer_send_success", "oversize", "transient_error",
@@ -147,57 +137,10 @@ def validate_feature_report(report, expected_core=None):
     elif modes != expected_modes:
         raise ValueError("invalid application transport modes")
     boundaries = report.get("application_boundaries")
-    expected_count = 2 if core == "shadow6-gleam" else 1
-    if (not isinstance(boundaries, list) or len(boundaries) != expected_count or
-            any(not isinstance(boundary, dict) for boundary in boundaries)):
-        raise ValueError("invalid application boundary list")
-    if core == "shadow6-gleam":
-        stream, datagram = boundaries
-        if set(stream) != STREAM_BOUNDARY_FIELDS or stream != {
-            "kind": "stream", "mode": "localhost-tcp-proxy", "roles": ["client"],
-            "full_duplex": True, "ordered": True, "reliable": True,
-            "backpressure": "tcp-flow-control", "half_close": True,
-            "listener_ownership": "core", "endpoint_discovery": "stdout-ready-jsonl-v1",
-            "listener_ready": "bound-and-listening", "local_connection_limit": 1,
-            "shutdown": "close-active-flows", "eof": "propagate-half-close",
-            "connection_mapping": "one-local-connection-per-native-flow",
-        }:
-            raise ValueError("invalid Gleam stream application boundary")
-        if set(datagram) != UDP_PROXY_BOUNDARY_FIELDS or datagram != {
-            "kind": "message", "mode": "localhost-udp-datagram-proxy", "roles": ["client"],
-            "message_preserving": True, "ordered": False, "reliable": False,
-            "delivery": "best-effort", "backpressure": "udp-datagram-loss",
-            "max_record": 65465, "listener_ownership": "core",
-            "endpoint_discovery": "stdout-ready-jsonl-v1", "listener_ready": "bound-and-listening",
-            "local_peer_limit": 1, "oversize": "discard-datagram",
-        }:
-            raise ValueError("invalid Gleam Micro-Mux application boundary")
-        if "transport" in report and report["transport"] != TRANSPORTS[core]:
-            raise ValueError("incorrect Core transport")
-        return report
-    boundary = boundaries[0]
-    if core in SEQPACKET_MAX_RECORD:
-        if set(boundary) != MESSAGE_BOUNDARY_FIELDS or boundary != {
-            "kind": "message", "mode": "seqpacket-fd", "roles": ["client"],
-            "max_record": SEQPACKET_MAX_RECORD[core], "message_preserving": True,
-            "backpressure": "native-window", "producer_send_success": "kernel-queue-only",
-            "oversize": "discard-record-continue", "transient_error": "retry-eagain-eintr",
-            "hard_error": "fail-closed",
-            "eof": "empty-record-drain", "close": "drain-accepted-then-stop",
-        }:
-            raise ValueError("invalid message ingress boundary")
-    else:
-        if set(boundary) != STREAM_BOUNDARY_FIELDS or boundary != {
-            "kind": "stream", "mode": "localhost-tcp-proxy", "roles": ["client"],
-            "full_duplex": True, "ordered": True, "reliable": True,
-            "backpressure": "tcp-flow-control", "half_close": True,
-            "listener_ownership": "core", "endpoint_discovery": "stdout-ready-jsonl-v1",
-            "listener_ready": "bound-and-listening",
-            "local_connection_limit": STREAM_CONNECTION_LIMIT[core],
-            "shutdown": "close-active-flows", "eof": "propagate-half-close",
-            "connection_mapping": "one-local-connection-per-native-flow",
-        }:
-            raise ValueError("invalid stream application boundary")
+    if json.dumps(boundaries, sort_keys=True, allow_nan=False) != json.dumps(
+            application_boundaries(core.removeprefix('shadow6-')), sort_keys=True, allow_nan=False):
+        raise ValueError("invalid application boundary contracts: " + ", ".join(
+            p["id"].title() for p in profiles(core.removeprefix("shadow6-"))))
     if "transport" in report and report["transport"] != TRANSPORTS[core]:
         raise ValueError("incorrect Core transport")
     if "cell_size" in report and (type(report["cell_size"]) is not int or report["cell_size"] != 512):
@@ -219,7 +162,7 @@ def validate_ready_event(event, expected_core=None, expected_role="client"):
     if not isinstance(event, dict) or set(event) != fields:
         raise ValueError("unknown or missing ready-event fields")
     core = event["core"]
-    if (core not in STREAM_CONNECTION_LIMIT and core != "shadow6-gleam" or
+    if (core not in TRANSPORTS or
             expected_core is not None and core != expected_core):
         raise ValueError("unknown or mismatched ready-event Core")
     if event["event"] != "shadow6.ready" or type(event["schema"]) is not int or event["schema"] != 1:
@@ -229,16 +172,15 @@ def validate_ready_event(event, expected_core=None, expected_role="client"):
     boundary = event["application_boundary"]
     if not isinstance(boundary, dict) or set(boundary) != {"kind", "mode", "endpoint"}:
         raise ValueError("invalid ready-event application boundary")
-    valid_boundary = (
-        boundary["kind"] == "stream" and boundary["mode"] == "localhost-tcp-proxy" and
-        core in STREAM_CONNECTION_LIMIT
-    ) or (
-        boundary["kind"] == "message" and boundary["mode"] == "localhost-udp-datagram-proxy" and
-        core == "shadow6-gleam"
-    )
+    valid_boundary = any(b['kind'] == boundary['kind'] and b['mode'] == boundary['mode']
+                         for b in application_boundaries(core.removeprefix('shadow6-')))
     if not valid_boundary:
-        raise ValueError("ready event does not identify a declared local proxy")
+        raise ValueError("ready event does not identify a declared application boundary")
     endpoint = boundary["endpoint"]
+    if boundary['mode'] == 'seqpacket-fd':
+        if not isinstance(endpoint,dict) or set(endpoint) != {'fd'} or type(endpoint['fd']) is not int or not 0 <= endpoint['fd'] <= 1048576:
+            raise ValueError('invalid ready application descriptor')
+        return event
     if (not isinstance(endpoint, dict) or set(endpoint) != {"host", "port"} or
             endpoint["host"] != "127.0.0.1" or type(endpoint["port"]) is not int or
             not 1 <= endpoint["port"] <= 65535):

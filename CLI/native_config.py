@@ -11,8 +11,16 @@ import signal
 import stat
 import subprocess
 import tempfile
+import sys
 
-CORES = ('hare', 'pony', 'carp', 'idris')
+for _modules in (Path(__file__).resolve().parent, Path(__file__).resolve().parents[1] / 'Crosed',
+                 Path(__file__).resolve().parents[1] / 'modules'):
+    if (_modules / 'native_profiles.py').is_file():
+        sys.path.insert(0, str(_modules))
+        break
+from native_profiles import profiles
+
+CORES = tuple(p['core'] for p in profiles() if p['applicationBoundary']['mode'] == 'seqpacket-fd')
 ROLES = ('broker', 'agent', 'client')
 
 def _pairs(items):

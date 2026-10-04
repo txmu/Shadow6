@@ -45,8 +45,13 @@ class ServiceComplianceIntegrationTests(unittest.TestCase):
             context["role"] = "broker"
             registry.create("verify/broker", core="go", config={"config_path": str(config)}, context=context)
             try:
+                registry.apply("verify/broker")
                 actual = registry.run("verify/broker")
                 self.assertEqual(actual["state"], "running")
+                doctor = registry.doctor("verify/broker")
+                self.assertTrue(doctor["healthy"], doctor["findings"])
+                self.assertTrue(doctor["lockValid"])
+                self.assertEqual(doctor["profileBinding"]["profile"], "go-kcp")
                 result = verify_named_service("verify/broker", registry=registry)
                 self.assertTrue(result["compliant"], result["findings"])
                 self.assertEqual(result["evidence"]["intent"], "S6P1")

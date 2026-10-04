@@ -427,7 +427,7 @@ ifeq ($(BUILD_APP),1)
 endif
 ifeq ($(BUILD_CROSED),1)
 	@$(PYTHON) -m unittest -v Crosed/test_crosed.py
-	@PYTHONPATH=Crosed $(PYTHON) -m unittest -v Crosed/test_feature_contract.py Crosed/test_security_capabilities.py
+	@PYTHONPATH=Crosed $(PYTHON) -m unittest -v Crosed/test_feature_contract.py Crosed/test_native_profiles.py Crosed/test_limits.py Crosed/test_security_capabilities.py Deployment/test_profile_realization.py Deployment/test_profile_availability.py Deployment/test_profile_binding.py Deployment/test_message_attachment.py
 	@PYTHONPATH=Crosed $(PYTHON) -m unittest -v Crosed/test_install_layout.py
 endif
 ifeq ($(BUILD_ASSISTANTS),1)
@@ -501,10 +501,15 @@ package:
 	@bash Tools/package_release.sh
 
 install: build
-	@$(MAKE) install-prebuilt
+	@$(MAKE) install-prebuilt $(foreach core,GO RUST CPP GLEAM PONY ZIG HARE ADA CARP D NIM IDRIS,BUILD_$(core)=$(BUILD_$(core)))
 
-.PHONY: install-prebuilt
+.PHONY: install-prebuilt install-prebuilt-files
 install-prebuilt:
+	@$(PYTHON) Tools/install_prebuilt.py --source "$(CURDIR)" --prefix "$(PREFIX)" $(if $(DESTDIR),--destdir "$(DESTDIR)") $(foreach core,GO RUST CPP GLEAM PONY ZIG HARE ADA CARP D NIM IDRIS,--core-selection $(core):$(if $(filter command line override,$(origin BUILD_$(core))),$(BUILD_$(core)),auto))
+
+# Internal staging target. Public source/binary installs admit and publish the
+# complete payload via install-prebuilt, never piecemeal into the live prefix.
+install-prebuilt-files:
 	@install -d "$(DESTDIR)$(PREFIX)/bin"
 	@install -m 0755 Service-Init/shadow6_service_runner.py "$(DESTDIR)$(PREFIX)/bin/shadow6-service-runner"
 	@if test -x OCaml/privacy_envelope/shadow6-privacy-envelope; then install -m 0755 OCaml/privacy_envelope/shadow6-privacy-envelope "$(DESTDIR)$(PREFIX)/bin/shadow6-privacy-envelope"; fi
@@ -559,12 +564,12 @@ endif
 	@install -d -m 0755 "$(DESTDIR)$(PREFIX)/share/shadow6/modules"
 	@install -m 0644 CLI/shadow6_vcore.py CLI/vcore_adapters.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/"
 	@install -d -m 0755 "$(DESTDIR)$(PREFIX)/share/shadow6/deployment"
-	@install -m 0644 Deployment/__init__.py Deployment/protocol_context.py Deployment/topology_contract.py Deployment/native_realization.py Deployment/connection_plan.py Deployment/broker_set.py Deployment/runtime_observation.py Deployment/service_composition.py Deployment/core_catalog.py Deployment/service_registry.py Deployment/service_storage.py Deployment/service_runtime.py Deployment/shadow6_deployment.py Deployment/shadow6_abi.py Deployment/shadow6_driver.py Deployment/shadow6_acceptance.py "$(DESTDIR)$(PREFIX)/share/shadow6/deployment/"
+	@install -m 0644 Deployment/__init__.py Deployment/protocol_context.py Deployment/topology_contract.py Deployment/profile_registry.py Deployment/profile_availability.py Deployment/native_realization.py Deployment/connection_plan.py Deployment/broker_set.py Deployment/runtime_observation.py Deployment/application_attachment.py Deployment/service_composition.py Deployment/core_catalog.py Deployment/service_registry.py Deployment/service_storage.py Deployment/service_runtime.py Deployment/shadow6_deployment.py Deployment/shadow6_abi.py Deployment/shadow6_driver.py Deployment/shadow6_acceptance.py "$(DESTDIR)$(PREFIX)/share/shadow6/deployment/"
 	@install -m 0644 Deployment/shadow6_deployment.py Deployment/shadow6_abi.py Deployment/shadow6_driver.py Deployment/shadow6_acceptance.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/"
 	@install -m 0644 Tools/python_runtime.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/"
 	@install -d -m 0755 "$(DESTDIR)$(PYTHON_SITE_PACKAGES)/libshadow6"
 	@install -d -m 0755 "$(DESTDIR)$(PYTHON_SITE_PACKAGES)/Deployment"
-	@install -m 0644 Deployment/__init__.py Deployment/protocol_context.py Deployment/topology_contract.py Deployment/native_realization.py Deployment/connection_plan.py Deployment/broker_set.py Deployment/runtime_observation.py Deployment/service_composition.py Deployment/core_catalog.py Deployment/service_registry.py Deployment/service_storage.py Deployment/service_runtime.py Deployment/shadow6_deployment.py Deployment/shadow6_abi.py Deployment/shadow6_driver.py Deployment/shadow6_acceptance.py "$(DESTDIR)$(PYTHON_SITE_PACKAGES)/Deployment/"
+	@install -m 0644 Deployment/__init__.py Deployment/protocol_context.py Deployment/topology_contract.py Deployment/profile_registry.py Deployment/profile_availability.py Deployment/native_realization.py Deployment/connection_plan.py Deployment/broker_set.py Deployment/runtime_observation.py Deployment/application_attachment.py Deployment/service_composition.py Deployment/core_catalog.py Deployment/service_registry.py Deployment/service_storage.py Deployment/service_runtime.py Deployment/shadow6_deployment.py Deployment/shadow6_abi.py Deployment/shadow6_driver.py Deployment/shadow6_acceptance.py "$(DESTDIR)$(PYTHON_SITE_PACKAGES)/Deployment/"
 	@install -m 0644 libshadow6/__init__.py "$(DESTDIR)$(PYTHON_SITE_PACKAGES)/libshadow6/"
 	@install -m 0644 Network-Adapter/shadow6_network.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/"
 	@install -m 0644 Network-Adapter/shadow6_network.mjs "$(DESTDIR)$(PREFIX)/share/shadow6/modules/"
@@ -635,8 +640,12 @@ ifeq ($(BUILD_CROSED),1)
 endif
 	@install -d -m 0755 "$(DESTDIR)$(PREFIX)/share/shadow6/modules"
 	@install -m 0644 Crosed/feature_contract.py "$(DESTDIR)$(PREFIX)/bin/feature_contract.py"
+	@install -m 0644 Crosed/native_profiles.py "$(DESTDIR)$(PREFIX)/bin/native_profiles.py"
+	@install -m 0644 Crosed/limits.py "$(DESTDIR)$(PREFIX)/bin/limits.py"
 	@install -m 0644 Crosed/install_layout.py "$(DESTDIR)$(PREFIX)/bin/install_layout.py"
 	@install -m 0644 Crosed/feature_contract.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/feature_contract.py"
+	@install -m 0644 Crosed/native_profiles.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/native_profiles.py"
+	@install -m 0644 Crosed/limits.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/limits.py"
 	@install -m 0644 Crosed/install_layout.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/install_layout.py"
 ifeq ($(BUILD_APP),1)
 	@install -d -m 0755 "$(DESTDIR)$(PREFIX)/share/shadow6/application"

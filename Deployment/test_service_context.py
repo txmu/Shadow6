@@ -112,14 +112,15 @@ class ContextTests(unittest.TestCase):
     def test_named_and_s6p1_use_one_pipeline_and_real_observation(self):
         self.catalog._items['go']['executable']=str(self.directory/'fixture-core')
         binary=Path(self.catalog.inspect('go')['executable'])
-        binary.write_text('#!/usr/bin/env python3\nimport time\ntime.sleep(60)\n');binary.chmod(0o700)
+        binary.write_text('#!/usr/bin/env python3\nimport socket,time\ns=socket.socket();s.bind(("127.0.0.1",0));s.listen();time.sleep(60)\n');binary.chmod(0o700)
         self.create()
         try:
+            self.registry.apply('home/nas')
             running=self.registry.run('home/nas')
-            with self.assertRaisesRegex(ValueError,'readiness is unavailable'):
-                self.registry.connect('home/nas')
+            named=self.registry.connect('home/nas')
             direct=resolve_connection(context=running['protocolContext'],catalog=self.catalog,binding=running['coreBinding'],runtime=running['runtime'])
-            self.assertIsNone(direct['endpoint']);self.assertEqual(direct['readiness'],'process-alive')
+            self.assertEqual(direct['endpoint'],named['endpoint']);self.assertEqual(direct['readiness'],'listener-ready')
+            self.assertEqual(direct['capability']['sessionLaunch'],'unavailable')
             self.assertFalse(direct['connected'])
         finally: self.registry.stop('home/nas')
 
@@ -135,6 +136,7 @@ time.sleep(60)
         context=minimal_context('go');context['role']='client';context['routes']=[{'boundary':'stream','endpoint':'tcp://127.0.0.1:1'}]
         self.create(context)
         try:
+            self.registry.apply('home/nas')
             result=self.registry.run('home/nas')
             self.assertEqual(result['runtime']['readiness'],'application-ready')
             self.assertNotEqual(result['runtime']['endpoint']['port'],1)
@@ -303,7 +305,7 @@ class BrokerRuntimeRealizationTests(unittest.TestCase):
         from unittest.mock import patch
         from Deployment.connection_plan import resolve_connection
         context=minimal_context('go');context['role']='client';context['routes']=[pool(2)]
-        item={'state':'running','protocolContext':context,'coreBinding':{'core':'go'},'runtime':{'readiness':'process-alive','endpoint':None}}
+        item={'state':'running','protocolContext':context,'profileBinding':__import__('Deployment.profile_registry',fromlist=['bind_profile']).bind_profile('go'),'coreBinding':{'core':'go'},'runtime':{'readiness':'process-alive','endpoint':None}}
         with patch('Deployment.connection_plan.connection_plan',wraps=__import__('Deployment.connection_plan',fromlist=['connection_plan']).connection_plan) as planner:
             from unittest.mock import Mock
             registry=Mock();registry.connection_inputs.return_value=(item,{'brokerRealization':{'adapter':'gate'}})
@@ -331,7 +333,7 @@ class RealizationAdmissionTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'does not advertise'):self.registry.lock('home/nas')
         from unittest.mock import patch
         with patch('Deployment.service_registry.runtime.start') as start:
-            with self.assertRaisesRegex(ValueError,'does not advertise'):self.registry.run('home/nas')
+            with self.assertRaisesRegex(ValueError,'DeploymentLock required'):self.registry.run('home/nas')
             start.assert_not_called()
 
     def test_required_component_needs_local_realization(self):
@@ -406,17 +408,17 @@ class ObservedBoundaryContractTests(unittest.TestCase):
 import socket,json,time
 s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM);s.bind(('127.0.0.1',0))
 print(json.dumps({'event':'ready','schema':1,'core':'go','role':'client','application_boundary':{'kind':'stream','mode':'localhost-tcp-proxy','endpoint':{'host':'127.0.0.1','port':s.getsockname()[1]}}}),flush=True)
-time.sleep(60)
+time.sleep(1)
 """);binary.chmod(0o700)
         config=directory/'native.json';atomic_write(config,b'{"role":"client"}')
         catalog=CoreCatalog(ROOT);catalog._items['go']['executable']=str(binary)
         registry=ServiceRegistry(directory/'registry.json',catalog)
         registry.create('home/udp',core='go',config={'config_path':str(config)},context={**minimal_context('go'),'role':'client'})
         try:
-            item=registry.run('home/udp')
-            self.assertEqual(item['runtime']['readiness'],'listener-ready')
-            self.assertEqual(item['runtimeObservation']['applicationReadiness'],'unknown')
-            self.assertEqual(registry.connect('home/udp')['capability']['sessionLaunch'],'unavailable')
+            registry.apply('home/udp')
+            with self.assertRaisesRegex(ValueError, 'failed to start'):
+                registry.run('home/udp')
+            self.assertNotEqual(registry.status('home/udp')['state'], 'running')
         finally:registry.stop('home/udp')
 
 
@@ -444,14 +446,14 @@ class ConnectionRoleTests(unittest.TestCase):
             resolve_connection(context=context,catalog=self.catalog,role='client')
 
     def test_named_role_request_matches_locked_native_realization(self):
-        binary=self.directory/'fixture-core';binary.write_text('#!/usr/bin/env python3\nimport time\ntime.sleep(60)\n');binary.chmod(0o700)
+        binary=self.directory/'fixture-core';binary.write_text('#!/usr/bin/env python3\nimport json,socket,time\ns=socket.socket();s.bind(("127.0.0.1",0));s.listen()\nprint(json.dumps({"event":"shadow6.ready","schema":1,"core":"shadow6-go","role":"client","application_boundary":{"kind":"stream","mode":"localhost-tcp-proxy","endpoint":{"host":"127.0.0.1","port":s.getsockname()[1]}}}),flush=True)\ntime.sleep(60)\n');binary.chmod(0o700)
         self.catalog._items['go']['executable']=str(binary)
         atomic_write(self.config,b'{"role":"client"}')
         self.create(minimal_context('go'))
         try:
+            self.registry.apply('home/nas')
             self.registry.run('home/nas')
-            with self.assertRaisesRegex(ValueError,'readiness is unavailable'):
-                self.registry.connect('home/nas',role='client')
+            self.assertEqual(self.registry.connect('home/nas',role='client')['applicationBoundary'], 'stream')
             with self.assertRaisesRegex(ValueError,'locked native realization'):
                 resolve_connection(service='home/nas',registry=self.registry,catalog=self.catalog,role='agent')
         finally:self.registry.stop('home/nas')

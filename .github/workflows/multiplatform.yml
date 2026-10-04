@@ -56,6 +56,20 @@ jobs:
           S6EPE_BINARY="$PWD/OCaml/privacy_envelope/_build/default/src/main.exe" python3 -m unittest Deployment.test_service_context Deployment.test_service_lifecycle Deployment.test_core_explicit Deployment.test_sctp_observation Control-Center/test_privacy_envelope.py
           test -s docs/privacy-envelope.md
           test -s docs/privacy-envelope-exposure-audit.md
+      - name: Preserve tested S6EPE executable and pinned runtime provider
+        run: |
+          set -euo pipefail
+          artifact_dir="$RUNNER_TEMP/shadow6-envelope-runtime"
+          mkdir -p "$artifact_dir/lib"
+          install -m 0755 OCaml/privacy_envelope/_build/default/src/main.exe "$artifact_dir/shadow6-privacy-envelope"
+          install -m 0755 "$LD_LIBRARY_PATH/libdatachannel.so.0.23" "$artifact_dir/lib/libdatachannel.so.0.23"
+          "$artifact_dir/shadow6-privacy-envelope" --feature-report > "$artifact_dir/feature-report.json"
+          python3 -c 'import json,sys; r=json.load(open(sys.argv[1])); assert r["wire_version"] == 3 and r["payload_encryption"] and "webrtc" in r["carriers"]["message_adapters"]' "$artifact_dir/feature-report.json"
+      - uses: actions/upload-artifact@v6
+        with:
+          name: shadow6-s6epe-linux-runtime
+          path: ${{ runner.temp }}/shadow6-envelope-runtime/
+          if-no-files-found: error
   deployment-abi-acceptance:
     name: Deployment manifest, S6ABI and OCaml control boundary
     runs-on: ubuntu-24.04
@@ -70,8 +84,8 @@ jobs:
         run: |
           set -euo pipefail
           .venv/bin/python -m unittest -v \
-            Deployment.test_deployment Deployment.test_topology_contract Deployment.test_core_explicit \
-            Deployment.test_service_context Deployment.test_service_lifecycle \
+            Crosed.test_native_profiles Crosed.test_limits Deployment.test_profile_realization Deployment.test_profile_availability Deployment.test_profile_binding Deployment.test_deployment Deployment.test_topology_contract Deployment.test_core_explicit \
+            Deployment.test_service_context Deployment.test_service_lifecycle Deployment.test_message_attachment \
             Deployment.test_installed_imports Tools.test_install_tree
           (cd /tmp && "$GITHUB_WORKSPACE/.venv/bin/python" "$GITHUB_WORKSPACE/CLI/shadow6.py" abi catalog)
           .venv/bin/python CLI/shadow6.py acceptance \
@@ -695,7 +709,7 @@ jobs:
           path: ${{ runner.temp }}/carp-generated.tar.gz
           if-no-files-found: error
   linux:
-    needs: [idris, linux-gleam]
+    needs: [idris, linux-gleam, privacy-envelope-contract]
     runs-on: ubuntu-latest
     env:
       BUILD_HARE: '1'
@@ -852,6 +866,17 @@ jobs:
       - run: .venv/bin/pip install -r requirements.txt -r requirements-ml.txt
       - name: Configure the complete Linux component matrix
         run: ./configure --enable-all
+      - name: Download same-commit tested S6EPE executable and provider
+        uses: actions/download-artifact@v7
+        with:
+          name: shadow6-s6epe-linux-runtime
+          path: OCaml/privacy_envelope
+      - name: Admit preserved S6EPE runtime before install and packaging
+        run: |
+          set -euo pipefail
+          chmod 0755 OCaml/privacy_envelope/shadow6-privacy-envelope OCaml/privacy_envelope/lib/libdatachannel.so.0.23
+          LD_LIBRARY_PATH="$PWD/OCaml/privacy_envelope/lib" OCaml/privacy_envelope/shadow6-privacy-envelope --feature-report > "$RUNNER_TEMP/s6epe-features.json"
+          python3 -c 'import json,sys; r=json.load(open(sys.argv[1])); assert r["wire_version"] == 3 and r["payload_encryption"] and "webrtc" in r["carriers"]["message_adapters"]' "$RUNNER_TEMP/s6epe-features.json"
       - name: Build every Linux core and component
         run: |
           make build BUILD_ZIG=1 BUILD_ADA=1 BUILD_CPP=1 BUILD_PONY=1
@@ -979,6 +1004,9 @@ jobs:
           python3 -c 'import json,sys; report=json.load(open("/tmp/shadow6-staged-doctor.json")); assert report["status"] == "pass", report; print("installed doctor", report["score"])'
           "$stage_dir/usr/local/bin/shadow6-security" sbom --output /tmp/shadow6-staged-sbom.json
           "$stage_dir/usr/local/bin/shadow6-infra" observe --output /tmp/shadow6-staged-observation.json
+      - name: Required real Named Service lifecycle for all 13 Native Profiles
+        timeout-minutes: 15
+        run: .venv/bin/python integration/test_named_profiles.py -v
       - name: Run final benchmarks after all Linux builds and tests
         run: |
           # Exercise every compiled core's real loopback transport.  Keep this

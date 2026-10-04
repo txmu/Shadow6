@@ -113,6 +113,11 @@ _OBJECT = {"type": "object"}
 
 METHOD_SPECS: dict[str, dict[str, Any]] = {
     "system.schema": _method("Return the complete versioned Shadow6 control schema."),
+    "core.profiles": _method("Inspect all 13 source Profile contracts and installed runtime prerequisites."),
+    "service.list": _method("Observe named services through the local lifecycle authority."),
+    "service.status": _method("Read verified Named Service process, binding, lock and endpoint state.", {"name": _STRING}, ("name",)),
+    "service.doctor": _method("Diagnose the same Profile, lock, material and runtime truth used by the CLI.", {"name": _STRING}, ("name",)),
+    "service.connect": _method("Resolve a connection plan without opening a stream or starting a service.", {"name": _STRING}, ("name",)),
     "protocol.envelope.validate": _method(
         "Decode and validate a complete S6P1 envelope, including standard credential scope.",
         {"envelope": {"type": "string", "maxLength": 262144},
@@ -401,6 +406,21 @@ def dispatch(method: str, raw_params: Any = None) -> Any:
         raise ValueError("unknown method")
     validate_portable(params)
     _validate_input(params, METHOD_SPECS[method]["input_schema"])
+    if method == 'core.profiles' or method.startswith('service.'):
+        for directory in (ROOT / 'Deployment', HERE.parent / 'share/shadow6/deployment'):
+            if directory.is_dir(): sys.path.insert(0, str(directory))
+        from core_catalog import CoreCatalog
+        from service_registry import ServiceRegistry
+        catalog = CoreCatalog(ROOT)
+        if method == 'core.profiles':
+            from profile_registry import profiles
+            from profile_availability import installed_profiles
+            return {**installed_profiles(catalog), 'sourceContracts': profiles()}
+        registry = ServiceRegistry(catalog=catalog)
+        if method == 'service.list':
+            return {'schema': 'shadow6.service-registry.v2', 'services': registry.list()}
+        return {'service.status': registry.status, 'service.doctor': registry.doctor,
+                'service.connect': registry.connect}[method](params['name'])
     if method == "network.interface_plan":
         from setup_interface import plan
         return plan(**params)
@@ -429,7 +449,6 @@ def dispatch(method: str, raw_params: Any = None) -> Any:
             visa_free=params.get("allow_visa_free", False))
         return {"envelope": envelope, "credentials": claims}
     if method.startswith("deployment.") or method == "acceptance.run" or method == "abi.catalog":
-        import sys
         deployment_root = ROOT / "Deployment"
         modules_root = ROOT / "share" / "shadow6" / "deployment"
         sys.path.insert(0, str(deployment_root if deployment_root.is_dir() else modules_root))
@@ -1265,6 +1284,22 @@ def http_app(token: str, allow_mutations: bool = False):
 
     app.router.add_get("/v1/schema", get_schema)
     app.router.add_get("/v1/status", get_status)
+
+    async def get_services(request):
+        result = await asyncio.to_thread(response, {"method": "service.list"}, allow_mutations=False)
+        return web.Response(text=_bounded_json(result['result'] if result['ok'] else result),
+            status=200 if result['ok'] else 400, content_type='application/json')
+
+    async def get_service(request):
+        if set(request.query) != {'name'} or len(request.query.getall('name')) != 1:
+            return web.json_response({'error': 'supply exactly one name query parameter'}, status=400)
+        result = await asyncio.to_thread(response, {'method': 'service.status',
+            'params': {'name': request.query['name']}}, allow_mutations=False)
+        return web.Response(text=_bounded_json(result['result'] if result['ok'] else result),
+            status=200 if result['ok'] else 400, content_type='application/json')
+
+    app.router.add_get('/v1/services', get_services)
+    app.router.add_get('/v1/service', get_service)
 
     async def rpc(request: web.Request) -> web.Response:
         if (len(request.headers.getall("Content-Type", [])) != 1

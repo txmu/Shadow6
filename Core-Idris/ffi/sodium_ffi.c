@@ -383,7 +383,7 @@ int idris_native_relay(int role,const char *bind_ip,unsigned int bind_port,const
     if(role==3){if(getenv("SHADOW6_APP_FLOW_FD"))return -1;return idris_chain_broker(&bind_sa,&peer_sa,&target_sa,key_path,max_packets);}
     int chain=role>=4;
     if(!chain&&getenv("SHADOW6_APP_FLOW_FD"))return -1;
-    if(chain&&role!=1&&getenv("SHADOW6_APP_FLOW_FD"))return -1;
+    if(chain&&role!=4&&getenv("SHADOW6_APP_FLOW_FD"))return -1;
     if(chain){if(load_native_keys(key_path,config,sizeof config))return -1;role-=3;}
     else if(load_native_keys(key_path,key,sizeof key))return -1;
     randombytes_buf(send_session,sizeof send_session);int receive_session_set=0;
@@ -399,6 +399,9 @@ int idris_native_relay(int role,const char *bind_ip,unsigned int bind_port,const
     struct timeval tv={.tv_sec=0,.tv_usec=100000};
     if(setsockopt(net,SOL_SOCKET,SO_RCVTIMEO,&tv,sizeof tv)||setsockopt(local,SOL_SOCKET,SO_RCVTIMEO,&tv,sizeof tv))goto done;
     if(bind(net,(struct sockaddr*)&bind_sa,sizeof bind_sa))goto done;
+    /* FD validation and the actual native bind precede the local ingress
+       acknowledgement. This event does not claim peer authentication. */
+    if(flow_fd>=0){printf("{\"event\":\"shadow6.ready\",\"schema\":1,\"core\":\"shadow6-idris\",\"role\":\"client\",\"application_boundary\":{\"kind\":\"message\",\"mode\":\"seqpacket-fd\",\"endpoint\":{\"fd\":%d}}}\n",flow_fd);fflush(stdout);}
     if(chain){
         puts("control ready");fflush(stdout);
         if(idris_chain_exchange(net,&peer_sa,role,config,key))goto done;

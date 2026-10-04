@@ -18,7 +18,8 @@ from protocol_context import minimal_context, core_allowed, admit
 from service_registry import ServiceRegistry
 from join_code import resolve, install_peer, unpack_invitation, resolve_protocol_envelope
 
-CORE_NAMES = ("go", "rust", "gleam", "ada", "nim", "pony", "zig", "d", "cpp", "idris", "hare", "carp")
+from core_catalog import CORE_IDS
+CORE_NAMES = CORE_IDS
 
 from native_key import generate_native_key
 from native_config import secure_read, load as load_native, prepare, native_binary, write_new
@@ -88,11 +89,67 @@ def stream_session(plan):
                     if not data:return
                     sys.stdout.buffer.write(data);sys.stdout.buffer.flush()
 
+
+def record_session(plan):
+    """S6ABI local record stdio: uint32 big-endian length + one whole record."""
+    import os, selectors, struct, time
+    from shadow6_abi import encode_record
+    with open_local_session(plan) as session:
+        if not hasattr(session, 'send_record'):
+            raise ValueError('UnsupportedApplicationBoundary: --records requires message boundary')
+        input_fd, output_fd = sys.stdin.fileno(), sys.stdout.fileno()
+        blocking = os.get_blocking(output_fd)
+        os.set_blocking(output_fd, False)
+        selector = selectors.PollSelector()
+        incoming = bytearray(); pending = outgoing = None; input_eof = False
+        selector.register(session.socket, selectors.EVENT_READ, 'socket')
+        selector.register(input_fd, selectors.EVENT_READ, 'stdin')
+        try:
+            while time.monotonic() < session.deadline:
+                if pending is not None:
+                    try: session.send_record(pending)
+                    except BlockingIOError: pass
+                    else:
+                        pending = None
+                        if not input_eof: selector.register(input_fd, selectors.EVENT_READ, 'stdin')
+                if input_eof and pending is None and not session.write_closed:
+                    session.finish()
+                for key, _ in selector.select(.1):
+                    if key.data == 'stdin':
+                        size = 4 if len(incoming) < 4 else 4 + struct.unpack('>I', incoming[:4])[0]
+                        data = os.read(input_fd, size - len(incoming))
+                        if not data:
+                            if incoming: raise ValueError('TruncatedApplicationRecord')
+                            selector.unregister(input_fd); input_eof = True; continue
+                        incoming.extend(data)
+                        if len(incoming) >= 4:
+                            size = struct.unpack('>I', incoming[:4])[0]
+                            if size > session.max_record: raise ValueError('OversizedApplicationRecord')
+                            if len(incoming) == size + 4:
+                                pending = bytes(incoming[4:]); incoming.clear(); selector.unregister(input_fd)
+                    elif key.data == 'socket':
+                        data = session.receive_record()
+                        if session.eof: return
+                        outgoing = encode_record(data, max_record=session.max_record)
+                        selector.unregister(session.socket)
+                        selector.register(output_fd, selectors.EVENT_WRITE, 'stdout')
+                    else:
+                        try: count = os.write(output_fd, outgoing)
+                        except BlockingIOError: continue
+                        outgoing = outgoing[count:]
+                        if not outgoing:
+                            outgoing = None; selector.unregister(output_fd)
+                            selector.register(session.socket, selectors.EVENT_READ, 'socket')
+            raise ValueError('ApplicationSessionBudgetExhausted')
+        finally:
+            selector.close(); os.set_blocking(output_fd, blocking)
+
 def main():
     p = argparse.ArgumentParser(description="Resolve Named Service or S6P1/invitation to one connection plan; provision Public6 when offered")
     p.add_argument("code", nargs="?", help="namespace/name service or 40-char Public6 join code")
     p.add_argument("--core", help="explicit Core Catalog identity")
     p.add_argument("--stdio",action="store_true",help="attach an observed local application stream to stdin/stdout, bounded to 300s/16MiB")
+    p.add_argument("--records",action="store_true",help="attach a message boundary using explicit uint32-length record stdio")
     p.add_argument("--json", action="store_true", help="structured connection plan")
     p.add_argument("--adapter", choices=("native-single","gate","broker-set-selector"), default=None)
     p.add_argument("--role", choices=["client", "agent"])
@@ -121,9 +178,14 @@ def main():
                 raise ValueError('choose one connection resolve source')
             catalog = CoreCatalog(ROOT)
             result = resolve_connection(service=args.code, registry=ServiceRegistry(catalog=catalog), catalog=catalog, core=args.core, adapter=args.adapter, role=args.role)
+            if args.records:
+                if args.stdio: raise ValueError("choose --stdio or --records")
+                record_session(result); return
             if args.stdio:
+                if result.get("applicationBoundary") != "stream": raise ValueError("UnsupportedApplicationBoundary: use --records for message attachment")
                 stream_session(result); return
             print(json.dumps(result,sort_keys=True)); return
+        if args.records: raise ValueError("--records requires a running named service")
         if args.stdio: raise ValueError("--stdio requires a running named service with observed application readiness")
         if args.protocol_envelope and args.protocol_file:
             raise ValueError("use only one of --protocol-envelope or --protocol-file")

@@ -9,13 +9,14 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "CLI"))
-from native_config import validate, write_new
+from native_config import validate, write_new, CORES
 
-DATAGRAM_CORES = {"shadow6-hare", "shadow6-carp", "shadow6-idris", "shadow6-pony"}
+DATAGRAM_CORES = {'shadow6-' + core for core in CORES}
 
 
 def generate_commands(engine: str, binary: Path, root: Path, target_port: int,
-                      role_reservations: dict | None = None):
+                      role_reservations: dict | None = None,
+                      normalized_documents: dict | None = None):
     family = socket.AF_INET6 if engine == "shadow6-hare" else socket.AF_INET
     host = "::1" if family == socket.AF_INET6 else "127.0.0.1"
     reservations = []
@@ -92,6 +93,17 @@ def generate_commands(engine: str, binary: Path, root: Path, target_port: int,
                                str(peer), host, str(application), str(path), "1000000"]
             path.chmod(0o600)
             commands[role] = command
+            if normalized_documents is not None:
+                core = engine.removeprefix('shadow6-')
+                if core in ('hare', 'pony'):
+                    document = {'core': core, **config}
+                else:
+                    document = dict(core=core, role=role, listen_port=local,
+                        peer_port=peer, application_port=application, key_material=material.hex())
+                    if core == 'idris':
+                        document.update(listen_host=host, peer_host=host,
+                            application_host=host, iterations=1000000)
+                normalized_documents[role] = validate(document)
         if role_reservations is not None:
             role_reservations["broker"] = [reservations[0]]
             role_reservations["agent"] = [reservations[1]]

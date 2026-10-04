@@ -21,7 +21,7 @@ class InstalledImports(unittest.TestCase):
             for _ in range(2):
                 result=subprocess.run(command,cwd=ROOT,env=env,capture_output=True,text=True,timeout=60)
                 self.assertEqual(result.returncode,0,result.stderr[-4000:])
-            for args in (['abi','catalog'],['connect','--help'],['core','list']):
+            for args in (['abi','catalog'],['connect','--help'],['core','list'],['core','profiles'],['setup','--help'],['doctor','--help']):
                 result=subprocess.run([sys.executable,str(installed/'bin/shadow6'),*args],cwd=stage,env=env,capture_output=True,text=True,timeout=15)
                 self.assertEqual(result.returncode,0,result.stderr)
             package=next(installed.glob('lib/python*/site-packages/Deployment')) if list(installed.glob('lib/python*/site-packages/Deployment')) else next(installed.glob('lib/python*/dist-packages/Deployment'))
@@ -31,6 +31,11 @@ from libshadow6 import Shadow6
 from Deployment import encode_control
 from Deployment.service_registry import ServiceRegistry
 from Deployment.core_catalog import CoreCatalog
+from Deployment.profile_registry import profiles, select_profile, profile_digest
+from Deployment.profile_availability import inspect_profile, installed_profiles
+from Deployment.application_attachment import NativeRecordAttachment
+assert len(profiles()) == 13
+assert profile_digest(select_profile('gleam', 'gleam-micro-mux')).startswith('sha256:')
 from Deployment.protocol_context import minimal_context
 from Deployment.connection_plan import resolve_connection
 catalog=CoreCatalog()

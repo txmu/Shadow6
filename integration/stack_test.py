@@ -30,6 +30,8 @@ from companion import Adapter, BACKENDS, Channel, exchange
 
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+from Deployment.profile_registry import profiles
 _BROKER_BIND_LOCK = threading.Lock()
 _DATAGRAM_START_LOCK = threading.Lock()
 
@@ -48,29 +50,11 @@ CORE_TESTS = {
     "shadow6-gleam-mux": [ROOT / "Core-Gleam/test_micro_mux.py"],
     "shadow6-idris": [ROOT / "Core-Idris/test_core.py"],
 }
-CORE_BINARIES = {
-    engine: ROOT / directory / binary
-    for engine, directory, binary in (
-        ("shadow6-zig", "Core-Zig", "shadow6-zig"),
-        ("shadow6-ada", "Core-Ada", "shadow6-ada"),
-        ("shadow6-d", "Core-D", "shadow6-d"),
-        ("shadow6-nim", "Core-Nim", "shadow6-nim"),
-        ("shadow6-cpp", "Core-Cpp", "shadow6-cpp"),
-        ("shadow6-pony", "Core-Pony", "shadow6-pony"),
-        ("shadow6-hare", "Core-Hare", "shadow6-hare"),
-        ("shadow6-carp", "Core-Carp", "shadow6-carp"),
-        ("shadow6-gleam", "Core-Gleam", "shadow6-gleam"),
-        ("shadow6-idris", "Core-Idris", "shadow6-idris"),
-    )
-}
-CORE_BINARIES.update({
-    "shadow6-go": ROOT / "Core-Go/shadow6-go",
-    "shadow6-rust": ROOT / "Core-Rust/shadow6-rust",
-    "shadow6-gleam-mux": ROOT / "Core-Gleam/shadow6-gleam",
-})
-GLEAM_ENGINES = {"shadow6-gleam", "shadow6-gleam-mux"}
+CORE_BINARIES = {'shadow6-' + p['benchmarkAlias']: ROOT / p['artifact'] for p in profiles()}
+GLEAM_ENGINES = {'shadow6-' + p['benchmarkAlias'] for p in profiles('gleam')}
 # JSON-configured Gleam micro-mux carries UDP but starts like a stream Core.
-JSON_DATAGRAM_ENGINES = {"shadow6-gleam-mux"}
+JSON_DATAGRAM_ENGINES = {'shadow6-' + p['benchmarkAlias'] for p in profiles()
+    if p['applicationBoundary']['kind'] == 'message' and p['realization']['launcher'] == 'native-config'}
 
 
 def adapter_family(engine: str) -> str:

@@ -20,6 +20,26 @@ CONTROL = Path(__file__).with_name("shadow6_control.py")
 
 
 class ControlCenterTests(unittest.TestCase):
+    def test_named_service_read_only_methods_share_persisted_cli_truth(self):
+        from Deployment.core_catalog import CoreCatalog
+        from Deployment.service_registry import ServiceRegistry
+        with tempfile.TemporaryDirectory(prefix='shadow6-control-services-') as directory:
+            path = Path(directory) / 'services.json'
+            registry = ServiceRegistry(path, CoreCatalog(control.ROOT))
+            registry.create('home/nas', core=None, config=None)
+            with mock.patch.dict('os.environ', {'SHADOW6_SERVICE_REGISTRY': str(path)}):
+                result = response({'method': 'service.status', 'params': {'name': 'home/nas'}}, allow_mutations=False)
+                self.assertTrue(result['ok'], result)
+                self.assertEqual(result['result'], registry.status('home/nas'))
+                self.assertEqual(dispatch('service.list')['services'], registry.list())
+                doctor = dispatch('service.doctor', {'name': 'home/nas'})
+                self.assertFalse(doctor['healthy'])
+                self.assertIn('ProfileBindingMissingOrDrifted', doctor['findings'])
+                rejected = response({'method': 'service.status', 'params': {'name': 'home/nas', 'pid': 123}}, allow_mutations=False)
+                self.assertFalse(rejected['ok'])
+        for method in ('core.profiles', 'service.list', 'service.status', 'service.doctor', 'service.connect'):
+            self.assertFalse(control.METHOD_SPECS[method]['mutating'])
+
     def test_capsule_schema_uses_registry_selected_cores_and_real_mutation_gate(self):
         spec = control.METHOD_SPECS["capsule.start"]["input_schema"]["properties"]["core"]
         self.assertNotIn("enum", spec)
@@ -416,6 +436,27 @@ class ControlHTTPTests(unittest.IsolatedAsyncioTestCase):
         async with self.client.post(self.url + "/v1/rpc", json={"method": "system.schema"}, headers=auth) as reply:
             self.assertEqual(reply.status, 200)
             self.assertTrue((await reply.json())["ok"])
+
+    async def test_http_named_services_use_one_registry_and_reject_ambiguous_names(self):
+        from Deployment.core_catalog import CoreCatalog
+        from Deployment.service_registry import ServiceRegistry
+        auth = {'Authorization': 'Bearer ' + 'a'*32}
+        with tempfile.TemporaryDirectory(prefix='shadow6-http-services-') as directory:
+            path = Path(directory) / 'services.json'
+            registry = ServiceRegistry(path, CoreCatalog(control.ROOT))
+            registry.create('home/nas', core=None, config=None)
+            with mock.patch.dict('os.environ', {'SHADOW6_SERVICE_REGISTRY':str(path)}):
+                async with self.client.get(self.url+'/v1/services', headers=auth) as reply:
+                    self.assertEqual(reply.status, 200)
+                    self.assertEqual((await reply.json())['services'], registry.list())
+                async with self.client.get(self.url+'/v1/service?name=home%2Fnas', headers=auth) as reply:
+                    self.assertEqual(reply.status, 200)
+                    self.assertEqual(await reply.json(), registry.status('home/nas'))
+                for query in ('', '?name=home%2Fnas&name=home%2Fnas', '?name=home%2Fnas&pid=123'):
+                    async with self.client.get(self.url+'/v1/service'+query, headers=auth) as reply:
+                        self.assertEqual(reply.status, 400)
+                async with self.client.get(self.url+'/v1/services') as reply:
+                    self.assertEqual(reply.status, 401)
 
     async def test_http_shared_privacy_and_guide_methods(self):
         for method, params in (("system.guide", {"lang": "zh"}), ("privacy.report", {})):

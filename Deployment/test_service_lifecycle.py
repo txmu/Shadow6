@@ -24,12 +24,13 @@ class ServiceLifecycleTests(unittest.TestCase):
         self.config = self.root/'core.json'
         atomic_write(self.config, b'{}')
         self.binary = self.root/'test-core'
-        self.binary.write_text('#!/usr/bin/env python3\nimport time\ntime.sleep(120)\n')
+        self.binary.write_text('#!/usr/bin/env python3\nimport socket,time\ns=socket.socket();s.bind(("127.0.0.1",0));s.listen();time.sleep(120)\n')
         self.binary.chmod(0o700)
         self.catalog = CoreCatalog(ROOT)
         self.catalog._items['go']['executable'] = str(self.binary)
         self.registry = ServiceRegistry(self.root/'services.json', self.catalog)
         self.registry.create('home/nas', core='go', config={'config_path':str(self.config)})
+        self.registry.apply('home/nas')
         self.addCleanup(self.cleanup_process)
 
     def cleanup_process(self):
@@ -41,7 +42,7 @@ class ServiceLifecycleTests(unittest.TestCase):
     def test_real_supervisor_idempotent_run_restart_stop_remove(self):
         first = self.registry.run('home/nas')
         self.assertTrue(service_runtime.alive(first['runtime']))
-        self.assertEqual(first['runtime']['readiness'], 'process-alive')
+        self.assertEqual(first['runtime']['readiness'], 'listener-ready')
         self.assertEqual(first['privacyTelemetry']['observation'], 'not-configured')
         self.assertNotIn('authenticated_sessions', first['privacyTelemetry'])
         self.assertEqual(self.registry.run('home/nas')['runtime']['pid'], first['runtime']['pid'])
@@ -49,13 +50,29 @@ class ServiceLifecycleTests(unittest.TestCase):
             self.registry.configure('home/nas',core='go',config={'config_path':str(self.config)})
         second = self.registry.restart('home/nas')
         self.assertNotEqual(second['runtime']['pid'], first['runtime']['pid'])
-        with self.assertRaisesRegex(ValueError, 'readiness is unavailable'):
-            self.registry.connect('home/nas')
+        self.assertEqual(self.registry.connect('home/nas')['capability']['sessionLaunch'], 'unavailable')
         self.registry.stop('home/nas')
         self.assertFalse(service_runtime.alive(second['runtime']))
         with self.assertRaises(ValueError): self.registry.connect('home/nas')
         self.registry.remove('home/nas')
         self.assertEqual(self.registry.list(), [])
+
+    def test_host_budget_drift_reports_without_shrinking_running_process(self):
+        from limits import HostBudget
+        item = self.registry.run('home/nas')
+        before = item['deploymentLock']['limitResolution']
+        budget = HostBudget.from_dict(before['host_budget'])
+        changed = HostBudget(budget.memory_bytes // 2, budget.fd_ceiling,
+                             budget.cpu_units, budget.platform,
+                             budget.memory_sources, budget.fd_sources, budget.cpu_sources)
+        with patch('limits.HostBudget.capture', return_value=changed):
+            doctor = self.registry.doctor('home/nas')
+            self.assertIn('HostBudgetDrift', doctor['findings'])
+            with self.assertRaisesRegex(ValueError, 'HostBudgetDrift'):
+                self.registry.run('home/nas')
+        self.assertTrue(service_runtime.alive(item['runtime']))
+        self.assertEqual(before, self.registry.inspect('home/nas')['deploymentLock']['limitResolution'])
+        self.assertEqual(item['runtime']['pid'], self.registry.status('home/nas')['runtime']['pid'])
 
     def test_actual_native_config_drift_is_rejected(self):
         self.registry.apply('home/nas')
@@ -68,6 +85,7 @@ class ServiceLifecycleTests(unittest.TestCase):
     def test_startup_failure_never_claims_running(self):
         self.binary.write_text('#!/usr/bin/env python3\nraise SystemExit(2)\n')
         self.registry.configure('home/nas',core='go',config={'config_path':str(self.config)})
+        self.registry.apply('home/nas')
         with self.assertRaisesRegex(ValueError, 'failed to start'):
             self.registry.run('home/nas')
         self.assertNotEqual(self.registry.status('home/nas')['state'], 'running')
@@ -115,11 +133,17 @@ class ServiceLifecycleTests(unittest.TestCase):
             self.assertEqual(result.returncode,0,result.stderr)
             return json.loads(result.stdout)
         try:
-            first = cli('setup','test/go','--core','go','--config',str(binding),'--ttl','30')
+            prepared = cli('setup','test/go','--core','go','--profile','go-kcp','--config',str(binding),'--ttl','30')
+            self.assertEqual(prepared['state'], 'applied')
+            self.assertNotIn('runtime', prepared)
+            first = cli('run', 'test/go')
             second = cli('setup','test/go','--core','go','--config',str(binding),'--ttl','30')
             self.assertEqual(first['runtime']['pid'],second['runtime']['pid'])
             with socket.create_connection(('127.0.0.1',port),timeout=2): pass
             self.assertEqual(cli('connect','test/go')['core'],'go')
+            doctor = cli('doctor', 'test/go')
+            self.assertTrue(doctor['healthy'], doctor['findings'])
+            self.assertEqual(doctor['profileBinding']['profile'], 'go-kcp')
         finally:
             cli('stop','test/go')
 
@@ -147,6 +171,7 @@ class ServiceLifecycleTests(unittest.TestCase):
         self.catalog.envelope_binary = lambda: Path(binary)
         self.registry.configure('home/nas',core='go',config={'config_path':str(self.config)},privacy='envelope',
                                 spec={'envelope_config':str(config),'metrics_path':str(metrics)})
+        self.registry.apply('home/nas')
         item = self.registry.run('home/nas')
         self.assertEqual(item['privacyTelemetry']['authenticated_sessions'],0)
         with socket.create_connection(('127.0.0.1',port),timeout=2) as sock:
@@ -193,9 +218,14 @@ class LaunchLockTests(unittest.TestCase):
     cleanup_process = ServiceLifecycleTests.cleanup_process
     def plan(self):
         import hashlib
+        material = service_runtime.runtime_material_paths(ROOT)
         return {'root':str(ROOT),'core':'go','binary':str(self.binary),'config':str(self.config),'ttl':30,
+                'profileBinding':__import__('Deployment.profile_registry',fromlist=['bind_profile']).bind_profile('go'),
+                'runtimeMaterials':material,
                 'launchDigests':{'binary':service_runtime.executable_digest(self.binary),
-                                'config':'sha256:'+hashlib.sha256(self.config.read_bytes()).hexdigest()}}
+                                'config':'sha256:'+hashlib.sha256(self.config.read_bytes()).hexdigest(),
+                                **{'runtimeMaterial:' + key:service_runtime.source_material_digest(path) for key,path in material.items()}}}
+
 
     def test_running_material_drift_stops_the_actual_component_group(self):
         first = self.registry.run('home/nas')
@@ -239,6 +269,7 @@ class LaunchLockTests(unittest.TestCase):
         def changed_start(plan):
             atomic_write(self.config,b'{"changed_after_apply":true}')
             return original(plan)
+        self.registry.apply('home/nas')
         with patch('Deployment.service_runtime.start',side_effect=changed_start):
             with self.assertRaisesRegex(ValueError,'failed to start'):self.registry.run('home/nas')
         self.assertFalse(marker.exists())
@@ -248,6 +279,7 @@ class LaunchLockTests(unittest.TestCase):
         marker=self.root/'child-pid'
         self.binary.write_text(f'#!/usr/bin/env python3\nfrom pathlib import Path\nimport os,time\nPath({str(marker)!r}).write_text(str(os.getpid()))\nPath({str(self.config)!r}).write_text("{{}}\\n")\ntime.sleep(120)\n')
         self.registry.configure('home/nas',core='go',config={'config_path':str(self.config)})
+        self.registry.apply('home/nas')
         with self.assertRaisesRegex(ValueError,'failed to start'):self.registry.run('home/nas')
         self.assertTrue(marker.exists())
         self.assertIsNone(service_runtime.identity(int(marker.read_text())))

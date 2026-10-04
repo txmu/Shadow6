@@ -18,6 +18,16 @@ control declaration retains the Go/Rust native invocation; it is not a general
 cross-Core translator. Distinct independent BrokerSets may describe separate
 topologies, each with its own enforced family.
 
+The local ProfileBinding identifies an explicit Profile and hashes its shared
+registry contract. It is carried through DeploymentLock, launch plan, runtime
+identity, connection plan and Detector checks; local material stays outside
+portable S6P1. Observed attachment kind/mode/transport must match that Profile.
+Gleam secure-stream and Micro-Mux cannot be substituted through a ready event.
+Legacy records without ProfileBinding require explicit stopped reconfiguration
+and relocking. Real all-Profile and credited session attachment verification
+remains an open completion gate, as recorded in the
+[requirement ledger](native-profile-runtime-plan.md).
+
 A Named Service is the persistent local lifecycle object. Registry v2 embeds
 `protocolContext` and keeps only TTL and peripheral configuration references in
 `spec`. It has no duplicate role, identity, credentials or routes. CoreBinding
@@ -60,11 +70,17 @@ ready event, `shadow6 connect home/nas --stdio` actually opens its observed
 application proxy and forwards stdin/stdout. `libshadow6.Shadow6.connect(name)`
 returns a bounded session with `send`, `receive` and `close`. Both recheck the
 endpoint's process ownership. Sessions are limited to 300 seconds, 30 seconds
-of socket inactivity and 16 MiB. Unsupported/message/credited boundaries return
-an explicit plan/capability error; their native adapters remain available through
-their existing interfaces.
+of socket inactivity and 16 MiB. Observed message endpoints expose
+`send_record`, `receive_record`, `finish` and `close`, with the Profile's exact
+record bound. `shadow6 connect NAME --records` uses explicit uint32 big-endian
+length-prefixed records on local stdio. Seqpacket empty records mean EOF/drain;
+Micro-Mux empty datagrams remain data, and EOF/half-close is explicitly unsupported.
+Only one seqpacket attachment can consume each native flow; subsequent opens
+return `UnsupportedApplicationBoundary:AttachmentConsumed`. Credited providers
+remain an explicit capability error here; S6NA's separate credit contract must
+not be silently substituted for a native message or stream boundary.
 
-Readiness progresses only with evidence: `process-alive`, process-owned
+Readiness progresses only with evidence: process-owned
 `listener-ready`, or an owned endpoint with a validated `application-ready`
 event. Transport/application readiness otherwise remains `unknown`; absent or
 stale observations are unavailable. No desired route is copied into runtime.

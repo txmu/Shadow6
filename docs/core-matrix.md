@@ -4,6 +4,14 @@
 > A listed toolchain may still be unavailable on a particular host; inspect
 > `shadow6 features` and the component doctor for the effective build matrix.
 
+The Native Profile source authority is
+[`Crosed/native_profiles.py`](../Crosed/native_profiles.py). It defines thirteen
+Profiles, including separate `gleam-secure-stream` and `gleam-micro-mux`
+contracts. Inspect them with `shadow6 core profiles [CORE]`. This command
+reports source contracts; it does not assert that a Profile has a working
+installed Named Service lifecycle. That completion gate remains under active
+implementation; see [the requirement ledger](native-profile-runtime-plan.md).
+
 Shadow6 has twelve independently compiled Core implementations. They share
 feature-report and security-contract vocabulary, but their native protocols
 are independent and are not implicitly wire-compatible. A topology must use

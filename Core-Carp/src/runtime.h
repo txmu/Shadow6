@@ -55,6 +55,8 @@ static void enable_flow_ingress(void) {
     int flags = fcntl(application_flow_fd, F_GETFL, 0);
     if (flags < 0 || fcntl(application_flow_fd, F_SETFL, flags | O_NONBLOCK) < 0) exit(2);
     application_flow_enabled = 1;
+    printf("{\"event\":\"shadow6.ready\",\"schema\":1,\"core\":\"shadow6-carp\",\"role\":\"client\",\"application_boundary\":{\"kind\":\"message\",\"mode\":\"seqpacket-fd\",\"endpoint\":{\"fd\":%d}}}\n", application_flow_fd);
+    fflush(stdout);
 }
 static struct sockaddr_in application_peer;
 static unsigned char receive_keys[96];
@@ -511,7 +513,7 @@ static struct packet packet_receive(void) {
         endpoint_mode = 1; return packet_receive();
     }
     if (argc == 2 && strcmp(argv[1], "--feature-report") == 0) {
-        puts("{\"core\":\"shadow6-carp\",\"version\":\"0.1.0\",\"crosed_compiled\":false,\"crosed_max_level\":0,\"app_transport\":false,\"app_transport_modes\":[\"udp\",\"seqpacket-fd\"],\"application_boundaries\":[{\"kind\":\"message\",\"mode\":\"seqpacket-fd\",\"roles\":[\"client\"],\"max_record\":986,\"message_preserving\":true,\"backpressure\":\"native-window\",\"producer_send_success\":\"kernel-queue-only\",\"oversize\":\"discard-record-continue\",\"transient_error\":\"retry-eagain-eintr\",\"hard_error\":\"fail-closed\",\"eof\":\"empty-record-drain\",\"close\":\"drain-accepted-then-stop\"}],\"qubes_isolation\":false,\"gate_compiled\":false,\"gate_enabled_by_default\":false,\"utf8\":true,\"crosed_capabilities\":[]}"); exit(0);
+        puts("{\"core\":\"shadow6-carp\",\"version\":\"0.1.0\",\"crosed_compiled\":false,\"crosed_max_level\":0,\"app_transport\":false,\"app_transport_modes\":[\"udp\",\"seqpacket-fd\"],\"application_boundaries\":[{\"kind\":\"message\",\"mode\":\"seqpacket-fd\",\"roles\":[\"client\"],\"max_record\":986,\"message_preserving\":true,\"backpressure\":\"native-window\",\"producer_send_success\":\"kernel-queue-only\",\"endpoint_discovery\":\"stdout-ready-jsonl-v1\",\"oversize\":\"discard-record-continue\",\"transient_error\":\"retry-eagain-eintr\",\"hard_error\":\"fail-closed\",\"eof\":\"empty-record-drain\",\"close\":\"drain-accepted-then-stop\"}],\"qubes_isolation\":false,\"gate_compiled\":false,\"gate_enabled_by_default\":false,\"utf8\":true,\"crosed_capabilities\":[]}"); exit(0);
     }
     if (argc == 3 && strcmp(argv[1], "--gen-key") == 0) {
         int fd = open(argv[2], O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0600);

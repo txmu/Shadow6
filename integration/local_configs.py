@@ -9,10 +9,13 @@ Go and Rust cores.
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from Deployment.profile_registry import profiles
 
 
 def _keypair() -> tuple[str, str]:
@@ -34,12 +37,10 @@ def generate_configs(output: Path, target_port: int, broker_port: int, engine: s
     broker_pub, broker_private = _keypair()
     agent_pub, agent_private = _keypair()
     client_pub, client_private = _keypair()
-    transport = {
-        "shadow6-go": "kcp", "shadow6-rust": "quic", "shadow6-zig": "enet",
-        "shadow6-ada": "cell-relay", "shadow6-nim": "webrtc",
-        "shadow6-d": "secure-stream", "shadow6-gleam": "secure-stream",
-        "shadow6-gleam-mux": "micro-mux",
-    }[engine]
+    profile = next((p for p in profiles() if 'shadow6-' + p['benchmarkAlias'] == engine), None)
+    if profile is None or profile['realization']['launcher'] != 'native-config':
+        raise ValueError('unsupported native JSON realization Profile')
+    transport = profile['configTransport']
     scheme = "ws"
     broker_url = f"{scheme}://127.0.0.1:{broker_port}/ws"
     prefix = f"it-shadow6-{engine.removeprefix('shadow6-')}"
@@ -88,7 +89,7 @@ def generate_configs(output: Path, target_port: int, broker_port: int, engine: s
         agent["agent"]["kcp_parity_shards"] = 0
         client["client"]["kcp_parity_shards"] = 0
     for role, document in (("broker", broker), ("agent", agent), ("client", client)):
-        if engine in ("shadow6-gleam", "shadow6-gleam-mux"):
+        if profile['core'] == 'gleam':
             for other in ("broker", "agent", "client"):
                 document.setdefault(other, None)
         path = output / f"{prefix}-{role}.json"

@@ -11,10 +11,36 @@ from pathlib import Path
 
 try:
     from .service_storage import private_read, strict_json, atomic_write
-    from .runtime_observation import sockets, private_socket, ready, validate_observation, endpoint_matches
+    from .runtime_observation import sockets, private_socket, ready, validate_observation, endpoint_matches, control_connections
 except ImportError:
     from service_storage import private_read, strict_json, atomic_write
-    from runtime_observation import sockets, private_socket, ready, validate_observation, endpoint_matches
+    from runtime_observation import sockets, private_socket, ready, validate_observation, endpoint_matches, control_connections
+
+
+def native_observed_endpoints(pid, native):
+    result = sockets(pid)
+    # Datagram native-file contracts can connect their transport socket before
+    # admission. Require the exact configured local and peer tuple and actual
+    # FD ownership; an unrelated UDP socket cannot establish startup readiness.
+    if not result and 'peer_port' in native and 'listen_port' in native:
+        result = [item for item in control_connections(pid, transport='udp')
+                  if item['port'] == native['listen_port']
+                  and item['remotePort'] == native['peer_port']
+                  and item['remoteHost'] == native.get('peer_host', '127.0.0.1')]
+    # Some stream agents allocate their data listener only when a client is
+    # admitted. Their existing owned control connection is the startup boundary;
+    # it is explicitly distinct from application readiness and authentication.
+    if native.get('role') == 'agent' and not result:
+        from urllib.parse import urlsplit
+        config = native.get('agent', {})
+        peers = config.get('broker_addrs') or [config.get('broker_addr', '')]
+        targets = []
+        for peer in peers:
+            parsed = urlsplit(peer if '://' in peer else 'tcp://' + peer)
+            if parsed.hostname and parsed.port: targets.append((parsed.hostname, parsed.port))
+        result = [item for item in control_connections(pid)
+                  if (item['remoteHost'], item['remotePort']) in targets]
+    return result
 
 
 _CHILDREN = {}
@@ -104,13 +130,109 @@ def executable_digest(path):
         os.close(fd)
 
 
+
+
+def source_material_digest(path):
+    """Hash bounded owner-controlled implementation files without execute flags."""
+    path = Path(path)
+    before = path.lstat()
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    def token(value):
+        return (value.st_dev,value.st_ino,value.st_size,value.st_mode,value.st_uid,value.st_nlink,value.st_mtime_ns,value.st_ctime_ns)
+    try:
+        opened = os.fstat(fd)
+        if (not stat.S_ISREG(opened.st_mode) or opened.st_nlink != 1 or
+                opened.st_uid not in (0,os.geteuid()) or opened.st_mode & 0o022 or
+                opened.st_size > 1048576 or token(before) != token(opened)):
+            raise ValueError('invalid owner-controlled runtime implementation material')
+        data = bytearray()
+        while len(data) <= 1048576:
+            block = os.read(fd,65536)
+            if not block: break
+            data.extend(block)
+        if len(data) != opened.st_size or token(opened) != token(os.fstat(fd)) or token(opened) != token(path.lstat()):
+            raise ValueError('runtime implementation material changed while reading')
+        return 'sha256:' + hashlib.sha256(data).hexdigest()
+    finally: os.close(fd)
+
+
+def runtime_material_paths(root):
+    """Fixed supervisor/config/record adapter inputs used by this invocation."""
+    import native_profiles, feature_contract, limits
+    here = Path(__file__).absolute().parent
+    files = {name: str(here / (name + '.py')) for name in (
+        'service_runtime','service_registry','runtime_observation','application_attachment',
+        'service_storage','profile_registry','protocol_context','service_composition','broker_set')}
+    files.update(native_config=str(Path(root) / 'CLI/native_config.py'),
+                 limits=str(Path(limits.__file__).absolute()),
+                 native_profiles=str(Path(native_profiles.__file__).absolute()),
+                 feature_contract=str(Path(feature_contract.__file__).absolute()))
+    provider = Path(root) / 'OCaml/privacy_envelope/lib/libdatachannel.so.0.23'
+    if provider.exists() or provider.is_symlink():
+        files['envelope_webrtc_provider'] = str(provider)
+    return files
+
+def feature_report(binary: str) -> dict:
+    import selectors
+    before = executable_digest(binary)
+    process = subprocess.Popen([executable(binary), "--feature-report"], stdout=subprocess.PIPE,
+                               stderr=subprocess.DEVNULL, close_fds=True)
+    data = bytearray()
+    deadline = time.monotonic() + 3
+    try:
+        with selectors.DefaultSelector() as selector:
+            selector.register(process.stdout, selectors.EVENT_READ)
+            while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise ValueError("feature-report timeout")
+                events = selector.select(remaining)
+                if not events:
+                    raise ValueError("feature-report timeout")
+                block = os.read(process.stdout.fileno(), min(16385, 65537 - len(data)))
+                data.extend(block)
+                if len(data) > 65536:
+                    raise ValueError("feature-report exceeds 64 KiB")
+                if not block:
+                    break
+        if process.wait(timeout=max(0.1, deadline-time.monotonic())) != 0:
+            raise ValueError("feature-report failed")
+    except BaseException:
+        process.kill()
+        process.wait()
+        raise
+    finally:
+        process.stdout.close()
+    value = strict_json(bytes(data))
+    if not isinstance(value, dict) or not isinstance(value.get("core"), str):
+        raise ValueError("invalid Core feature-report")
+    if executable_digest(binary) != before:
+        raise ValueError("feature-report binary changed during probe")
+    return value
+
+
 def verify_launch_material(plan):
-    required = {'root','core','binary','config','ttl','launchDigests'}
-    allowed = {'envelopeTlsCert','envelopeTlsKey','envelopeTlsCa'} | required | {'launchAdapter','protocolContext','contextDigest','lockDigest'} | {c + k for c in ('envelope','gate','guard') for k in ('Config','Binary')}
+    required = {'root','core','profileBinding','binary','config','ttl','launchDigests','runtimeMaterials'}
+    allowed = {'envelopeTlsCert','envelopeTlsKey','envelopeTlsCa'} | required | {'launchAdapter','protocolContext','contextDigest','lockDigest','nativeMaterials','componentMaterials','limitResolution'} | {c + k for c in ('envelope','gate','guard') for k in ('Config','Binary')}
     if not isinstance(plan,dict) or not required <= set(plan) or set(plan) - allowed:
         raise ValueError('invalid launch plan fields')
     if not isinstance(plan['core'],str) or re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._:-]{0,63}',plan['core']) is None:
         raise ValueError('invalid launch Core identity')
+    try:
+        from .profile_registry import native_material_paths, validate_profile_binding, validate_profile_realization
+    except ImportError:
+        from profile_registry import native_material_paths, validate_profile_binding, validate_profile_realization
+    profile = validate_profile_binding(plan['profileBinding'], core=plan['core'])
+    if 'limitResolution' in plan:
+        from limits import LimitResolver
+        LimitResolver().validate(plan['limitResolution'], profile)
+    elif 'lockDigest' in plan:
+        raise ValueError('LegacyLimitsLock: explicitly relock')
+    native = strict_json(private_read(plan['config']))
+    validate_profile_realization(plan['profileBinding'], native, plan.get('protocolContext'))
+    native_materials = native_material_paths(plan['profileBinding'], native)
+    if plan.get('nativeMaterials', {}) != native_materials:
+        raise ValueError('native launch material differs from locked configuration')
     if type(plan['ttl']) is not int or not 30 <= plan['ttl'] <= 86400:
         raise ValueError('invalid launch lifetime')
     if plan.get('launchAdapter','native-config') not in ('native-config','native-files'):
@@ -131,7 +253,19 @@ def verify_launch_material(plan):
     if tls_keys and (len(tls_keys) != 3 or 'envelopeConfig' not in plan):
         raise ValueError('incomplete TLS launch material')
     files.update({key:'tls-private' for key in tls_keys})
-    if not isinstance(expected,dict) or set(expected) != set(files):
+    try:
+        from .service_composition import component_material_paths
+    except ImportError:
+        from service_composition import component_material_paths
+    component_materials = {key:path for component in ('gate','guard') if component + 'Config' in plan
+                           for key,path in component_material_paths(component, strict_json(private_read(plan[component + 'Config']))).items()}
+    if plan.get('componentMaterials', {}) != component_materials:
+        raise ValueError('component launch material differs from locked configuration')
+    runtime_materials = runtime_material_paths(plan['root'])
+    if plan['runtimeMaterials'] != runtime_materials:
+        raise ValueError('runtime implementation material differs from approved launch plan')
+    material_keys = {'nativeMaterial:' + key for key in native_materials} | {'componentMaterial:' + key for key in component_materials} | {'runtimeMaterial:' + key for key in runtime_materials}
+    if not isinstance(expected,dict) or set(expected) != set(files) | material_keys:
         raise ValueError('launch plan requires exact locked file digests')
     for key,kind in files.items():
         digest = expected[key]
@@ -140,6 +274,17 @@ def verify_launch_material(plan):
         actual = executable_digest(plan[key]) if kind == 'executable' else 'sha256:' + hashlib.sha256(private_read(plan[key],limit=16384 if kind == 'tls-private' else 1048576)).hexdigest()
         if actual != digest:
             raise ValueError(f'deployment drift before launch: {key}; explicitly reconfigure')
+    for key,path in native_materials.items():
+        actual = 'sha256:' + hashlib.sha256(private_read(path,limit=16384)).hexdigest()
+        if expected['nativeMaterial:' + key] != actual:
+            raise ValueError('deployment drift before launch: nativeMaterial:' + key)
+    for key,path in runtime_materials.items():
+        if expected['runtimeMaterial:' + key] != source_material_digest(path):
+            raise ValueError('deployment drift before launch: runtimeMaterial:' + key)
+    for key,path in component_materials.items():
+        actual = 'sha256:' + hashlib.sha256(private_read(path,limit=16384)).hexdigest()
+        if expected['componentMaterial:' + key] != actual:
+            raise ValueError('deployment drift before launch: componentMaterial:' + key)
     if 'envelopeConfig' in plan:
         actual_tls = envelope_tls_material(parse_envelope(private_read(plan['envelopeConfig'])))
         if actual_tls != {key:plan[key] for key in tls_keys}:
@@ -189,9 +334,11 @@ def start(plan):
         os.close(write_fd)
     import select
     try:
-        if not select.select([read_fd], [], [], 8)[0] or os.read(read_fd, 16) != b'OK':
+        acknowledgement = os.read(read_fd, 4096) if select.select([read_fd], [], [], 32)[0] else b''
+        if acknowledgement != b'OK':
             child.terminate(); child.wait(timeout=8)
-            raise ValueError('service failed to start; check native configuration and executable')
+            detail = acknowledgement.removeprefix(b'ERROR:').decode('utf-8', errors='replace') if acknowledgement.startswith(b'ERROR:') else 'StartupAcknowledgementUnavailable'
+            raise ValueError('service failed to start: ' + detail)
         token = identity(child.pid)
         if token is None:
             raise ValueError('service exited during startup')
@@ -210,6 +357,8 @@ def supervise(plan_path, ack):
     from native_config import load, prepare
     import tempfile
     children = []
+    attachment = None
+    application_completed = False
     stopping = False
     def request_stop(*_):
         nonlocal stopping
@@ -219,6 +368,16 @@ def supervise(plan_path, ack):
     try:
         with tempfile.TemporaryDirectory(prefix='shadow6-native-') as directory:
             core = plan['core']
+            try:
+                from .profile_registry import validate_profile_binding
+            except ImportError:
+                from profile_registry import validate_profile_binding
+            profile = validate_profile_binding(plan['profileBinding'], core=core)
+            from limits import LimitResolver
+            resolution = LimitResolver().validate(plan['limitResolution'], profile, check_host=True)
+            import resource
+            fd_limit = resolution['effective_limits']['process_fds']
+            resource.setrlimit(resource.RLIMIT_NOFILE, (fd_limit, fd_limit))
             binary = executable(plan['binary'])
             config = plan['config']
             if plan.get('launchAdapter') == 'native-files':
@@ -233,6 +392,14 @@ def supervise(plan_path, ack):
                 raise ValueError('capability unavailable: Core launch adapter')
             if plan.get('envelopeConfig'):
                 validate_native_private(config)
+            native_config = strict_json(private_read(config))
+            if profile['attachment']['mode'] == 'seqpacket-fd' and native_config.get('role') == 'client':
+                try:
+                    from .application_attachment import NativeRecordAttachment
+                except ImportError:
+                    from application_attachment import NativeRecordAttachment
+                attachment = NativeRecordAttachment(Path(directory) / 'application.sock', plan['profileBinding'],
+                    resolution['effective_limits']['max_record'], plan['lockDigest'])
             commands = [argv]
             envelope_fields = None
             if plan.get('envelopeConfig'):
@@ -244,9 +411,33 @@ def supervise(plan_path, ack):
                 if plan.get(component + 'Config'):
                     private_read(plan[component + 'Config'])
                     commands.append([executable(plan[component + 'Binary']), '--config', plan[component + 'Config']])
-            for argv in commands:
-                children.append(subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL))
-                os.set_blocking(children[-1].stdout.fileno(), False)
+            # Spawn dependencies first, while keeping the observation's stable
+            # native/EPE/Gate/Guard indexing for every backend and consumer.
+            labels = ['core'] + [name for name in ('envelope','gate','guard') if plan.get(name + 'Config')]
+            launch_order = ['gate','core','envelope','guard'] if gate_value and gate_value.get('role') == 'client' else ['core','gate','envelope','guard']
+            children = [None] * len(commands)
+            startup_deadline = time.monotonic() + 30
+            for label in launch_order:
+                if label not in labels: continue
+                index = labels.index(label); argv = commands[index]
+                verify_launch_material(plan)
+                from feature_contract import runtime_environment
+                environment = runtime_environment(root, profile['artifact'] if index == 0 else str(argv[0]))
+                environment.pop('SHADOW6_APP_FLOW_FD', None)
+                descriptors = ()
+                if index == 0 and attachment is not None:
+                    environment['SHADOW6_APP_FLOW_FD'] = str(attachment.child_fd)
+                    descriptors = (attachment.child_fd,)
+                children[index] = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                                 env=environment, pass_fds=descriptors)
+                if index == 0 and attachment is not None: attachment.release_child()
+                os.set_blocking(children[index].stdout.fileno(), False)
+                if label != 'core':
+                    component_deadline = min(startup_deadline, time.monotonic() + 5)
+                    while not sockets(children[index].pid):
+                        if stopping or children[index].poll() is not None or time.monotonic() >= component_deadline:
+                            raise ValueError(label + ' did not expose an owned readiness listener')
+                        time.sleep(.05)
             buffers = {p.pid:b'' for p in children}
             ready_state = {}
             observed_path = Path(str(plan_path) + '.observed')
@@ -260,7 +451,11 @@ def supervise(plan_path, ack):
                             try: ready_state.update(ready(line, core))
                             except (ValueError, UnicodeError): pass
                     buffers[child.pid] = buf.rsplit(b'\n',1)[-1][-65536:]
-                native = sockets(children[0].pid)
+                native_owner = {'pid':children[0].pid,'processIdentity':identity(children[0].pid)}
+                if attachment is not None:
+                    if ready_state and not attachment.ready: attachment.acknowledge(ready_state, native_owner)
+                    attachment.pump()
+                native = native_observed_endpoints(children[0].pid, native_config)
                 if plan.get('envelopeConfig') and any(not private_socket(e) for e in native):
                     raise ValueError('envelope invariant: native Core public exposure rejected')
                 public = sockets(children[1].pid) if plan.get('envelopeConfig') else native
@@ -282,31 +477,51 @@ def supervise(plan_path, ack):
                     transport={'stream':'tcp','datagram':'udp','message':'sctp'}[envelope_fields.get('mode','stream')]
                     if not any(endpoint_matches(e,upstream,transport=transport) for e in upstream_sockets):
                         raise ValueError('envelope upstream is not an observed deployment listener')
-                result = {'observedAt':int(time.time()), 'pid':os.getpid(), 'processIdentity':identity(os.getpid()),
+                result = {'limitResolutionDigest': __import__('limits').LimitResolution(resolution).digest,
+                          'effectiveLimits':resolution['effective_limits'],
+                          'limitsEnforcement':{'process_fds':{'actual':resource.getrlimit(resource.RLIMIT_NOFILE)[0], 'enforced':True}},
+                          'observedAt':int(time.time()), 'pid':os.getpid(), 'processIdentity':identity(os.getpid()),
                           'processes':[{'pid':p.pid,'processIdentity':identity(p.pid)} for p in children],
                           'nativeEndpoints':native, 'endpoints':public,
                           'endpoint':public[0] if len(public) == 1 else None,
-                          'readiness':'listener-ready' if public else 'process-alive',
+                          'readiness':('control-ready' if any(e.get('observation') == 'process-owned-control-connection' for e in public)
+                                       else 'listener-ready') if public else 'process-alive',
                           'transportReadiness':'unknown','applicationReadiness':'unknown'}
                 candidate = ready_state.get('endpoint',{})
-                if ready_state and any(e.get('host') == candidate.get('host') and e.get('port') == candidate.get('port') and (candidate.get('boundary') != 'stream' or e['transport'] == 'tcp') for e in native):
+                if (ready_state and candidate.get('boundary') == profile['attachment']['kind']
+                        and candidate.get('mode') == profile['attachment']['mode']
+                        and any(e.get('host') == candidate.get('host') and e.get('port') == candidate.get('port')
+                                and e['transport'] == profile['attachment']['transport'] for e in native)):
                     result.update(ready_state)
                     result['endpoint']['owner']={'pid':children[0].pid,'processIdentity':identity(children[0].pid)}
                     result['applicationReadiness'] = 'ready'
-                if plan.get('envelopeConfig'):
+                if attachment is not None and attachment.ready:
+                    result.update(endpoint=attachment.endpoint({'pid':os.getpid(),'processIdentity':identity(os.getpid())},native_owner),
+                                  readiness='application-ready', applicationReadiness='ready')
+                if plan.get('envelopeConfig') and attachment is None:
                     # The public connection endpoint always denotes EPE, even
                     # when native client stdout reports an application endpoint.
                     result['endpoint'] = public[0] if len(public) == 1 else None
                     result['readiness'] = 'listener-ready' if public else 'process-alive'
                 atomic_write(observed_path, __import__('json').dumps(result).encode())
+                return result
             deadline = time.monotonic() + plan['ttl']
             time.sleep(.3)
             if stopping or any(p.poll() is not None for p in children):
                 raise ValueError('early process exit')
-            startup_deadline=time.monotonic()+5
             while True:
                 try:
-                    observe_children();break
+                    observation = observe_children()
+                    native_ready = (observation['readiness'] == 'application-ready' if native_config.get('role') == 'client'
+                                    else bool(observation['nativeEndpoints']))
+                    components_ready = all(sockets(child.pid) for child in children[1:])
+                    if not native_ready or not components_ready:
+                        if time.monotonic() >= startup_deadline:
+                            raise ValueError('OwnedEndpointReadinessTimeout: ' + core + '/' + str(native_config.get('role'))
+                                + '; observed=' + observation['readiness'] + '; readyEvent=' + str(bool(ready_state)))
+                        if any(p.poll() is not None for p in children): raise ValueError('native process exited before readiness')
+                        time.sleep(.05); continue
+                    break
                 except ValueError as error:
                     if 'not an observed deployment listener' not in str(error) or time.monotonic() >= startup_deadline or any(p.poll() is not None for p in children): raise
                     time.sleep(.1)
@@ -315,21 +530,42 @@ def supervise(plan_path, ack):
                 raise ValueError('critical process exited during startup')
             if ack >= 0:
                 os.write(ack, b'OK'); os.close(ack); ack = -1
-            checked = time.monotonic()
+            checked = observed_at = time.monotonic()
             while not stopping and time.monotonic() < deadline and all(p.poll() is None for p in children):
-                verify_launch_admission(plan)
+                if attachment is not None: attachment.pump()
+                if time.monotonic() - observed_at >= .2:
+                    verify_launch_admission(plan); observe_children(); observed_at = time.monotonic()
                 if time.monotonic() - checked >= 5:
                     verify_launch_material(plan)
                     checked = time.monotonic()
-                observe_children()
-                time.sleep(.2)
+                time.sleep(.01 if attachment is not None else .2)
+            if (not stopping and attachment is not None and attachment.input_eof and
+                    children[0].poll() == 0 and all(p.poll() is None for p in children[1:])):
+                drain_deadline = time.monotonic() + 8
+                while (not attachment.output_eof or attachment.pending_peer is not None) and time.monotonic() < drain_deadline:
+                    attachment.pump(); time.sleep(.01)
+                application_completed = attachment.output_eof and attachment.pending_peer is None
+            if application_completed:
+                atomic_write(str(plan_path) + '.result', __import__('json').dumps({
+                    'schema':'shadow6.runtime-result.v1', 'pid':os.getpid(), 'processIdentity':identity(os.getpid()),
+                    'lockDigest':plan['lockDigest'], 'profileBinding':plan['profileBinding'],
+                    'state':'exited', 'reason':'application-record-drained'}).encode())
+    except (ValueError, OSError) as error:
+        if ack >= 0:
+            # Only supervisor diagnostics cross this private pipe. Native logs
+            # and configuration contents may contain secrets and stay private.
+            os.write(ack, b'ERROR:' + str(error).encode('utf-8')[:2048])
+        raise
     finally:
         if ack >= 0:
             os.close(ack)
         for p in children:
+            if p is None: continue
             if p.poll() is None:
                 p.terminate()
+        if attachment is not None: attachment.close()
         for p in children:
+            if p is None: continue
             if p.stdout: p.stdout.close()
             try:
                 p.wait(timeout=2)
@@ -337,6 +573,13 @@ def supervise(plan_path, ack):
                 p.kill(); p.wait(timeout=2)
 
 
+
+
+def validate_native_file_config(root, native):
+    """Use the one existing normalized native configuration authority."""
+    sys.path.insert(0, str(Path(root) / 'CLI'))
+    from native_config import validate
+    return validate(native)
 
 def validate_native_private(config):
     # Uniform listener contract keys; no Core identity branching or route guesses.
@@ -466,6 +709,18 @@ def observe(item, plan_path):
         process['endpoint']=None;process['readiness']='unavailable';return
     if not isinstance(plan,dict):raise ValueError('invalid runtime launch plan')
     value = validate_observation(value)
+    try:
+        from .profile_registry import validate_profile_binding
+    except ImportError:
+        from profile_registry import validate_profile_binding
+    profile = validate_profile_binding(plan.get('profileBinding'), core=plan.get('core'))
+    if plan.get('profileBinding') != item.get('profileBinding') or process.get('profileBinding') != item.get('profileBinding'):
+        raise ValueError('runtime ProfileBinding differs from approved service')
+    from limits import LimitResolver, LimitResolution
+    resolution = LimitResolver().validate(plan.get('limitResolution'), profile)
+    if (value.get('limitResolutionDigest') != LimitResolution(resolution).digest or
+            value.get('effectiveLimits') != resolution['effective_limits']):
+        raise ValueError('RuntimeLimitsDrift')
     if value.get('pid') != process['pid'] or value.get('processIdentity') != process['processIdentity']:
         raise ValueError('runtime observation identity mismatch')
     if type(value.get('observedAt')) is not int or not 0 <= int(time.time())-value['observedAt'] <= 2 or not all(alive(p) for p in value.get('processes',[])):
@@ -480,8 +735,15 @@ def observe(item, plan_path):
     children=value['processes']
     if len(children) != 1 + sum(component + 'Config' in plan for component in ('envelope','gate','guard')):
         raise ValueError('observed critical processes differ from deployment realization')
-    native=sockets(children[0]['pid'])
-    if process['privacy'] == 'envelope' and value['readiness'] == 'application-ready':
+    if sys.platform == 'linux':
+        for owned in [process] + value['processes']:
+            with open('/proc/' + str(owned['pid']) + '/limits') as handle:
+                actual = next((line.split()[-3:-1] for line in handle if line.startswith('Max open files')), None)
+            if actual != [str(resolution['effective_limits']['process_fds'])] * 2:
+                raise ValueError('RuntimeLimitsEnforcementDrift')
+    native=native_observed_endpoints(children[0]['pid'], strict_json(private_read(plan['config'])))
+    record_attachment = isinstance(value.get('endpoint'),dict) and value['endpoint'].get('observation') == 'supervisor-owned-record-adapter'
+    if process['privacy'] == 'envelope' and value['readiness'] == 'application-ready' and not record_attachment:
         raise ValueError('envelope public endpoint must denote the admission listener')
     if process['privacy'] == 'envelope' and len(children) < 2:
         raise ValueError('envelope observation requires its critical admission process')
@@ -491,9 +753,19 @@ def observe(item, plan_path):
         process['endpoint']=None;process['readiness']='unavailable';return
     actual = (all(e in native for e in value['nativeEndpoints'])
               and all(e in public for e in value['endpoints']))
-    if target is not None and value['readiness'] == 'application-ready':
+    if record_attachment:
+        try:
+            from .application_attachment import owned_seqpacket
+        except ImportError:
+            from application_attachment import owned_seqpacket
+        actual = (actual and profile['attachment']['mode'] == 'seqpacket-fd' and
+                  target['maxRecord'] == profile['limits']['max_record'] and
+                  any(e.get('transport') == 'unix-seqpacket' and e.get('path') == target['path'] for e in sockets(process['pid'])) and
+                  owned_seqpacket(children[0]['pid'], target['nativeFd'], target['nativeInode']))
+    elif target is not None and value['readiness'] == 'application-ready':
+        actual = actual and target.get('boundary') == profile['attachment']['kind'] and target.get('mode') == profile['attachment']['mode']
         actual = actual and any(e.get('host')==target['host'] and e.get('port')==target['port']
-                                and (target['boundary'] != 'stream' or e['transport']=='tcp') for e in native)
+                                and e['transport'] == profile['attachment']['transport'] for e in native)
     if not actual:
         process['endpoint']=None;process['readiness']='unavailable';return
     process['endpoint'] = value['endpoint']

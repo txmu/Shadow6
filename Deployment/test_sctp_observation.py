@@ -8,6 +8,61 @@ from Deployment import runtime_observation as observation, service_runtime
 from Deployment.broker_set import endpoint
 
 
+@unittest.skipUnless(sys.platform == 'linux', 'Linux owned-control-socket observation unavailable')
+class ControlObservationTests(unittest.TestCase):
+    def test_connected_datagram_requires_owned_exact_declared_peer(self):
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as peer:
+            peer.bind(('127.0.0.1', 0))
+            port = peer.getsockname()[1]
+            code = ('import socket,sys\ns=socket.socket(socket.AF_INET,socket.SOCK_DGRAM)\n'
+                    's.bind(("127.0.0.1",0));s.connect(("127.0.0.1",int(sys.argv[1])))\n'
+                    'print(s.getsockname()[1],flush=True)\nsys.stdin.read(1)\n')
+            child = subprocess.Popen([sys.executable, '-c', code, str(port)],
+                                     stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+            try:
+                local = int(child.stdout.readline())
+                native = dict(role='agent', listen_port=local, peer_port=port)
+                observed = service_runtime.native_observed_endpoints(child.pid, native)
+                self.assertEqual(len(observed), 1)
+                self.assertEqual(observed[0]['transport'], 'udp')
+                self.assertEqual(observed[0]['remotePort'], port)
+                self.assertEqual(service_runtime.native_observed_endpoints(child.pid,
+                    {**native, 'peer_port': port % 65535 + 1}), [])
+                self.assertEqual(service_runtime.native_observed_endpoints(child.pid,
+                    {**native, 'listen_port': local % 65535 + 1}), [])
+                self.assertFalse(any(item['port'] == local for item in
+                    service_runtime.native_observed_endpoints(os.getpid(), native)))
+                child.stdin.close(); child.wait(timeout=3)
+                self.assertEqual(observation.control_connections(child.pid, 'udp'), [])
+            finally:
+                if child.poll() is None: child.terminate(); child.wait(timeout=3)
+                if not child.stdin.closed: child.stdin.close()
+                child.stdout.close()
+
+    def test_agent_control_ready_requires_the_owned_declared_broker_peer(self):
+        with socket.socket() as broker:
+            broker.bind(('127.0.0.1',0)); broker.listen(1); broker.settimeout(3)
+            port = broker.getsockname()[1]
+            code = 'import socket,sys\ns=socket.create_connection(("127.0.0.1",int(sys.argv[1])),timeout=3)\nprint("ready",flush=True)\ns.recv(1)\ns.close()\n'
+            child = subprocess.Popen([sys.executable,'-c',code,str(port)], stdout=subprocess.PIPE)
+            try:
+                with broker.accept()[0] as control:
+                    self.assertEqual(child.stdout.readline(), b'ready\n')
+                    native = dict(role='agent', agent={'broker_addrs':[f'ws://127.0.0.1:{port}/ws']})
+                    actual = service_runtime.native_observed_endpoints(child.pid, native)
+                    self.assertEqual(len(actual), 1)
+                    self.assertEqual(actual[0]['observation'], 'process-owned-control-connection')
+                    self.assertEqual((actual[0]['remoteHost'], actual[0]['remotePort']), ('127.0.0.1',port))
+                    wrong = dict(role='agent', agent={'broker_addrs':[f'ws://127.0.0.1:{port % 65535 + 1}/ws']})
+                    self.assertEqual(service_runtime.native_observed_endpoints(child.pid, wrong), [])
+                    self.assertEqual(service_runtime.native_observed_endpoints(child.pid, {'role':'client'}), [])
+                child.wait(timeout=3)
+                self.assertEqual(observation.control_connections(child.pid), [])
+            finally:
+                if child.poll() is None: child.terminate(); child.wait(timeout=3)
+                child.stdout.close()
+
+
 class SCTPObservationTests(unittest.TestCase):
     def socket(self):
         if not sys.platform.startswith('linux'):

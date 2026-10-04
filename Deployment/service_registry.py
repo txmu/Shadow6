@@ -10,12 +10,14 @@ import time
 import threading
 from pathlib import Path
 try:
+    from .profile_registry import CORE_IDS, bind_profile, native_material_paths, validate_profile_binding, validate_profile_realization, LimitResolver, HostBudget, validate_policy
     from .core_catalog import CoreCatalog
     from .service_storage import private_read, strict_json, private_directory, atomic_write
     from . import service_runtime as runtime
     from .protocol_context import validate_context, minimal_context, check_binding, context_digest, admit, admit_realization
     from .connection_plan import resolve_connection
 except ImportError:
+    from profile_registry import CORE_IDS, bind_profile, native_material_paths, validate_profile_binding, validate_profile_realization, LimitResolver, HostBudget, validate_policy
     from core_catalog import CoreCatalog
     from service_storage import private_read, strict_json, private_directory, atomic_write
     import service_runtime as runtime
@@ -86,11 +88,11 @@ class ServiceRegistry:
             self.services = {}; return
         if not isinstance(data, dict) or set(data) != {'schema', 'services'} or data['schema'] not in (SCHEMA, 'shadow6.service-registry.v1') or not isinstance(data['services'], dict) or len(data['services']) > 128:
             raise ValueError('invalid service registry')
-        allowed = {'name', 'protocolContext', 'spec', 'privacy', 'privacyTelemetry', 'coreBinding', 'state', 'deploymentLock', 'runtime'}
+        allowed = {'name', 'protocolContext', 'spec', 'privacy', 'privacyTelemetry', 'coreBinding', 'profileBinding', 'state', 'deploymentLock', 'runtime'}
         for name, item in data['services'].items():
             if not NAME.fullmatch(name) or not isinstance(item, dict) or set(item) - allowed or item.get('name') != name:
                 raise ValueError('invalid named service record')
-            if item.get('state') not in {'unresolved','ready','locked','applied','running','stopped','exited'}:
+            if item.get('state') not in {'unresolved','ready','locked','applied','running','stopped','exited','stale','degraded','failed'}:
                 raise ValueError('invalid service state')
             binding = item.get('coreBinding')
             if binding is not None:
@@ -98,14 +100,22 @@ class ServiceRegistry:
                 if not isinstance(binding, dict) or set(binding) not in (fields,fields | {'descriptorDigest'}) or binding['core'] not in self.catalog._items:
                     raise ValueError('invalid Core binding')
                 self.catalog.binding(binding['core'], binding['config'])
+            profile = item.get('profileBinding')
+            if profile is not None:
+                if binding is None: raise ValueError('ProfileBinding requires CoreBinding')
+                validate_profile_binding(profile, core=binding['core'], current=False)
             lock = item.get('deploymentLock')
-            if lock is not None and (not isinstance(lock, dict) or set(lock) not in ({'schema','digest','coreBinding'}, {'schema','digest','coreBinding','contextDigest'}) or lock['schema'] != 'shadow6.deployment-lock.v2'):
+            if lock is not None and (not isinstance(lock, dict) or set(lock) not in ({'schema','digest','coreBinding'}, {'schema','digest','coreBinding','contextDigest'}, {'schema','digest','coreBinding','contextDigest','limitResolution'}, {'schema','digest','coreBinding','profileBinding','contextDigest'}, {'schema','digest','coreBinding','profileBinding','contextDigest','limitResolution'}) or lock['schema'] != 'shadow6.deployment-lock.v2'):
                 raise ValueError('invalid deployment lock')
+            if lock is not None and 'profileBinding' in lock:
+                validate_profile_binding(lock['profileBinding'], core=lock['coreBinding']['core'], current=False)
             process = item.get('runtime')
             if process is not None:
                 fields = {'pid','processIdentity','readiness','state','core','lockDigest','endpoint','privacy','startedAt','expiresAt'}
-                if not isinstance(process, dict) or set(process) != fields or type(process['pid']) is not int or process['pid'] <= 1 or not isinstance(process['processIdentity'], str) or not re.fullmatch(r'[0-9a-f-]{36}:[0-9]+', process['processIdentity']):
+                if not isinstance(process, dict) or set(process) not in (fields, fields | {'profileBinding'}) or type(process['pid']) is not int or process['pid'] <= 1 or not isinstance(process['processIdentity'], str) or not re.fullmatch(r'[0-9a-f-]{36}:[0-9]+', process['processIdentity']):
                     raise ValueError('invalid runtime identity; legacy simulated state needs explicit recreation')
+                if 'profileBinding' in process:
+                    validate_profile_binding(process['profileBinding'], core=process['core'], current=False)
                 if any(type(process[k]) is not int for k in ('startedAt','expiresAt')):
                     raise ValueError('invalid runtime timestamps')
             if 'protocolContext' not in item:
@@ -139,10 +149,11 @@ class ServiceRegistry:
 
     @staticmethod
     def _spec(spec):
-        if not isinstance(spec, dict) or set(spec) - {'ttl', 'envelope_config', 'metrics_path', 'gate_config', 'guard_config'}:
+        if not isinstance(spec, dict) or set(spec) - {'ttl', 'envelope_config', 'metrics_path', 'gate_config', 'guard_config', 'limits'}:
             raise ValueError('unknown service specification field')
         if type(spec.get('ttl', 3600)) is not int or not 30 <= spec.get('ttl', 3600) <= 86400:
             raise ValueError('service ttl must be 30..86400 seconds')
+        validate_policy(spec.get('limits'))
         for key in ('envelope_config', 'metrics_path', 'gate_config', 'guard_config'):
             if key in spec and (not isinstance(spec[key], str) or not Path(spec[key]).is_absolute()):
                 raise ValueError('service file references must be absolute paths')
@@ -153,7 +164,7 @@ class ServiceRegistry:
         return {'schema': 'shadow6.lifecycle.v1', 'stage': 'init', 'platform': platform.system(), 'statePath': str(self.path)}
 
     @transaction
-    def create(self, name, *, core, config, spec=None, privacy='native', context=None):
+    def create(self, name, *, core, config, spec=None, privacy='native', context=None, profile=None):
         if not NAME.fullmatch(name) or name in self.services or len(self.services) >= 128:
             raise ValueError('service name must be unique namespace/name; maximum 128 services')
         spec = spec or {}; self._spec(spec)
@@ -162,28 +173,45 @@ class ServiceRegistry:
         context = admit(validate_context(context)) if context is not None else minimal_context(core)
         binding = None if core is None else self.catalog.binding(core, config or {})
         if binding: check_binding(context, core, self.catalog)
-        item = {'name': name, 'protocolContext': context, 'spec': spec, 'privacy': privacy, 'coreBinding': binding,
+        if profile is not None and core is None: raise ValueError('ProfileBinding requires explicit Core')
+        profile_binding = bind_profile(core, profile) if core in CORE_IDS else None
+        if profile is not None and profile_binding is None: raise ValueError('UnknownNativeProfile')
+        item = {'name': name, 'protocolContext': context, 'spec': spec, 'privacy': privacy, 'coreBinding': binding, 'profileBinding': profile_binding,
                 'state': 'unresolved' if binding is None else 'ready'}
         self.services[name] = item; self._save(); return item
 
     @transaction
-    def configure(self, name, *, core, config, privacy=None, spec=None, context=None):
+    def configure(self, name, *, core, config, privacy=None, spec=None, context=None, profile=None):
         item = self.inspect(name)
         if runtime.alive(item.get('runtime', {})):
             raise ValueError('stop the service before reconfiguring')
         binding = self.catalog.binding(core, config)
         context = admit(validate_context(context)) if context is not None else admit(item['protocolContext'])
         check_binding(context, core, self.catalog)
-        item['protocolContext'] = context
+        profile_binding = bind_profile(core, profile) if core in CORE_IDS else None
+        if profile is not None and profile_binding is None: raise ValueError('UnknownNativeProfile')
+        if spec is not None: self._spec(spec)
         if privacy is not None and privacy not in ('native', 'envelope'):
             raise ValueError('invalid privacy mode')
-        if spec is not None:
-            self._spec(spec); item['spec'] = spec
-        item['coreBinding'] = binding
-        if privacy is not None:
-            item['privacy'] = privacy
-        item.pop('deploymentLock', None); item.pop('runtime', None)
-        item['state'] = 'ready'; self._save(); return item
+        replacement = json.loads(json.dumps(item))
+        if spec is not None: replacement['spec'] = spec
+        replacement['protocolContext'] = context
+        replacement['coreBinding'] = binding
+        replacement['profileBinding'] = profile_binding
+        if privacy is not None: replacement['privacy'] = privacy
+        replacement.pop('deploymentLock', None); replacement.pop('runtime', None)
+        replacement['state'] = 'ready'
+        self.services[name] = replacement
+        try:
+            # A previously locked deployment gets full replacement admission
+            # before losing its original approved state. Unresolved drafts can
+            # still be edited before their first explicit lock/apply.
+            if item.get('deploymentLock'): self._material(name)
+            self._save()
+        except BaseException:
+            self.services[name] = item
+            raise
+        return replacement
 
     def _material(self, name):
         item = self.inspect(name); binding = self.require_binding(name)
@@ -191,18 +219,28 @@ class ServiceRegistry:
         current = self.catalog.binding(binding['core'], binding['config'])
         if current != binding:
             raise ValueError('Core binding drift; explicitly reconfigure')
+        if runtime.executable_digest(self.catalog.inspect(binding['core'])['executable']) != binding['binaryDigest']:
+            raise ValueError('Core binary drift; explicitly reconfigure')
         content = private_read(binding['config']['config_path'])
         config_hash = digest(content)
         try: native = strict_json(content)
         except ValueError: native = None
         context = item['protocolContext']
+        profile_binding = self.require_profile_binding(name)
+        selected_profile = validate_profile_realization(profile_binding, native, context)
+        if selected_profile['realization']['launcher'] == 'native-files':
+            runtime.validate_native_file_config(self.catalog.root, native)
+
         if isinstance(native,dict) and 'role' in native and context['role'] not in ('all',native['role']):
             raise ValueError('native role realization differs from S6P1')
         if isinstance(native,dict) and context['identity'].get('id') is not None:
             role = native.get('role')
             native_id = native.get(role,{}).get('id') if isinstance(native.get(role),dict) else native.get('id')
             if native_id != context['identity']['id']: raise ValueError('native identity realization differs from S6P1')
-        extra = {}
+        native_materials = native_material_paths(profile_binding, native)
+        extra = {'nativeMaterials': native_materials, 'nativeMaterialDigests': {key:digest(private_read(path,limit=16384)) for key,path in native_materials.items()}}
+        extra['runtimeMaterials'] = runtime.runtime_material_paths(self.catalog.root)
+        extra['runtimeMaterialDigests'] = {key:runtime.source_material_digest(path) for key,path in extra['runtimeMaterials'].items()}
         fields = None
         components = {}
         if item['privacy'] == 'envelope':
@@ -233,15 +271,18 @@ class ServiceRegistry:
                 extra[component + 'ConfigDigest'] = digest(private_read(path))
                 extra[component + 'BinaryDigest'] = digest(Path(runtime.executable(self.catalog.component_binary(component))).read_bytes())
         try:
-            from .service_composition import validate_composition, broker_realization
+            from .service_composition import validate_composition, broker_realization, component_material_paths
         except ImportError:
-            from service_composition import validate_composition, broker_realization
+            from service_composition import validate_composition, broker_realization, component_material_paths
+        component_materials = {key:path for component,value in components.items() for key,path in component_material_paths(component,value).items()}
+        extra['componentMaterials'] = component_materials
+        extra['componentMaterialDigests'] = {key:digest(private_read(path,limit=16384)) for key,path in component_materials.items()}
         realized = set(components)
         if item['privacy'] == 'envelope': realized.add('s6epe')
         admit_realization(context, native_role=native.get('role') if isinstance(native,dict) else None, components=realized)
         extra['brokerRealization'] = broker_realization(context,native=native,gate=components.get('gate'))
         extra['composition'] = validate_composition(privacy=item['privacy'], envelope=fields, gate=components.get('gate'), guard=components.get('guard'))
-        return {'contextDigest':context_digest(item['protocolContext']), 'name': name, 'spec': item['spec'], 'privacy': item['privacy'], 'binding': binding, 'nativeConfigDigest': config_hash, **extra}
+        return {'contextDigest':context_digest(item['protocolContext']), 'name': name, 'spec': item['spec'], 'privacy': item['privacy'], 'binding': binding, 'profileBinding': profile_binding, 'nativeConfigDigest': config_hash, **extra}
 
     @transaction
     def lock(self, name):
@@ -249,7 +290,8 @@ class ServiceRegistry:
         if runtime.alive(item.get('runtime', {})):
             raise ValueError('stop service before locking')
         material = self._material(name)
-        item['deploymentLock'] = {'schema': 'shadow6.deployment-lock.v2', 'digest': digest(encoded(material)), 'coreBinding': self.require_binding(name), 'contextDigest':context_digest(item['protocolContext'])}
+        resolution = LimitResolver().resolve(validate_profile_binding(self.require_profile_binding(name)), item['spec'].get('limits')).to_dict()
+        item['deploymentLock'] = {'schema': 'shadow6.deployment-lock.v2', 'limitResolution': resolution, 'digest': digest(encoded(material)), 'coreBinding': self.require_binding(name), 'profileBinding': self.require_profile_binding(name), 'contextDigest':context_digest(item['protocolContext'])}
         item['state'] = 'locked'; self._save(); return item['deploymentLock']
 
     @transaction
@@ -257,6 +299,9 @@ class ServiceRegistry:
         item = self.inspect(name)
         if not item.get('deploymentLock'):
             self.lock(name)
+        resolution = item['deploymentLock'].get('limitResolution')
+        if resolution is None: raise ValueError('LegacyLimitsLock: explicitly stop and relock')
+        LimitResolver().validate(resolution, validate_profile_binding(self.require_profile_binding(name)), item['spec'].get('limits'), check_host=True)
         if item['deploymentLock']['digest'] != digest(encoded(self._material(name))):
             raise ValueError('deployment drift; explicitly reconfigure and apply')
         if not runtime.alive(item.get('runtime', {})):
@@ -272,7 +317,7 @@ class ServiceRegistry:
         if digest(encoded(material)) != item['deploymentLock']['digest']:
             raise ValueError('deployment drift while preparing launch plan')
         binary = runtime.executable(self.catalog.inspect(binding['core'])['executable'])
-        plan = {'root': str(self.catalog.root), 'core': binding['core'], 'binary': binary,
+        plan = {'limitResolution': item['deploymentLock']['limitResolution'], 'root': str(self.catalog.root), 'core': binding['core'], 'profileBinding': self.require_profile_binding(name), 'binary': binary,
                 'config': binding['config']['config_path'], 'launchAdapter':self.catalog.inspect(binding['core']).get('launchAdapter','native-config'), 'ttl': item['spec'].get('ttl', 3600),
                 'protocolContext':item['protocolContext'], 'contextDigest':material['contextDigest'], 'lockDigest':item['deploymentLock']['digest']}
         if item['privacy'] == 'envelope':
@@ -282,18 +327,26 @@ class ServiceRegistry:
             if item['spec'].get(component + '_config'):
                 plan[component + 'Config'] = item['spec'][component + '_config']
                 plan[component + 'Binary'] = str(self.catalog.component_binary(component))
+        plan['runtimeMaterials'] = material['runtimeMaterials']
+        plan['componentMaterials'] = material['componentMaterials']
+        plan['nativeMaterials'] = material['nativeMaterials']
         plan['launchDigests'] = {'binary':binding['binaryDigest'], 'config':material['nativeConfigDigest']}
         for component in ('envelope','gate','guard'):
             if component + 'Config' in plan:
                 plan['launchDigests'][component + 'Config'] = material[component + 'ConfigDigest']
                 plan['launchDigests'][component + 'Binary'] = material[component + 'BinaryDigest']
         plan['launchDigests'].update(material.get('envelopeTlsDigests',{}))
+        plan['launchDigests'].update({'nativeMaterial:' + key:value for key,value in material['nativeMaterialDigests'].items()})
+        plan['launchDigests'].update({'runtimeMaterial:' + key:value for key,value in material['runtimeMaterialDigests'].items()})
+        plan['launchDigests'].update({'componentMaterial:' + key:value for key,value in material['componentMaterialDigests'].items()})
         path = self.path.parent / (hashlib.sha256(name.encode()).hexdigest() + '.runtime.json')
         atomic_write(path, encoded(plan))
         return path, plan
 
     @transaction
     def run(self, name):
+        if not self.inspect(name).get('deploymentLock'):
+            raise ValueError('DeploymentLock required; explicitly lock/apply before run')
         item = self.apply(name); binding = self.require_binding(name)
         admit(item['protocolContext'], role=None if item['protocolContext']['role'] == 'all' else item['protocolContext']['role'])
         if runtime.alive(item.get('runtime', {})):
@@ -307,7 +360,7 @@ class ServiceRegistry:
         binary = runtime.executable(self.catalog.inspect(binding['core'])['executable'])
         path, plan = self.launch_plan(name)
         process = runtime.start(path)
-        item['runtime'] = {**process, 'state': 'running', 'core': binding['core'], 'lockDigest': item['deploymentLock']['digest'],
+        item['runtime'] = {**process, 'state': 'running', 'core': binding['core'], 'profileBinding': self.require_profile_binding(name), 'lockDigest': item['deploymentLock']['digest'],
                            'endpoint': None, 'privacy': item['privacy'],
                            'startedAt': int(time.time()), 'expiresAt': int(time.time()) + plan['ttl']}
         item['state'] = 'running'
@@ -321,9 +374,24 @@ class ServiceRegistry:
     def status(self, name):
         item = self.inspect(name)
         if item.get('runtime', {}).get('state') == 'running' and not runtime.alive(item['runtime']):
-            item['runtime']['state'] = 'exited'; item['state'] = 'exited'; self._save()
+            terminal = 'exited' if int(time.time()) >= item['runtime'].get('expiresAt', 0) else 'failed'
+            result_path = self.path.parent / (hashlib.sha256(name.encode()).hexdigest() + '.runtime.json.result')
+            try:
+                outcome = strict_json(private_read(result_path))
+                expected = {'schema':'shadow6.runtime-result.v1', 'pid':item['runtime']['pid'],
+                            'processIdentity':item['runtime']['processIdentity'], 'lockDigest':item['runtime']['lockDigest'],
+                            'profileBinding':item.get('profileBinding'), 'state':'exited', 'reason':'application-record-drained'}
+                if outcome == expected: terminal = 'exited'
+            except (ValueError, OSError): pass
+            item['runtime']['state'] = terminal; item['state'] = terminal; self._save()
         result = json.loads(json.dumps(item))
-        runtime.observe(result, self.path.parent / (hashlib.sha256(name.encode()).hexdigest() + '.runtime.json'))
+        try:
+            runtime.observe(result, self.path.parent / (hashlib.sha256(name.encode()).hexdigest() + '.runtime.json'))
+        except (ValueError, OSError, KeyError, TypeError):
+            result.pop('runtimeObservation', None)
+            if result.get('runtime'):
+                result['runtime'].update(endpoint=None, readiness='unavailable')
+            result['runtimeDiagnostic'] = 'RuntimeObservationInvalid'
         process = result.get('runtime')
         if process and process.get('state') == 'running':
             try:
@@ -333,6 +401,8 @@ class ServiceRegistry:
                          and process.get('lockDigest') == lock.get('digest')
                          and process.get('core') == binding.get('core')
                          and lock.get('coreBinding') == binding
+                         and process.get('profileBinding') == result.get('profileBinding')
+                         and lock.get('profileBinding') == result.get('profileBinding')
                          and lock.get('contextDigest') == context_digest(result['protocolContext'])
                          and digest(encoded(self._material(name))) == lock.get('digest'))
             except (ValueError, OSError, KeyError, TypeError):
@@ -340,6 +410,14 @@ class ServiceRegistry:
             if not valid:
                 process.update(endpoint=None, readiness='unavailable')
                 result.pop('runtimeObservation', None)
+                result['state'] = 'stale'
+                item['state'] = 'stale'; self._save()
+            elif process.get('readiness') not in ('listener-ready', 'control-ready', 'application-ready') or not result.get('runtimeObservation'):
+                result['state'] = 'degraded'
+                result['runtimeDiagnostic'] = result.get('runtimeDiagnostic', 'RuntimeReadinessUnavailable')
+                item['state'] = 'degraded'; self._save()
+            elif item['state'] in ('degraded', 'stale'):
+                result['state'] = 'running'; item['state'] = 'running'; self._save()
         try:
             from privacy_envelope import read_metrics
         except ImportError:
@@ -369,11 +447,15 @@ class ServiceRegistry:
     @transaction
     def connection_inputs(self, name):
         item = self.inspect(name)
-        if item['state'] != 'running' or not runtime.alive(item.get('runtime', {})):
+        if item['state'] == 'stale':
+            raise ValueError('deployment drift; explicitly stop and reconfigure/relock')
+        if item['state'] not in ('running', 'degraded') or not runtime.alive(item.get('runtime', {})):
             raise ValueError('service is not running')
         self.apply(name)
         item = self.status(name)
-        if item['state'] != 'running' or not runtime.alive(item.get('runtime', {})):
+        if item['state'] == 'stale':
+            raise ValueError('deployment drift; explicitly stop and reconfigure/relock')
+        if item['state'] not in ('running', 'degraded') or not runtime.alive(item.get('runtime', {})):
             raise ValueError('service is not running')
         material = self._material(name)
         if digest(encoded(material)) != item['deploymentLock']['digest']:
@@ -416,6 +498,9 @@ class ServiceRegistry:
         observed = Path(str(path) + '.observed')
         if observed.exists():
             private_read(observed); observed.unlink()
+        result = Path(str(path) + '.result')
+        if result.exists():
+            private_read(result); result.unlink()
         if path.exists():
             private_read(path); path.unlink()
         return {'removed': name}
@@ -436,3 +521,61 @@ class ServiceRegistry:
         if not isinstance(binding, dict) or not binding.get('core'):
             raise ValueError('service has unresolved Core binding')
         return binding
+
+    @transaction
+    def require_profile_binding(self, name):
+        item = self.inspect(name)
+        binding = item.get('profileBinding')
+        if binding is None:
+            raise ValueError('ProfileBinding required; explicitly stop and service configure with --core/--profile, then relock/apply')
+        validate_profile_binding(binding, core=self.require_binding(name)['core'])
+        return binding
+
+    @transaction
+    def doctor(self, name):
+        """Inspect the same binding, lock and observations used by run/connect."""
+        item = self.inspect(name)
+        findings = []
+        material = None
+        selected = None
+        try:
+            selected = validate_profile_binding(item.get('profileBinding'), core=self.require_binding(name)['core'])
+        except ValueError:
+            findings.append('ProfileBindingMissingOrDrifted')
+        try:
+            material = self._material(name)
+        except (ValueError, OSError, KeyError, TypeError):
+            findings.append('DeploymentMaterialUnavailableOrDrifted')
+        lock = item.get('deploymentLock')
+        valid_lock = bool(material and lock and lock.get('digest') == digest(encoded(material))
+                          and lock.get('profileBinding') == item.get('profileBinding'))
+        if not valid_lock: findings.append('DeploymentLockMissingOrDrifted')
+        if lock and selected:
+            try:
+                LimitResolver().validate(lock.get('limitResolution'), selected, item['spec'].get('limits'), check_host=True)
+            except (ValueError, TypeError, KeyError) as error:
+                findings.append(str(error).split(':', 1)[0])
+        feature_valid = False
+        try:
+            binding = self.require_binding(name)
+            report = runtime.feature_report(self.catalog.inspect(binding['core'])['executable'])
+            from feature_contract import validate_feature_report
+            validate_feature_report(report, 'shadow6-' + binding['core'])
+            if selected is None or selected['applicationBoundary'] not in report['application_boundaries']:
+                raise ValueError('Profile feature boundary mismatch')
+            feature_valid = True
+        except (ValueError, OSError, KeyError, TypeError):
+            findings.append('InstalledProfileFeatureReportUnavailableOrMismatch')
+        current = self.status(name)
+        if current.get('runtime') and current['state'] != 'running':
+            findings.append('RuntimeNotReady:' + current['state'])
+        return {'schema':'shadow6.named-service-doctor.v1', 'service':name,
+                'limitResolution':(lock or {}).get('limitResolution'),
+                'currentHostBudget':HostBudget.capture().to_dict(),
+                'core':(item.get('coreBinding') or {}).get('core'),
+                'profileBinding':item.get('profileBinding'), 'state':current['state'],
+                'materialValid':material is not None, 'lockValid':valid_lock,
+                'featureReportValid':feature_valid, 'findings':sorted(set(findings)),
+                'healthy':not findings, 'runtime':current.get('runtime'),
+                'runtimeObservation':current.get('runtimeObservation'),
+                'hint':'Use explicit stop, upgrade/reconfigure, lock/apply and run; run never builds or changes Profile.'}

@@ -2,53 +2,18 @@
 from __future__ import annotations
 
 import json
-import os
-import selectors
-import subprocess
 import time
 from urllib.parse import urlsplit
 
 from Deployment.core_catalog import CoreCatalog
+from Deployment.profile_registry import validate_profile_binding, validate_profile_realization
 from Deployment.service_registry import ServiceRegistry, digest, encoded
 from Deployment.service_storage import private_read, strict_json
 from Deployment.runtime_observation import validate_observation, private_socket
 from Deployment.protocol_context import validate_context, admit_realization
 
 
-def _feature_report(binary: str) -> dict:
-    process = subprocess.Popen([binary, "--feature-report"], stdout=subprocess.PIPE,
-                               stderr=subprocess.DEVNULL, close_fds=True)
-    data = bytearray()
-    deadline = time.monotonic() + 3
-    try:
-        with selectors.DefaultSelector() as selector:
-            selector.register(process.stdout, selectors.EVENT_READ)
-            while True:
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    raise ValueError("feature-report timeout")
-                events = selector.select(remaining)
-                if not events:
-                    raise ValueError("feature-report timeout")
-                block = os.read(process.stdout.fileno(), min(16385, 65537 - len(data)))
-                data.extend(block)
-                if len(data) > 65536:
-                    raise ValueError("feature-report exceeds 64 KiB")
-                if not block:
-                    break
-        if process.wait(timeout=max(0.1, deadline-time.monotonic())) != 0:
-            raise ValueError("feature-report failed")
-    except BaseException:
-        process.kill()
-        process.wait()
-        raise
-    finally:
-        process.stdout.close()
-    value = strict_json(bytes(data))
-    if not isinstance(value, dict) or not isinstance(value.get("core"), str):
-        raise ValueError("invalid Core feature-report")
-    return value
-
+from Deployment.service_runtime import feature_report as _feature_report
 
 def verify_named_service(name: str, *, registry: ServiceRegistry | None = None) -> dict:
     """Read real feature reports, DeploymentLock, supervisor state and owned sockets."""
@@ -68,6 +33,12 @@ def verify_named_service(name: str, *, registry: ServiceRegistry | None = None) 
     except (OSError, ValueError):
         native = {}
         findings.append("native-config-unavailable")
+    try:
+        selected_profile = validate_profile_binding(item.get('profileBinding'), core=binding['core'])
+        validate_profile_realization(item['profileBinding'], native, context)
+    except ValueError:
+        selected_profile = None
+        findings.append('profile-binding-missing-or-drifted')
     native_role = native.get("role") if isinstance(native, dict) else None
     if native_role not in {"broker", "agent", "client"}:
         findings.append("native-role-unavailable")
@@ -78,6 +49,8 @@ def verify_named_service(name: str, *, registry: ServiceRegistry | None = None) 
     if not isinstance(boundaries, list):
         findings.append("feature-report-boundaries-invalid")
         boundaries = []
+    if selected_profile is not None and selected_profile['applicationBoundary'] not in boundaries:
+        findings.append('profile-feature-boundary-mismatch')
     requested = {r["boundary"] for r in context["routes"] if isinstance(r, dict) and r.get("boundary")}
     claimed = {b.get("kind") for b in boundaries if isinstance(b, dict)}
     if requested - claimed:
@@ -101,7 +74,8 @@ def verify_named_service(name: str, *, registry: ServiceRegistry | None = None) 
     lock = item.get("deploymentLock")
     lock_valid = False
     if isinstance(lock, dict) and material is not None:
-        lock_valid = (lock.get("contextDigest") == material["contextDigest"]
+        lock_valid = (lock.get("profileBinding") == item.get("profileBinding")
+                      and lock.get("contextDigest") == material["contextDigest"]
                       and lock.get("digest") == digest(encoded(material)))
     if not lock_valid:
         findings.append("deployment-lock-missing-or-drifted")
@@ -115,6 +89,8 @@ def verify_named_service(name: str, *, registry: ServiceRegistry | None = None) 
             validate_observation(observation)
             if time.time() - observation["observedAt"] > 5:
                 findings.append("runtime-observation-stale")
+            if runtime.get('profileBinding') != item.get('profileBinding'):
+                findings.append('runtime-profile-mismatch')
             if runtime.get("lockDigest") != (lock or {}).get("digest"):
                 findings.append("runtime-lock-mismatch")
             expected_processes = 1 + sum(components.values())
@@ -152,6 +128,6 @@ def verify_named_service(name: str, *, registry: ServiceRegistry | None = None) 
                          "realization": "DeploymentLock" if lock_valid else "invalid",
                          "runtimeClaim": runtime.get("readiness", "unavailable"),
                          "observed": "OS-process-and-socket" if observation else "unavailable",
-                         "core": binding["core"], "role": native_role,
+                         "core": binding["core"], "profileBinding": item.get("profileBinding"), "role": native_role,
                          "applicationBoundaries": sorted(claimed),
                          "ownedEndpoints": observation.get("endpoints", []) if observation else []}}

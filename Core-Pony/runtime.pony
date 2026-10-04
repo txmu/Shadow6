@@ -180,6 +180,11 @@ actor Runtime is DatagramReceiver
         let id = PeerID(_peer)?
         _sessions(id) = ClientSession.client(_auth, _cfg, this, _network, _peer, _target, id, _out, _flow_fd)
         _network.route(_peer, _sessions(id)?)
+        // The actor has confirmed the native bind and installed the flow
+        // consumer. Main/config admission alone cannot establish readiness.
+        if _flow_fd >= 0 then
+          _out.print("{\"event\":\"shadow6.ready\",\"schema\":1,\"core\":\"shadow6-pony\",\"role\":\"client\",\"application_boundary\":{\"kind\":\"message\",\"mode\":\"seqpacket-fd\",\"endpoint\":{\"fd\":" + _flow_fd.string() + "}}}")
+        end
       else failed() end
     else _out.print(if _cfg.broker then "ready: broker" else "ready: listener" end) end
   be tick() =>

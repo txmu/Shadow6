@@ -525,7 +525,7 @@ def validate_topology(topo: Any) -> dict:
     global_cfg = topo.get("global", {})
     if not isinstance(global_cfg, dict):
         raise ValueError("global topology settings must be a mapping")
-    if set(global_cfg) - {"stealth_mode", "broker_scheme", "broker_path", "output_dir", "mtd_rotation_interval", "gleam_transport", "broker_adapter"}:
+    if set(global_cfg) - {"stealth_mode", "broker_scheme", "broker_path", "output_dir", "mtd_rotation_interval", "gleam_transport", "native_profile", "broker_adapter"}:
         raise ValueError("unknown global topology fields")
     if "stealth_mode" in global_cfg and type(global_cfg["stealth_mode"]) is not bool:
         raise ValueError("stealth_mode must be boolean")
@@ -535,8 +535,6 @@ def validate_topology(topo: Any) -> dict:
     broker_path = global_cfg.get("broker_path", "/ws")
     if not broker_path.startswith("/") or broker_path == "/" or any(c in broker_path for c in "?#\\ "):
         raise ValueError("global.broker_path must be a non-root absolute URL path")
-    if global_cfg.get("gleam_transport", "secure-stream") not in {"secure-stream", "micro-mux"}:
-        raise ValueError("global.gleam_transport must be secure-stream or micro-mux")
     nodes = topo.get("nodes")
     if not isinstance(nodes, list) or not 1 <= len(nodes) <= MAX_NODES:
         raise ValueError(f"topology must contain 1..{MAX_NODES} nodes")
@@ -618,8 +616,8 @@ def validate_topology(topo: Any) -> dict:
     if next(iter(core_engines)).removeprefix("shadow6-") in DATAGRAM_CORE_NAMES:
         if len(nodes) != 3 or {n['type'] for n in nodes} != {"broker", "agent", "client"}:
             raise ValueError("capability unavailable: native datagram topology adapter requires one broker, agent and client")
-    if "gleam_transport" in global_cfg and core_engines != {"shadow6-gleam"}:
-        raise ValueError("gleam_transport applies only to the Gleam Core")
+    from Deployment.profile_registry import topology_profile
+    topology_profile(next(iter(core_engines)).removeprefix('shadow6-'), global_cfg)
     broker = brokers[0]
     broker_host = str(broker.get("advertise_host", broker.get("ssh_host", "127.0.0.1")))
     scheme = global_cfg.get("broker_scheme", "ws" if core_engines == {"shadow6-gleam"} else "wss")
@@ -730,8 +728,10 @@ async def execute_mtd_rotation(topo: dict):
             "agent": next(iter(agent_keys.values())),
             "client": next(iter(client_keys.values())),
         }, secrets.token_hex(32))
-    if core_engine == "shadow6-gleam" and global_cfg.get("gleam_transport") == "micro-mux":
-        console.print("[yellow]Micro-Mux transport itself provides NO availability guarantee: loss, ordering and recovery are not assured.[/yellow]")
+    from Deployment.profile_registry import topology_profile
+    profile = topology_profile(core_engine.removeprefix('shadow6-'), global_cfg)
+    if profile['applicationBoundary'].get('reliable') is False:
+        console.print(f"[yellow]{profile['id']} provides best-effort delivery; loss, ordering and recovery are not assured.[/yellow]")
 
     tasks = []
     deployment_slots = asyncio.Semaphore(8)

@@ -193,6 +193,7 @@ fn runtime(c: *configuration) void = {
 	defer if (owned_flow_fd >= 0) rt::close(owned_flow_fd)!;
 	const sock = udp::listen(ip::LOCAL_V6, c.listen)!; defer io::close(sock)!;
 	socket_buffers(sock);
+	if (owned_flow_fd >= 0) fmt::println("{\"event\":\"shadow6.ready\",\"schema\":1,\"core\":\"shadow6-hare\",\"role\":\"client\",\"application_boundary\":{\"kind\":\"message\",\"mode\":\"seqpacket-fd\",\"endpoint\":{\"fd\":", owned_flow_fd, "}}}")!;
 	let addr: ip::addr = ip::LOCAL_V6; let port = c.target;
 	let tx: [32]u8 = [0...]; let rx: [32]u8 = [0...];
 	defer wipe(&tx[0], 32); defer wipe(&rx[0], 32);

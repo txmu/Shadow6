@@ -13,7 +13,10 @@ except ImportError:
 from pathlib import Path
 from typing import Any
 
-CORE_IDS = ("go", "rust", "gleam", "ada", "nim", "pony", "zig", "d", "cpp", "idris", "hare", "carp")
+try:
+    from .profile_registry import CORE_IDS, application_boundaries, select_profile
+except ImportError:
+    from profile_registry import CORE_IDS, application_boundaries, select_profile
 CATALOG_SCHEMA = "shadow6.core-catalog.v1"
 DESCRIPTOR_SCHEMA = "shadow6.core-descriptor.v1"
 CONFIG_SCHEMA = "shadow6.core-config.v1"
@@ -29,13 +32,9 @@ def _schema(core: str) -> dict[str, Any]:
 
 def _descriptor(core: str, root: Path | None = None) -> dict[str, Any]:
     root = root or Path(__file__).resolve().parents[1]
-    path = root / f"Core-{core.title() if core != 'cpp' else 'Cpp'}" / f"shadow6-{core}"
-    # Built-in kinds come from the shared feature contract, not a UI preference.
-    for location in (root / 'Crosed', root.parent / 'modules'):
-        if (location / 'feature_contract.py').is_file(): sys.path.insert(0,str(location));break
-    from feature_contract import STREAM_CONNECTION_LIMIT, APP_TRANSPORT_MODES
-    report_id = 'shadow6-' + core
-    boundaries = (['stream'] if report_id in STREAM_CONNECTION_LIMIT else []) + (['message'] if report_id in APP_TRANSPORT_MODES else [])
+    profile = select_profile(core)
+    path = root / profile['artifact']
+    boundaries = list(dict.fromkeys(b['kind'] for b in application_boundaries(core)))
     return {"schema": DESCRIPTOR_SCHEMA, "id": core, "displayName": f"Shadow6 {core.title()} Core",
             "implementation": {"name": core, "version": "unknown", "language": core},
             "executable": str(path), "binaryDigest": None, "publisher": "Shadow6",
@@ -44,7 +43,7 @@ def _descriptor(core: str, root: Path | None = None) -> dict[str, Any]:
             "guarantees": {}, "limits": {}, "roles":["broker","agent","client"],
             "platforms":[platform.system().lower()], "architectures":[platform.machine()],
             "featureReportDigest": None, "configurationSchema": _schema(core),
-            "configurationSchemaVersion":"1", "launchAdapter":"native-files" if core in ("carp","idris") else "native-config", "privacyEnvelope": {"available": (root / "OCaml/privacy_envelope/shadow6-privacy-envelope").is_file(), "implementation":"ocaml", "mode":"authenticated-envelope", "nativeProtocolUnchanged":True, "preauthIdentityDisclosure":False, "publicCoreListenerRequired":False}}
+            "configurationSchemaVersion":"1", "launchAdapter":profile["realization"]["launcher"], "privacyEnvelope": {"available": (root / "OCaml/privacy_envelope/shadow6-privacy-envelope").is_file(), "implementation":"ocaml", "mode":"authenticated-envelope", "nativeProtocolUnchanged":True, "preauthIdentityDisclosure":False, "publicCoreListenerRequired":False}}
 
 def _digest(path: Path) -> str | None:
     try:

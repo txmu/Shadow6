@@ -1,5 +1,14 @@
 # Install, run and named services / 安装与命名服务
 
+Native Profile source contracts are available through `shadow6 core profiles`
+or `shadow6 core profiles gleam`. Gleam secure-stream and Micro-Mux have
+separate Profile IDs and attachment semantics. Profile selection is currently
+integrated into fleet/native realization and Named Service ProfileBinding.
+The local message adapter has focused supervisor/library/stdio tests; real
+all-Profile and credited attachment lifecycle remains an implementation gate.
+The source catalog must not be interpreted as thirteen available Named Service
+implementations. See [the active requirement ledger](native-profile-runtime-plan.md).
+
 The goal is one explicit lifecycle: install → init → setup → lock/apply → run →
 connect/status → restart/stop/remove. A named service always selects a Core;
 a name never silently selects or migrates a protocol family.
@@ -28,9 +37,12 @@ retains the build-then-install workflow; `install-prebuilt` fails when a selecte
 required artifact is missing. Select the intended components with `BUILD_*`.
 It neither starts Gate nor changes host service/firewall configuration.
 
-`install --json` reports file availability and executable permissions. It is not
-a signature, native feature-contract or deployment-readiness certification.
-Use `shadow6 features` and the offline audit for those checks.
+`install --json` also reports all 13 installed Profile probes and actionable
+runtime-prerequisite diagnostics. `shadow6 core profiles [CORE] --installed`
+runs these bounded probes without compiling or installing anything. Compilers
+are build prerequisites, never prerequisites for an already installed runtime.
+Feature/prerequisite admission is not proof of an arbitrary deployment's
+credentials, connectivity, or real all-Profile lifecycle CI success.
 
 安装树更新只接受空目录或带正确 `.shadow6-tree` 标记的既有安装目录；不会因为一个
 不相关目录恰好含有 Makefile 就清空它。安装只处理已有制品，旧制品仍需在后续正式
@@ -50,8 +62,10 @@ mkdir -p "$HOME/.config/shadow6"
 printf '%s\n' '{"config_path":"/absolute/path/core.json"}' > "$HOME/.config/shadow6/binding.json"
 chmod 600 /absolute/path/core.json "$HOME/.config/shadow6/binding.json"
 shadow6 init --json
-shadow6 setup home/nas --core go --config "$HOME/.config/shadow6/binding.json" --ttl 3600
+shadow6 setup home/nas --core go --profile go-kcp --config "$HOME/.config/shadow6/binding.json" --ttl 3600
+shadow6 run home/nas
 shadow6 status home/nas
+shadow6 doctor home/nas
 shadow6 connect home/nas
 shadow6 restart home/nas
 shadow6 stop home/nas
@@ -59,11 +73,20 @@ shadow6 remove home/nas
 ```
 
 The equivalent granular path is `service create`, `service lock`, `service apply`
-and `service run`. `service configure NAME --core CORE --config BINDING` requires
-the service to be stopped and invalidates the old lock. Repeating an identical
+and `service run`. `setup` prepares and applies the locked deployment without
+starting it; `setup --run` explicitly also starts it. `run` requires an existing
+DeploymentLock and never chooses or repairs a Profile.
+`service configure NAME --core CORE --profile PROFILE --config BINDING` requires
+the service to be stopped. A previously locked service receives replacement
+material validation before its old binding/lock is invalidated; failed admission
+keeps the original approved record. Reconfiguration then needs explicit
+`lock`/`apply` followed by `run`. Repeating an identical
 `setup` or `run` reuses a living process. A different binding or privacy policy
 requires explicit reconfiguration. Native configuration contents, binary bytes,
-S6P1 logical context, privacy mode and peripheral specification contribute to drift checks.
+ProfileBinding contract digest, S6P1 logical context, privacy mode and peripheral
+specification contribute to drift checks. Native broker TLS file references
+(Ada/Nim/D), envelope TLS files and Guard broker-shield TLS files are included
+in the lock and checked before spawn and before readiness acknowledgement.
 
 Core catalog listing avoids hashing every installed binary. Binding a selected Core computes its binary digest, then the lock checks that digest again before applying and running.
 
@@ -77,12 +100,21 @@ its Linux boot/process-start identity and acquiring a pidfd.
 
 Named services embed a strictly validated S6P1 `protocolContext` and keep logical
 role/routes/identity/credentials there. Runtime endpoints come from process-owned
-sockets and validated native ready events. A live PID alone is reported as
-`readiness: process-alive`; it never proves listener or application readiness and
+sockets and validated native ready events. Startup never acknowledges a live PID
+alone: clients require an owned application endpoint; other roles require owned
+native listeners. A process-only historical observation stays degraded and
 `connect NAME` rejects it. Runtime status rechecks CoreBinding, DeploymentLock,
-material digests and process identity before exposing observations. Unsupported
+ProfileBinding, material digests and process identity before exposing observations.
+Binding/material drift produces `stale`; an unexpected early component/supervisor
+exit produces `failed`. `doctor NAME` checks the same material and observation
+plus a bounded actual feature-report probe, without building or activating anything. Unsupported
 transport/application readiness stays unknown. `connect NAME` and S6P1/invitation sources share one
 connection-plan resolver; safe observed client streams support `--stdio`.
+Local message attachments use `--records` and library `send_record`/`receive_record`.
+The four inherited-FD Profiles use a private supervisor-owned seqpacket relay
+with one active attachment and one pending record per direction. Micro-Mux
+retains best-effort UDP records and explicitly rejects EOF/half-close.
+These adapters carry opaque application records and do not change native wire.
 See [the full context, topology and lifecycle contract](service-connections.md).
 The native Service-Init track can generate an explicit backend definition from
 the same locked component runner with `shadow6 init --system SYSTEM --named-service NAME`; `shadow6 init --system SYSTEM --capabilities` reports
@@ -115,6 +147,7 @@ for both ends of the path, limits and wire version.
 shadow6 setup home/private --core go --config "$HOME/.config/shadow6/binding.json" \
   --privacy envelope --envelope-config /absolute/path/server.conf \
   --metrics /absolute/path/server.metrics --ttl 3600
+shadow6 run home/private
 shadow6 privacy-envelope status --metrics /absolute/path/server.metrics
 shadow6 service status home/private
 ```

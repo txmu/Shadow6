@@ -29,13 +29,23 @@ owner-controlled mode `0600` and contain at least 32 bytes:
 shadow6-control serve --token-file /etc/shadow6/control.token
 ```
 
-Endpoints are `GET /v1/schema`, `GET /v1/status`, and `POST /v1/rpc`. HTTP is
+Endpoints are `GET /v1/schema`, `GET /v1/status`, `GET /v1/services`,
+`GET /v1/service?name=home%2Fnas`, and `POST /v1/rpc`. HTTP is
 loopback-only. Send RPC bodies as uncompressed UTF-8 JSON with
 `Content-Type: application/json`. The server rejects ambiguous authentication,
 unexpected Host values and cross-origin browser requests. Request bodies,
 connections and concurrency are bounded. State-changing methods are rejected
 unless `--allow-mutations` is explicitly set. A reverse proxy or remote listener
 is outside this tool's trust boundary.
+
+`service.list`, `service.status`, `service.doctor` and `service.connect` read the
+same Named Service Registry, DeploymentLock and runtime observation as the CLI.
+Connection resolution does not open a session. UI clients should display these
+observed states and diagnostics directly, including stale/degraded/failed, rather
+than treating a PID or a cached successful action as a running service.
+`core.profiles` returns all source contracts with bounded installed-artifact
+and runtime-prerequisite diagnostics. Build prerequisites are informational;
+the doctor never installs a compiler or builds a Core.
 
 ```sh
 curl --fail --header "Authorization: Bearer $(< /etc/shadow6/control.token)" \

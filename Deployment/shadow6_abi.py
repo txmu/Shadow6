@@ -137,3 +137,23 @@ def s6ar_request(method: str, params: dict, *, context: str | None = None) -> st
     if not component or not action:
         raise ValueError("S6AR1 method must be component.action")
     return s6ar.request(component, "default", action, params=params, context=context)
+
+
+def encode_record(data: bytes, *, max_record: int) -> bytes:
+    """Explicit local stdio record framing; never a Native Core wire codec."""
+    if type(max_record) is not int or not 1 <= max_record <= 65536:
+        raise ValueError('invalid application record limit')
+    if not isinstance(data, (bytes, bytearray)) or len(data) > max_record:
+        raise ValueError('OversizedApplicationRecord')
+    return struct.pack('>I', len(data)) + bytes(data)
+
+
+def decode_record(frame: bytes, *, max_record: int) -> bytes:
+    if type(max_record) is not int or not 1 <= max_record <= 65536:
+        raise ValueError('invalid application record limit')
+    if not isinstance(frame, (bytes, bytearray)) or len(frame) < 4:
+        raise ValueError('truncated application record')
+    size = struct.unpack('>I', frame[:4])[0]
+    if size > max_record or len(frame) != size + 4:
+        raise ValueError('OversizedApplicationRecord or invalid record length')
+    return bytes(frame[4:])

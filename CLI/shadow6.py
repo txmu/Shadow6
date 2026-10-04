@@ -23,7 +23,9 @@ try:
 except ImportError:
  ROOT=_HERE.parent
 sys.path.insert(0, str(ROOT / "Control-Center"))
-COMPONENTS={"repo":ROOT/"Online-Repository/shadow6_repo.py","portmap":ROOT/"Gate/portmap.py","go":ROOT/"Core-Go/shadow6-go","rust":ROOT/"Core-Rust/shadow6-rust","zig":ROOT/"Core-Zig/shadow6-zig","ada":ROOT/"Core-Ada/shadow6-ada","d":ROOT/"Core-D/shadow6-d","nim":ROOT/"Core-Nim/shadow6-nim","cpp":ROOT/"Core-Cpp/shadow6-cpp","pony":ROOT/"Core-Pony/shadow6-pony","hare":ROOT/"Core-Hare/shadow6-hare","carp":ROOT/"Core-Carp/shadow6-carp","gleam":ROOT/"Core-Gleam/shadow6-gleam","idris":ROOT/"Core-Idris/shadow6-idris","network":ROOT/"Network-Adapter/shadow6_network.py","network-node":ROOT/"Network-Adapter/shadow6_network.mjs","gate":ROOT/"Gate/shadow6-gate","relay":ROOT/"C11Relay/bridge_relay","guard":ROOT/"Guard/shadow6-guard","control":ROOT/"Control-Center/shadow6_control.py","plugins":ROOT/"Plugin-System/shadow6_plugins.py","sign-plugin":ROOT/"Plugin-System/sign_plugin.py","migrate":ROOT/"Migration/shadow6_migrate.py","auto":ROOT/"Auto-Orchestrator/shadow6_auto.py","detector":ROOT/"Detector/shadow6_detector.py","counterstrike":ROOT/"Detector/counterstrike.py","watch":ROOT/"Detector/watch.py","security":ROOT/"Security-Assistants/shadow6_security.py","infra":ROOT/"Infrastructure-Assistants/shadow6_infra.py","slots":ROOT/"Slot-System/shadow6_slots.py","packages":ROOT/"Package-Manager/shadow6_pkg.py","public6":ROOT/"Public6/shadow6_public.py","init":ROOT/"Service-Init/shadow6_init.py"}
+from native_profiles import profiles, bind_profile
+COMPONENTS={"repo":ROOT/"Online-Repository/shadow6_repo.py","portmap":ROOT/"Gate/portmap.py","network":ROOT/"Network-Adapter/shadow6_network.py","network-node":ROOT/"Network-Adapter/shadow6_network.mjs","gate":ROOT/"Gate/shadow6-gate","relay":ROOT/"C11Relay/bridge_relay","guard":ROOT/"Guard/shadow6-guard","control":ROOT/"Control-Center/shadow6_control.py","plugins":ROOT/"Plugin-System/shadow6_plugins.py","sign-plugin":ROOT/"Plugin-System/sign_plugin.py","migrate":ROOT/"Migration/shadow6_migrate.py","auto":ROOT/"Auto-Orchestrator/shadow6_auto.py","detector":ROOT/"Detector/shadow6_detector.py","counterstrike":ROOT/"Detector/counterstrike.py","watch":ROOT/"Detector/watch.py","security":ROOT/"Security-Assistants/shadow6_security.py","infra":ROOT/"Infrastructure-Assistants/shadow6_infra.py","slots":ROOT/"Slot-System/shadow6_slots.py","packages":ROOT/"Package-Manager/shadow6_pkg.py","public6":ROOT/"Public6/shadow6_public.py","init":ROOT/"Service-Init/shadow6_init.py"}
+COMPONENTS.update({p['core']: ROOT / p['artifact'] for p in profiles() if p['primary']})
 COMPONENTS["virtual-broker"]=ROOT/"Public6/virtual_broker.py"
 COMPONENTS["virtual-client"]=ROOT/"Public6/virtual_peer.py"
 COMPONENTS["virtual-agent"]=ROOT/"Public6/virtual_peer.py"
@@ -60,7 +62,7 @@ def command_for(name,args):
  return ([sys.executable,str(path)] if path.suffix==".py" else (["node",str(path)] if path.suffix==".mjs" else [str(path)]))+args
 def run(name,args,events=False):
  if events:print(json.dumps({"event":"process.started","component":name,"argument_count":len(args)}),file=sys.stderr,flush=True)
- if args==["--version"] and name in {"go","rust","zig","ada","d","nim","cpp","pony","hare","carp","gleam","idris"}:
+ if args==["--version"] and name in CORE_IDS:
   from shadow6_vcore import _binary,_run,strict_json_loads,validate_feature_report
   path=COMPONENTS[name]
   with _binary(path) as (fd,_,__):
@@ -149,9 +151,14 @@ def add_service_options(parser):
  parser.add_argument("--envelope-config",type=Path)
  parser.add_argument("--metrics",type=Path)
  parser.add_argument("--ttl",type=int,default=3600)
+ parser.add_argument("--limits-mode",choices=("safe","elastic","custom"),default="safe")
+ parser.add_argument("--limits-overrides",type=Path,help="private JSON object with positive finite resource limits")
 
 def service_spec(args):
- result={"ttl":args.ttl}
+ from limits import validate_policy
+ from service_storage import private_read, strict_json
+ overrides = strict_json(private_read(args.limits_overrides)) if args.limits_overrides else {}
+ result={"ttl":args.ttl,"limits":validate_policy({"mode":args.limits_mode,"operator_overrides":overrides})}
  for component in ("gate","guard"):
   path=getattr(args,component+"_config")
   if path: result[component+"_config"]=str(path.absolute())
@@ -180,12 +187,14 @@ def main():
   if raw[0]=="init": result=ServiceRegistry(catalog=catalog).init()
   else:
    checks=[{"core":c["id"],"available":Path(c["executable"]).is_file(),"executable":os.access(c["executable"],os.X_OK)} for c in catalog.list()]
-   result={"schema":"shadow6.lifecycle.v1","stage":"install","operation":"inspect","verified":any(c["available"] and c["executable"] for c in checks),"cores":checks,"hint":"Use shadow6 install --prefix /absolute/path to install existing artifacts without building."}
+   from profile_availability import installed_profiles
+   profile_report=installed_profiles(catalog)
+   result={"schema":"shadow6.lifecycle.v1","stage":"install","operation":"inspect","verified":bool(profile_report['availableProfiles']),"cores":checks,"profiles":profile_report['profiles'],"availableProfiles":profile_report['availableProfiles'],"hint":"Use shadow6 install --prefix /absolute/path to install existing artifacts without building."}
   print(json.dumps(result,sort_keys=True,indent=2)); return 0
- if raw and raw[0] in {"run","status","restart","stop","remove","apply","lock"} and len(raw) >= 2 and not raw[1].startswith("-"):
+ if raw and raw[0] in {"run","status","restart","stop","remove","apply","lock","doctor"} and len(raw) >= 2 and not raw[1].startswith("-"):
   if raw[2:] not in ([], ["--json"]): raise ValueError("unexpected service arguments")
   registry=ServiceRegistry(catalog=CoreCatalog(ROOT)); action=raw[0]; name=raw[1]
-  handlers={"run":registry.run,"status":registry.status,"restart":registry.restart,"stop":registry.stop,"remove":registry.remove,"apply":registry.apply,"lock":registry.lock}
+  handlers={"run":registry.run,"status":registry.status,"restart":registry.restart,"stop":registry.stop,"remove":registry.remove,"apply":registry.apply,"lock":registry.lock,"doctor":registry.doctor}
   try: result=handlers[action](name)
   except (ValueError,OSError) as exc: print(json.dumps({"schema":"shadow6.lifecycle-error.v1","stage":action,"error":str(exc)})); return 2
   print(json.dumps(result,sort_keys=True,indent=2)); return 0
@@ -238,6 +247,7 @@ def main():
  q=sub.add_parser("core",help="inspect and validate explicit Core descriptors")
  core_sub=q.add_subparsers(dest="core_action",required=True)
  core_sub.add_parser("list")
+ x=core_sub.add_parser("profiles",help="inspect Native Profile source contracts; availability requires runtime verification"); x.add_argument("core",nargs="?"); x.add_argument("--installed",action="store_true",help="probe installed artifacts and runtime prerequisites without building")
  for action in ("inspect","config-schema"):
   x=core_sub.add_parser(action); x.add_argument("core")
  x=core_sub.add_parser("validate-config"); x.add_argument("core"); x.add_argument("config",type=Path)
@@ -245,20 +255,20 @@ def main():
  q=sub.add_parser("service",help="manage named explicitly-bound services")
  ss=q.add_subparsers(dest="service_action",required=True); ss.add_parser("list")
  x=ss.add_parser("inspect"); x.add_argument("name")
- x=ss.add_parser("create"); x.add_argument("name"); x.add_argument("--core"); x.add_argument("--config",type=Path); add_service_options(x)
- x=ss.add_parser("configure"); x.add_argument("name"); x.add_argument("--core",required=True); x.add_argument("--config",type=Path,required=True); add_service_options(x)
+ x=ss.add_parser("create"); x.add_argument("name"); x.add_argument("--core"); x.add_argument("--profile"); x.add_argument("--config",type=Path); add_service_options(x)
+ x=ss.add_parser("configure"); x.add_argument("name"); x.add_argument("--core",required=True); x.add_argument("--profile"); x.add_argument("--config",type=Path,required=True); add_service_options(x)
  for action in ("run","connect"):
   x=ss.add_parser(action); x.add_argument("name")
- for action in ("lock","apply","status","restart","stop","remove"):
+ for action in ("lock","apply","status","restart","stop","remove","doctor"):
   x=ss.add_parser(action); x.add_argument("name")
  for parser in ss.choices.values(): parser.add_argument("--json",action="store_true",help="emit JSON (the default)")
- for action in ("run","status","restart","stop","remove","apply","lock"):
+ for action in ("run","status","restart","stop","remove","apply","lock","doctor"):
   q=sub.add_parser(action,help=action+" a named service"); q.add_argument("name"); q.add_argument("--json",action="store_true")
  # init retains its native init-system routing when arguments are supplied.
  q=sub.add_parser("install",help="install existing artifacts without compiling")
  q.add_argument("--prefix",type=Path,required=True); q.add_argument("--destdir",type=Path)
- q=sub.add_parser("setup",help="create, bind, lock, apply and run a named service")
- q.add_argument("name"); q.add_argument("--core",required=True); q.add_argument("--config",type=Path,required=True); add_service_options(q); q.add_argument("--json",action="store_true")
+ q=sub.add_parser("setup",help="create, bind, lock and apply a named service")
+ q.add_argument("name"); q.add_argument("--core",required=True); q.add_argument("--profile"); q.add_argument("--config",type=Path,required=True); add_service_options(q); q.add_argument("--json",action="store_true"); q.add_argument("--run",dest="start_service",action="store_true",help="explicitly start the prepared service")
  q=sub.add_parser("privacy-envelope",help="inspect the optional OCaml authenticated external envelope")
  q.add_argument("action",choices=("status","feature-report","compatibility","run")); q.add_argument("--core",action="append"); q.add_argument("--metrics",type=Path); q.add_argument("--config",type=Path)
  a=p.parse_args();tail=lambda v:v[1:] if v[:1]==["--"] else v
@@ -276,6 +286,12 @@ def main():
  if a.command=="core":
   catalog=CoreCatalog(ROOT)
   if a.core_action=="list": result={"schema":"shadow6.core-catalog.v1","cores":catalog.list()}
+  elif a.core_action=="profiles":
+   if a.installed:
+    from profile_availability import inspect_profile
+    checks=[inspect_profile(catalog,p['core'],p['id']) for p in profiles(a.core)]
+    result={"schema":"shadow6.installed-profile-catalog.v1","profiles":checks,"availableProfiles":[p['profile'] for p in checks if p['available']]}
+   else: result={"schema":"shadow6.native-profile-catalog.v1","sourceContracts":True,"profiles":profiles(a.core)}
   elif a.core_action=="inspect": result=catalog.inspect(a.core)
   elif a.core_action=="config-schema": result=catalog.inspect(a.core)["configurationSchema"]
   elif a.core_action=="validate-config": result={"valid":True,"core":a.core,"config":catalog.binding(a.core,json.loads(a.config.read_text()))["config"]}
@@ -287,9 +303,10 @@ def main():
   elif a.service_action=="inspect": result=registry.inspect(a.name)
   elif a.service_action in {"create","configure"}:
    config=load_service_config(a.config) if a.config else None
-   result=(registry.create(a.name,core=a.core,config=config,privacy=a.privacy,spec=service_spec(a),context=service_context(a)) if a.service_action=="create" else registry.configure(a.name,core=a.core,config=config,privacy=a.privacy,spec=service_spec(a),context=service_context(a)))
+   result=(registry.create(a.name,core=a.core,profile=a.profile,config=config,privacy=a.privacy,spec=service_spec(a),context=service_context(a)) if a.service_action=="create" else registry.configure(a.name,core=a.core,profile=a.profile,config=config,privacy=a.privacy,spec=service_spec(a),context=service_context(a)))
   elif a.service_action=="lock": result=registry.lock(a.name)
   elif a.service_action=="apply": result=registry.apply(a.name)
+  elif a.service_action=="doctor": result=registry.doctor(a.name)
   elif a.service_action=="status":
    item=registry.status(a.name); result={**item,"privacyTelemetry":item.get("privacyTelemetry",{})}
   elif a.service_action=="restart": result=registry.restart(a.name)
@@ -305,12 +322,16 @@ def main():
  if a.command=="setup":
   registry=ServiceRegistry(catalog=CoreCatalog(ROOT));
   try:
+   from profile_availability import inspect_profile
+   availability=inspect_profile(registry.catalog,a.core,a.profile)
+   if not availability['available']:
+    print(json.dumps({"schema":"shadow6.lifecycle-error.v1","stage":"setup","error":"ProfileUnavailable","profile":availability['profile'],"diagnostics":availability['diagnostics']},sort_keys=True),file=sys.stderr); return 2
    config=load_service_config(a.config); spec=service_spec(a); context=service_context(a)
    try: existing=registry.inspect(a.name)
-   except ValueError: existing=registry.create(a.name,core=a.core,config=config,privacy=a.privacy,spec=spec,context=context)
-   if existing.get("coreBinding") != registry.catalog.binding(a.core,config) or existing["spec"] != spec or existing["privacy"] != a.privacy or existing["protocolContext"] != context:
+   except ValueError: existing=registry.create(a.name,core=a.core,profile=a.profile,config=config,privacy=a.privacy,spec=spec,context=context)
+   if existing.get("profileBinding") != bind_profile(a.core,a.profile) or existing.get("coreBinding") != registry.catalog.binding(a.core,config) or existing["spec"] != spec or existing["privacy"] != a.privacy or existing["protocolContext"] != context:
     raise ValueError("setup differs from existing service; explicitly stop and service configure first")
-   registry.apply(a.name); result=registry.run(a.name)
+   registry.apply(a.name); result=registry.run(a.name) if a.start_service else registry.status(a.name)
   except (ValueError,OSError,json.JSONDecodeError) as exc:
    print(json.dumps({"schema":"shadow6.lifecycle-error.v1","stage":"setup","error":str(exc)}),file=sys.stderr); return 2
   print(json.dumps(result,sort_keys=True,indent=2)); return 0

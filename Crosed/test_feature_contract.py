@@ -20,6 +20,7 @@ class FeatureContractTests(unittest.TestCase):
                 "kind": "message", "mode": "seqpacket-fd", "roles": ["client"],
                 "max_record": SEQPACKET_MAX_RECORD[core], "message_preserving": True,
                 "backpressure": "native-window", "producer_send_success": "kernel-queue-only",
+                "endpoint_discovery": "stdout-ready-jsonl-v1",
                 "oversize": "discard-record-continue", "transient_error": "retry-eagain-eintr",
                 "hard_error": "fail-closed",
                 "eof": "empty-record-drain", "close": "drain-accepted-then-stop",

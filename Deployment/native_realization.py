@@ -7,7 +7,9 @@ import ipaddress
 import re
 from .topology_contract import engine_id, selected_engine, check_topology
 
-TRANSPORTS = {"shadow6-go": "kcp", "shadow6-rust": "quic", "shadow6-zig": "enet", "shadow6-ada": "cell-relay", "shadow6-d": "secure-stream", "shadow6-nim": "webrtc", "shadow6-cpp": "sctp", "shadow6-pony": "udp", "shadow6-hare": "udp", "shadow6-carp": "udp", "shadow6-gleam": "secure-stream", "shadow6-idris": "udp"}
+from .profile_registry import topology_profile, transport_map
+
+TRANSPORTS = transport_map(configuration=True)
 
 def format_host_port(host: str, port: int) -> str:
     """Format literal IPv6 and ordinary hosts for socket/URL authority use."""
@@ -30,7 +32,6 @@ def format_host_port(host: str, port: int) -> str:
 def realize_native_node(*, topo, node, core_engine, broker_pub, broker_priv,
                         agents_data, clients_data, agent_keys, client_keys,
                         broker_url, native_configs, sni):
-    CORE_TRANSPORTS = TRANSPORTS
     global_cfg = topo.get('global', {})
     stealth = global_cfg.get('stealth_mode', True)
     agent_names = [n['name'] for n in topo['nodes'] if n['type'] == 'agent']
@@ -38,6 +39,7 @@ def realize_native_node(*, topo, node, core_engine, broker_pub, broker_priv,
         raise ValueError('unsupported native realization engine')
     check_topology([{'role':n['type'], 'core':selected_engine([e for e in n['engines'] if e in TRANSPORTS],n['type'])}
                     for n in topo['nodes']],engine=core_engine)
+    profile = topology_profile(engine_id(core_engine), global_cfg)
     config_data = {"role": node['type']}
 
     if node['type'] == 'broker':
@@ -68,7 +70,7 @@ def realize_native_node(*, topo, node, core_engine, broker_pub, broker_priv,
                 "transport": "quic",
             })
         else:
-            config_data['agent']["transport"] = CORE_TRANSPORTS[core_engine]
+            config_data['agent']["transport"] = profile['configTransport']
     elif node['type'] == 'client':
         _, priv = client_keys[node['name']]
 
@@ -85,7 +87,7 @@ def realize_native_node(*, topo, node, core_engine, broker_pub, broker_priv,
             "agent_pubkey": agent_keys[target_agent][0],
             "on_success": node.get("on_success", ""),
             "allow_local_discovery": bool(node.get("allow_local_discovery", False)),
-            "transport": CORE_TRANSPORTS[core_engine],
+            "transport": profile['configTransport'],
         }
 
     if core_engine == "shadow6-go" and node['type'] in {"agent", "client"}:
@@ -107,8 +109,10 @@ def realize_native_node(*, topo, node, core_engine, broker_pub, broker_priv,
 
     if native_configs:
         config_data = native_configs[node['name']]
-    elif core_engine == "shadow6-gleam" and node['type'] in {"agent", "client"}:
-        config_data[node['type']]["transport"] = global_cfg.get("gleam_transport", "secure-stream")
+
+    role_config = config_data.get(node['type'])
+    if isinstance(role_config, dict) and 'transport' in role_config and role_config['transport'] != profile['configTransport']:
+        raise ValueError('ProfileConfigMismatch: native transport differs from Profile')
 
     if core_engine == "shadow6-gleam":
         for other_role in ("broker", "agent", "client"):
