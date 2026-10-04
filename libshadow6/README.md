@@ -51,25 +51,25 @@ the session or leaving the facade context stops its capsule; Control Center TTL
 cleanup is the abandoned-client backstop. Sessions also expose `status()`,
 `pause()`, and `resume()` through the same Control Center lifecycle methods.
 
-For an explicitly configured S6NA companion, `Shadow6.open_credited(path)`
-opens a separate bounded application attachment from an owner-only
-`shadow6.s6na-attachment.v1` document. It requires absolute pinned UDP
-endpoints, an owner-only 32-byte key file, and a selected S6NA family. The
-returned `CreditedSession` exposes `application_credit()`, whole-record
-`send_record()` and bounded `receive_record()`; exhausted frame credit raises
-`S6NA_BACKPRESSURE`, and closing invalidates queued credit. This companion
-does not alter or infer Named Service/Core wire compatibility. Both peers need
-matching local configurations and the same secret key, provisioned through a
-separate trusted channel.
+`Shadow6.open_application(name)` attaches through the Profile selected and
+locked by the Named Service. The application does not pass a Core or Profile
+name. If the lock contains S6NA material, the facade selects that adapter
+automatically and allocates a free stream on its shared pinned UDP endpoint;
+otherwise it opens the Native Profile's observed local endpoint. S6NA supports
+all thirteen Native Profiles, including the distinct Gleam Micro-Mux policy.
+The Native Core wire protocol and its declared application boundary remain
+unchanged.
 
-To bind that companion to a Named Service, set `--credited-config` during
-`shadow6 setup` or `shadow6 service configure`, then lock/apply the service.
-This includes the attachment document, S6NA key digest, component resource
-estimate and adapter implementation in the service material check. After the
-client service is running, `Shadow6.open_credited_for_service(name)` requires
-its observed client role and rechecks the lock before opening the companion.
-The S6NA records remain a separate application path; this call does not
-forward records into the Core's native application socket.
+S6NA sessions share one transport endpoint instead of binding one UDP socket
+per application. Separate calls receive distinct stream IDs, bounded receive
+queues, and independent close behavior. `send_record()` and `receive_record()`
+preserve message boundaries; `send()` and `receive()` provide a byte stream
+facade for stream Profiles. Frame credit remains visible through
+`application_credit()`, and exhausted credit raises `S6NA_BACKPRESSURE`.
+`Shadow6.connect_native(name)` selects the local Core endpoint explicitly;
+`open_credited_for_service(name)` remains available when an application needs
+record-level S6NA control. Both peers provision the same owner-only 32-byte
+key and matching pinned UDP configuration through a trusted channel.
 
 Keep deployment in a strict `shadow6.deployment.v1` manifest and run
 `shadow6 deployment validate` and `shadow6 deployment plan` before opening an

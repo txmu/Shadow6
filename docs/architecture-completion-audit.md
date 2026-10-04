@@ -1,3 +1,29 @@
+# Architecture integration audit
+
+## Current source snapshot — 2026-10-04
+
+The current worktree integrates the Native Profile registry with Named Service
+setup and lock checks, multi-stream S6NA reflection, dynamic service-count
+budgeting, fixed typed external system operations, a loopback read-only Control
+Center dashboard, Android Profile/traffic visibility, broader ARM64 lifecycle
+CI, and bounded Windows iperf3 retry/reporting. All thirteen real Linux Named
+Service Profile lifecycle cases passed locally against existing Actions-built
+artifacts (no native Core rebuild). A fresh Actions run for these source changes
+is required before release claims; see the dated integration review.
+
+The S6SG1 client reflector and WebRTC Named Service endpoint are implemented,
+but the service does not create the signaling broker. WebRTC pairing still
+depends on an operator-provided broker. Linux remains the only platform with
+the pidfd Named Service process supervisor; other platforms expose typed,
+fixed system-operation plans and capability diagnostics. Android surfaces its
+four packaged Core Profile IDs and S6NA VPN observations, but does not embed the
+Python Named Service registry, S6EPE runtime, or signaling broker.
+
+The sections below are historical audit snapshots. Their dated implementation
+details remain useful evidence, but any older “active” or “still open” status
+is superseded by this current summary and the
+[completion ledger](native-profile-runtime-plan.md).
+
 ## Unified Limits implementation status (2026-10-04)
 
 `Crosed/limits.py` is the shared bounded resolver, exposed to Deployment by the

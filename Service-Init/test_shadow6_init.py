@@ -19,6 +19,30 @@ class InitTests(unittest.TestCase):
         self.assertIn(native["availability"], {"partial", "unavailable"})
         self.assertEqual(native["activation"], "explicit-operator-action")
         self.assertEqual(native["definitionGeneration"], "available")
+        self.assertEqual(native["systemOperationInterface"], "available")
+        self.assertEqual(native["systemOperationProvider"], "optional-external")
+        self.assertEqual(native["nativeLifecycleParity"], "unverified")
+
+    def test_external_system_operation_is_fixed_and_lock_bound(self):
+        from Deployment.system_operations import operation_request, validate_request, validate_receipt
+        request = operation_request(backend="launchd", operation="activate",
+            service="home/nas", plan_path="/private/runtime.json",
+            lock_digest="sha256:" + "a" * 64, now=1000, ttl=60)
+        self.assertEqual(validate_request(request, now=1020), request)
+        self.assertNotIn("argv", request)
+        self.assertEqual(request["serviceLabel"], "shadow6-" + __import__("hashlib").sha256(
+            b"home/nas").hexdigest()[:24])
+        receipt = {"schema":"shadow6.system-operation-receipt.v1",
+            "requestId":request["requestId"], "operation":"activate",
+            "lockDigest":request["lockDigest"], "result":"completed",
+            "observedAt":1020, "readiness":"unknown"}
+        self.assertEqual(validate_receipt(receipt, request, now=1020), receipt)
+        with self.assertRaisesRegex(ValueError, "separately verified"):
+            validate_receipt({**receipt, "readiness":"ready"}, request, now=1020)
+        with self.assertRaisesRegex(ValueError, "unsupported system operation"):
+            operation_request(backend="launchd", operation="run-arbitrary-command",
+                service="home/nas", plan_path="/private/runtime.json",
+                lock_digest=request["lockDigest"], now=1000)
 
     def test_rc_arguments_survive_both_parsing_layers(self):
         path = '/etc/a b\'"${HOME};$(false)\\config.json'

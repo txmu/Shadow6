@@ -7,6 +7,22 @@ from iperf3_matrix import free_port, metric, run_case_with_timeout_retry, specs,
 
 
 class MatrixTests(unittest.TestCase):
+    def test_tcp_port_allocator_retries_transient_bind_collisions(self):
+        class CollisionSocket:
+            calls = 0
+            def __enter__(self): return self
+            def __exit__(self, *_): return False
+            def setsockopt(self, *_): pass
+            def bind(self, _):
+                type(self).calls += 1
+                if type(self).calls < 4:
+                    raise OSError(10048, "address already in use")
+            def getsockname(self): return ("127.0.0.1", 45678)
+
+        with patch("iperf3_matrix.socket.socket", side_effect=lambda *_args: CollisionSocket()):
+            self.assertEqual(free_port(4), 45678)
+        self.assertEqual(CollisionSocket.calls, 4)
+
     def test_udp_matrix_port_is_bindable_by_both_tcp_and_udp(self):
         port = free_port(4, udp=True)
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as stream, \

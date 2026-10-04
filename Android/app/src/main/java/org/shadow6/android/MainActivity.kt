@@ -15,6 +15,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -25,6 +26,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -56,6 +58,8 @@ import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationRail
+import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
@@ -86,6 +90,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -199,12 +205,14 @@ fun Shadow6App() {
     LaunchedEffect(runtime) {
         while (true) {
             status = withContext(Dispatchers.IO) { runtime.status() }
-            delay(750)
+            delay(1500)
         }
     }
 
     MaterialTheme(colorScheme = if (isSystemInDarkTheme()) ShadowDarkColors else ShadowLightColors) {
-        Scaffold(
+        BoxWithConstraints(Modifier.fillMaxSize()) {
+            val expanded = maxWidth >= 600.dp
+            Scaffold(
             containerColor = MaterialTheme.colorScheme.background,
             topBar = {
                 TopAppBar(
@@ -234,38 +242,65 @@ fun Shadow6App() {
                 )
             },
             bottomBar = {
-                NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
-                    mainDestinations.forEach { target ->
-                        NavigationBarItem(
-                            selected = target == destination,
-                            onClick = { destination = target },
-                            icon = { Icon(target.icon, contentDescription = null) },
-                            label = { Text(stringResource(target.label), maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                        )
+                if (!expanded) {
+                    NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
+                        mainDestinations.forEach { target ->
+                            NavigationBarItem(
+                                selected = target == destination,
+                                onClick = { destination = target },
+                                icon = { Icon(target.icon, contentDescription = null) },
+                                label = { Text(stringResource(target.label), maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                            )
+                        }
                     }
                 }
             },
         ) { padding ->
-            Surface(Modifier.fillMaxSize().padding(padding)) {
-                when (destination) {
-                    Destination.OVERVIEW -> OverviewScreen(runtime, status) { status = it }
-                    Destination.CHAT -> ChatScreen()
-                    Destination.SEARCH -> SearchScreen(visible) { destination = it }
-                    Destination.PACKAGES -> PackagesScreen()
-                    Destination.GAMES -> GuessGameScreen()
-                    Destination.AI -> AiSettingsScreen()
-                    Destination.SETTINGS -> SettingsScreen()
+            Row(Modifier.fillMaxSize().padding(padding)) {
+                if (expanded) {
+                    NavigationRail(containerColor = MaterialTheme.colorScheme.surface) {
+                        mainDestinations.forEach { target ->
+                            NavigationRailItem(
+                                selected = target == destination,
+                                onClick = { destination = target },
+                                icon = { Icon(target.icon, contentDescription = null) },
+                                label = { Text(stringResource(target.label), maxLines = 1) },
+                                alwaysShowLabel = true,
+                            )
+                        }
+                    }
+                }
+                Surface(Modifier.weight(1f).fillMaxSize()) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+                        Box(Modifier.widthIn(max = 960.dp).fillMaxWidth()) {
+                            when (destination) {
+                                Destination.OVERVIEW -> OverviewScreen(runtime, status) { status = it }
+                                Destination.CHAT -> ChatScreen()
+                                Destination.SEARCH -> SearchScreen(visible) { destination = it }
+                                Destination.PACKAGES -> PackagesScreen()
+                                Destination.GAMES -> GuessGameScreen()
+                                Destination.AI -> AiSettingsScreen()
+                                Destination.SETTINGS -> SettingsScreen()
+                            }
+                        }
+                    }
                 }
             }
+        }
         }
     }
 }
 
 @Composable
 private fun CoreStatusPill(status: CoreStatus) {
-    val background = if (status.running) Color(0xFFDCFCE7) else MaterialTheme.colorScheme.surfaceVariant
-    val foreground = if (status.running) Color(0xFF166534) else MaterialTheme.colorScheme.onSurfaceVariant
-    Surface(color = background, shape = RoundedCornerShape(99.dp)) {
+    val background = if (status.running) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceVariant
+    val foreground = if (status.running) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
+    val stateText = if (status.running) stringResource(R.string.status_running_port, status.port)
+        else stringResource(R.string.stopped)
+    val spokenState = if (status.running) stringResource(R.string.core_online) else stringResource(R.string.core_offline)
+    Surface(color = background, shape = RoundedCornerShape(99.dp), modifier = Modifier.semantics {
+        contentDescription = spokenState
+    }) {
         Row(
             modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -273,7 +308,7 @@ private fun CoreStatusPill(status: CoreStatus) {
             Box(Modifier.size(7.dp).clip(CircleShape).background(foreground))
             Spacer(Modifier.width(6.dp))
             Text(
-                if (status.running) status.port.toString() else stringResource(R.string.stopped),
+                stateText,
                 style = MaterialTheme.typography.labelMedium,
                 color = foreground,
             )
@@ -399,6 +434,8 @@ private fun OverviewScreen(runtime: CoreRuntime, status: CoreStatus, onStatusCha
                             fontWeight = FontWeight.Bold,
                         )
                         Text(status.endpoint, color = Color(0xFFCFFAFE), style = MaterialTheme.typography.titleMedium, maxLines = 2)
+                        Text(stringResource(R.string.native_profile, engine.profileId, engine.transport.uppercase(Locale.ROOT)),
+                            color = Color(0xFFDCEAFE), style = MaterialTheme.typography.bodySmall)
                     }
                 }
                 HorizontalDivider(color = Color.White.copy(alpha = 0.18f))

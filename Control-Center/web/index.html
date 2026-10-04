@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Shadow6 Control Center</title>
+  <link rel="stylesheet" href="/ui.css">
+  <script src="/ui.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main" data-i18n="skip">Skip to content</a>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="Shadow6 Control Center">
+      <span class="brand-mark" aria-hidden="true">S6</span>
+      <span><strong>Shadow6</strong><small data-i18n="subtitle">Control Center</small></span>
+    </a>
+    <div class="top-actions">
+      <span class="local-badge"><span class="dot"></span><span data-i18n="localOnly">Loopback only</span></span>
+      <button id="disconnect" class="quiet-button" type="button" data-i18n="disconnect" hidden>Disconnect</button>
+      <button id="language" class="quiet-button" type="button" aria-label="Switch language">中文</button>
+    </div>
+  </header>
+
+  <main id="main" class="layout">
+    <section class="welcome panel">
+      <div>
+        <p class="eyebrow" data-i18n="workspace">LOCAL WORKSPACE</p>
+        <h1 data-i18n="title">Your Shadow6 systems, at a glance.</h1>
+        <p class="muted" data-i18n="intro">Review observed status, installed Native Profiles, and Named Services from this device.</p>
+      </div>
+      <form id="auth-form" class="auth-form">
+        <label for="token" data-i18n="tokenLabel">Local bearer token</label>
+        <div class="auth-row">
+          <input id="token" name="token" type="password" autocomplete="off" spellcheck="false" maxlength="4096" required>
+          <button class="primary-button" type="submit" data-i18n="connect">Connect</button>
+        </div>
+        <p class="hint" data-i18n="tokenHint">The token stays in memory and is sent only to this loopback API.</p>
+      </form>
+    </section>
+
+    <div id="error" class="notice error" role="alert" hidden></div>
+    <div id="loading" class="notice" role="status" aria-live="polite" hidden><span class="spinner"></span><span data-i18n="loading">Loading local status…</span></div>
+
+    <section class="overview-grid" aria-label="System status">
+      <article class="panel status-panel">
+        <div class="section-heading"><div><p class="eyebrow" data-i18n="overview">OVERVIEW</p><h2 data-i18n="hostStatus">Host status</h2></div><button id="refresh" class="quiet-button" type="button" data-i18n="refresh" disabled>Refresh</button></div>
+        <div id="status" class="status-content empty-state" data-i18n="connectToView">Connect to view current status.</div>
+      </article>
+      <article class="panel count-panel">
+        <p class="eyebrow" data-i18n="serviceCount">NAMED SERVICES</p>
+        <strong id="service-total" class="count">—</strong>
+        <span class="muted" data-i18n="serviceCountCaption">Registered local services</span>
+      </article>
+      <article class="panel count-panel profile-count-panel">
+        <p class="eyebrow" data-i18n="profileCount">NATIVE PROFILES</p>
+        <strong id="profile-total" class="count">—</strong>
+        <span class="muted" data-i18n="profileCountCaption">Source contracts in the catalog</span>
+      </article>
+    </section>
+
+    <section class="panel" aria-labelledby="services-title">
+      <div class="section-heading"><div><p class="eyebrow" data-i18n="operations">OPERATIONS</p><h2 id="services-title" data-i18n="namedServices">Named Services</h2></div><span id="page-caption" class="muted"></span></div>
+      <div class="table-scroll">
+        <table><thead><tr><th data-i18n="name">Name</th><th data-i18n="core">Core</th><th data-i18n="profile">Profile</th><th data-i18n="state">Observed state</th><th data-i18n="endpoint">Endpoint</th></tr></thead>
+          <tbody id="services"><tr><td colspan="5" class="empty-state" data-i18n="servicesEmpty">Connect to load service status.</td></tr></tbody>
+        </table>
+      </div>
+      <nav class="pagination" aria-label="Named Service pages">
+        <button id="previous" class="quiet-button" type="button" data-i18n="previous" disabled>Previous</button>
+        <span id="page-number" class="muted">—</span>
+        <button id="next" class="quiet-button" type="button" data-i18n="next" disabled>Next</button>
+      </nav>
+    </section>
+
+    <section class="panel" aria-labelledby="profiles-title">
+      <div class="section-heading"><div><p class="eyebrow" data-i18n="capabilities">CAPABILITIES</p><h2 id="profiles-title" data-i18n="nativeProfiles">Native Profiles</h2></div><span class="muted" data-i18n="profileReadOnly">Read-only availability</span></div>
+      <div id="profiles" class="profile-grid"><p class="empty-state" data-i18n="profilesEmpty">Connect to inspect installed Profile prerequisites.</p></div>
+    </section>
+    <footer><span data-i18n="footer">Shadow6 Control Center · authenticated, loopback-only, read-only by default</span></footer>
+  </main>
+</body>
+</html>

@@ -195,6 +195,10 @@ def validate_observation(value):
         raise ValueError('invalid observation timestamp')
     if value['readiness'] not in ('process-alive','unavailable','listener-ready','control-ready','application-ready') or value['transportReadiness'] not in ('unknown','pending','ready','unavailable') or value['applicationReadiness'] not in ('unknown','ready','unavailable'):
         raise ValueError('invalid observed readiness')
+    if value['transportReadiness'] == 'ready' and not any(
+            isinstance(item, dict) and item.get('transport') == 'udp' and
+            item.get('observation') == 'process-owned-socket' for item in value['endpoints']):
+        raise ValueError('transport readiness requires an owned UDP endpoint')
     def address(item):
         if not isinstance(item['host'],str) or type(item['port']) is not int or not 1 <= item['port'] <= 65535:
             raise ValueError('invalid observed endpoint')

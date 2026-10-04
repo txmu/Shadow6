@@ -107,6 +107,18 @@ class ServiceLifecycleTests(unittest.TestCase):
         with self.assertRaises(ValueError): ServiceRegistry(self.registry.path, self.catalog)
         del value['unknown']; atomic_write(self.registry.path, json.dumps(value).encode())
 
+    def test_registry_capacity_uses_host_resources_and_exceeds_legacy_128(self):
+        from limits import HostBudget
+        from Deployment.service_registry import service_capacity
+        host = HostBudget(16 * 1024**3, 1_048_576, 8, 'test')
+        self.assertGreater(service_capacity(host), 128)
+        path = self.root/'expanded-services.json'
+        registry = ServiceRegistry(path, self.catalog)
+        with patch('Deployment.service_registry.HostBudget.capture', return_value=host):
+            for index in range(129):
+                registry.create(f'capacity/service-{index:03d}', core=None, config=None)
+        self.assertEqual(len(registry.list()), 129)
+
     def test_strict_json_and_private_config(self):
         for value in (b'{"a":1,"a":2}', b'{"a":1.5}', b'{"a":NaN}'):
             with self.assertRaises(ValueError): strict_json(value)

@@ -12,6 +12,22 @@ except ImportError:
     from profile_registry import validate_profile_binding
 
 
+def application_adapter(profile, provider='native'):
+    """Resolve an app-transparent shim from a locked Native Profile contract."""
+    if (not isinstance(profile, dict) or not isinstance(profile.get('id'), str) or
+            provider not in {'native', 's6na'}):
+        raise ValueError('InvalidApplicationAdapterBinding')
+    contract = profile.get('applicationBoundary')
+    if not isinstance(contract, dict) or contract.get('kind') not in {'stream', 'message'}:
+        raise ValueError('UnsupportedApplicationBoundary')
+    result = {'provider':provider, 'profile':profile['id'],
+        'boundary':contract['kind'], 'mode':'profile-native'}
+    if provider == 's6na':
+        result.update(mode='transparent-profile',
+            recordPreserving=contract['kind'] == 'message')
+    return result
+
+
 def connection_plan(context, *, catalog, core=None, binding=None, runtime=None, source='s6p1', adapter=None, role=None, profile_binding=None):
     if role is not None and (not isinstance(role,str) or re.fullmatch(r'[A-Za-z0-9._:-]{1,32}',role) is None):
         raise ValueError('invalid requested role')
@@ -109,7 +125,18 @@ def resolve_connection(*, catalog, service=None, registry=None, context=None, co
         adapter = deployed_adapter
         source = 'named-service'
     if context is None: raise ValueError('S6P1 context required')
-    return connection_plan(context, catalog=catalog, core=core, binding=binding, runtime=runtime, source=source, adapter=adapter, role=role, profile_binding=profile_binding)
+    result = connection_plan(context, catalog=catalog, core=core, binding=binding,
+        runtime=runtime, source=source, adapter=adapter, role=role,
+        profile_binding=profile_binding)
+    if service is not None:
+        attachment = material.get('creditedAttachment')
+        profile = validate_profile_binding(profile_binding, core=binding['core'])
+        result['applicationAdapter'] = application_adapter(profile,
+            's6na' if attachment else 'native')
+        if attachment:
+            result['capability']['sessionLaunch'] = 's6na-transparent-profile'
+            result['capability']['reason'] = 'The locked S6NA endpoint is selected automatically from the Named Service Profile; use connect_native for its local Core endpoint'
+    return result
 
 
 class LocalSession:

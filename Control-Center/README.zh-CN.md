@@ -30,6 +30,13 @@ API 只监听回环地址，并拒绝异常 Host、重复认证头、跨站浏�
 以及未明确声明为 JSON 的 RPC 请求。请求大小、连接数和并发数均有限制。
 只有在明确加入 `--allow-mutations` 后，状态变更方法才会开放。
 
+打开 `http://127.0.0.1:9466/` 可使用随程序安装的自适应仪表盘。静态 HTML/CSS/JS
+不含账户数据，因此可以无 Token 加载；只读 API 仍要求 Bearer Token。输入本机 Token
+后可查看主机状态、分页命名服务和已安装 Native Profile 的诊断。页面只在内存中持有
+Token，通过同源请求读取信息，不提供生命周期变更入口。新增
+`GET /v1/services/page?limit=50&offset=0` 返回有界且删减敏感字段的分页结果；原有
+`/v1/services` 保留以兼容既有 API 客户端。
+
 如果收到 `401`，请检查 token 文件内容；收到 `403`，请使用启动信息里显示的
 本机地址和端口；收到 `415`，请添加 `Content-Type: application/json` 并发送
 未压缩的 UTF-8 JSON。这样的错误信息是路标，不必靠猜。

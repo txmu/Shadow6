@@ -52,21 +52,33 @@ def free_port(family: int, udp: bool = False) -> int:
     # allocate UDP first, then verify TCP can bind that exact port. Keep both
     # reservations alive during the joint check and never alter OS exclusions.
     last_error = None
-    for _ in range(32):
-        if not udp:
-            with socket.socket(af, socket.SOCK_STREAM) as sock:
-                sock.bind((host, 0))
-                return sock.getsockname()[1]
+    # Winsock may return a UDP ephemeral port from a reservation range that
+    # TCP cannot bind. Hosted Windows runners have shown long runs of these
+    # harmless collisions, so retry substantially while keeping the search
+    # finite and loopback-only.
+    attempts = 512 if udp else 128
+    for _ in range(attempts):
         try:
+            if not udp:
+                with socket.socket(af, socket.SOCK_STREAM) as sock:
+                    if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+                        sock.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+                    sock.bind((host, 0))
+                    return sock.getsockname()[1]
             with socket.socket(af, socket.SOCK_DGRAM) as datagram:
+                if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+                    datagram.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
                 datagram.bind((host, 0))
                 port = datagram.getsockname()[1]
                 with socket.socket(af, socket.SOCK_STREAM) as stream:
+                    if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+                        stream.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
                     stream.bind((host, port))
                     return port
         except OSError as error:
             last_error = error
-    raise OSError("no jointly bindable TCP/UDP loopback port after 32 attempts") from last_error
+    transport = "jointly bindable TCP/UDP" if udp else "bindable TCP"
+    raise OSError(f"no {transport} loopback port after {attempts} attempts") from last_error
 
 
 def iperf_family_available(binary: str, family: int) -> tuple[bool, str]:
@@ -121,27 +133,28 @@ def run_case(binary: str, spec: dict, duration: int, udp_aggregate_bps: int | No
              raw_dir: Path) -> dict:
     row = dict(spec)
     _, host = loopback(spec["family"])
-    port = free_port(spec["family"], udp=spec["protocol"] == "udp")
+    port: int | None = None
     server: subprocess.Popen[str] | None = None
     family_flag = "-4" if spec["family"] == 4 else "-6"
-    command = [binary, family_flag, "-c", host, "-p", str(port), "-P", str(spec["streams"]),
-               "-t", str(duration), "--json"]
-    if spec["direction"] == "reverse":
-        command.append("-R")
-    if spec["protocol"] == "udp":
-        assert udp_aggregate_bps is not None
-        rate = max(1, udp_aggregate_bps // spec["streams"])
-        command.extend(("-u", "-b", str(rate)))
-        row["udp_target_aggregate_bps"] = rate * spec["streams"]
-    row["command"] = command
     row["duration_requested_seconds"] = duration
     started = time.monotonic()
     try:
+        port = free_port(spec["family"], udp=spec["protocol"] == "udp")
+        command = [binary, family_flag, "-c", host, "-p", str(port), "-P", str(spec["streams"]),
+                   "-t", str(duration), "--json"]
+        if spec["direction"] == "reverse":
+            command.append("-R")
+        if spec["protocol"] == "udp":
+            assert udp_aggregate_bps is not None
+            rate = max(1, udp_aggregate_bps // spec["streams"])
+            command.extend(("-u", "-b", str(rate)))
+            row["udp_target_aggregate_bps"] = rate * spec["streams"]
+        row["command"] = command
         server = subprocess.Popen([binary, "-s", family_flag, "-B", host, "-p", str(port), "-1"],
                                   stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
         time.sleep(0.5)
         if server.poll() is not None:
-            raise RuntimeError("iperf3 server exited before client started")
+            raise RuntimeError("transient: iperf3 server exited before client started")
         client = subprocess.run(command, capture_output=True, text=True,
                                 timeout=duration + 30, check=False)
         if len(client.stdout) > MAX_OUTPUT or len(client.stderr) > MAX_OUTPUT:
@@ -161,7 +174,12 @@ def run_case(binary: str, spec: dict, duration: int, udp_aggregate_bps: int | No
     except subprocess.TimeoutExpired as error:
         row.update(status="failed", reason=str(error)[-1200:], timed_out=True)
     except (OSError, ValueError, RuntimeError, json.JSONDecodeError) as error:
-        row.update(status="failed", reason=str(error)[-1200:])
+        reason = str(error)[-1200:]
+        transient_markers = ("bindable tcp", "jointly bindable", "transient:",
+                             "address already in use", "cannot assign requested address",
+                             "wsaeacces", "wsaeaddrinuse", "wsaenobufs", "10013", "10048", "10049", "10055")
+        row.update(status="failed", reason=reason,
+                   transient_failure=any(marker in reason.lower() for marker in transient_markers))
     finally:
         row["elapsed_seconds"] = time.monotonic() - started
         if server is not None:
@@ -181,14 +199,23 @@ def run_case(binary: str, spec: dict, duration: int, udp_aggregate_bps: int | No
 
 def run_case_with_timeout_retry(binary: str, spec: dict, duration: int,
                                 udp_aggregate_bps: int | None, raw_dir: Path,
-                                timeout_retries: int) -> dict:
+                                timeout_retries: int, transient_retries: int = 0) -> dict:
     attempts = []
-    for _ in range(timeout_retries + 1):
+    timeout_used = 0
+    transient_used = 0
+    for _ in range(timeout_retries + transient_retries + 1):
         row = run_case(binary, spec, duration, udp_aggregate_bps, raw_dir)
         attempts.append({"status": row["status"], "reason": row.get("reason"),
-                         "elapsed_seconds": row["elapsed_seconds"]})
-        if not row.get("timed_out"):
-            break
+                         "elapsed_seconds": row["elapsed_seconds"],
+                         "timed_out": row.get("timed_out", False),
+                         "transient_failure": row.get("transient_failure", False)})
+        if row.get("timed_out") and timeout_used < timeout_retries:
+            timeout_used += 1
+            continue
+        if row.get("transient_failure") and transient_used < transient_retries:
+            transient_used += 1
+            continue
+        break
     if len(attempts) > 1:
         row["attempts"] = attempts
     return row
@@ -242,6 +269,8 @@ def main() -> int:
                         help="record unsupported multi-stream UDP cases as not applicable")
     parser.add_argument("--timeout-retries", type=int, choices=(0, 1), default=0,
                         help="retry a timed-out case once; retain both attempt outcomes")
+    parser.add_argument("--transient-retries", type=int, choices=(0, 1), default=0,
+                        help="retry a loopback port/listener startup collision once; retain both outcomes")
     args = parser.parse_args()
     if not 1 <= args.duration <= 15 or not 1 <= args.max_streams <= 12 or not 10 <= args.udp_cap_mbps <= 4000:
         parser.error("duration, streams, or UDP rate exceeds bounded limits")
@@ -269,7 +298,8 @@ def main() -> int:
               "parameters": {"duration_seconds": args.duration, "max_streams": args.max_streams,
                              "udp_cap_mbps": args.udp_cap_mbps, "families": families,
                              "skip_parallel_udp": args.skip_parallel_udp,
-                             "timeout_retries": args.timeout_retries},
+                             "timeout_retries": args.timeout_retries,
+                             "transient_retries": args.transient_retries},
               "results": []}
     available = {family: iperf_family_available(binary, family) if binary
                  else (family_available(family), "iperf3 executable not installed")
@@ -287,7 +317,8 @@ def main() -> int:
             target = udp_rate(report["results"], spec["family"], spec["direction"],
                               args.udp_cap_mbps) if spec["protocol"] == "udp" else None
             row = run_case_with_timeout_retry(binary, spec, args.duration,
-                                              target, raw_dir, args.timeout_retries)
+                                              target, raw_dir, args.timeout_retries,
+                                              args.transient_retries)
         report["results"].append(row)
         print(f"IPv{row['family']} {row['protocol']} {row['direction']} P{row['streams']}: {row['status']}", flush=True)
         (output / "report.json").write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")

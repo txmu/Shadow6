@@ -3,7 +3,7 @@
 ## 说明与范围
 
 本文根据当前 Git 仓库和前期考古材料整理，覆盖从 Shadow6 开始开发的
-2026-05-31 到 2026-10-02。5.31—9.5 的内容主要来自尚未提交的历史材料；
+2026-05-31 到 2026-10-04。5.31—9.5 的内容主要来自尚未提交的历史材料；
 9.6 起进入可直接追踪的 Git 信史阶段。因此，最早可见提交 `deb56a8a`
 （2026-09-06）不是项目起点，只是公开提交时间线的起点。
 
@@ -581,6 +581,41 @@ Privacy Envelope 更新了配置、会话、防重放存储、Sodium FFI 与相�
 通过；有一项 envelope runtime 测试因本地二进制不可用而跳过。OCaml/Dune 测试因环境中
 没有 `dune` 或 `opam` 未运行，因此 OCaml 变更仍需由具备工具链的 CI 验证。详细实现见
 提交 `12479b84`；本中文历史更新单独提交并跳过 CI。
+
+### 2026-10-04：Profile 贯通、跨平台 UX 与 Android 更新
+
+本轮把十三个 Native Profile 接入统一 Named Service 连接规划，并让 `libshadow6`
+按已锁定服务自动选择 S6NA 透明应用垫片；同一 S6NA UDP 端点可承载多个有界应用流，
+应用仍可明确调用 `connect_native` 直连 Core。S6EPE/Nim-WebRTC 入口返回锁定的
+S6SG1 私有信令端点，Python 客户端反射器提供 offer/poll/answer 操作。当前 runner
+没有创建信令 broker，WebRTC 成对协商仍需操作员提供兼容 broker；不把端点暴露误写成
+完整服务端或全链路配对。
+
+Named Service 登记容量取消旧 128 项上限，改按主机内存、FD 预算、64 MiB 注册表大小
+与 131,072 条保守绝对边界计算。非 Linux 增加固定操作类型、锁摘要和短时效回执合同，
+并在 Windows/macOS 工作流里加入接口测试；这提供安全的系统操作入口，不宣称已有与
+Linux pidfd 相同的服务生命周期监管。
+
+Control Center 增加中英双语、自适应只读网页仪表盘与分页服务列表。Android 更新到
+共享的 `go-kcp`、`rust-quic`、`d-secure-stream`、`nim-webrtc` Profile ID，扩展手机/平板
+导航，展示 VPN 授权状态、S6NA 双向数据包与字节数，并增加无障碍状态提示。APK 仍未
+内嵌 Python Named Service 注册表、S6EPE runtime 或信令 broker；这些边界在 Android
+说明中明确保留。
+
+CI 新增 Linux ARM64 全量 Native Profile 生命周期、Windows/macOS typed system-operation
+合同，以及 Windows-amd64 iperf3 的有界端口碰撞/瞬时启动重试和失败报告输出。源码级
+审计为 7 项通过、0 失败、1 项因 source-only 模式跳过二进制加固检查。复用 GitHub
+Actions 下载的 Linux 核心及依赖产物，在隔离树以当前 Python 源码完成十三个真实
+Named Service Profile 生命周期：**13 项通过，289.435 秒，无本地 Native Core 重编译**。
+另外 Control Center 36 项、libshadow6 16 项、Service-Init 10 项、Network Adapter 11 项、
+Deployment/Profile 91 项通过；后一组有 1 项因可选 runtime 未安装而显式跳过；iperf3
+矩阵单元 6 项通过。Android SDK/Gradle 不在本机，XML 解析通过，APK 构建交由更新后的
+Actions job。
+
+推送前最新 Actions 基线为 run `37206529353`（旧提交 `b437a0ae`）：Linux x86_64/ARM64
+release 与 Android debug job 通过，唯一生产者失败为 Windows-amd64 iperf3 loopback
+pressure；新的修复与 ARM64 lifecycle 步骤尚待本轮推送后执行。更新后的逐项状态和
+最终源码 ZIP 校验信息见[本轮集成审查](review-2026-10-04-integration.md)。
 # 2026-10-04：统一弹性 Limits（实现记录）
 
 本阶段为 13 个 Native Profile 声明了统一限额模型；Named Service 的锁记录

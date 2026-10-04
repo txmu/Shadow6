@@ -659,6 +659,8 @@ ifeq ($(BUILD_ASSISTANTS),1)
 endif
 ifeq ($(BUILD_CONTROL),1)
 	@install -m 0755 Control-Center/shadow6_control.py "$(DESTDIR)$(PREFIX)/bin/shadow6-control"
+	@install -d -m 0755 "$(DESTDIR)$(PREFIX)/share/shadow6/control/web"
+	@install -m 0644 Control-Center/web/index.html Control-Center/web/ui.css Control-Center/web/ui.js "$(DESTDIR)$(PREFIX)/share/shadow6/control/web/"
 	@install -d -m 0755 "$(DESTDIR)$(PREFIX)/share/shadow6/modules"
 	@install -m 0644 Control-Center/s6ar.py Control-Center/ipc_client.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/"
 	@install -m 0644 Auto-Orchestrator/shadow6_auto.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/shadow6_auto.py"

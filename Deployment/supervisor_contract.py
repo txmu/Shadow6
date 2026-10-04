@@ -5,6 +5,8 @@ import sys
 
 NATIVE = {'systemd':'systemctl','openrc':'rc-service','runit':'sv',
           'sysv':'service','procd':'ubus','rc.d':'service','launchd':'launchctl','guix':'herd'}
+SYSTEM_OPERATIONS = ['install-definition','activate','deactivate','restart',
+                    'status','remove-definition','logs']
 
 
 def capabilities(backend='strong'):
@@ -20,7 +22,11 @@ def capabilities(backend='strong'):
                 'availability':state,'exactProcessIdentity':state,'pidReuseProtection':state,
                 'componentGroupFailClosed':state,'startupObservation':state,
                 'runtimeObservation':state,'driftRevalidation':state,
-                'bootIntegration':'unavailable','nativeLogging':'unavailable'}
+                'bootIntegration':'unavailable','nativeLogging':'unavailable',
+                'systemOperationInterface':'available',
+                'systemOperationProvider':'optional-external',
+                'systemOperationSchema':'shadow6.system-operation.v1',
+                'systemOperations':SYSTEM_OPERATIONS.copy()}
     if backend not in NATIVE:raise ValueError('unknown supervisor backend')
     manager = shutil.which(NATIVE[backend])
     # Generating a unit is not activation, exact manager->PID mapping or proof
@@ -36,4 +42,9 @@ def capabilities(backend='strong'):
             'runtimeObservation':native_observation,
             'readyEvent':'required','processAliveImpliesReady':False,
             'driftRevalidation':'available','bootIntegration':'partial' if manager else 'unavailable',
-            'nativeLogging':'partial' if backend in {'systemd','procd','launchd','guix'} else 'unavailable'}
+            'nativeLogging':'partial' if backend in {'systemd','procd','launchd','guix'} else 'unavailable',
+            'systemOperationInterface':'available',
+            'systemOperationProvider':'optional-external',
+            'systemOperationSchema':'shadow6.system-operation.v1',
+            'systemOperations':SYSTEM_OPERATIONS.copy(),
+            'nativeLifecycleParity':'unverified'}

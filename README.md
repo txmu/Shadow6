@@ -108,7 +108,7 @@ wire protocol or require a Core rebuild.
 | Package Manager | signed Crosed Mod, Plugin, and App installation/version selection | Ed25519 manifests, per-file hashes, bounded archives, atomic version activation |
 | EasyBuild | guided full-feature local build, verification, signing bootstrap, and install | L5 variants are explicit; Qubes-style policy and compliance are opt-in prompts |
 | Android | adaptive Material 3 app with selectable packaged Cores in the app sandbox | module-selectable build, bilingual UI, ShadowChat/search/games/packages/AI surfaces |
-| Network Adapter | equal Python/Node.js authenticated reliable backends for all twelve Cores | optional shared S6NA semantics; all twelve Cores remain independently deployable with native transports |
+| Network Adapter | wire-compatible Python/Node.js S6NA backends with Profile-bound client attachment | optional transparent client shim covers all thirteen Native Profiles; Core native transports remain independently deployable |
 | Public6 | explicit all-components, dual-Core distribution and compatibility negotiation | only identical Core family/version is mandatory; all optional parameters negotiate by intersection |
 | Virtual Adapter | out-of-process TUN/TAP packet carrier over S6NA | never creates routes or interfaces; startup-only bounded configuration |
 | Public6 Virtual Broker | guarded multi-tenant admission and opaque E2EE relay to twelve same-family Brokers | Guard and Gate required; tenant quotas; optional C11Relay supervision |

@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -25,6 +26,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import org.shadow6.android.R
@@ -58,7 +62,13 @@ fun VpnControls() {
                 status.starting -> R.string.vpn_starting
                 status.running -> R.string.vpn_active
                 else -> R.string.stopped
-            }))
+            }), modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+            Text(stringResource(R.string.vpn_packet_counts, status.sentPackets, status.receivedPackets),
+                style = MaterialTheme.typography.bodySmall)
+            Text(stringResource(R.string.vpn_traffic,
+                android.text.format.Formatter.formatShortFileSize(context, status.sentBytes),
+                android.text.format.Formatter.formatShortFileSize(context, status.receivedBytes)),
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             OutlinedTextField(host, { host = it.take(45) }, Modifier.fillMaxWidth(),
                 enabled = !active && pending == null, label = { Text(stringResource(R.string.vpn_peer)) }, singleLine = true)
             OutlinedTextField(port, { port = it.filter(Char::isDigit).take(5) }, Modifier.fillMaxWidth(),
@@ -89,8 +99,13 @@ fun VpnControls() {
                     else { pending = start; consent.launch(request) }
                     key = "" // never persist session keys in UI preferences
                 }.onFailure { error = it.message ?: context.getString(R.string.vpn_invalid_config) }
-            }, enabled = pending == null, modifier = Modifier.fillMaxWidth()) {
-                Text(stringResource(if (active) R.string.vpn_stop else R.string.vpn_start))
+            }, enabled = pending == null, modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+                if (pending != null) CircularProgressIndicator(Modifier.padding(end = 10.dp), strokeWidth = 2.dp)
+                Text(stringResource(when {
+                    pending != null -> R.string.vpn_authorizing
+                    active -> R.string.vpn_stop
+                    else -> R.string.vpn_start
+                }))
             }
             (error ?: status.error)?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         }

@@ -67,21 +67,24 @@ session. Native Broker listeners are not application sockets.
 
 For a running native client that emits the existing loopback TCP application
 ready event, `shadow6 connect home/nas --stdio` actually opens its observed
-application proxy and forwards stdin/stdout. `libshadow6.Shadow6.connect(name)`
-returns a bounded session with `send`, `receive` and `close`. Both recheck the
-endpoint's process ownership. Sessions are limited to 300 seconds, 30 seconds
-of socket inactivity and 16 MiB. Observed message endpoints expose
+application proxy and forwards stdin/stdout. `libshadow6.Shadow6.open_application(name)`
+returns a Profile-neutral bounded session. `connect(name)` is the same
+lock-aware entrypoint; when S6NA material is locked it chooses S6NA, otherwise
+the Native endpoint. `connect_native(name)` always chooses the Native endpoint.
+Native sessions recheck process ownership and are limited to 300 seconds,
+30 seconds of socket inactivity and 16 MiB. Observed message endpoints expose
 `send_record`, `receive_record`, `finish` and `close`, with the Profile's exact
 record bound. `shadow6 connect NAME --records` uses explicit uint32 big-endian
 length-prefixed records on local stdio. Seqpacket empty records mean EOF/drain;
 Micro-Mux empty datagrams remain data, and EOF/half-close is explicitly unsupported.
 Only one seqpacket attachment can consume each native flow; subsequent opens
-return `UnsupportedApplicationBoundary:AttachmentConsumed`. Credited providers
-remain an explicit capability error on this native local-proxy path. A client
-service may separately lock S6NA config/key material with `--credited-config`
-and `libshadow6.Shadow6.open_credited_for_service(name)` opens that companion
-after checking the running client and deployment lock. It does not bridge S6NA
-records into the Native Core's local application endpoint.
+return `UnsupportedApplicationBoundary:AttachmentConsumed`. When the Named
+Service lock includes S6NA material, `Shadow6.open_application(name)` selects
+the Profile-bound adapter automatically and allocates one of its bounded
+stream IDs. Stream Profiles expose bytes; message Profiles use
+`send_record()`/`receive_record()`. `connect_native(name)` selects the local
+Core endpoint directly, while `open_credited_for_service(name)` exposes the
+underlying S6NA record and credit controls.
 
 Readiness progresses only with evidence: process-owned
 `listener-ready`, or an owned endpoint with a validated `application-ready`

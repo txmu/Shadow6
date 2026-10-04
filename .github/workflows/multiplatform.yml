@@ -254,7 +254,17 @@ jobs:
         run: |
           python Tools/iperf3_matrix.py --output-dir iperf3-matrix \
             --duration 6 --max-streams 12 --udp-cap-mbps 2000 \
-            --skip-parallel-udp
+            --skip-parallel-udp --timeout-retries 1 --transient-retries 1
+      - name: Dump Windows pressure report after completion
+        if: always() && matrix.label == 'windows-amd64'
+        shell: pwsh
+        run: |
+          if (Test-Path 'iperf3-matrix/report.md') {
+            Get-Content 'iperf3-matrix/report.md'
+            Get-Content 'iperf3-matrix/report.json' -Raw
+          } else {
+            Write-Output 'iperf3 produced no report; inspect the preceding matrix step and port-allocation error.'
+          }
       - name: Upload separate iperf3 report and raw cases
         if: always()
         uses: actions/upload-artifact@v6
@@ -1363,6 +1373,19 @@ jobs:
           benchmark_args=()
           for core in "${benchmark_cores[@]}"; do benchmark_args+=(--core "$core"); done
           .venv/bin/python Benchmark/benchmark.py "${benchmark_args[@]}" --role network-chain --repeats 3 --require-network --output benchmark-linux-arm64
+      - name: Run every real ARM64 Named Service Profile lifecycle
+        timeout-minutes: 25
+        run: |
+          set -euo pipefail
+          .venv/bin/python -m unittest discover -s Service-Init -p 'test_system_operations.py' -v
+          .venv/bin/python integration/test_named_profiles.py -v 2>&1 | tee named-profile-lifecycle-linux-arm64.log
+      - name: Upload ARM64 Named Service lifecycle evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: shadow6-linux-arm64-named-profile-lifecycle
+          path: named-profile-lifecycle-linux-arm64.log
+          if-no-files-found: warn
       - name: Upload Linux ARM64 network reports
         if: always()
         uses: actions/upload-artifact@v6
@@ -1556,6 +1579,8 @@ jobs:
           fi
           .venv/bin/python Benchmark/benchmark.py "${benchmark_cores[@]}" \
             --role network-chain --repeats 3 --output benchmark-macos-${{ matrix.arch }}
+      - name: Verify portable system-operation lifecycle adapter contract
+        run: PYTHONPATH=Service-Init .venv/bin/python -m unittest discover -s Service-Init -p 'test_system_operations.py' -v
       - name: Upload macOS network reports
         if: always()
         uses: actions/upload-artifact@v6
@@ -1640,6 +1665,9 @@ jobs:
       - name: Measure native Windows Go network chain
         shell: bash
         run: python Benchmark/benchmark.py --core go --role network-chain --repeats 3 --require-network --output benchmark-windows-${{ matrix.arch }}
+      - name: Verify portable system-operation lifecycle adapter contract
+        shell: bash
+        run: PYTHONPATH=Service-Init python -m unittest discover -s Service-Init -p 'test_system_operations.py' -v
       - name: Upload Windows network reports
         if: always()
         uses: actions/upload-artifact@v6

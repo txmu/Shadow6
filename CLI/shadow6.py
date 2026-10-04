@@ -261,7 +261,7 @@ def main():
  x=ss.add_parser("upgrade",help="atomically replace, lock and apply a stopped service"); x.add_argument("name"); x.add_argument("--core",required=True); x.add_argument("--profile"); x.add_argument("--config",type=Path,required=True); add_service_options(x)
  for action in ("run","connect"):
   x=ss.add_parser(action); x.add_argument("name")
- for action in ("lock","apply","status","restart","stop","remove","doctor"):
+ for action in ("lock","apply","status","restart","stop","remove","doctor","signal"):
   x=ss.add_parser(action); x.add_argument("name")
  for parser in ss.choices.values(): parser.add_argument("--json",action="store_true",help="emit JSON (the default)")
  for action in ("run","status","restart","stop","remove","apply","lock","doctor"):
@@ -311,6 +311,7 @@ def main():
   elif a.service_action=="lock": result=registry.lock(a.name)
   elif a.service_action=="apply": result=registry.apply(a.name)
   elif a.service_action=="doctor": result=registry.doctor(a.name)
+  elif a.service_action=="signal": result=registry.webrtc_signal_endpoint(a.name)
   elif a.service_action=="status":
    item=registry.status(a.name); result={**item,"privacyTelemetry":item.get("privacyTelemetry",{})}
   elif a.service_action=="restart": result=registry.restart(a.name)

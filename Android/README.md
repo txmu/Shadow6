@@ -1,8 +1,9 @@
 # Shadow6 Android
 
 This is a native Android 16 / API 36 Jetpack Compose application using Material
-3 components, accessible touch targets, light/dark palettes, and five-item
-bottom navigation. English is the default locale and every string resource has a
+3 components, accessible touch targets, light/dark palettes, and adaptive
+five-item navigation: bottom tabs on compact screens and a labelled rail on
+wide screens. Content is centered and capped for wide displays. English is the default locale and every string resource has a
 Simplified Chinese translation.
 
 The default build includes multiple independently implemented Core engines plus
@@ -127,6 +128,13 @@ service starts and cannot be hot-reconfigured. Stopping and explicitly
 starting a new session is required for every configuration change.
 
 The Android service is still an optional companion: every bundled Core keeps
-its native data path. The VPN carrier authenticates packets before writing
-them to the Android TUN descriptor, pins one UDP peer, applies a 1400-byte MTU,
-and leaves retransmission/multiplexing policy to the full S6NA companion path.
+its native data path. The app shows the selected shared Native Profile ID and
+transport beside Core status, exposes textual running/stopped state for assistive
+technology, and reports authenticated S6NA packet and payload-byte counters for
+both directions while the tunnel runs. The VPN carrier authenticates packets before writing
+them to the Android TUN descriptor, pins one UDP peer, and applies a 1400-byte
+MTU. It remains a single-peer IP tunnel; the counters describe accepted tunnel
+payload packets, not proof of peer reachability. Android's supported Core set
+is still Go, Rust, D, and Nim. The cross-platform read-only Control Center
+dashboard is available on systems that run its local Python service; it is not
+embedded in the Android APK.

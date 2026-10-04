@@ -1239,6 +1239,7 @@ def http_app(token: str, allow_mutations: bool = False):
 
     @web.middleware
     async def security(request: web.Request, handler):
+        static_ui = request.method == "GET" and request.path in {"/", "/ui.css", "/ui.js"}
         authorization = request.headers.getall("Authorization", [])
         provided = (authorization[0] if len(authorization) == 1 else "").encode("utf-8", errors="replace")
         # Pin the authority to the actual listening socket, never proxy headers
@@ -1254,13 +1255,13 @@ def http_app(token: str, allow_mutations: bool = False):
         host = hosts[0].lower() if len(hosts) == 1 else ""
         origins = request.headers.getall("Origin", [])
         fetch_sites = request.headers.getall("Sec-Fetch-Site", [])
-        if not hmac.compare_digest(provided, expected):
-            result = web.json_response({"error": "unauthorized"}, status=401)
-            result.headers["WWW-Authenticate"] = 'Bearer realm="shadow6-control"'
-        elif host not in allowed_hosts:
+        if host not in allowed_hosts:
             result = web.json_response({"error": "use the loopback address and listening port"}, status=403)
         elif (origins and origins != [f"http://{host}"]) or (fetch_sites and fetch_sites not in (["same-origin"], ["none"])):
             result = web.json_response({"error": "cross-origin browser requests are not allowed"}, status=403)
+        elif not static_ui and not hmac.compare_digest(provided, expected):
+            result = web.json_response({"error": "unauthorized"}, status=401)
+            result.headers["WWW-Authenticate"] = 'Bearer realm="shadow6-control"'
         elif semaphore.locked():
             result = web.json_response({"error": "server busy"}, status=503)
         else:
@@ -1269,10 +1270,49 @@ def http_app(token: str, allow_mutations: bool = False):
                     result = await handler(request)
                 except web.HTTPException as exc:
                     result = web.json_response({"error": exc.reason}, status=exc.status)
-        result.headers.update({"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'", "X-Frame-Options": "DENY", "Referrer-Policy": "no-referrer"})
+        policy = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; "
+                  "connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+                  if static_ui else "default-src 'none'; frame-ancestors 'none'")
+        result.headers.update({"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", "Content-Security-Policy": policy, "X-Frame-Options": "DENY", "Referrer-Policy": "no-referrer"})
         return result
 
     app = web.Application(client_max_size=MAX_REQUEST, middlewares=[security])
+
+    def web_asset(name: str) -> bytes:
+        paths = {"/": ("index.html", "text/html"), "/ui.css": ("ui.css", "text/css"),
+                 "/ui.js": ("ui.js", "text/javascript")}
+        filename, _content_type = paths[name]
+        candidates = (HERE / "web" / filename, HERE.parent / "share" / "shadow6" / "control" / "web" / filename)
+        for path in candidates:
+            try:
+                info = path.lstat()
+                if not path.is_file() or path.is_symlink() or info.st_size > 256 * 1024:
+                    continue
+                flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+                fd = os.open(path, flags)
+                try:
+                    opened = os.fstat(fd)
+                    if not stat.S_ISREG(opened.st_mode) or opened.st_size > 256 * 1024:
+                        continue
+                    chunks = bytearray()
+                    while len(chunks) <= 256 * 1024:
+                        chunk = os.read(fd, min(65536, 256 * 1024 + 1 - len(chunks)))
+                        if not chunk:
+                            return bytes(chunks)
+                        chunks.extend(chunk)
+                finally:
+                    os.close(fd)
+            except OSError:
+                continue
+        raise web.HTTPNotFound()
+
+    async def get_ui(request):
+        content_type = {"/": "text/html", "/ui.css": "text/css", "/ui.js": "text/javascript"}[request.path]
+        return web.Response(body=web_asset(request.path), content_type=content_type, charset="utf-8")
+
+    app.router.add_get("/", get_ui)
+    app.router.add_get("/ui.css", get_ui)
+    app.router.add_get("/ui.js", get_ui)
 
     async def get_schema(request):
         return web.Response(text=_bounded_json(schema()), content_type="application/json")
@@ -1299,6 +1339,47 @@ def http_app(token: str, allow_mutations: bool = False):
             status=200 if result['ok'] else 400, content_type='application/json')
 
     app.router.add_get('/v1/services', get_services)
+
+    async def get_service_page(request):
+        if (set(request.query) - {"limit", "offset"} or
+                any(len(request.query.getall(key)) != 1 for key in request.query)):
+            return web.json_response({"error": "use one limit and offset parameter"}, status=400)
+        limit_text = request.query.get("limit", "50")
+        offset_text = request.query.get("offset", "0")
+        if (not limit_text.isascii() or not limit_text.isdecimal() or
+                not offset_text.isascii() or not offset_text.isdecimal()):
+            return web.json_response({"error": "limit and offset must be decimal integers"}, status=400)
+        limit, offset = int(limit_text), int(offset_text)
+        if not 1 <= limit <= 100 or not 0 <= offset <= 131_072:
+            return web.json_response({"error": "limit must be 1..100 and offset at most 131072"}, status=400)
+
+        def page():
+            for directory in (ROOT / "Deployment", HERE.parent / "share" / "shadow6" / "deployment"):
+                if directory.is_dir():
+                    sys.path.insert(0, str(directory))
+            from core_catalog import CoreCatalog
+            from service_registry import ServiceRegistry
+            registry = ServiceRegistry(catalog=CoreCatalog(ROOT))
+            names = sorted(registry.services)
+            items = []
+            for name in names[offset:offset + limit]:
+                record = registry.status(name)
+                runtime_info = record.get("runtime") or {}
+                binding = record.get("profileBinding") or {}
+                items.append({"name": name, "state": record.get("state", "unknown"),
+                    "core": (record.get("coreBinding") or {}).get("core"),
+                    "profile": binding.get("profile"), "privacy": record.get("privacy"),
+                    "endpoint": runtime_info.get("endpoint"), "readiness": runtime_info.get("readiness")})
+            return {"schema": "shadow6.named-service-page.v1", "items": items,
+                    "total": len(names), "limit": limit, "offset": offset}
+
+        try:
+            result = await asyncio.to_thread(page)
+            return web.Response(text=_bounded_json(result), content_type="application/json")
+        except (ValueError, OSError, ImportError):
+            return web.json_response({"error": "Named Service observation is unavailable on this platform"}, status=503)
+
+    app.router.add_get('/v1/services/page', get_service_page)
     app.router.add_get('/v1/service', get_service)
 
     async def rpc(request: web.Request) -> web.Response:

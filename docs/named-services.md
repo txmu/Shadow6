@@ -3,12 +3,14 @@
 Native Profile source contracts are available through `shadow6 core profiles`
 or `shadow6 core profiles gleam`. Gleam secure-stream and Micro-Mux have
 separate Profile IDs and attachment semantics. Profile selection is integrated
-into fleet/native realization and Named Service ProfileBinding. The local
-message adapter has focused supervisor/library/stdio tests. S6NA companion
-config/key material can be included in a client service lock with
-`--credited-config`, then opened through `Shadow6.open_credited_for_service()`.
-That is a separately locked S6NA endpoint; transparent forwarding into the
-Native Core application proxy and real all-Profile verification remain open.
+into fleet/native realization and Named Service ProfileBinding. The
+`libshadow6.Shadow6.open_application(name)` facade uses that binding to choose
+the native boundary or the optional lock-bound S6NA client reflector without
+requiring application code to select a Core, Profile, or record mode. S6NA
+configuration remains opt-in at service setup (`--credited-config`), and its
+application sessions share a bounded multi-stream UDP endpoint. Use
+`connect_native(name)` to bypass the adapter and attach directly to the local
+Core endpoint.
 The source catalog must not be interpreted as thirteen available Named Service
 implementations. See [the active requirement ledger](native-profile-runtime-plan.md).
 
@@ -95,8 +97,15 @@ Core catalog listing avoids hashing every installed binary. Binding a selected C
 
 The registry defaults to `~/.config/shadow6/services.json`; set
 `SHADOW6_SERVICE_REGISTRY` for an isolated registry. Writes are atomic and
-serialized with a 12-second lock acquisition limit. Each registry permits at
-most 128 services; each run has a 30..86400-second lifetime (default 3600).
+serialized with a 12-second lock acquisition limit. Its service ceiling is
+computed from host memory and descriptor budgets (64 KiB and 8 descriptors
+reserved per possible service), a 64 MiB registry-file ceiling, and a
+131,072-entry absolute cap. Windows uses the OS-reported physical-memory limit
+and a finite 65,536-handle budget when Python's `resource` backend is absent;
+Linux/macOS/BSD use the shared HostBudget probe. This replaces the old arbitrary
+128-entry limit while keeping storage and descriptor use bounded. A service
+still consumes its actual record/config storage and other runtime resources.
+Each run has a 30..86400-second lifetime (default 3600).
 The supervisor terminates the Core and optional envelope when either process
 exits or the lifetime expires. `stop` signals only the recorded PID after checking
 its Linux boot/process-start identity and acquiring a pidfd.
@@ -175,6 +184,13 @@ documented in the [carrier contract](privacy-envelope-carrier-contract.md).
 Named Service waits for a fresh v6 metrics snapshot with an authenticated active
 session before acknowledging WebRTC transport readiness. This path does not
 translate across Core families and cannot compose with Gate.
+`shadow6 service signal NAME` exposes the lock-bound S6SG1 endpoint without
+returning native config or credentials. `libshadow6` provides
+`webrtc_client_reflector()` for callers that need explicit offer/poll/answer
+operations, alongside the transparent application facade. The client contract
+is implemented, but the Named Service runner does not create the local
+signalling broker: an operator-provided broker must exist at `signal_path`
+before WebRTC startup, and this endpoint by itself does not pair peers.
 For the read-only Control Center API, configure `SHADOW6_ENVELOPE_METRICS` in its
 operator environment, then call `privacy-envelope.status` with empty parameters.
 RPC clients cannot choose arbitrary metrics files. No telemetry is sent off-host.

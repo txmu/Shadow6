@@ -23,14 +23,39 @@ import java.nio.channels.DatagramChannel
 import java.security.MessageDigest
 import java.util.Base64
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 
 /** Optional standalone S6NA IP carrier, started only after Android VPN consent. */
 class Shadow6VpnService : VpnService() {
     private class Session(val key: ByteArray) {
         val active = AtomicBoolean(true)
+        val sentPackets = AtomicLong()
+        val receivedPackets = AtomicLong()
+        val sentBytes = AtomicLong()
+        val receivedBytes = AtomicLong()
+        private val lastStatusUpdate = AtomicLong()
         @Volatile var descriptor: ParcelFileDescriptor? = null
         @Volatile var channel: DatagramChannel? = null
         @Volatile var sender: Thread? = null
+        fun recordSent(bytes: Int) {
+            sentPackets.incrementAndGet()
+            sentBytes.addAndGet(bytes.toLong())
+            publishTrafficIfDue()
+        }
+        fun recordReceived(bytes: Int) {
+            receivedPackets.incrementAndGet()
+            receivedBytes.addAndGet(bytes.toLong())
+            publishTrafficIfDue()
+        }
+        private fun publishTrafficIfDue() {
+            val now = android.os.SystemClock.elapsedRealtime()
+            val previous = lastStatusUpdate.get()
+            if (active.get() && now - previous >= 500 && lastStatusUpdate.compareAndSet(previous, now)) {
+                mutableStatus.value = VpnStatus(running = true,
+                    sentPackets = sentPackets.get(), receivedPackets = receivedPackets.get(),
+                    sentBytes = sentBytes.get(), receivedBytes = receivedBytes.get())
+            }
+        }
         fun close() {
             active.set(false)
             runCatching { channel?.close() }
@@ -127,6 +152,7 @@ class Shadow6VpnService : VpnService() {
                                     if (size > 0) {
                                         val frame = codec.encode(packet.copyOf(size))
                                         check(channel.write(ByteBuffer.wrap(frame)) == frame.size) { "Incomplete VPN datagram" }
+                                        current.recordSent(size)
                                     }
                                 }
                             } catch (error: Exception) {
@@ -144,6 +170,7 @@ class Shadow6VpnService : VpnService() {
                             wire.get(bytes)
                             val packet = try { codec.decode(bytes) } catch (_: Exception) { continue }
                             output.write(packet)
+                            current.recordReceived(packet.size)
                         }
                     }
                 }
@@ -157,7 +184,11 @@ class Shadow6VpnService : VpnService() {
         if (current != null && session !== current) return
         current?.close()
         session = null
-        mutableStatus.value = VpnStatus(error = error?.take(256))
+        mutableStatus.value = VpnStatus(error = error?.take(256),
+            sentPackets = current?.sentPackets?.get() ?: 0,
+            receivedPackets = current?.receivedPackets?.get() ?: 0,
+            sentBytes = current?.sentBytes?.get() ?: 0,
+            receivedBytes = current?.receivedBytes?.get() ?: 0)
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
@@ -179,4 +210,12 @@ class Shadow6VpnService : VpnService() {
     }
 }
 
-data class VpnStatus(val starting: Boolean = false, val running: Boolean = false, val error: String? = null)
+data class VpnStatus(
+    val starting: Boolean = false,
+    val running: Boolean = false,
+    val error: String? = null,
+    val sentPackets: Long = 0,
+    val receivedPackets: Long = 0,
+    val sentBytes: Long = 0,
+    val receivedBytes: Long = 0,
+)

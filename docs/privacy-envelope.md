@@ -56,19 +56,22 @@ The server's upstream and client's listen endpoint must be loopback/private.
 The Linux SCTP message adapter can preserve a compatible native message
 boundary. The Linux WebRTC/ICE/DTLS/DataChannel executable path is available
 for an explicitly bound Nim/WebRTC Profile. It consumes SDP through a private
-Unix socket owned by the Named Service signalling broker, pairs each envelope
+Unix socket configured for a signalling broker, pairs each envelope
 DataChannel with a native Nim DataChannel, and admits concurrent pairs under
 `max_sessions`, `max_preauth`, and the provider's aggregate queue budget. Each
 pair receives a fresh random signalling ID. `signal_id` in the config is a
 service prefix, not a session identifier. The default raw carrier and the
 other Core Profiles remain unchanged. See the signalling handoff contract
 below and the [Carrier/Adapter Contract](privacy-envelope-carrier-contract.md).
+The current Named Service exposes a lock-bound S6SG1 client endpoint but does
+not create or supervise a signalling broker. An operator-provided compatible
+broker must own the configured socket and perform peer pairing.
 The [Carrier/Adapter Contract](privacy-envelope-carrier-contract.md) separates
 the stream security engine from transport I/O. Its default raw provider remains
 identifiable; the TLS 1.3 provider encapsulates the hello in a real encrypted
 TLS connection; the dedicated Linux SCTP message provider preserves native
 records. The WebRTC provider preserves native DataChannels. Its executable
-session starts only after the configured signalling broker returns an SDP
+session starts only after the external signalling broker returns an SDP
 answer, completes ICE/DTLS/DataChannel admission, and authenticates the S6EPE
 message handshake. Named Service startup waits for a fresh authenticated
 session observation.

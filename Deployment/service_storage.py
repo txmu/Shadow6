@@ -73,13 +73,13 @@ def private_directory(path):
         raise ValueError('state directory must be owner-controlled and not a symlink')
 
 
-def atomic_write(path, data):
+def atomic_write(path, data, *, limit=LIMIT):
     path = Path(path)
-    if len(data) > LIMIT:
+    if type(limit) is not int or limit < 1 or len(data) > limit:
         raise ValueError('state size limit')
     private_directory(path.parent)
     if path.exists() or path.is_symlink():
-        private_read(path)
+        private_read(path, limit=limit)
     with tempfile.TemporaryDirectory(prefix='.shadow6-', dir=path.parent) as directory:
         temp = Path(directory) / 'state'
         fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)

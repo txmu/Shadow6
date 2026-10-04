@@ -6,6 +6,7 @@ import json
 import os
 import platform
 import re
+import sys
 import time
 import threading
 from pathlib import Path
@@ -26,6 +27,47 @@ except ImportError:
 
 NAME = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._-]{0,63}/[A-Za-z0-9][A-Za-z0-9._-]{0,63}$')
 SCHEMA = 'shadow6.service-registry.v2'
+MAX_REGISTRY_BYTES = 64 * 1024 * 1024
+REGISTRY_BYTES_PER_SERVICE = 512
+SERVICE_MEMORY_RESERVE = 64 * 1024
+SERVICE_FD_RESERVE = 8
+
+
+def _service_host_budget():
+    try:
+        return HostBudget.capture()
+    except ValueError:
+        # Python's resource/sysconf backend is not available on Windows. Query
+        # physical memory through Win32 and retain a finite handle budget;
+        # an unavailable platform probe must never make the registry unbounded.
+        if sys.platform != 'win32':
+            raise
+        import ctypes
+        from ctypes import wintypes
+
+        class MemoryStatus(ctypes.Structure):
+            _fields_ = [('dwLength', wintypes.DWORD), ('dwMemoryLoad', wintypes.DWORD),
+                        ('ullTotalPhys', ctypes.c_ulonglong), ('ullAvailPhys', ctypes.c_ulonglong),
+                        ('ullTotalPageFile', ctypes.c_ulonglong), ('ullAvailPageFile', ctypes.c_ulonglong),
+                        ('ullTotalVirtual', ctypes.c_ulonglong), ('ullAvailVirtual', ctypes.c_ulonglong),
+                        ('ullAvailExtendedVirtual', ctypes.c_ulonglong)]
+
+        memory = MemoryStatus()
+        memory.dwLength = ctypes.sizeof(MemoryStatus)
+        if not ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(memory)) or memory.ullTotalPhys < 1:
+            raise ValueError('HostBudgetUnavailable: Windows memory ceiling unavailable')
+        return type('WindowsServiceBudget', (), {
+            'memory_bytes': int(memory.ullTotalPhys), 'fd_ceiling': 65_536,
+        })()
+
+
+def service_capacity(host=None):
+    """Return a finite service ceiling derived from host and registry budgets."""
+    host = host or _service_host_budget()
+    memory_capacity = max(1, host.memory_bytes // SERVICE_MEMORY_RESERVE)
+    descriptor_capacity = max(1, host.fd_ceiling // SERVICE_FD_RESERVE)
+    registry_capacity = MAX_REGISTRY_BYTES // REGISTRY_BYTES_PER_SERVICE
+    return min(memory_capacity, descriptor_capacity, registry_capacity)
 
 
 def encoded(value):
@@ -83,10 +125,13 @@ class ServiceRegistry:
 
     def _load(self):
         try:
-            data = strict_json(private_read(self.path))
+            data = strict_json(private_read(self.path, limit=MAX_REGISTRY_BYTES))
         except FileNotFoundError:
             self.services = {}; return
-        if not isinstance(data, dict) or set(data) != {'schema', 'services'} or data['schema'] not in (SCHEMA, 'shadow6.service-registry.v1') or not isinstance(data['services'], dict) or len(data['services']) > 128:
+        if (not isinstance(data, dict) or set(data) != {'schema', 'services'} or
+                data['schema'] not in (SCHEMA, 'shadow6.service-registry.v1') or
+                not isinstance(data['services'], dict) or
+                len(data['services']) > MAX_REGISTRY_BYTES // REGISTRY_BYTES_PER_SERVICE):
             raise ValueError('invalid service registry')
         allowed = {'name', 'protocolContext', 'spec', 'privacy', 'privacyTelemetry', 'coreBinding', 'profileBinding', 'state', 'deploymentLock', 'runtime'}
         for name, item in data['services'].items():
@@ -145,7 +190,8 @@ class ServiceRegistry:
             self._migration_pending = True
 
     def _save(self):
-        atomic_write(self.path, encoded({'schema': SCHEMA, 'services': self.services}) + b'\n')
+        atomic_write(self.path, encoded({'schema': SCHEMA, 'services': self.services}) + b'\n',
+            limit=MAX_REGISTRY_BYTES)
 
     @staticmethod
     def _spec(spec):
@@ -165,8 +211,10 @@ class ServiceRegistry:
 
     @transaction
     def create(self, name, *, core, config, spec=None, privacy='native', context=None, profile=None):
-        if not NAME.fullmatch(name) or name in self.services or len(self.services) >= 128:
-            raise ValueError('service name must be unique namespace/name; maximum 128 services')
+        if not NAME.fullmatch(name) or name in self.services:
+            raise ValueError('service name must be unique namespace/name')
+        if len(self.services) >= service_capacity():
+            raise ValueError('host service capacity reached; remove unused services or increase available host resources')
         spec = spec or {}; self._spec(spec)
         if privacy not in ('native', 'envelope'):
             raise ValueError('privacy must be native or envelope')
@@ -555,6 +603,30 @@ class ServiceRegistry:
         if digest(encoded(material)) != item['deploymentLock']['digest']:
             raise ValueError('deployment drift; explicitly reconfigure and apply')
         return item, attachment
+
+    @transaction
+    def webrtc_signal_endpoint(self, name):
+        """Expose only the lock-bound local S6EPE Name Service handoff fields."""
+        item = self.inspect(name)
+        if item.get('state') == 'stale' or not item.get('deploymentLock'):
+            raise ValueError('locked Named Service required for WebRTC signalling')
+        material = self._material(name)
+        if digest(encoded(material)) != item['deploymentLock']['digest']:
+            raise ValueError('deployment drift; explicitly reconfigure and apply')
+        profile = self.require_profile_binding(name)
+        if (profile.get('core') != 'nim' or profile.get('profile') != 'nim-webrtc'):
+            raise ValueError('capability unavailable: S6EPE signalling requires Nim/WebRTC Profile')
+        config_path = item.get('spec', {}).get('envelope_config')
+        if not config_path:
+            raise ValueError('Named Service has no S6EPE configuration')
+        fields = runtime.parse_envelope(private_read(config_path))
+        if fields.get('carrier') != 'webrtc' or not {'signal_path', 'signal_id'} <= set(fields):
+            raise ValueError('Named Service has no WebRTC Name Service bridge')
+        return {'schema':'shadow6.webrtc-signal-endpoint.v1',
+            'path':fields['signal_path'], 'sessionPrefix':fields['signal_id'],
+            'core':'nim', 'profile':profile['profile'],
+            'lockDigest':item['deploymentLock']['digest'],
+            'protocol':'S6SG1', 'transport':'owner-only-unix-stream'}
 
     @transaction
     def connect(self, name, *, core=None, role=None, adapter=None):

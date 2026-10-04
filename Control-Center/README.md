@@ -38,6 +38,15 @@ connections and concurrency are bounded. State-changing methods are rejected
 unless `--allow-mutations` is explicitly set. A reverse proxy or remote listener
 is outside this tool's trust boundary.
 
+Opening `http://127.0.0.1:9466/` serves the bundled responsive dashboard. Static
+HTML/CSS/JS contain no account data and may load without a token; the read-only
+API remains bearer-authenticated. Enter the local token in the page to view host
+status, a paged Named Service list, and installed Native Profile diagnostics.
+The dashboard keeps the token only in memory, uses same-origin requests, and
+does not offer lifecycle mutations. `GET /v1/services/page?limit=50&offset=0`
+returns a bounded, redacted page; the original `/v1/services` response remains
+available for API compatibility.
+
 `service.list`, `service.status`, `service.doctor` and `service.connect` read the
 same Named Service Registry, DeploymentLock and runtime observation as the CLI.
 Connection resolution does not open a session. UI clients should display these

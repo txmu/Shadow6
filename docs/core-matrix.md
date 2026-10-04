@@ -1,16 +1,19 @@
 # Core capability matrix
 
-> **Updated 2026-10-02.** This table describes the checked-in source contracts.
+> **Updated 2026-10-04.** This table describes the checked-in source contracts.
 > A listed toolchain may still be unavailable on a particular host; inspect
 > `shadow6 features` and the component doctor for the effective build matrix.
 
 The Native Profile source authority is
 [`Crosed/native_profiles.py`](../Crosed/native_profiles.py). It defines thirteen
 Profiles, including separate `gleam-secure-stream` and `gleam-micro-mux`
-contracts. Inspect them with `shadow6 core profiles [CORE]`. This command
-reports source contracts; it does not assert that a Profile has a working
-installed Named Service lifecycle. That completion gate remains under active
-implementation; see [the requirement ledger](native-profile-runtime-plan.md).
+contracts. Inspect them with `shadow6 core profiles [CORE]`. The current source
+has passed all thirteen real Linux Named Service Profile lifecycle integrations
+against existing Actions-built artifacts in the local artifact tree. Fresh CI
+for the pending source changes is still required; see [the completion
+ledger](native-profile-runtime-plan.md) and dated
+[integration review](review-2026-10-04-integration.md). This Linux result does
+not claim lifecycle parity on Windows, macOS, or Android.
 
 Shadow6 has twelve independently compiled Core implementations. They share
 feature-report and security-contract vocabulary, but their native protocols
@@ -53,8 +56,10 @@ interoperable.
 The descriptor is an application ingress contract, not a transport upgrade.
 `seqpacket-fd` providers preserve record boundaries and report kernel-queue
 acceptance; `stream` providers implement bounded JSONL discovery and half-close
-behavior. Network Adapter's `credited` boundary is optional and does not grant
-a Core a different native reliability or multiplexing model.
+behavior. When S6NA is locked for a Named Service, `libshadow6.open_application`
+selects its application-edge path from the bound Profile. This does not grant a
+Core a different native reliability or multiplexing model. Use
+`connect_native()` to attach to the Core's observed local endpoint directly.
 
 The default build keeps Crosed, application transport and Qubes-inspired
 domain policy disabled. Explicit `*-crosed` or Public6 variants are separate

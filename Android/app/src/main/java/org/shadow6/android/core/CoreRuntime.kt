@@ -8,9 +8,9 @@ import org.shadow6.android.security.checkedProcess
 import org.shadow6.android.security.writePrivateConfig
 import java.util.concurrent.TimeUnit
 
-enum class CoreEngine(val assetName: String, val transport: String) {
-    GO("libshadow6_go.so", "kcp"), RUST("libshadow6_rust.so", "quic"),
-    D("libshadow6_d.so", "secure-stream"), NIM("libshadow6_nim.so", "webrtc")
+enum class CoreEngine(val assetName: String, val transport: String, val profileId: String) {
+    GO("libshadow6_go.so", "kcp", "go-kcp"), RUST("libshadow6_rust.so", "quic", "rust-quic"),
+    D("libshadow6_d.so", "secure-stream", "d-secure-stream"), NIM("libshadow6_nim.so", "webrtc", "nim-webrtc")
 }
 data class CoreStatus(
     val running: Boolean = false,

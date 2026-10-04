@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import os
 import socket
+import struct
+import threading
 import time
 import subprocess
 import tempfile
@@ -14,6 +16,53 @@ import libshadow6
 
 
 class LibShadow6Tests(unittest.TestCase):
+    def test_s6epe_client_reflector_uses_bounded_named_service_socket_protocol(self):
+        from libshadow6.webrtc_signal import WebrtcClientReflector
+        with tempfile.TemporaryDirectory(prefix="shadow6-epe-reflector-") as raw:
+            path = str(Path(raw) / "signal.sock")
+            listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            listener.bind(path); os.chmod(path, 0o600); listener.listen(1)
+            seen = []
+
+            def serve():
+                peer, _ = listener.accept()
+                with peer:
+                    request = peer.recv(4096)
+                    seen.append(request)
+                    answer = b"v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\n"
+                    peer.sendall(b"S6SRO" + struct.pack(">I", len(answer)) + answer)
+
+            worker = threading.Thread(target=serve)
+            worker.start()
+            reflector = WebrtcClientReflector(path, "profile.0123456789abcdef", leg="E")
+            result = reflector.offer("v=0\r\no=- 2 2 IN IP4 127.0.0.1\r\n")
+            worker.join(timeout=2); listener.close()
+            self.assertEqual(result, "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\n")
+            self.assertTrue(seen[0].startswith(b"S6SG1EO"))
+
+    def test_locked_s6na_application_adapter_covers_all_native_profiles(self):
+        from Deployment.connection_plan import application_adapter
+        from Deployment.profile_registry import profiles
+        descriptors = profiles()
+        self.assertEqual(len(descriptors), 13)
+        for profile in descriptors:
+            with self.subTest(profile=profile['id']):
+                result = application_adapter(profile, 's6na')
+                self.assertEqual(result['provider'], 's6na')
+                self.assertEqual(result['mode'], 'transparent-profile')
+                self.assertEqual(result['profile'], profile['id'])
+                self.assertEqual(result['boundary'], profile['applicationBoundary']['kind'])
+
+    def test_named_service_connect_selects_s6na_without_profile_arguments(self):
+        facade = object.__new__(libshadow6.Shadow6)
+        facade._closed = False
+        plan = {'applicationAdapter': {'provider':'s6na','mode':'transparent-profile'}}
+        expected = object()
+        with patch.object(facade, 'connection_plan', return_value=plan), \
+             patch.object(facade, 'open_credited_for_service', return_value=expected) as open_s6na:
+            self.assertIs(facade.open_application('service/client'), expected)
+        open_s6na.assert_called_once_with('service/client')
+
     def test_s6na_credited_attachment_preserves_records_and_rearms_credit(self):
         from Deployment.service_storage import atomic_write
         with tempfile.TemporaryDirectory(prefix="shadow6-s6na-app-") as raw:
@@ -26,6 +75,7 @@ class LibShadow6Tests(unittest.TestCase):
             for sock in reservations: sock.close()
             key = os.urandom(32)
             sessions = []
+            facades = []
             for side, local, remote in ((0,left_port,right_port),(1,right_port,left_port)):
                 key_path = root / f"key-{side}"
                 config_path = root / f"config-{side}.json"
@@ -38,6 +88,7 @@ class LibShadow6Tests(unittest.TestCase):
                 atomic_write(config_path, json.dumps(document).encode())
                 facade = object.__new__(libshadow6.Shadow6)
                 facade._closed = False; facade._attachments = set()
+                facades.append(facade)
                 sessions.append(facade.open_credited(config_path))
             left, right = sessions
             self.addCleanup(left.close); self.addCleanup(right.close)
@@ -52,16 +103,32 @@ class LibShadow6Tests(unittest.TestCase):
             self.assertGreater(left.application_credit(), 0)
             right.send_record(b"whole-record-reply")
             self.assertEqual(left.receive_record(timeout=1), b"whole-record-reply")
+
+            # Multiple application streams share one pinned UDP socket. Closing
+            # one logical stream must not tear down its sibling.
+            left_second = facades[0].open_credited(root / "config-0.json", stream=1)
+            right_second = facades[1].open_credited(
+                root / "config-1.json", stream=1)
+            self.addCleanup(left_second.close); self.addCleanup(right_second.close)
+            left_second.send_record(b"stream-one")
+            self.assertEqual(right_second.receive_record(timeout=1), b"stream-one")
+            left.close()
+            left_second.send_record(b"still-open")
+            self.assertEqual(right_second.receive_record(timeout=1), b"still-open")
             owner = left._owner
             owner.close()
             with self.assertRaisesRegex(libshadow6.Shadow6Error, "S6NA_CLOSED"):
-                left.application_credit()
+                left_second.application_credit()
 
     def test_named_service_credited_entry_uses_locked_material(self):
         from unittest.mock import Mock
         facade = object.__new__(libshadow6.Shadow6)
         facade._closed = False
         facade._attachments = set()
+        facade._attachment_pools = set()
+        facade._attachment_pool_map = {}
+        facade._service_attachment_pools = {}
+        facade._attachment_lock = libshadow6.RLock()
         item = {'coreBinding':{'core':'go'},
                 'profileBinding':{'core':'go','profile':'go-kcp'}}
         attachment = {'configPath':'/private/s6na.json',
@@ -71,10 +138,13 @@ class LibShadow6Tests(unittest.TestCase):
         result = object()
         with patch('Deployment.service_registry.ServiceRegistry.credited_attachment',
                    return_value=(item, attachment)) as resolve, \
-             patch.object(facade, 'open_credited', return_value=result) as open_attachment:
+             patch.object(facade, '_credited_pool', return_value=(Mock(), 0)) as open_pool:
+            pool = open_pool.return_value[0]
+            pool.open_available.return_value = result
             self.assertIs(facade.open_credited_for_service('home/nas'), result)
         resolve.assert_called_once_with('home/nas')
-        open_attachment.assert_called_once_with('/private/s6na.json', _expected=attachment)
+        open_pool.assert_called_once_with('/private/s6na.json', _expected=attachment,
+                                          close_when_idle=False)
 
     def test_open_selects_matching_boundary_and_context_stops_capsule(self):
         class Runtime(libshadow6.Shadow6):

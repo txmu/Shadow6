@@ -104,9 +104,12 @@ def main() -> int:
     parser.add_argument("--named-service")
     parser.add_argument("--registry",type=Path)
     parser.add_argument("--capabilities",action='store_true')
+    parser.add_argument("--operation",choices=("install-definition", "activate", "deactivate",
+        "restart", "status", "remove-definition", "logs"),
+        help="emit a lock-bound request for an external system-operations provider")
     args = parser.parse_args()
     try:
-        if args.named_service or args.capabilities:
+        if args.named_service or args.capabilities or args.operation:
             import sys,json,hashlib
             here=Path(__file__).resolve().parent
             root=here.parent if here.name not in {'bin','modules'} else (here.parent/'share/shadow6/tree' if here.name=='bin' else here.parent/'tree')
@@ -115,6 +118,8 @@ def main() -> int:
             backend=normalize_init_system(args.system)
             if args.capabilities:
                 print(json.dumps(capabilities(backend),sort_keys=True));return 0
+            if args.operation and not args.named_service:
+                raise ValueError("--operation requires --named-service")
             if args.binary or args.config or args.name:
                 raise ValueError('Named Service realization cannot override binary/config/name')
             from Deployment.service_registry import ServiceRegistry
@@ -130,7 +135,16 @@ def main() -> int:
             else:
                 runner = root/'Service-Init/shadow6_service_runner.py'
             name='shadow6-'+hashlib.sha256(args.named_service.encode()).hexdigest()[:24]
-            print(generate_init_script(backend,name,str(runner),str(plan_path),fd_ceiling=locked_fds),end='')
+            definition=generate_init_script(backend,name,str(runner),str(plan_path),fd_ceiling=locked_fds)
+            if args.operation:
+                from Deployment.system_operations import operation_request
+                request=operation_request(backend=backend,operation=args.operation,
+                    service=args.named_service,plan_path=str(plan_path),
+                    lock_digest=plan['lockDigest'],
+                    definition_digest='sha256:'+hashlib.sha256(definition.encode()).hexdigest())
+                print(json.dumps(request,sort_keys=True,separators=(',',':')))
+                return 0
+            print(definition,end='')
             return 0
         if not all((args.name,args.binary,args.config)):
             raise ValueError('legacy service requires --name/--binary/--config')

@@ -126,8 +126,8 @@ The adapters also expose local producer credit (`application_credit()` in
 Python, `applicationCredit()` in Node) and flow-controlled send helpers. ACKs
 restore credit; this local API adds no wire message and does not alter the
 1100-byte profile or native Core flow control.
-The native path stays native; Companion features are explicit and require both
-endpoints. The network-chain benchmark now has 39 combinations (12 cores,
+The native wire path stays native; S6NA is an optional application-edge
+adapter that requires both endpoints. The network-chain benchmark has 39 combinations (12 cores,
 13 transport profiles, 3 backends). Component-only matrices with 12 families
 retain their own declared dimensions.
 
@@ -144,11 +144,17 @@ clears endpoint timers, queues, pending frames, and reassembly state. This is lo
 producer admission for the optional Gleam Micro-Mux companion path; it changes
 neither the Micro-Mux nor native Core wire format.
 
-`libshadow6.Shadow6.open_credited()` is the application attachment facade for
-the same optional companion contract. It reads an owner-only
-`shadow6.s6na-attachment.v1` file, a separate owner-only 32-byte S6NA key, and
-numeric pinned UDP endpoints. Its `CreditedSession` preserves complete records,
-exposes application credit, and fails with the versioned S6NA backpressure and
-closed errors. The caller must provision the matching peer and secret through
-an independent trusted channel; S6NA does not become an implicit Core transport
-or make unrelated Native Core families wire-compatible.
+`libshadow6.Shadow6.open_application(name)` resolves the Named Service's locked
+Profile and transparently selects its S6NA adapter when configured. The
+attachment document and separate owner-only 32-byte key are bound into the
+DeploymentLock and use numeric pinned UDP endpoints. Adapter policy covers all
+thirteen Native Profiles, including the distinct Gleam Micro-Mux Profile.
+
+The facade shares one S6NA endpoint across bounded logical application streams;
+each open allocates a free stream ID and closing one stream leaves its siblings
+active. Message Profiles retain complete records. Stream Profiles can use the
+facade's byte-oriented `send()` and `receive()` methods. Apps that require
+direct access to the Native Core endpoint use `connect_native(name)`; apps that
+need explicit record and credit control use `open_credited_for_service(name)`.
+Both peers still provision the same S6NA key through an independent trusted
+channel. S6NA does not translate Native Core wire protocols.

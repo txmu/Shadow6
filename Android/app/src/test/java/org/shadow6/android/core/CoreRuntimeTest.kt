@@ -6,6 +6,14 @@ import org.junit.Test
 
 class CoreRuntimeTest {
     @Test
+    fun packagedEnginesExposeTheirSharedNativeProfileIds() {
+        assertEquals("go-kcp", CoreEngine.GO.profileId)
+        assertEquals("rust-quic", CoreEngine.RUST.profileId)
+        assertEquals("d-secure-stream", CoreEngine.D.profileId)
+        assertEquals("nim-webrtc", CoreEngine.NIM.profileId)
+    }
+
+    @Test
     fun parsesLatestBoundedClientProxyEndpoint() {
         val output = """
             2026/09/02 [Client] Secure local proxy listening on 127.0.0.1:34129

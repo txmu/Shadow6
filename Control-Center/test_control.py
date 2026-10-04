@@ -402,6 +402,20 @@ class ControlHTTPTests(unittest.IsolatedAsyncioTestCase):
         async with self.client.post(self.url + "/v1/rpc", data=b"x" * (control.MAX_REQUEST + 1), headers=headers) as reply:
             self.assertEqual(reply.status, 413)
 
+    async def test_local_dashboard_is_static_and_api_stays_authenticated(self):
+        async with self.client.get(self.url + "/") as reply:
+            self.assertEqual(reply.status, 200)
+            self.assertIn("default-src 'self'", reply.headers["Content-Security-Policy"])
+            self.assertIn('name="token"', await reply.text())
+        for path, content_type in (("/ui.css", "text/css"), ("/ui.js", "text/javascript")):
+            async with self.client.get(self.url + path) as reply:
+                self.assertEqual(reply.status, 200)
+                self.assertTrue(reply.headers["Content-Type"].startswith(content_type))
+        async with self.client.get(self.url + "/v1/status") as reply:
+            self.assertEqual(reply.status, 401)
+        async with self.client.get(self.url + "/", headers={"Origin": "https://attacker.invalid"}) as reply:
+            self.assertEqual(reply.status, 403)
+
     async def test_http_rejects_browser_and_header_ambiguity(self):
         auth = {"Authorization": "Bearer " + "a" * 32}
         for extra in ({"Host": f"attacker.invalid:{self.port}"},
@@ -449,6 +463,14 @@ class ControlHTTPTests(unittest.IsolatedAsyncioTestCase):
                 async with self.client.get(self.url+'/v1/services', headers=auth) as reply:
                     self.assertEqual(reply.status, 200)
                     self.assertEqual((await reply.json())['services'], registry.list())
+                async with self.client.get(self.url+'/v1/services/page?limit=1&offset=0', headers=auth) as reply:
+                    self.assertEqual(reply.status, 200)
+                    page = await reply.json()
+                    self.assertEqual((page['total'], page['limit'], page['offset']), (1, 1, 0))
+                    self.assertEqual(page['items'][0]['name'], 'home/nas')
+                    self.assertNotIn('spec', page['items'][0])
+                async with self.client.get(self.url+'/v1/services/page?limit=101', headers=auth) as reply:
+                    self.assertEqual(reply.status, 400)
                 async with self.client.get(self.url+'/v1/service?name=home%2Fnas', headers=auth) as reply:
                     self.assertEqual(reply.status, 200)
                     self.assertEqual(await reply.json(), registry.status('home/nas'))

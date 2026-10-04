@@ -19,6 +19,15 @@ Both companions provide the same bounded message contract:
 - 30-second expiry for incomplete messages and bounded SRTT/RTTVAR-based RTO;
 - extension events only as typed data for the signed out-of-process Extension/Slot system.
 
+For Named Services, the optional S6NA material is bound to the selected
+Native Profile in the DeploymentLock. `Shadow6.open_application(name)` selects
+the adapter from that lock without asking application code to choose a Core,
+Profile, or stream/message mode. S6NA's policy table covers all thirteen
+Profiles; the two Gleam Profiles retain different policy IDs. The facade shares
+one pinned UDP endpoint across bounded logical streams and routes received
+records by S6NA stream ID. `connect_native(name)` remains available to access a
+Core's local boundary directly.
+
 The companions accept a complete caller message and emit transport-sized
 records. They must preserve the selected Core's endpoint and deployment
 limits, and they must not silently add a public listener, firewall rule, route,

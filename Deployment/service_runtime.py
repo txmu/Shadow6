@@ -196,9 +196,24 @@ def runtime_material_digest(key, path):
 
 def feature_report(binary: str) -> dict:
     import selectors
-    before = executable_digest(binary)
+    binary_path = Path(executable(binary))
+    before = executable_digest(binary_path)
+    # Generated Idris/Chez launchers and Core-Nim load libraries from their
+    # adjacent, artifact-owned directories. Reconstruct that narrow runtime
+    # environment from the executable's install tree, while stripping ambient
+    # loader overrides for every Core.
+    root = binary_path.parent.parent
+    try:
+        relative = binary_path.relative_to(root)
+    except ValueError:
+        relative = binary_path.name
+    try:
+        from feature_contract import runtime_environment
+    except ImportError:
+        from Crosed.feature_contract import runtime_environment
+    environment = runtime_environment(root, relative)
     process = subprocess.Popen([executable(binary), "--feature-report"], stdout=subprocess.PIPE,
-                               stderr=subprocess.DEVNULL, close_fds=True)
+                               stderr=subprocess.DEVNULL, close_fds=True, env=environment)
     data = bytearray()
     deadline = time.monotonic() + 3
     try:
@@ -228,7 +243,7 @@ def feature_report(binary: str) -> dict:
     value = strict_json(bytes(data))
     if not isinstance(value, dict) or not isinstance(value.get("core"), str):
         raise ValueError("invalid Core feature-report")
-    if executable_digest(binary) != before:
+    if executable_digest(binary_path) != before:
         raise ValueError("feature-report binary changed during probe")
     return value
 
@@ -252,11 +267,6 @@ def verify_launch_material(plan):
         raise ValueError('LegacyLimitsLock: explicitly relock')
     if ('componentLimits' in plan) != ('componentLimits' in plan.get('launchDigests', {})):
         raise ValueError('component limits require exact launch digest')
-    native = strict_json(private_read(plan['config']))
-    validate_profile_realization(plan['profileBinding'], native, plan.get('protocolContext'))
-    native_materials = native_material_paths(plan['profileBinding'], native)
-    if plan.get('nativeMaterials', {}) != native_materials:
-        raise ValueError('native launch material differs from locked configuration')
     if type(plan['ttl']) is not int or not 30 <= plan['ttl'] <= 86400:
         raise ValueError('invalid launch lifetime')
     if plan.get('launchAdapter','native-config') not in ('native-config','native-files'):
@@ -267,16 +277,6 @@ def verify_launch_material(plan):
     credited_keys = {'creditedAttachment','creditedConfig','creditedKey'} & set(plan)
     if credited_keys and len(credited_keys) != 3:
         raise ValueError('incomplete S6NA credited attachment realization')
-    if credited_keys:
-        try:
-            from .credited_attachment import validate_attachment, credited_core
-        except ImportError:
-            from credited_attachment import validate_attachment, credited_core
-        expected_credited_core = credited_core(plan['core'], profile)
-        locked_attachment = validate_attachment(plan['creditedConfig'], root=plan['root'], expected_core=expected_credited_core)
-        if (locked_attachment != plan['creditedAttachment'] or
-                plan['creditedKey'] != locked_attachment['keyPath']):
-            raise ValueError('S6NA attachment material differs from deployment lock')
     for key in ('root','binary','config') + tuple(k for k in plan if k.endswith(('Config','Binary','Key')) or k.startswith('envelopeTls')):
         if not isinstance(plan[key],str) or not Path(plan[key]).is_absolute():
             raise ValueError('absolute launch paths required')
@@ -289,6 +289,38 @@ def verify_launch_material(plan):
     if credited_keys:
         files['creditedConfig'] = 'private'
         files['creditedKey'] = 'credited-key'
+    tls_keys = {'envelopeTlsCert','envelopeTlsKey','envelopeTlsCa'} & set(plan)
+    if tls_keys and (len(tls_keys) != 3 or 'envelopeConfig' not in plan):
+        raise ValueError('incomplete TLS launch material')
+    files.update({key:'tls-private' for key in tls_keys})
+    # Check every direct launch input against its lock before parsing it. A
+    # mutated, malformed file is still reported as locked-material drift.
+    if not isinstance(expected, dict) or not set(files) <= set(expected):
+        raise ValueError('launch plan requires exact locked file digests')
+    for key, kind in files.items():
+        locked = expected[key]
+        if not isinstance(locked, str) or re.fullmatch(r'sha256:[0-9a-f]{64}', locked) is None:
+            raise ValueError('invalid locked launch digest')
+        read_limit = 32 if kind == 'credited-key' else 16384 if kind == 'tls-private' else 1048576
+        actual = executable_digest(plan[key]) if kind == 'executable' else 'sha256:' + hashlib.sha256(private_read(plan[key], limit=read_limit)).hexdigest()
+        if actual != locked:
+            raise ValueError(f'deployment drift before launch: {key}; explicitly reconfigure')
+
+    native = strict_json(private_read(plan['config']))
+    validate_profile_realization(plan['profileBinding'], native, plan.get('protocolContext'))
+    native_materials = native_material_paths(plan['profileBinding'], native)
+    if plan.get('nativeMaterials', {}) != native_materials:
+        raise ValueError('native launch material differs from locked configuration')
+    if credited_keys:
+        try:
+            from .credited_attachment import validate_attachment, credited_core
+        except ImportError:
+            from credited_attachment import validate_attachment, credited_core
+        expected_credited_core = credited_core(plan['core'], profile)
+        locked_attachment = validate_attachment(plan['creditedConfig'], root=plan['root'], expected_core=expected_credited_core)
+        if (locked_attachment != plan['creditedAttachment'] or
+                plan['creditedKey'] != locked_attachment['keyPath']):
+            raise ValueError('S6NA attachment material differs from deployment lock')
     if 'componentLimits' in plan:
         inputs = {}
         if 'gateConfig' in plan:
@@ -312,10 +344,6 @@ def verify_launch_material(plan):
         if envelope_fields.get('carrier')=='webrtc' and (
                 profile['core']!='nim' or profile.get('transport')!='webrtc'):
             raise ValueError('WebRTC S6EPE requires the locked Nim/WebRTC Profile')
-    tls_keys = {'envelopeTlsCert','envelopeTlsKey','envelopeTlsCa'} & set(plan)
-    if tls_keys and (len(tls_keys) != 3 or 'envelopeConfig' not in plan):
-        raise ValueError('incomplete TLS launch material')
-    files.update({key:'tls-private' for key in tls_keys})
     try:
         from .service_composition import component_material_paths
     except ImportError:
