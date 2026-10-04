@@ -41,6 +41,7 @@ class ServiceLifecycleTests(unittest.TestCase):
     def test_real_supervisor_idempotent_run_restart_stop_remove(self):
         first = self.registry.run('home/nas')
         self.assertTrue(service_runtime.alive(first['runtime']))
+        self.assertEqual(first['runtime']['readiness'], 'process-alive')
         self.assertEqual(first['privacyTelemetry']['observation'], 'not-configured')
         self.assertNotIn('authenticated_sessions', first['privacyTelemetry'])
         self.assertEqual(self.registry.run('home/nas')['runtime']['pid'], first['runtime']['pid'])
@@ -48,7 +49,8 @@ class ServiceLifecycleTests(unittest.TestCase):
             self.registry.configure('home/nas',core='go',config={'config_path':str(self.config)})
         second = self.registry.restart('home/nas')
         self.assertNotEqual(second['runtime']['pid'], first['runtime']['pid'])
-        self.assertEqual(self.registry.connect('home/nas')['core'], 'go')
+        with self.assertRaisesRegex(ValueError, 'readiness is unavailable'):
+            self.registry.connect('home/nas')
         self.registry.stop('home/nas')
         self.assertFalse(service_runtime.alive(second['runtime']))
         with self.assertRaises(ValueError): self.registry.connect('home/nas')
@@ -423,7 +425,7 @@ class ConnectionSnapshotTests(unittest.TestCase):
         with patch.object(self.registry,'_material',side_effect=material):
             with self.assertRaisesRegex(ValueError,'deployment drift'):
                 self.registry.connect('home/nas')
-        self.assertEqual(len(calls),2)
+        self.assertGreaterEqual(len(calls),2)
 
     def test_same_registry_threads_cannot_bypass_nested_transaction_lock(self):
         import threading

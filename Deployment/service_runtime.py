@@ -196,7 +196,7 @@ def start(plan):
         if token is None:
             raise ValueError('service exited during startup')
         _CHILDREN[child.pid] = child
-        return {'pid': child.pid, 'processIdentity': token, 'readiness': 'process-alive'}
+        return {'pid': child.pid, 'processIdentity': token, 'readiness': 'unavailable'}
     finally:
         os.close(read_fd)
 
@@ -236,8 +236,7 @@ def supervise(plan_path, ack):
             commands = [argv]
             envelope_fields = None
             if plan.get('envelopeConfig'):
-                content=private_read(plan['envelopeConfig']).decode()
-                envelope_fields={line.split('=',1)[0].strip():line.split('=',1)[1].strip() for line in content.splitlines() if line.strip() and not line.strip().startswith('#')}
+                envelope_fields=parse_envelope(private_read(plan['envelopeConfig']))
                 validate_envelope(envelope_fields)
                 commands.append([executable(plan['envelopeBinary']), '--config', plan['envelopeConfig']])
             gate_value = strict_json(private_read(plan['gateConfig'])) if plan.get('gateConfig') else None
@@ -280,7 +279,8 @@ def supervise(plan_path, ack):
                             parsed = endpoint(target)
                             if not any(endpoint_matches(e,parsed) for e in native):
                                 raise ValueError('Gate upstream is not an observed deployment listener')
-                    if not any(endpoint_matches(e,upstream) for e in upstream_sockets):
+                    transport={'stream':'tcp','datagram':'udp','message':'sctp'}[envelope_fields.get('mode','stream')]
+                    if not any(endpoint_matches(e,upstream,transport=transport) for e in upstream_sockets):
                         raise ValueError('envelope upstream is not an observed deployment listener')
                 result = {'observedAt':int(time.time()), 'pid':os.getpid(), 'processIdentity':identity(os.getpid()),
                           'processes':[{'pid':p.pid,'processIdentity':identity(p.pid)} for p in children],
@@ -385,7 +385,8 @@ def parse_envelope(content):
 def envelope_tls_material(fields):
     carrier = fields.get('carrier','raw')
     keys = {'tls_cert','tls_key','tls_ca','tls_peer_name'}
-    if carrier == 'raw':
+    if carrier in {'raw','sctp'}:
+        if carrier == 'sctp' and fields.get('mode') != 'message':raise ValueError('SCTP requires message mode')
         if keys & set(fields): raise ValueError('raw carrier rejects TLS material')
         return {}
     if carrier != 'tls' or fields.get('mode','stream') != 'stream' or not keys <= set(fields):
@@ -407,10 +408,43 @@ def validate_envelope(fields):
         from .broker_set import private_endpoint, endpoint
     except ImportError:
         from broker_set import private_endpoint, endpoint
-    known={'listen','upstream','mode','role','auth_key','max_frame','handshake_timeout','max_preauth','max_sessions','idle_timeout','session_timeout','metrics_path','key_epoch','replay_path','padding_block','jitter_ms','cover_interval','cover_limit','shaping_budget','carrier','tls_cert','tls_key','tls_ca','tls_peer_name'}
+    known={'listen','upstream','mode','role','auth_key','max_frame','handshake_timeout','max_preauth','max_sessions','idle_timeout','session_timeout','metrics_path','key_epoch','replay_path','padding_block','jitter_ms','cover_interval','cover_limit','shaping_budget','carrier','tls_cert','tls_key','tls_ca','tls_peer_name','message_channels','sctp_streams'}
     if set(fields)-known: raise ValueError('unknown envelope configuration field')
     if fields.get('role','server') != 'server': raise ValueError('privacy=envelope requires a server admission boundary')
-    if fields.get('mode','stream') not in {'stream','datagram'}: raise ValueError('invalid envelope mode')
+    mode=fields.get('mode','stream')
+    if mode not in {'stream','datagram','message'}: raise ValueError('invalid envelope mode')
+    if mode == 'message':
+        if fields.get('carrier') != 'sctp':raise ValueError('message mode requires native SCTP carrier')
+        streams=int(fields.get('sctp_streams','4'))
+        if not 1<=streams<=64:raise ValueError('invalid SCTP stream budget')
+        seen=set();control=False
+        for value in fields.get('message_channels','0:ordered:reliable').split(','):
+            match=re.fullmatch(r'([0-9]+):(ordered|unordered):(reliable|retransmits:[0-9]+|lifetime:[0-9]+)',value)
+            if not match:raise ValueError('invalid message channel schema')
+            channel=int(match[1]);policy=match[3]
+            if channel>=streams or channel in seen:raise ValueError('duplicate/unavailable message stream')
+            seen.add(channel)
+            if ':' in policy:
+                kind,budget=policy.split(':');budget=int(budget)
+                if not (0<=budget<=65535 if kind=='retransmits' else 1<=budget<=60000):raise ValueError('invalid message reliability budget')
+            control=control or (channel==0 and match[2]=='ordered' and policy=='reliable')
+        if not control:raise ValueError('ordered reliable message control channel required')
+        if any(fields.get(key,'').startswith('unix:') for key in ('listen','upstream')):raise ValueError('SCTP requires IP endpoints')
+    elif {'message_channels','sctp_streams'} & set(fields):raise ValueError('message fields require message mode')
+    replay_path=fields.get('replay_path')
+    if mode == 'datagram':
+        if not replay_path or not Path(replay_path).is_absolute() or replay_path in {fields.get('metrics_path'),fields.get('listen'),fields.get('upstream')}:
+            raise ValueError('datagram mode requires a distinct absolute persistent replay_path')
+        parent=Path(replay_path).parent
+        try: info=parent.lstat()
+        except OSError as error: raise ValueError('persistent replay directory must already exist') from error
+        if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.geteuid() or info.st_mode & 0o077:
+            raise ValueError('persistent replay directory must be private and owner-controlled')
+        try: private_read(replay_path,limit=400000)
+        except FileNotFoundError: pass
+        except OSError as error: raise ValueError('invalid private persistent replay state') from error
+    elif replay_path is not None:
+        raise ValueError('persistent replay_path is datagram-only')
     if not {'listen','upstream','auth_key'} <= set(fields):
         raise ValueError('envelope requires listen/upstream/auth_key')
     envelope_tls_material(fields)

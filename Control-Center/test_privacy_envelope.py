@@ -67,6 +67,44 @@ class ObservationTests(unittest.TestCase):
                 value['observed_at']=1791010000;path.write_text(json.dumps(value))
                 self.assertEqual(read_metrics(path)['observation'],'current')
 
+    def test_sctp_observation_requires_bounded_failure_counters(self):
+        import json, tempfile, time
+        from pathlib import Path
+        from privacy_envelope import read_metrics
+        with tempfile.TemporaryDirectory(prefix='shadow6-sctp-metrics-') as directory:
+            path=Path(directory)/'metrics'
+            value={**EnvelopeMetrics().public(),'schema':'shadow6.privacy-envelope-status.v4',
+                   'observed_at':int(time.time()),'records_in':1,'records_out':1,'timeout_count':0,
+                   'shaping_overhead_bytes':0,'shaping_enabled':False,'carrier':'sctp',
+                   'wire_appearance':'standard-sctp','native_send_abandonment_count':2,
+                   'session_rejection_count':1}
+            path.write_text(json.dumps(value));path.chmod(0o600)
+            self.assertEqual(read_metrics(path)['native_send_abandonment_count'],2)
+            for field,replacement in (('carrier','webrtc'),('wire_appearance','camouflaged'),
+                                      ('native_send_abandonment_count',True),('session_rejection_count',-1)):
+                with self.subTest(field=field):
+                    path.write_text(json.dumps({**value,field:replacement}))
+                    with self.assertRaises(ValueError):read_metrics(path)
+
+    def test_webrtc_observation_names_standard_datachannel_and_bounds_counters(self):
+        import json, tempfile, time
+        from pathlib import Path
+        from privacy_envelope import read_metrics
+        with tempfile.TemporaryDirectory(prefix='shadow6-webrtc-metrics-') as directory:
+            path=Path(directory)/'metrics'
+            value={**EnvelopeMetrics().public(),'schema':'shadow6.privacy-envelope-status.v5',
+                   'observed_at':int(time.time()),'records_in':1,'records_out':1,'timeout_count':0,
+                   'shaping_overhead_bytes':0,'shaping_enabled':False,'carrier':'webrtc',
+                   'wire_appearance':'standard-webrtc-datachannel','native_send_abandonment_count':0,
+                   'session_rejection_count':0}
+            path.write_text(json.dumps(value));path.chmod(0o600)
+            self.assertEqual(read_metrics(path)['carrier'],'webrtc')
+            for field,replacement in (('wire_appearance','camouflaged'),('native_send_abandonment_count',True),
+                                      ('session_rejection_count',-1)):
+                with self.subTest(field=field):
+                    path.write_text(json.dumps({**value,field:replacement}))
+                    with self.assertRaises(ValueError):read_metrics(path)
+
     def test_unsupported_or_unknown_core_does_not_claim_compatibility(self):
         self.assertFalse(compatibility('nim')['supported'])
         with self.assertRaises(ValueError): compatibility('unknown')

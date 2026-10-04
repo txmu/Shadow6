@@ -57,6 +57,63 @@ let stream config metrics =
     end; loop ()
   in Fun.protect ~finally:(fun () -> close listener) loop
 
+let connect_sctp endpoint config =
+  let fd=Unix.socket ~cloexec:true (Config.socket_domain endpoint) Unix.SOCK_STREAM 132 in
+  try
+    Carrier_sctp.prepare fd ~streams:config.Config.sctp_streams;Unix.set_nonblock fd;
+    (try Unix.connect fd endpoint with Unix.Unix_error((Unix.EINPROGRESS|Unix.EWOULDBLOCK),_,_) -> ());
+    Forward.wait fd true (Unix.gettimeofday () +. config.handshake_timeout);
+    (match Unix.getsockopt_error fd with None -> () | Some _ -> raise Exit);fd
+  with error -> close fd;raise error
+let sctp config metrics =
+  let listener=Unix.socket ~cloexec:true (Config.socket_domain config.Config.listen) Unix.SOCK_STREAM 132 in
+  Carrier_sctp.prepare listener ~streams:config.sctp_streams;
+  Unix.setsockopt listener Unix.SO_REUSEADDR true;Unix.bind listener config.listen;Unix.listen listener config.max_sessions;
+  let lock=Mutex.create () and active=ref 0 and preauth=ref 0 in
+  let change f=Mutex.lock lock;Fun.protect ~finally:(fun () -> Mutex.unlock lock) f in
+  let rec loop () =
+    Metrics.publish config.metrics_path metrics;
+    let readable,_,_=Unix.select [listener] [] [] 0.5 in
+    if readable<>[] then begin
+      let client,_=Unix.accept ~cloexec:true listener in
+      let admitted=change(fun () -> if !active>=config.max_sessions || !preauth>=config.max_preauth then false
+        else (incr active;incr preauth;true)) in
+      if not admitted then (reject metrics Forward.Resource_limit;close client) else begin
+        let worker () =
+          let upstream=ref None and pending=ref true in
+          Fun.protect ~finally:(fun () -> close client;Option.iter close !upstream;
+            change(fun () -> decr active;if !pending then decr preauth)) (fun () ->
+            try
+              let remote=if config.role="server" then client else
+                let fd=connect_sctp config.upstream config in upstream:=Some fd;fd in
+              let transport=Carrier_sctp.of_fd remote ~max_message:73728 ~channels:config.channels in
+              Fun.protect ~finally:(fun () -> Carrier_sctp.close transport) (fun () ->
+                Metrics.update metrics(fun m -> m.sessions<-Metrics.add m.sessions 1);
+                let module H=Message_handshake.Make(Carrier_sctp) in
+                let keys=H.run transport ~server:(config.role="server") ~auth_key:config.auth_key ~key_epoch:config.key_epoch ~timeout:config.handshake_timeout in
+                Fun.protect ~finally:(fun () -> let rx,tx=keys in Bytes.fill rx 0 32 '\000';Bytes.fill tx 0 32 '\000') (fun () ->
+                  Metrics.update metrics(fun m -> m.authenticated<-Metrics.add m.authenticated 1);
+                  change(fun () -> decr preauth;pending:=false);
+                  let target=match !upstream with Some fd -> fd | None ->
+                    let fd=connect_sctp config.upstream config in upstream:=Some fd;fd in
+                  let local_fd=if config.role="server" then target else client in
+                  let local=Carrier_sctp.of_fd local_fd ~max_message:config.max_frame ~channels:config.channels in
+                  Fun.protect ~finally:(fun () -> Carrier_sctp.close local) (fun () ->
+                    Message_session.bridge_sctp transport local config keys (traffic metrics)
+                      ~shaping:(fun n -> Metrics.update metrics(fun m -> m.shaping_overhead<-Metrics.add m.shaping_overhead n))
+                      ~abandoned:(fun () -> Metrics.update metrics(fun m -> m.abandoned<-Metrics.add m.abandoned 1)))))
+            with error -> prerr_endline(Printexc.to_string error);match error with
+              | Session.Timeout -> Metrics.update metrics(fun m -> m.timeouts<-Metrics.add m.timeouts 1)
+              | _ when !pending -> reject metrics error
+              | Forward.Replay -> Metrics.update metrics(fun m -> m.replay<-Metrics.add m.replay 1)
+              | Forward.Resource_limit -> Metrics.update metrics(fun m -> m.resource<-Metrics.add m.resource 1)
+              | _ -> Metrics.update metrics(fun m -> m.established_rejected<-Metrics.add m.established_rejected 1))
+        in
+        (try ignore(Thread.create worker ()) with error -> close client;change(fun () -> decr active;decr preauth);reject metrics error)
+      end
+    end;loop ()
+  in Fun.protect ~finally:(fun () -> close listener) loop
+
 type peer = { socket:Unix.file_descr; address:Unix.sockaddr; created:float; mutable touched:float; mutable verified:bool; mutable reply_credit:int }
 let datagram config metrics =
   let listener = Unix.socket ~cloexec:true (Config.socket_domain config.Config.listen) Unix.SOCK_DGRAM 0 in
@@ -118,4 +175,4 @@ let datagram config metrics =
   in Fun.protect ~finally:(fun () -> Hashtbl.iter (fun _ p -> close p.socket) peers; Replay_store.close store; close listener) loop
 let serve config =
   let metrics = Metrics.create ~carrier:config.Config.carrier ~shaping_enabled:(config.Config.padding_block <> 0 || config.jitter_ms <> 0 || config.cover_interval <> 0) () in
-  if config.Config.mode = "stream" then stream config metrics else datagram config metrics
+  if config.Config.mode = "stream" then stream config metrics else if config.carrier="sctp" then sctp config metrics else datagram config metrics

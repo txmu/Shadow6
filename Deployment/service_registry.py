@@ -298,7 +298,7 @@ class ServiceRegistry:
         admit(item['protocolContext'], role=None if item['protocolContext']['role'] == 'all' else item['protocolContext']['role'])
         if runtime.alive(item.get('runtime', {})):
             existing = self.status(name)
-            if not existing.get('runtimeObservation') or existing['runtime']['readiness'] == 'unavailable':
+            if existing['runtime']['readiness'] == 'unavailable':
                 raise ValueError('runtime health unavailable; explicitly restart')
             return existing
         material = self._material(name)
@@ -324,6 +324,22 @@ class ServiceRegistry:
             item['runtime']['state'] = 'exited'; item['state'] = 'exited'; self._save()
         result = json.loads(json.dumps(item))
         runtime.observe(result, self.path.parent / (hashlib.sha256(name.encode()).hexdigest() + '.runtime.json'))
+        process = result.get('runtime')
+        if process and process.get('state') == 'running':
+            try:
+                lock = result.get('deploymentLock')
+                binding = result.get('coreBinding')
+                valid = (lock is not None and lock.get('schema') == 'shadow6.deployment-lock.v2'
+                         and process.get('lockDigest') == lock.get('digest')
+                         and process.get('core') == binding.get('core')
+                         and lock.get('coreBinding') == binding
+                         and lock.get('contextDigest') == context_digest(result['protocolContext'])
+                         and digest(encoded(self._material(name))) == lock.get('digest'))
+            except (ValueError, OSError, KeyError, TypeError):
+                valid = False
+            if not valid:
+                process.update(endpoint=None, readiness='unavailable')
+                result.pop('runtimeObservation', None)
         try:
             from privacy_envelope import read_metrics
         except ImportError:
@@ -366,6 +382,17 @@ class ServiceRegistry:
 
     @transaction
     def connect(self, name, *, core=None, role=None, adapter=None):
+        item, _material = self.connection_inputs(name)
+        if item['runtime'].get('readiness') not in ('listener-ready', 'application-ready') or not item.get('runtimeObservation'):
+            # Check a requested native role against the locked realization first;
+            # readiness failure must not hide a binding conflict.
+            if role is not None and item['protocolContext']['role'] == 'all':
+                data = private_read(item['coreBinding']['config']['config_path'])
+                try: native = strict_json(data)
+                except ValueError as error: raise ValueError('capability unavailable: named deployment role cannot be verified') from error
+                if not isinstance(native,dict) or native.get('role') != role:
+                    raise ValueError('requested role differs from locked native realization')
+            raise ValueError('service runtime readiness is unavailable; connect requires an observed listener or native ready event')
         return resolve_connection(service=name, registry=self, catalog=self.catalog,
                                   core=core, role=role, adapter=adapter)
 

@@ -28,12 +28,16 @@ let () =
       ~carrier_read:false ~carrier_write:false ~timeout:nan)));
   let udp = Unix.socket Unix.PF_INET Unix.SOCK_DGRAM 0 in
   Fun.protect ~finally:(fun () -> Unix.close udp) (fun () -> rejects (fun () -> ignore (Carrier.Raw_stream.of_fd udp)));
+  if Carrier_sctp.available () then begin
+    let sctp=Unix.socket Unix.PF_INET Unix.SOCK_STREAM 132 in
+    Fun.protect ~finally:(fun () -> Unix.close sctp) (fun () -> rejects (fun () -> ignore (Carrier.Raw_stream.of_fd sctp)))
+  end;
   let channel = Carrier.{id=17;ordered=false;reliability=Retransmits 0} in
-  Carrier.validate_message ~max_message:16 Carrier.{channel;payload=Bytes.empty};
-  require (Carrier.Message Carrier.{channel;payload=Bytes.empty} <> Carrier.Association_closed);
+  Carrier.validate_message ~max_message:16 Carrier.{channel;ppid=0L;context=0L;payload=Bytes.empty};
+  require (Carrier.Message Carrier.{channel;ppid=0L;context=0L;payload=Bytes.empty} <> Carrier.Association_closed);
   rejects (fun () -> Carrier.validate_channel {channel with id=65536});
   rejects (fun () -> Carrier.validate_channel {channel with reliability=Lifetime_ms 60001});
-  rejects (fun () -> Carrier.validate_message ~max_message:16 Carrier.{channel;payload=Bytes.create 17});
+  rejects (fun () -> Carrier.validate_message ~max_message:16 Carrier.{channel;ppid=0L;context=0L;payload=Bytes.create 17});
   let path, out = Filename.open_temp_file ~perms:0o600 "s6epe-carrier-" ".conf" in
   output_string out "mode=stream\nrole=server\nlisten=127.0.0.1:19001\nupstream=127.0.0.1:19002\nauth_key=test-carrier-key-0123456789\nhandshake_timeout=5\n";
   close_out out;

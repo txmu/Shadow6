@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """Foreground canonical component runner for native service managers."""
 import argparse
+import json
+import os
+import platform
+import time
 import sys
 from pathlib import Path
 
@@ -15,12 +19,23 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--config',required=True,type=Path)
     parser.add_argument('--check-config',action='store_true')
+    parser.add_argument('--capabilities',action='store_true')
     args=parser.parse_args()
     verify_launch_material(strict_json(private_read(args.config)))
+    if args.capabilities:
+        print(json.dumps({'schema':'shadow6.native-runner.v1','platform':platform.system(),
+                          'processIdentity':'available' if sys.platform == 'linux' else 'degraded',
+                          'ownedSocketObservation':'available' if sys.platform == 'linux' else 'unavailable',
+                          'readyEvent':'required','readiness':'never-inferred-from-process-alive'},sort_keys=True))
+        return 0
     if args.check_config:return 0
-    if sys.platform != 'linux':
-        raise ValueError('capability unavailable: native component runner OS observation backend')
-    supervise(args.config,-1)
+    if sys.platform == 'linux':
+        supervise(args.config,-1)
+    else:
+        # Native managers own activation and restart policy. The foreground
+        # runner keeps exact launch material checks and never synthesizes ready.
+        plan = strict_json(private_read(args.config))
+        raise ValueError('capability unavailable: native process and socket observation backend on ' + platform.system())
     return 0
 
 

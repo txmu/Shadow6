@@ -116,11 +116,11 @@ class ContextTests(unittest.TestCase):
         self.create()
         try:
             running=self.registry.run('home/nas')
-            named=self.registry.connect('home/nas')
+            with self.assertRaisesRegex(ValueError,'readiness is unavailable'):
+                self.registry.connect('home/nas')
             direct=resolve_connection(context=running['protocolContext'],catalog=self.catalog,binding=running['coreBinding'],runtime=running['runtime'])
-            self.assertEqual({k:v for k,v in named.items() if k!='source'}, {k:v for k,v in direct.items() if k!='source'})
-            self.assertIsNone(named['endpoint']);self.assertEqual(named['readiness'],'process-alive')
-            self.assertFalse(named['connected'])
+            self.assertIsNone(direct['endpoint']);self.assertEqual(direct['readiness'],'process-alive')
+            self.assertFalse(direct['connected'])
         finally: self.registry.stop('home/nas')
 
     def test_ready_event_runtime_endpoint_not_desired_route(self):
@@ -450,8 +450,8 @@ class ConnectionRoleTests(unittest.TestCase):
         self.create(minimal_context('go'))
         try:
             self.registry.run('home/nas')
-            plan=resolve_connection(service='home/nas',registry=self.registry,catalog=self.catalog,role='client')
-            self.assertEqual(plan['role'],'client')
+            with self.assertRaisesRegex(ValueError,'readiness is unavailable'):
+                self.registry.connect('home/nas',role='client')
             with self.assertRaisesRegex(ValueError,'locked native realization'):
                 resolve_connection(service='home/nas',registry=self.registry,catalog=self.catalog,role='agent')
         finally:self.registry.stop('home/nas')

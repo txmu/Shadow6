@@ -15,8 +15,8 @@ from wire_v3 import Peer, capsule, open_capsule
 KEY = 'test-only-key-0123456789abcdef'
 
 
-def port(kind=socket.SOCK_STREAM):
-    with socket.socket(type=kind) as sock:
+def port(kind=socket.SOCK_STREAM, protocol=0):
+    with socket.socket(type=kind,proto=protocol) as sock:
         sock.bind(('127.0.0.1', 0))
         return sock.getsockname()[1]
 
@@ -52,12 +52,14 @@ class EnvelopeE2E(unittest.TestCase):
             child.stderr.close()
 
     def launch(self, name, mode, role, upstream, **options):
-        listen = port(socket.SOCK_DGRAM if mode == 'datagram' else socket.SOCK_STREAM)
+        listen = port(socket.SOCK_DGRAM if mode == 'datagram' else socket.SOCK_STREAM,132 if mode=='message' else 0)
         metrics = self.root / (name+'.metrics')
         config = self.root / (name+'.conf')
         values = dict(mode=mode, role=role, listen=f'127.0.0.1:{listen}', upstream=f'127.0.0.1:{upstream}' if isinstance(upstream,int) else upstream, auth_key=KEY,
                       metrics_path=str(metrics), handshake_timeout=1, idle_timeout=2, session_timeout=5, max_frame=4096,
                       max_preauth=2, max_sessions=4)
+        if mode == 'datagram':
+            values['replay_path'] = str(self.root/(name+'.replay'))
         values.update(options)
         config.write_text(''.join(f'{k}={v}\n' for k,v in values.items())); config.chmod(0o600)
         process = subprocess.Popen([self.binary, '--config', str(config)], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
@@ -270,8 +272,22 @@ class EnvelopeE2E(unittest.TestCase):
         self.assertEqual(report['wire_version'],3)
         self.assertTrue(report['payload_encryption'])
         self.assertEqual(report['cipher'],'XChaCha20-Poly1305')
+        self.assertTrue(report['persistent_replay_state'])
+        self.assertTrue(report['datagram_replay_state_required'])
+        self.assertEqual(report['persistent_replay_mode'],'required-atomic-private-datagram-hash-state')
         self.assertTrue(report['endpoints']['IPv6'])
         self.assertTrue(report['endpoints']['Unix_stream'])
+
+    def test_datagram_configuration_without_replay_file_fails_closed(self):
+        config=self.root/'missing-replay.conf'
+        config.write_text(f'mode=datagram\nrole=server\nlisten=127.0.0.1:{port(socket.SOCK_DGRAM)}\n'
+                          f'upstream=127.0.0.1:{port(socket.SOCK_DGRAM)}\nauth_key={KEY}\n')
+        config.chmod(0o600)
+        process=subprocess.Popen([self.binary,'--config',str(config)],stdout=subprocess.DEVNULL,stderr=subprocess.PIPE)
+        _,error=process.communicate(timeout=2)
+        self.assertEqual(process.returncode,2)
+        self.assertIn(b'configuration or runtime failure',error)
+        self.assertFalse((self.root/'missing-replay.metrics').exists())
 
     def test_datagram_persistent_replay_survives_actual_process_restart(self):
         state=self.root/'replay.state'

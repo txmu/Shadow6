@@ -77,15 +77,23 @@ its Linux boot/process-start identity and acquiring a pidfd.
 
 Named services embed a strictly validated S6P1 `protocolContext` and keep logical
 role/routes/identity/credentials there. Runtime endpoints come from process-owned
-sockets and validated native ready events. Unsupported transport/application
-readiness stays unknown. `connect NAME` and S6P1/invitation sources share one
+sockets and validated native ready events. A live PID alone is reported as
+`readiness: process-alive`; it never proves listener or application readiness and
+`connect NAME` rejects it. Runtime status rechecks CoreBinding, DeploymentLock,
+material digests and process identity before exposing observations. Unsupported
+transport/application readiness stays unknown. `connect NAME` and S6P1/invitation sources share one
 connection-plan resolver; safe observed client streams support `--stdio`.
 See [the full context, topology and lifecycle contract](service-connections.md).
 The native Service-Init track can generate an explicit backend definition from
 the same locked component runner with `shadow6 init --system SYSTEM --named-service NAME`; `shadow6 init --system SYSTEM --capabilities` reports
 that backend's available and partial guarantees. Generated definitions are not
-activated implicitly. On platforms without the Linux observation runner,
-runtime guarantees remain unavailable.
+activated implicitly. Linux local supervision uses pidfd, boot/start identity,
+component ownership, `/proc` socket ownership and bounded ready events. Native
+service managers on other platforms own activation and restart policy; exact
+process identity and owned socket observation are explicitly reported as
+degraded or unavailable, and the runner fails closed when it cannot provide an
+equivalent observation. No platform reports ready from a manager's active bit
+or a live PID alone.
 
 Carp and Idris use the normalized `shadow6 native-config` document described in
 [the native configuration guide](native-tooling.md), translated into their
@@ -135,8 +143,13 @@ private registry; never adopt a PID from an unverified legacy record.
 The lifecycle and EPE E2E goals remain active. Current implementation provides
 actual local process supervision and actual aggregate observations. Remaining
 work includes portable process supervision outside Linux, native ready-event
-endpoint discovery for every family, WebRTC/SCTP-specific envelope adapters and
+endpoint discovery for every family, the WebRTC-specific envelope adapter and
 native ready-event support on every family. S6EPE v3 now implements mandatory
-outer encryption; see its versioned envelope guide. These are not represented as verified controls.
+outer encryption and a dedicated Linux SCTP message adapter; see its versioned
+envelope guide. Linux observation includes actual process-owned one-to-one SCTP
+listeners, distinguishes bound sockets from listeners, and checks the envelope
+upstream against the declared transport. This does not declare a Core's
+application boundary or certify twelve-Core message interoperability. The
+remaining capabilities are not represented as verified controls.
 The [review record](review-2026-10-03.md) lists the checks actually run and the
 existing binary/audit limitations.

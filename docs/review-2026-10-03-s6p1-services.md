@@ -1,4 +1,7 @@
-# S6P1 service/topology and Actions review — 2026-10-03
+# Historical S6P1 service/topology and Actions review — 2026-10-03
+
+This dated review records its then-current EPE v2 state. Later v3 envelope and
+carrier work is tracked in `architecture-completion-audit.md`.
 
 ## Architecture changes
 

@@ -1,10 +1,14 @@
 (library
  (name s6epe_core)
  (wrapped false)
- (modules config carrier carrier_tls envelope crypto session forward rate_limit metrics feature_report sodium replay_store)
+ (modules config carrier carrier_tls carrier_sctp carrier_webrtc webrtc_session webrtc_bridge message_handshake message_security message_session envelope crypto session forward rate_limit metrics feature_report sodium replay_store)
  (libraries unix threads digestif.c)
- (foreign_stubs (language c) (names sodium_stubs carrier_stubs carrier_tls_native carrier_tls_stubs) (flags (:standard -Wall -Wextra -Werror)))
- (c_library_flags -lsodium -lssl -lcrypto))
+ (foreign_stubs (language c) (names sodium_stubs carrier_stubs carrier_tls_native carrier_tls_stubs carrier_sctp_native carrier_sctp_stubs carrier_webrtc_native carrier_webrtc_stubs) (flags (:standard -Wall -Wextra -Werror -I %{env:S6EPE_RTC_INCLUDE=.})))
+ (c_library_flags -lsodium -lssl -lcrypto (:include rtc_link_flags.sexp)))
+(rule
+ (targets rtc_link_flags.sexp)
+ (deps rtc_link_flags.py)
+ (action (with-stdout-to %{targets} (run python3 %{dep:rtc_link_flags.py}))))
 (executable
  (name main)
  (public_name shadow6-privacy-envelope)

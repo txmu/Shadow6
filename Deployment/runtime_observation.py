@@ -70,6 +70,22 @@ def sockets(pid):
                     if len(found)>MAX_SOCKETS:raise ValueError('owned listener observation limit exceeded')
         except OSError:continue
     try:
+        with (Path('/proc') / str(pid) / 'net/sctp/eps').open() as stream:
+            for line in proc_rows(stream):
+                fields=line.split()
+                if len(fields)<8 or fields[7] not in inodes:continue
+                # Linux one-to-one endpoint table: STY=2, SST=TCP_LISTEN(10).
+                # Bound-but-unlistening and association rows are not listeners.
+                if fields[2]!='2' or fields[3]!='10':continue
+                if len(fields)<9:raise ValueError('invalid owned SCTP endpoint')
+                port=int(fields[5])
+                if not 1<=port<=65535:raise ValueError('invalid owned SCTP port')
+                for host in fields[8:]:
+                    address=str(ipaddress.ip_address(host))
+                    found.append({'host':address,'port':port,'transport':'sctp','observation':'process-owned-socket'})
+                    if len(found)>MAX_SOCKETS:raise ValueError('owned listener observation limit exceeded')
+    except OSError:pass
+    try:
         paths={}
         with (Path('/proc') / str(pid) / 'net/unix').open() as stream:
             for line in proc_rows(stream):
@@ -99,9 +115,9 @@ def private_socket(item):
     return ipaddress.ip_address(item['host']).is_loopback
 
 
-def endpoint_matches(observed, target):
+def endpoint_matches(observed, target, *, transport=None):
     if target.scheme == 'unix':return observed.get('transport')=='unix-stream' and observed.get('path')==target.path
-    return observed.get('host')==target.hostname and observed.get('port')==target.port and observed.get('transport')==('udp' if target.scheme in ('udp','quic') else 'tcp')
+    return observed.get('host')==target.hostname and observed.get('port')==target.port and observed.get('transport')==(transport or ('udp' if target.scheme in ('udp','quic') else 'tcp'))
 
 
 def ready(line, core):
@@ -137,7 +153,7 @@ def validate_observation(value):
         raise ValueError('invalid observed process ownership')
     if type(value['observedAt']) is not int or value['observedAt'] < 0:
         raise ValueError('invalid observation timestamp')
-    if value['readiness'] not in ('process-alive','listener-ready','application-ready') or value['transportReadiness'] not in ('unknown','unavailable') or value['applicationReadiness'] not in ('unknown','ready','unavailable'):
+    if value['readiness'] not in ('process-alive','unavailable','listener-ready','application-ready') or value['transportReadiness'] not in ('unknown','unavailable') or value['applicationReadiness'] not in ('unknown','ready','unavailable'):
         raise ValueError('invalid observed readiness')
     def address(item):
         if not isinstance(item['host'],str) or type(item['port']) is not int or not 1 <= item['port'] <= 65535:
@@ -152,7 +168,7 @@ def validate_observation(value):
                 if not isinstance(item['path'],str) or not Path(item['path']).is_absolute() or len(item['path'].encode())>103:
                     raise ValueError('invalid observed Unix endpoint')
                 continue
-            if not isinstance(item,dict) or set(item) != {'host','port','transport','observation'} or item['transport'] not in ('tcp','udp') or item['observation'] != 'process-owned-socket':
+            if not isinstance(item,dict) or set(item) != {'host','port','transport','observation'} or item['transport'] not in ('tcp','udp','sctp') or item['observation'] != 'process-owned-socket':
                 raise ValueError('invalid socket observation')
             address(item)
     target=value['endpoint']
@@ -164,8 +180,8 @@ def validate_observation(value):
             raise ValueError('application endpoint must belong to the private native process')
     elif target is not None and target not in value['endpoints']:
         raise ValueError('endpoint is not an observed public listener')
-    if value['readiness'] == 'process-alive' and (target is not None or value['endpoints']):
-        raise ValueError('process-alive observation cannot claim listener readiness')
+    if value['readiness'] in ('process-alive','unavailable') and (target is not None or value['endpoints']):
+        raise ValueError('non-ready observation cannot claim listener readiness')
     if value['readiness'] == 'listener-ready' and not value['endpoints']:
         raise ValueError('listener readiness requires observed sockets')
     return value

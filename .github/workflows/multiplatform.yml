@@ -15,7 +15,7 @@ jobs:
   privacy-envelope-contract:
     name: OCaml external privacy envelope contract
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v6
@@ -25,10 +25,25 @@ jobs:
       - name: Install OCaml toolchain and declared envelope dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y ocaml opam libsodium-dev libssl-dev
+          sudo apt-get install -y ocaml opam libsodium-dev libssl-dev cmake g++ git
           opam init --bare --no-setup -y
           opam switch create envelope ocaml-system -y
           opam install --switch=envelope dune digestif -y
+      - name: Build pinned native WebRTC carrier dependency in private stage
+        run: |
+          set -euo pipefail
+          rtc_dir=$(mktemp -d "$RUNNER_TEMP/shadow6-envelope-rtc.XXXXXX")
+          git init -q "$rtc_dir/src"
+          git -C "$rtc_dir/src" remote add origin https://github.com/paullouisageneau/libdatachannel.git
+          git -C "$rtc_dir/src" fetch --depth 1 origin 9e6a13abbb6846c003d817d0387b6706466e2b03
+          git -C "$rtc_dir/src" checkout --detach FETCH_HEAD
+          git -C "$rtc_dir/src" submodule update --init --recursive --depth 1
+          cmake -S "$rtc_dir/src" -B "$rtc_dir/build" -DCMAKE_BUILD_TYPE=Release -DNO_TESTS=ON -DNO_EXAMPLES=ON -DNO_MEDIA=ON -DNO_WEBSOCKET=ON -DBUILD_SHARED_LIBS=ON -DCMAKE_INSTALL_PREFIX="$rtc_dir/install"
+          cmake --build "$rtc_dir/build" --parallel 2
+          cmake --install "$rtc_dir/build"
+          echo "S6EPE_RTC_INCLUDE=$rtc_dir/install/include" >> "$GITHUB_ENV"
+          echo "LD_LIBRARY_PATH=$rtc_dir/install/lib" >> "$GITHUB_ENV"
+          echo "S6EPE_WEBRTC_REQUIRED=1" >> "$GITHUB_ENV"
       - name: Build and verify authenticated envelope on loopback
         run: |
           set -euo pipefail
@@ -38,7 +53,7 @@ jobs:
           dune runtest --root OCaml/privacy_envelope
           S6EPE_BINARY="$PWD/OCaml/privacy_envelope/_build/default/src/main.exe" \
             python3 -m unittest discover -s OCaml/privacy_envelope/test -p 'test_*.py' -v
-          S6EPE_BINARY="$PWD/OCaml/privacy_envelope/_build/default/src/main.exe" python3 -m unittest Deployment.test_service_context Deployment.test_service_lifecycle Deployment.test_core_explicit Control-Center/test_privacy_envelope.py
+          S6EPE_BINARY="$PWD/OCaml/privacy_envelope/_build/default/src/main.exe" python3 -m unittest Deployment.test_service_context Deployment.test_service_lifecycle Deployment.test_core_explicit Deployment.test_sctp_observation Control-Center/test_privacy_envelope.py
           test -s docs/privacy-envelope.md
           test -s docs/privacy-envelope-exposure-audit.md
   deployment-abi-acceptance:

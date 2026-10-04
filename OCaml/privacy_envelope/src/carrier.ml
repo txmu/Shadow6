@@ -18,8 +18,10 @@ end
  * requests operations on established associations/channels. *)
 type reliability = Reliable | Retransmits of int | Lifetime_ms of int
 type channel = { id:int; ordered:bool; reliability:reliability }
-type message = { channel:channel; payload:bytes }
-type event = Message of message | Channel_closed of int | Association_closed
+type message = { channel:channel; ppid:int64; context:int64; payload:bytes }
+type stream_reset = { ids:int list; incoming:bool; outgoing:bool; denied:bool; failed:bool }
+type event = Message of message | Channel_closed of int | Streams_reset of stream_reset |
+  Sender_drained | Association_closing | Association_closed | Association_restarted | Send_abandoned of int * int64
 module type MESSAGE = sig
   type t
   val receive : t -> event option
@@ -40,6 +42,8 @@ let validate_channel channel =
 let validate_message ~max_message message =
   if max_message < 1 || max_message > 131072 || Bytes.length message.payload > max_message then
     invalid_arg "carrier message budget";
+  if message.ppid < 0L || message.ppid > 4294967295L then invalid_arg "carrier PPID";
+  if message.context < 0L || message.context > 4294967295L then invalid_arg "carrier send context";
   validate_channel message.channel
 
 module Raw_stream = struct

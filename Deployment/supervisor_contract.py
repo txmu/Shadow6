@@ -25,12 +25,15 @@ def capabilities(backend='strong'):
     manager = shutil.which(NATIVE[backend])
     # Generating a unit is not activation, exact manager->PID mapping or proof
     # of readiness. Native definitions launch the canonical component runner.
+    native_observation = 'available' if sys.platform == 'linux' else 'unavailable'
+    identity = 'strong' if sys.platform == 'linux' else 'degraded'
     return {'schema':'shadow6.supervisor-capabilities.v1','backend':backend,
             'availability':'partial' if manager else 'unavailable','manager':manager,
             'definitionGeneration':'available','activation':'explicit-operator-action',
-            'exactProcessIdentity':'partial','pidReuseProtection':'partial',
+            'exactProcessIdentity':identity,'pidReuseProtection':'strong' if sys.platform == 'linux' else 'degraded',
             'componentGroupFailClosed':'available' if sys.platform == 'linux' else 'unavailable',
-            'startupObservation':'available' if sys.platform == 'linux' else 'unavailable',
-            'runtimeObservation':'available' if sys.platform == 'linux' else 'unavailable',
+            'startupObservation':native_observation,
+            'runtimeObservation':native_observation,
+            'readyEvent':'required','processAliveImpliesReady':False,
             'driftRevalidation':'available','bootIntegration':'partial' if manager else 'unavailable',
             'nativeLogging':'partial' if backend in {'systemd','procd','launchd','guix'} else 'unavailable'}

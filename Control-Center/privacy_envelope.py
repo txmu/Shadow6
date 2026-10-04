@@ -37,7 +37,8 @@ def read_metrics(path=None):
     counters = set(EnvelopeMetrics().public()) - {'schema'}
     if not isinstance(value,dict):raise ValueError('invalid envelope metrics schema')
     extra = set()
-    if value.get('schema') in {'shadow6.privacy-envelope-status.v2','shadow6.privacy-envelope-status.v3'}:
+    schemas = {f'shadow6.privacy-envelope-status.v{version}' for version in range(1,6)}
+    if value.get('schema') in schemas - {'shadow6.privacy-envelope-status.v1'}:
         counters |= {'records_in','records_out','timeout_count','shaping_overhead_bytes'}
         extra = {'shaping_enabled'}
         if type(value.get('shaping_enabled')) is not bool:raise ValueError('invalid envelope shaping flag')
@@ -45,7 +46,17 @@ def read_metrics(path=None):
         extra |= {'carrier','wire_appearance'}
         if value.get('carrier') != 'tls' or value.get('wire_appearance') != 'standard-tls13':
             raise ValueError('invalid envelope carrier observation')
-    if set(value) != counters | {'schema', 'observed_at'} | extra or value.get('schema') not in {'shadow6.privacy-envelope-status.v1','shadow6.privacy-envelope-status.v2','shadow6.privacy-envelope-status.v3'}:
+    if value.get('schema') == 'shadow6.privacy-envelope-status.v4':
+        counters |= {'native_send_abandonment_count','session_rejection_count'}
+        extra |= {'carrier','wire_appearance'}
+        if value.get('carrier') != 'sctp' or value.get('wire_appearance') != 'standard-sctp':
+            raise ValueError('invalid envelope message carrier observation')
+    if value.get('schema') == 'shadow6.privacy-envelope-status.v5':
+        counters |= {'native_send_abandonment_count','session_rejection_count'}
+        extra |= {'carrier','wire_appearance'}
+        if value.get('carrier') != 'webrtc' or value.get('wire_appearance') != 'standard-webrtc-datachannel':
+            raise ValueError('invalid envelope DataChannel carrier observation')
+    if set(value) != counters | {'schema', 'observed_at'} | extra or value.get('schema') not in schemas:
         raise ValueError('invalid envelope metrics schema')
     if any(type(value[k]) is not int or not 0 <= value[k] <= 2**53-1 for k in counters | {'observed_at'}):
         raise ValueError('invalid envelope metric')

@@ -53,12 +53,53 @@ directory. A loopback/Unix declaration is policy, not ownership evidence:
 Deployment separately verifies the processes and their owned sockets.
 
 The server's upstream and client's listen endpoint must be loopback/private.
-WebRTC/ICE and SCTP are not implemented by a TCP/UDP envelope; choose an actual
-compatible application socket or its dedicated adapter explicitly.
+The Linux SCTP message adapter can preserve a compatible native message
+boundary. A real WebRTC/ICE/DTLS/DataChannel provider and bridge are implemented
+and loopback-tested as libraries, but the executable still rejects
+`carrier=webrtc`; no Named Service or Core application boundary is advertised
+for it. A Native Core's WebRTC boundary must be explicitly declared and
+signalled before deployment support can be claimed.
 The [Carrier/Adapter Contract](privacy-envelope-carrier-contract.md) separates
 the stream security engine from transport I/O. Its default raw provider remains
 identifiable; the TLS 1.3 provider encapsulates the hello in a real encrypted
-TLS connection; the message interface does not yet advertise an SCTP/WebRTC provider.
+TLS connection; the dedicated Linux SCTP message provider preserves native
+records. The WebRTC provider preserves native DataChannels and is not yet
+connected to executable configuration or Named Service lifecycle.
+
+## Native SCTP message carrier
+
+On Linux with kernel SCTP available, both outer ends can select:
+
+```ini
+mode=message
+carrier=sctp
+sctp_streams=4
+message_channels=0:ordered:reliable,1:unordered:retransmits:0,2:unordered:reliable
+```
+
+The local handoff must itself be an established compatible SCTP association;
+this is not a twelve-Core application ABI or a TCP socket conversion. Stream 0
+must admit ordered reliable controls. Channels and receive reliability policy
+are explicit on both endpoints; SCTP receive metadata does not report the
+sender's partial-reliability budget. Native data retains boundaries, stream,
+ordering and uint32 PPID. Reset confirmations remain directional and streams
+are reusable; reset does not mean channel close or reset cryptographic state.
+
+Mutual PSK-authenticated fresh X25519 establishes independent directional keys.
+Each channel has bounded sequence replay state and a key ratchet every 4096
+records. Metadata and encrypted controls are authenticated. FINAL carries all
+channel watermarks; reliable delivery and authenticated partial-reliability
+abandonment notices must resolve before graceful association shutdown. Unknown
+events, restart, missing FINAL, authentication failures and budget exhaustion
+close the session. Padding, jitter and cover have the same explicit session
+budgets as stream mode. Fresh session keys reject prior-session ciphertext;
+datagram mode requires persistent nonce state for the corresponding
+restart-spanning replay guarantee.
+
+The hello is inside SCTP messages but remains passively identifiable: SCTP is
+not encrypted carrier camouflage. No ICE/DTLS lifecycle or Native Core private
+protocol is inferred from this adapter. Unsupported platforms reject this
+configuration and omit SCTP from the executable's message capabilities.
 
 ## Standard TLS Carrier
 
@@ -136,9 +177,10 @@ consume a capped per-peer credit, at most three times received authenticated
 wire bytes. Unsolicited native replies cannot produce unbounded amplification.
 Clock synchronization remains required.
 
-Optional `replay_path=/absolute/private/replay.state` enables restart-spanning
-UDP protection. Its private directory and mode-0600 file are checked. A separate
-private lock prevents concurrent state writers. Bounded state contains version,
+Datagram mode requires `replay_path=/absolute/private/replay.state`; startup
+fails closed without it. The parent directory must already exist, be owned by
+the service user and have no group/other permissions; the state file is checked
+as a bounded mode-0600 regular file. A separate private lock prevents concurrent state writers. Bounded state contains version,
 epoch, nonce hashes and expiration only; no payload, PSK or credentials. Accepted
 nonce state is written through a private temporary file, fsync, atomic rename
 and directory fsync **before forwarding**. Corrupt state, unsupported persistence
@@ -173,9 +215,14 @@ persistence capability, shaping and limits; they are claims, not OS observation.
 Metrics v2 is a private atomic snapshot with sample time, session/authentication/
 rejection/byte/record/timeout counters, shaping overhead and enabled state.
 TLS metrics v3 additionally declare `carrier=tls` and
-`wire_appearance=standard-tls13`; raw remains v2. Control Center retains strict
-v1/v2 compatibility for older installed artifacts and
-reports current/stale/unavailable separately. No secret or native payload is
+`wire_appearance=standard-tls13`; SCTP metrics v4 add `carrier=sctp`,
+`wire_appearance=standard-sctp`, native send abandonment and established-session
+rejection counters. WebRTC metrics v5 report `carrier=webrtc` and
+`wire_appearance=standard-webrtc-datachannel` with the same bounded message
+failure counters; this schema is ready for the bridge but does not assert that
+the current executable or service launcher realizes WebRTC. Snapshots capture
+counters under one lock. Raw remains v2. Control Center strictly recognizes
+v1 through v5 and reports current/stale/unavailable separately. No secret or native payload is
 written to telemetry. Configuration/key epoch changes invalidate DeploymentLock;
 Named Service revalidates admission and files during supervision.
 

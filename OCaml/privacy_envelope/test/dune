@@ -14,3 +14,25 @@
  (name test_carrier)
  (modules test_carrier)
  (libraries s6epe_core))
+
+(test
+ (name test_sctp)
+ (enabled_if (= %{system} linux))
+ (modules test_sctp)
+ (libraries s6epe_core))
+
+(test
+ (name test_message_handshake)
+ (enabled_if (= %{system} linux))
+ (modules test_message_handshake)
+ (libraries s6epe_core))
+
+(test
+ (name test_message_security)
+ (modules test_message_security)
+ (libraries s6epe_core))
+
+(test
+ (name test_webrtc)
+ (modules test_webrtc)
+ (libraries s6epe_core))

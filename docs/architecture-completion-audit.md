@@ -64,14 +64,163 @@ absence of inner hello/payload markers. Browser mimicry and DPI resistance are
 not established. TLS material digests stay in local DeploymentLock/launch plans;
 TLS metrics v3 identify the configured carrier and appearance.
 
+## Native SCTP provider progress
+
+Linux loopback SCTP is available locally. Only the small provider C binding and
+OCaml Envelope were built, without a Core build or dependency download. Nine
+native C tests and the source-built typed OCaml test verify real SCTP message
+semantics, including 128 KiB fragmentation and whole-message retry. Stream-reset
+notifications required explicit per-association reconfiguration negotiation;
+request acceptance alone was not completion evidence. Tests wait for incoming
+and outgoing confirmations on both sides before proving stream reuse. Carrier
+contract v2 distinguishes reset, channel close and association lifecycle, and
+uses portable int64 values for bounded uint32 PPID/context. The raw provider
+rejects SCTP rather than flattening a one-to-one SOCK_STREAM association.
+
+SCTP now has source-built runtime integration: complete-message mutual proofs,
+fresh directional keys, per-channel AEAD/ratchet/replay windows, authenticated
+reset/final watermarks and PR abandonment controls. Pending ciphertext survives
+whole-message backpressure. An actual E2E failure exposed use of unsupported
+Linux SCTP `SIOCOUTQ`; sender-dry now rechecks current send allocations and
+drains earlier failure events before reporting completion. A stale-notification
+regression test verifies this behavior. Actual wire tests show encrypted native
+payload but identifiable SCTP hello, and reject injected replay/tampering.
+Native SCTP itself is not encryption or camouflage. Run `37165460928` completed
+successfully on commit `1fee4fc2` on 2026-10-04. It predates the uncommitted
+message-provider and WebRTC bridge work and does not validate those changes.
+
+Linux Named Service observation now includes process-owned one-to-one SCTP
+listeners, requires listener state and actual descriptor inode ownership, and
+includes them in the existing observation limits. Envelope upstream matching
+requires the configured transport; TCP on the same port cannot prove SCTP
+realization. Deployment admits explicit bounded message channel configuration.
+The supervisor now uses the shared duplicate-rejecting envelope parser rather
+than rebuilding a dictionary that could overwrite repeated fields. Control
+Center strictly parses aggregate SCTP v4 counters; snapshots use one lock.
+
+Current local checks: source-built dune component tests; 70 Deployment
+context/lifecycle/Core-explicit/SCTP observation tests; eight Control Center
+observation tests; seven Linux workflow tests. Source-only audit: seven passed,
+zero failed, one explicit binary-check skip. Only the small OCaml envelope/C
+provider was compiled, using the existing extracted OCaml 5.3 toolchain. No
+dependency download, Native Core variant build, full release stage, package or
+archive was produced. All 37 source-built envelope Python tests passed.
+Core-specific SCTP integration and
+cross-platform verification still require CI evidence.
+
 ## Requirement evidence and remaining gates
+
+### WebRTC provider evidence
+
+After explicit operator approval, the existing CI-pinned libdatachannel commit
+`9e6a13abbb6846c003d817d0387b6706466e2b03` and pinned submodules were downloaded
+and source-built solely in `/tmp/shadow6-webrtc.FTsiIy`, with no global package
+installation or host service/network changes. The optional native provider and
+OCaml bindings are source-built against that actual 0.23.2 backend. Seven native
+loopback tests pass: ICE/DTLS readiness, message/channel/order/PR/text/binary
+semantics, callback overflow, actual backpressure/retry, native channel closure,
+and wrong-DTLS-fingerprint rejection, including global queue reservations and
+their release. A separate compiled-out-backend test proves explicit
+unavailability rather than successful dummy operations. Typed OCaml tests verify independent PSK
+proofs, directional AEAD, replay rejection and authenticated channel close/FINAL.
+Testing discovered and fixed the C API's negative text-size convention and
+NULL zero-length binary callback handling. Channel-zero application closure
+now allows later envelope control records and FINAL while rejecting further
+application data; a focused crypto regression verifies this distinction.
+
+The Core-blind `Webrtc_session` now owns an established native peer and runs the
+independent mutual proof, directional record encryption, per-channel replay and
+authenticated close/FINAL protocol. Source-built actual DataChannel tests prove
+bidirectional opaque messages across ordered, unordered and partial-reliability
+channels, complete authenticated shutdown, rejection of unexpected native close,
+and native peer release after an incorrect independent proof or idle timeout.
+`Webrtc_bridge` now connects that authenticated session to another actual native
+DataChannel association with one pending whole message per direction and bounded
+channel-close state. A six-peer source-built loopback test proves bidirectional
+opaque text forwarding across all admitted channel policies and propagation of
+native close through authenticated close/FINAL. It exposed and fixed a race where
+native reset completed before its queued callback was consumed. Repeated native
+close requests are accepted without synthesizing completion; only the original
+native event is delivered, and closed channels still reject data. A dedicated C
+regression checks this property. The independent wrong-key session test now uses
+a valid-length server key, so the failure exercises mutual proof rather than
+key-length admission. These are library milestones, not deployment readiness.
+
+WebRTC telemetry has a distinct strict Control Center schema v5 identifying
+`standard-webrtc-datachannel`; it reuses the bounded native-abandonment and
+session-rejection counters without claiming camouflage. Source-built OCaml
+snapshot and nine Control Center tests pass. The main executable and Deployment
+parser still reject WebRTC realization, so this is a telemetry contract only.
+
+The complete source-level bridge is now tested, but CLI configuration, standard
+signalling handoff, Deployment admission/lock, PR abandonment observation and
+Named Service WebRTC realization remain unfinished. Runtime configuration
+rejects WebRTC and the feature report does not advertise a completed WebRTC
+adapter. This does not prove item 4 or the whole architecture goal complete.
+The CI envelope producer provisions the pinned private dependency and requires
+real WebRTC tests rather than allowing missing-backend skips. The current
+uncommitted bridge, SCTP and telemetry changes have no CI result.
+
+Latest source-built regression: 45 envelope Python tests and 78 Deployment /
+Control Center tests passed with the real optional backend required, plus seven
+Linux workflow tests. Source-only audit: seven passed, zero failed, one explicit
+binary-hardening skip. No Native Core variant, release build or archive ran.
+
+On 2026-10-04 the authoritative Actions query confirmed run `37165460928`
+(commit `1fee4fc2e3380ff22b48046d972614d8187ce014`) completed successfully.
+This supersedes the earlier in-progress observations above; it does not cover
+the current uncommitted SCTP/WebRTC implementation. Current source-built dune
+tests, including the new session failure-path tests, passed using the existing
+private OCaml 5.3 and libdatachannel installations. The 45 envelope Python
+tests passed with the optional native backend required. No dependency download,
+Native Core build, package or archive was performed in this continuation.
+
+### Datagram replay restart guarantee
+
+An audit of the actual datagram packet path found `replay_path` was optional even
+though persistent replay protection is a required envelope control. Datagram
+configuration now fails closed unless a dedicated absolute replay-state path
+has an existing owner-controlled private directory; non-datagram modes reject
+that field. Deployment performs the matching admission check and validates an
+existing state file before locking. The E2E launcher provisions per-instance
+state by default, retains the explicit same-file restart/replay test, and adds a
+negative executable test proving missing state creates no metrics/listener.
+Source-built dune component tests, the 46-test Envelope Python suite, five
+targeted Deployment admission tests and the 80-test Deployment/Control Center
+regression set passed (one existing environment-conditional skip). The source
+build validates the feature report's required-state declaration.
+
+The same component run exposed an intermittent WebRTC shutdown failure. The
+libdatachannel peer state callback reports `DISCONNECTED` transiently during
+authenticated bilateral close before `CLOSED`; treating that intermediate state
+as terminal rejected the valid close path. The provider now lets bounded S6EPE
+handshake/session deadlines govern disconnection recovery and fails immediately
+only on `FAILED`. Full source-built component and 46-test Python reruns passed.
+
+The repository-wide `make audit` was checked against the current worktree:
+92 checks passed, 16 failed on stale prebuilt Core feature reports missing the
+current application-boundary contract, and 19 were skipped for unavailable
+optional artifacts. The focused `.venv/bin/python shadow6_audit.py
+--source-only` run passed 7, failed 0 and skipped 1 binary-hardening check.
+No Core binaries were rebuilt locally. The latest remote full CI run predates
+these uncommitted changes, so current CI validation remains outstanding.
+
+### Additional operator requirement: UI/UX
+
+The operator has also requested substantial UI/UX improvement after making the
+WebRTC channel robust and completing the remaining architecture goal. The
+existing Control Center, Named Service flows, CLI and Android UI are being
+located; priority clarification is pending. This requirement is added to the
+completion scope and has not yet been implemented or verified. Actual ready,
+stale, unavailable and degraded states must remain truthful in every interface,
+and Web API least-privilege defaults remain constraints on the UI work.
 
 | Item | Starting implementation evidence | Completion evidence still required |
 | --- | --- | --- |
 | 1. Native independence | Deployment/topology_contract.py admits native families; OCaml envelope forwards opaque bytes | Review all new carrier paths for absence of native wire parsing or translation |
-| 2. S6EPE v3 security | OCaml/privacy_envelope/src/{forward,session,replay_store,metrics}.ml implement directional crypto, stream ratchet/final, bounded replay/persistence/shaping and observations | Source-built negative tests for every requested control, including carrier integration and restart behavior; optional datagram persistence must satisfy explicit deployment requirements |
+| 2. S6EPE v3 security | OCaml/privacy_envelope/src/{forward,session,replay_store,metrics}.ml implement directional crypto, stream ratchet/final, bounded replay/persistence/shaping and observations | Source-built negative tests for every requested control, including carrier integration and restart behavior; verify the newly required datagram state across every deployment setup path |
 | 3. Carrier contract | carrier.mli defines separate stream/message interfaces; Forward.Make_handshake and Session.Make use stream provider operations; raw default plus explicit mTLS 1.3 provider; source-built loopback wire observation verifies inner hello concealment, independent PSK admission, backpressure and authenticated half-close | Continue dedicated message-provider work and CI interoperability verification; raw identification stays explicit |
-| 4. SCTP and WebRTC | docs/privacy-envelope.md explicitly declares these adapters unavailable | Dedicated implementations and real integration tests preserving messages, streams/channels, ordering, close, budgets, backpressure and ICE/DTLS/SCTP lifecycle |
+| 4. SCTP and WebRTC | Linux Carrier_sctp and authenticated message runtime preserve streams/PPID/order/PR/boundaries/reset/reuse/shutdown/backpressure and budgets; native Carrier_webrtc and typed message security now pass actual ICE/DTLS/DataChannel failure/lifecycle tests | Full WebRTC bridge/configuration/signalling/PR close/runtime observation; Core-specific deployment interoperability and CI gates remain required |
 | 5. Composition | docs/service-connections.md describes Guard/EPE/Gate/Core stacks | Validate nested composition and document native/outer encryption domains separately from S6NA adaptation and routing |
 | 6. Portable admission | Deployment/protocol_context.py and Detector/service_compliance.py share realization admission | Recheck required/forbidden components and credential scopes across setup/lock/run/connect/install; demonstrate local facts cannot enter portable intent |
 | 7. Named lifecycle | Deployment service tests and docs/named-services.md exist | Inspect setup through init implementation and verify real identity/socket/ready chain on Linux and explicit platform degradation elsewhere |
@@ -83,9 +232,9 @@ TLS metrics v3 identify the configured carrier and appearance.
 
 ## Next work
 
-Observe the concrete CI handle and repair any producer failure before declaring
-green. Design and implement the carrier boundary using existing S6EPE security
-primitives and actual native SCTP/DataChannel facilities, then verify dedicated
-adapters with bounded loopback tests. Complete the native security matrix from
-source evidence and audit the existing service/admission/drift paths. Local
-validation stays focused; native/platform builds belong in Actions.
+Complete WebRTC CLI configuration and standard signalling handoff, connect both
+local Native Core boundary and remote outer DataChannel through the existing
+bridge, and add matching DeploymentLock/runtime observation. Then audit the
+remaining admission, Native Service, BrokerSet, drift and documentation gates.
+The last published Actions run is green; submit the final reviewed worktree for
+CI and repair producer failures before claiming the architecture is complete.
