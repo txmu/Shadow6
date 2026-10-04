@@ -8,7 +8,7 @@ except ModuleNotFoundError: resource=None
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'Crosed'))
 from native_profiles import artifact_map
-CORE_PATHS=artifact_map(benchmark=True)
+CORE_PATHS=artifact_map()
 FALLBACK={"zig":"Core-Zig/zig-out/bin/shadow6-zig"}; ROLES={"feature-report":["--feature-report"],"version":["--version"],"network-chain":[]}
 BACKENDS=("native","python","node")
 def binary(p):
