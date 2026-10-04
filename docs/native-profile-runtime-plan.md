@@ -235,6 +235,12 @@ not to be reported as supported lifecycle completion.
   not treat this area as integrated until signaling, executable startup,
   local application boundary, lock/observation and negative lifecycle tests
   exist.
+- The Linux workflow now has independent `hare-only`, `carp-only` and
+  `pony-only` jobs. Each compiles its Core with the pinned toolchain, runs its
+  native contract/network tests, validates the feature report, and runs the
+  matching Profile through Named Service lifecycle. The summary job records
+  each result separately. Local verification checks workflow structure only;
+  CI must produce the actual binary evidence.
 - Targeted verification for this pass: Deployment ProfileBinding plus local
   topology tests (20); Detector compliance test (1); credited libshadow6
   integration suite (12, from the preceding focused run); Crosed Limits tests

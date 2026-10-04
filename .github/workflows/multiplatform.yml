@@ -433,11 +433,15 @@ jobs:
           (cd C11Relay && bash compile.sh)
           SHADOW6_RELAY_BINARY="$PWD/C11Relay/bridge_relay" SHADOW6_IPC_CONTROL_TEST=1 node --test Node-IPC/test_ipc.mjs
   pony-only:
-    name: Core-Pony focused contract
+    name: Core-Pony build and Profile validation
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with: {python-version: '3.12'}
+      - name: Install Profile-test dependency
+        run: python3 -m pip install 'cryptography==50.0.1'
       - name: Provision pinned Pony toolchain
         run: |
           set -euo pipefail
@@ -449,7 +453,7 @@ jobs:
           tar -xzf /tmp/ponyc.tar.gz --strip-components=1 -C .tools/ponyc-0.72.0
           test -x .tools/ponyc-0.72.0/bin/ponyc
       - name: Install native dependencies
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends build-essential libsodium-dev libssl-dev python3 python3-cryptography iperf3
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends build-essential libsodium-dev libssl-dev
       - name: Build default and Crosed variants
         run: make pony-crosed-variant BUILD_PONY=1 PONYC="$GITHUB_WORKSPACE/.tools/ponyc-0.72.0/bin/ponyc"
       - name: Run Pony contract and crypto tests
@@ -460,22 +464,75 @@ jobs:
         run: python3 Core-Pony/tests/test_network.py
       - name: Verify feature contracts
         run: |
-          test "$(Core-Pony/shadow6-pony --feature-report | python3 -c 'import json,sys; print(json.load(sys.stdin)["crosed_max_level"])')" = 0
-          test "$(Core-Pony/shadow6-pony-crosed --feature-report | python3 -c 'import json,sys; print(json.load(sys.stdin)["crosed_max_level"])')" = 5
-      - name: Measure Pony native UDP at 1.1 Gbit per second offered load
-        timeout-minutes: 3
+          PYTHONPATH=Crosed python3 - <<'PY'
+          import json, subprocess
+          from feature_contract import validate_feature_report
+          for binary, level in [('Core-Pony/shadow6-pony', 0), ('Core-Pony/shadow6-pony-crosed', 5)]:
+              report = json.loads(subprocess.check_output([binary, '--feature-report'], text=True))
+              validate_feature_report(report, 'shadow6-pony')
+              assert report['crosed_max_level'] == level, (binary, report)
+              assert report['app_transport'] is (level == 5), (binary, report)
+              assert report['qubes_isolation'] is False, (binary, report)
+          PY
+      - name: Validate Pony Profile through Named Service lifecycle
+        timeout-minutes: 10
+        run: python3 integration/test_named_profiles.py -k pony -v
+  hare-only:
+    name: Core-Hare build and Profile validation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with: {python-version: '3.12'}
+      - name: Install Hare native and Profile-test dependencies
         run: |
-          # Loopback only, one native trio, three seconds per direction.
-          # Receiver rate and loss determine target_met; offered load is not throughput.
-          python3 Benchmark/iperf_chain.py --core pony --seconds 3 \
-            --udp-rate 1100000000 --output benchmark-pony-iperf-chain
-      - name: Preserve focused Pony receiver results and diagnostics
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          name: shadow6-pony-iperf-chain
-          path: benchmark-pony-iperf-chain/
-          if-no-files-found: warn
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential libsodium-dev
+          python3 -m pip install 'cryptography==50.0.1'
+      - name: Provision pinned Hare toolchain
+        run: |
+          bash Tools/bootstrap_hare_linux.sh "$GITHUB_WORKSPACE/.tools/hare-ci"
+          echo "$GITHUB_WORKSPACE/.tools/hare-ci/bin" >> "$GITHUB_PATH"
+      - name: Build and test Hare Core
+        run: |
+          set -euo pipefail
+          make test-hare BUILD_HARE=1
+          test "$(Core-Hare/shadow6-hare --feature-report | python3 -c 'import json,sys; print(json.load(sys.stdin)["crosed_max_level"])')" = 0
+      - name: Validate Hare Profile through Named Service lifecycle
+        timeout-minutes: 10
+        run: python3 integration/test_named_profiles.py -k hare -v
+  carp-only:
+    name: Core-Carp build and Profile validation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with: {python-version: '3.12'}
+      - name: Install Carp native and Profile-test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential libsodium-dev unzip
+          python3 -m pip install 'cryptography==50.0.1'
+      - name: Provision pinned Carp toolchain
+        run: |
+          set -euo pipefail
+          mkdir -p .tools
+          curl --fail --location --proto '=https' --tlsv1.2 --max-time 120 \
+            https://github.com/carp-lang/Carp/releases/download/v0.5.5/carp-v0.5.5-x86_64-linux.zip \
+            --output "$RUNNER_TEMP/carp.zip"
+          unzip -q "$RUNNER_TEMP/carp.zip" -d .tools
+          echo "CARP_DIR=$GITHUB_WORKSPACE/.tools/carp-v0.5.5-x86_64-linux" >> "$GITHUB_ENV"
+          echo "CARP=$GITHUB_WORKSPACE/.tools/carp-v0.5.5-x86_64-linux/bin/carp" >> "$GITHUB_ENV"
+      - name: Build and test Carp Core
+        run: |
+          set -euo pipefail
+          make test-carp BUILD_CARP=1
+          Core-Carp/shadow6-carp --feature-report | python3 -c 'import json,sys; r=json.load(sys.stdin); assert r["core"] == "shadow6-carp" and r["crosed_max_level"] == 0 and not r["crosed_compiled"]'
+      - name: Validate Carp Profile through Named Service lifecycle
+        timeout-minutes: 10
+        run: python3 integration/test_named_profiles.py -k carp -v
   idris:
     name: Core-Idris (${{ matrix.os }})
     strategy:
@@ -2188,6 +2245,8 @@ jobs:
       - iperf3-bsd
       - node-adapter
       - pony-only
+      - hare-only
+      - carp-only
       - idris
       - linux-gleam
       - linux
@@ -2211,6 +2270,8 @@ jobs:
         env:
           NODE_ADAPTER: ${{ needs['node-adapter'].result }}
           PONY: ${{ needs['pony-only'].result }}
+          HARE: ${{ needs['hare-only'].result }}
+          CARP: ${{ needs['carp-only'].result }}
           IDRIS: ${{ needs.idris.result }}
           GLEAM: ${{ needs['linux-gleam'].result }}
           LINUX: ${{ needs.linux.result }}
@@ -2231,6 +2292,8 @@ jobs:
             echo '{'
             printf '  "node-adapter": "%s",\n' "$NODE_ADAPTER"
             printf '  "pony-only": "%s",\n' "$PONY"
+            printf '  "hare-only": "%s",\n' "$HARE"
+            printf '  "carp-only": "%s",\n' "$CARP"
             printf '  "idris": "%s",\n' "$IDRIS"
             printf '  "linux-gleam": "%s",\n' "$GLEAM"
             printf '  "linux": "%s",\n' "$LINUX"
@@ -2247,7 +2310,7 @@ jobs:
             echo '}'
           } > support-summary/platform-results.json
           cat support-summary/platform-results.json
-          for status in "$NODE_ADAPTER" "$PONY" "$IDRIS" "$GLEAM" "$LINUX" "$LINUX_ARM64" "$LINUX_MUSL" "$LINUX_QEMU" "$MACOS" "$WINDOWS" "$FREEBSD" "$OPENBSD" "$NETBSD" "$UNIX_EXTRA" "$ANDROID"; do
+          for status in "$NODE_ADAPTER" "$PONY" "$HARE" "$CARP" "$IDRIS" "$GLEAM" "$LINUX" "$LINUX_ARM64" "$LINUX_MUSL" "$LINUX_QEMU" "$MACOS" "$WINDOWS" "$FREEBSD" "$OPENBSD" "$NETBSD" "$UNIX_EXTRA" "$ANDROID"; do
             case "$status" in
               failure|cancelled) exit 1 ;;
             esac

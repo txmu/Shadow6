@@ -88,6 +88,27 @@ def audit_path_literal(script: str) -> str:
 
 
 class LinuxIdrisRuntimeTests(unittest.TestCase):
+    def test_hare_carp_pony_have_independent_build_and_profile_jobs(self):
+        workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        jobs = workflow["jobs"]
+        for name, core in (("hare-only", "hare"), ("carp-only", "carp"), ("pony-only", "pony")):
+            with self.subTest(core=core):
+                job = jobs[name]
+                self.assertEqual(job["runs-on"], "ubuntu-24.04")
+                self.assertNotIn("needs", job)
+                scripts = "\n".join(step.get("run", "") for step in job["steps"])
+                self.assertIn(f"integration/test_named_profiles.py -k {core}", scripts)
+                self.assertIn("--feature-report", scripts)
+        self.assertIn("make test-hare BUILD_HARE=1", "\n".join(s.get("run", "") for s in jobs["hare-only"]["steps"]))
+        self.assertIn("make test-carp BUILD_CARP=1", "\n".join(s.get("run", "") for s in jobs["carp-only"]["steps"]))
+
+    def test_platform_summary_includes_all_three_optional_core_jobs(self):
+        workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        summary = workflow["jobs"]["platform-summary"]
+        for name in ("pony-only", "hare-only", "carp-only"):
+            self.assertIn(name, summary["needs"])
+            self.assertIn(f"needs['{name}'].result", str(summary["steps"]))
+
     def test_windows_iperf_setup_installs_its_cache_cleanup_command(self):
         workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
         setup = next(step for step in workflow['jobs']['iperf3-matrix']['steps']
