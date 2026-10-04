@@ -747,6 +747,17 @@ class ServiceRegistry:
         except (ValueError, OSError, KeyError, TypeError):
             findings.append('InstalledProfileFeatureReportUnavailableOrMismatch')
         current = self.status(name)
+        if current.get('state') == 'degraded' and runtime.alive(current.get('runtime', {})):
+            # A busy host can briefly miss the supervisor's 200ms observation
+            # cadence. Retry a live process for one bounded window so doctor
+            # reports persistent failures without turning one stale sample
+            # into a transient false alarm.
+            deadline = time.monotonic() + 3
+            while (current.get('state') == 'degraded' and
+                   runtime.alive(current.get('runtime', {})) and
+                   time.monotonic() < deadline):
+                time.sleep(.1)
+                current = self.status(name)
         if current.get('runtime') and current['state'] != 'running':
             findings.append('RuntimeNotReady:' + current['state'])
         return {'schema':'shadow6.named-service-doctor.v1', 'service':name,

@@ -68,6 +68,19 @@ class ServiceLifecycleTests(unittest.TestCase):
         self.assertEqual(status.call_count, 2)
         pause.assert_called_once_with(.1)
 
+    def test_doctor_rechecks_a_transient_degraded_observation(self):
+        first = self.registry.run('home/nas')
+        stale = json.loads(json.dumps(first))
+        stale['state'] = 'degraded'
+        stale['runtime']['readiness'] = 'unavailable'
+        with patch.object(self.registry, 'status', side_effect=[stale, first]) as status, \
+             patch('Deployment.service_registry.time.sleep') as pause:
+            report = self.registry.doctor('home/nas')
+        self.assertEqual(report['state'], 'running')
+        self.assertNotIn('RuntimeNotReady:degraded', report['findings'])
+        self.assertEqual(status.call_count, 2)
+        pause.assert_called_once_with(.1)
+
     def test_host_budget_drift_reports_without_shrinking_running_process(self):
         from limits import HostBudget
         item = self.registry.run('home/nas')
