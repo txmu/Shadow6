@@ -195,6 +195,13 @@ def open_local_session(plan):
     if plan.get('profileBinding') is not None:
         profile = validate_profile_binding(plan['profileBinding'], core=plan.get('core'))
     boundary = plan.get('applicationBoundary')
+    endpoint = plan.get('endpoint')
+    if plan.get('readiness') == 'application-ready' and isinstance(endpoint, dict):
+        observed_boundary = endpoint.get('boundary')
+        if observed_boundary is not None:
+            if boundary is not None and boundary != observed_boundary:
+                raise ValueError('ProfileCapabilityMismatch: observed application boundary differs')
+            boundary = observed_boundary
     if profile is not None:
         expected = profile['applicationBoundary']['kind']
         if boundary is not None and boundary != expected:
@@ -208,6 +215,8 @@ def open_local_session(plan):
     if boundary == 'message': return LocalMessageSession(plan)
     if boundary == 'stream': return LocalSession(plan)
     if boundary == 'credited': raise ValueError('UnsupportedApplicationBoundary: credited provider required')
+    if plan.get('readiness') != 'application-ready':
+        raise ValueError('capability unavailable: application endpoint is not ready')
     raise ValueError('UnsupportedApplicationBoundary: no locked local application boundary')
 
 
