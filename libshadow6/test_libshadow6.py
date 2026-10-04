@@ -80,6 +80,21 @@ class LibShadow6Tests(unittest.TestCase):
         pause.assert_called_once_with(.1)
         attach.assert_called_once_with(ready)
 
+    def test_connect_native_explicitly_bypasses_the_locked_s6na_adapter(self):
+        facade = object.__new__(libshadow6.Shadow6)
+        facade._closed = False
+        adapter = {"provider": "s6na", "profile": "idris-udp", "boundary": "message"}
+        plan = {"lockDigest": "lock", "applicationAdapter": adapter,
+                "readiness": "application-ready", "applicationBoundary": "message",
+                "endpoint": {"boundary": "message"}}
+        expected = object()
+        with patch.object(facade, "connection_plan", return_value=plan), \
+             patch("Deployment.connection_plan.open_local_session", return_value=expected) as attach:
+            self.assertIs(facade.connect_native("service/client"), expected)
+        passed_plan = attach.call_args.args[0]
+        self.assertEqual(passed_plan["applicationAdapter"]["provider"], "native")
+        self.assertEqual(passed_plan["applicationAdapter"]["profile"], "idris-udp")
+
     def test_local_session_dispatch_uses_locked_profile_when_observation_is_missing(self):
         from Deployment.connection_plan import open_local_session
         from Deployment.profile_registry import bind_profile

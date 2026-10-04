@@ -347,6 +347,9 @@ class Shadow6:
                         refreshed.get("applicationAdapter") != plan.get("applicationAdapter")):
                     raise Shadow6Error("Named Service application binding changed during connect")
                 plan = refreshed
+        if adapter == "native" and selected == "s6na":
+            plan = {**plan, "applicationAdapter": {
+                **plan["applicationAdapter"], "provider": "native"}}
         if adapter == "s6na" or (adapter == "auto" and selected == "s6na"):
             return self.open_credited_for_service(name)
         from Deployment.connection_plan import open_local_session
