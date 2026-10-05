@@ -73,9 +73,18 @@ class InitTests(unittest.TestCase):
             value = shlex.split(assignment.split("=", 1)[1])[0]
             self.assertEqual(shlex.split(value)[-2:], ["--config", path])
 
+    def test_aix_src_worker_is_foreground_and_quoted(self):
+        script = generate_init_script('aix', 'shadow6-test', '/opt/Shadow6/bin/runner',
+                                      '/etc/shadow6/a b.json')
+        self.assertEqual(shlex.split(script.splitlines()[-1]),
+                         ['exec', '/opt/Shadow6/bin/runner', '--config', '/etc/shadow6/a b.json'])
+        self.assertNotIn('startsrc', script)
+        from Deployment.supervisor_contract import capabilities
+        self.assertEqual(capabilities('aix-src')['nativeLifecycleParity'], 'unverified')
+
     @unittest.skipUnless(Path('/bin/sh').is_file(), 'POSIX shell syntax check requires /bin/sh')
     def test_rc_shell_syntax(self):
-        for system in ('openrc', 'rc.d'):
+        for system in ('openrc', 'rc.d', 'aix-src'):
             script = generate_init_script(system, 'shadow6-test.node', '/opt/a b/core',
                                           '/etc/a b config.json')
             subprocess.run(['/bin/sh', '-n'], input=script, text=True, check=True, timeout=5)

@@ -5,7 +5,7 @@ import sys
 
 NATIVE = {'systemd':'systemctl','openrc':'rc-service','runit':'sv',
           'sysv':'service','procd':'ubus','rc.d':'service','launchd':'launchctl','guix':'herd',
-          'windows-service':'sc.exe','smf':'svcadm'}
+          'windows-service':'sc.exe','smf':'svcadm','aix-src':'lssrc'}
 SYSTEM_OPERATIONS = ['install-definition','activate','deactivate','restart',
                     'status','remove-definition','logs']
 

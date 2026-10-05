@@ -647,3 +647,17 @@ Guix/Guile 本机不可用，真实 Scheme 求值由新增 CI 作业执行；待
 Ruby 的标准库 Psych 用于 CI 工作流 YAML 语法检查；Perl 的核心库 JSON::PP
 提供 Actions run JSON 失败作业清单。二者都是开发/CI 辅助工具，不进入 Core、
 运行时依赖或预编译安装流程。
+
+## 2026-10-05：首次 setup、AIX 与发布收口
+
+新增 `setup --check` 只读预检：验证 Profile 可用性与绑定材料，不建注册记录、
+不启动进程。首次 `setup` 默认读取 `~/.config/shadow6/binding.json`，允许显式覆盖，
+不会自动创建 native 配置或密钥。AIX SRC 新增前台脚本定义、固定操作请求与能力诊断；AIX 实机激活和
+进程身份/ready 证据尚未验证。预编译安装文档明确 source-only ZIP 不含二进制，
+需要核验发布 tar 的 SHA-256 并在本地准入，安装不下载依赖或启动服务。
+CI 将旧版 Node 20 官方 action 升至 Node 24 版本；第三方 action 与平台排队
+告警仍须依据后续 run 注释逐项判断。没有 AIX 自托管机器或原生工具链，本轮只验证
+定义生成、shell 语法和 typed contract。
+ARM64 可选证据文件不存在时不再触发空 artifact 上传告警；该 job 的 Go 自动缓存关闭，
+避免依赖文件查找误报。`goto-bus-stop/setup-zig@v2` 上游仍声明 Node 20，暂保留
+版本钉选及强制 Node 24，后续需等待可信的 Node 24 兼容替代。

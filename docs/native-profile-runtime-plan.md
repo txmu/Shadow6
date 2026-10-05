@@ -38,6 +38,10 @@ parity or a passing post-change CI run.
 - ~~Existing artifacts have a no-compile installation path with admission
   checks and no automatic service activation.~~
 - ~~Guix System definition evaluation is wired into CI using Guix modules.~~
+- ~~First setup can preflight Profile/binding admission without writing state;
+  its conventional binding path is explicit and still owner-controlled.~~
+- ~~AIX SRC has a generated foreground worker definition and fixed operator
+  request contract, with activation remaining an explicit platform action.~~
 
 ## Remaining validation and platform boundaries
 

@@ -36,6 +36,11 @@ From a source checkout, use `.venv/bin/python CLI/shadow6.py` instead of
 make install-prebuilt DESTDIR=/absolute/staging/directory PREFIX=/usr/local
 ```
 
+Verify the published SHA-256 digest of a trusted release archive before
+extraction. The source-only `.zip` has no runnable Core binaries; the
+binary-containing tar is the no-compile distribution input. Inspect the
+available artifacts with `install --json` before installing.
+
 Choose a writable prefix. `--prefix` and `--destdir` accept absolute ASCII paths
 containing letters, digits, slash, dot, underscore and hyphen. `make install`
 retains the build-then-install workflow; `install-prebuilt` fails when a selected
@@ -67,7 +72,8 @@ mkdir -p "$HOME/.config/shadow6"
 printf '%s\n' '{"config_path":"/absolute/path/core.json"}' > "$HOME/.config/shadow6/binding.json"
 chmod 600 /absolute/path/core.json "$HOME/.config/shadow6/binding.json"
 shadow6 init --json
-shadow6 setup home/nas --core go --profile go-kcp --config "$HOME/.config/shadow6/binding.json" --ttl 3600
+shadow6 setup home/nas --core go --profile go-kcp --config "$HOME/.config/shadow6/binding.json" --check
+shadow6 setup home/nas --core go --profile go-kcp --ttl 3600
 shadow6 run home/nas
 shadow6 status home/nas
 shadow6 doctor home/nas
@@ -79,7 +85,11 @@ shadow6 remove home/nas
 
 The equivalent granular path is `service create`, `service lock`, `service apply`
 and `service run`. `setup` prepares and applies the locked deployment without
-starting it; `setup --run` explicitly also starts it. `run` requires an existing
+starting it; `setup --run` explicitly also starts it. `setup --check` checks the
+selected Profile and binding without writing the registry or starting a process;
+it does not prove network reachability. `setup` reads
+`~/.config/shadow6/binding.json` by default; `--config` overrides that path.
+It never creates native Core configuration or credentials. `run` requires an existing
 DeploymentLock and never chooses or repairs a Profile.
 `service configure NAME --core CORE --profile PROFILE --config BINDING` requires
 the service to be stopped. A previously locked service receives replacement

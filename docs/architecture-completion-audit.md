@@ -1,6 +1,6 @@
 # Architecture integration audit
 
-## Current source snapshot — 2026-10-04
+## Current source snapshot — 2026-10-05
 
 The current worktree integrates the Native Profile registry with Named Service
 setup and lock checks, multi-stream S6NA reflection, dynamic service-count
@@ -11,14 +11,18 @@ Service Profile lifecycle cases passed locally against existing Actions-built
 artifacts (no native Core rebuild). A fresh Actions run for these source changes
 is required before release claims; see the dated integration review.
 
-The S6SG1 client reflector and WebRTC Named Service endpoint are implemented,
-but the service does not create the signaling broker. WebRTC pairing still
-depends on an operator-provided broker. Linux remains the only platform with
+The S6SG1 client reflector and bounded, owner-only Named Service broker are
+implemented. Native ICE/DTLS/DataChannel pairing still needs platform CI.
+Linux remains the only platform with
 the pidfd Named Service process supervisor; other platforms expose typed,
-fixed system-operation plans and capability diagnostics. Android surfaces its
+fixed system-operation plans and capability diagnostics. AIX SRC has a generated
+foreground definition and typed contract, without a tested native provider.
+Android surfaces its
 four packaged Core Profile IDs and S6NA VPN observations, but does not embed the
 Python Named Service registry, S6EPE runtime, or signaling broker.
 
+The source checkout supports read-only `setup --check`; `install-prebuilt`
+admits existing artifacts without compiling or automatically starting services.
 The sections below are historical audit snapshots. Their dated implementation
 details remain useful evidence, but any older “active” or “still open” status
 is superseded by this current summary and the

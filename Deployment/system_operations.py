@@ -15,7 +15,7 @@ SCHEMA = "shadow6.system-operation.v1"
 RECEIPT_SCHEMA = "shadow6.system-operation-receipt.v1"
 OPERATIONS = frozenset({"install-definition", "activate", "deactivate",
                         "restart", "status", "remove-definition", "logs"})
-BACKENDS = frozenset({"systemd", "openrc", "runit", "sysv", "rc.d", "procd", "launchd", "guix", "windows-service", "smf"})
+BACKENDS = frozenset({"systemd", "openrc", "runit", "sysv", "rc.d", "procd", "launchd", "guix", "windows-service", "smf", "aix-src"})
 MAX_TTL = 300
 
 

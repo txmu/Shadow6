@@ -16,9 +16,9 @@ INIT_ALIASES = {
     "macos": "launchd", "darwin": "launchd", "guixsd": "guix",
     "guix-system": "guix",
     "windows": "windows-service", "win32": "windows-service",
-    "illumos": "smf", "omnios": "smf", "solaris": "smf",
+    "illumos": "smf", "omnios": "smf", "solaris": "smf", "aix": "aix-src",
 }
-INIT_SYSTEMS = {"systemd", "openrc", "runit", "sysv", "rc.d", "procd", "launchd", "guix", "windows-service", "smf"}
+INIT_SYSTEMS = {"systemd", "openrc", "runit", "sysv", "rc.d", "procd", "launchd", "guix", "windows-service", "smf", "aix-src"}
 
 
 def normalize_init_system(system: str) -> str:
@@ -59,6 +59,10 @@ def generate_init_script(system: str, name: str, bin_path: str, conf_path: str, 
     if system == "openrc":
         return f"#!/sbin/openrc-run\numask 077\nname=\"{name}\"\ncommand={shell_bin}\ncommand_args={command_args}\ncommand_background=true\npidfile=\"/run/{name}.pid\"\n"
     if system == "runit":
+        return f"#!/bin/sh\numask 077\nexec {shell_bin} --config {shell_conf}\n"
+    if system == "aix-src":
+        # SRC registration is an explicit operator action; keep the worker in
+        # the foreground so SRC owns its process identity.
         return f"#!/bin/sh\numask 077\nexec {shell_bin} --config {shell_conf}\n"
     if system == "sysv":
         return f"#!/bin/sh\n### BEGIN INIT INFO\n# Provides: {name}\n### END INIT INFO\nexec {shell_bin} --config {shell_conf}\n"

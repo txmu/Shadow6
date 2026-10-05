@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Check workflow YAML syntax
         run: |
           sudo apt-get update
@@ -44,8 +44,8 @@ jobs:
       matrix:
         os: [ubuntu-24.04, macos-14, windows-latest]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
         with: {python-version: '3.12'}
       - name: Install contract dependencies
         run: python3 -m pip install --disable-pip-version-check 'cryptography==50.0.1'
@@ -86,7 +86,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
         with: {python-version: '3.12'}
       - name: Install declared S6P1 credential verifier dependency
@@ -144,7 +144,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Install source-only dependencies
         run: |
           python3 -m venv .venv
@@ -167,7 +167,7 @@ jobs:
       - name: Compile optional OCaml control verifier when available
         run: make ocaml-control-test PYTHON=.venv/bin/python
       - name: Upload acceptance reports
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: shadow6-deployment-acceptance
           path: acceptance/
@@ -176,7 +176,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Prepare Python dependencies
         run: |
           python3 -m venv .venv
@@ -1320,7 +1320,7 @@ jobs:
         with:
           node-version-file: .nvmrc
       - uses: actions/setup-go@v6
-        with: {go-version-file: Core-Go/go.mod}
+        with: {go-version-file: Core-Go/go.mod, cache: false}
       - uses: actions/setup-python@v6
         with: {python-version: '3.12'}
       - uses: dtolnay/rust-toolchain@stable
@@ -1464,14 +1464,14 @@ jobs:
           .venv/bin/python -m unittest discover -s Service-Init -p 'test_system_operations.py' -v
           .venv/bin/python integration/test_named_profiles.py -v 2>&1 | tee named-profile-lifecycle-linux-arm64.log
       - name: Upload ARM64 Named Service lifecycle evidence
-        if: always()
+        if: ${{ always() && hashFiles('named-profile-lifecycle-linux-arm64.log') != '' }}
         uses: actions/upload-artifact@v6
         with:
           name: shadow6-linux-arm64-named-profile-lifecycle
           path: named-profile-lifecycle-linux-arm64.log
           if-no-files-found: warn
       - name: Upload Linux ARM64 network reports
-        if: always()
+        if: ${{ always() && hashFiles('benchmark-linux-arm64.*') != '' }}
         uses: actions/upload-artifact@v6
         with:
           name: shadow6-linux-arm64-network-benchmark

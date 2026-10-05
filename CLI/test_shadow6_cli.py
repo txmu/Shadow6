@@ -5,6 +5,32 @@ from unittest import mock
 import shadow6
 from shadow6 import command_for,COMPONENTS,TRANSPORTS
 class CLITests(unittest.TestCase):
+ def test_setup_check_success_is_read_only(self):
+  output=io.StringIO()
+  fake_catalog=mock.Mock()
+  with mock.patch.object(sys,'argv',['shadow6','setup','first/service','--core','go',
+       '--profile','go-kcp','--check']),\
+       mock.patch.object(shadow6,'CoreCatalog',return_value=fake_catalog),\
+       mock.patch.object(shadow6,'ServiceRegistry',side_effect=AssertionError('registry opened')),\
+       mock.patch('profile_availability.inspect_profile',return_value={'available':True,'profile':'go-kcp'}),\
+       mock.patch.object(shadow6,'load_service_config',return_value={'config_path':'/tmp/core.json'}),\
+       mock.patch.object(shadow6,'service_spec',return_value={}),\
+       mock.patch.object(shadow6,'service_context',return_value={}),\
+       mock.patch.object(shadow6,'bind_profile',return_value={}),\
+       contextlib.redirect_stdout(output):
+   self.assertEqual(shadow6.main(),0)
+  self.assertEqual(json.loads(output.getvalue())['schema'],'shadow6.setup-check.v1')
+  fake_catalog.binding.assert_called_once()
+ def test_setup_check_does_not_create_registry_on_failure(self):
+  with tempfile.TemporaryDirectory() as directory:
+   registry=Path(directory)/'services.json'
+   result=subprocess.run([sys.executable,str(Path(shadow6.__file__)),
+       'setup','first/service','--core','go','--profile','go-kcp',
+       '--config',str(Path(directory)/'missing.json'),'--check'],
+       env={**os.environ,'SHADOW6_SERVICE_REGISTRY':str(registry)},
+       capture_output=True,text=True,timeout=15)
+   self.assertEqual(result.returncode,2)
+   self.assertFalse(registry.exists())
  def test_bilingual_guide_is_readonly(self):
   for language, phrase in (("en", "Welcome"), ("zh", "欢迎")):
    result=subprocess.run([sys.executable,shadow6.__file__,"guide","--lang",language],capture_output=True,text=True,timeout=10)

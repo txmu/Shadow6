@@ -37,6 +37,13 @@ class SystemOperationContractTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "binding mismatch"):
             validate_receipt({**receipt, "lockDigest": "sha256:" + "b" * 64}, request, now=1010)
 
+    def test_aix_src_uses_the_same_fixed_operator_contract(self):
+        request = operation_request(backend='aix-src', operation='status',
+            service='home/nas', plan_path='/var/lib/shadow6/launch.json',
+            lock_digest='sha256:' + 'a' * 64, now=1000)
+        self.assertEqual(validate_request(request, now=1001), request)
+        self.assertNotIn('command', request)
+
 
 if __name__ == "__main__":
     unittest.main()

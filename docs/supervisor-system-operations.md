@@ -25,5 +25,7 @@ request.
 
 The provider API is an extension point for system operations, not evidence of
 cross-platform lifecycle parity. No launchd, OpenRC, runit, SysV, rc.d, procd,
-or Guix provider is included or claimed as tested. Definition generation stays
+Guix or AIX SRC provider is included or claimed as tested. AIX's generated
+foreground script requires explicit SRC registration by the operator; no AIX
+machine activation has been tested. Definition generation stays
 available, and activation remains an explicit operator action.

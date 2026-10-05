@@ -270,7 +270,7 @@ def main():
  q=sub.add_parser("install",help="install existing artifacts without compiling")
  q.add_argument("--prefix",type=Path,required=True); q.add_argument("--destdir",type=Path)
  q=sub.add_parser("setup",help="create, bind, lock and apply a named service")
- q.add_argument("name"); q.add_argument("--core",required=True); q.add_argument("--profile"); q.add_argument("--config",type=Path,required=True); add_service_options(q); q.add_argument("--json",action="store_true"); q.add_argument("--run",dest="start_service",action="store_true",help="explicitly start the prepared service")
+ q.add_argument("name"); q.add_argument("--core",required=True); q.add_argument("--profile"); q.add_argument("--config",type=Path,default=Path.home()/'.config/shadow6/binding.json'); add_service_options(q); q.add_argument("--json",action="store_true"); q.add_argument("--check",action="store_true",help="check Profile and binding without creating a service"); q.add_argument("--run",dest="start_service",action="store_true",help="explicitly start the prepared service")
  q=sub.add_parser("privacy-envelope",help="inspect the optional OCaml authenticated external envelope")
  q.add_argument("action",choices=("status","feature-report","compatibility","run")); q.add_argument("--core",action="append"); q.add_argument("--metrics",type=Path); q.add_argument("--config",type=Path)
  a=p.parse_args();tail=lambda v:v[1:] if v[:1]==["--"] else v
@@ -325,14 +325,22 @@ def main():
    raise ValueError("installation paths must be absolute ASCII paths using letters, digits, slash, dot, underscore or hyphen")
   return subprocess.run(["make","install-prebuilt","PREFIX="+str(a.prefix)]+(["DESTDIR="+str(a.destdir)] if a.destdir else []),cwd=ROOT,check=False).returncode
  if a.command=="setup":
-  registry=ServiceRegistry(catalog=CoreCatalog(ROOT));
+  if a.check and a.start_service: raise ValueError("--check cannot start a service")
+  catalog=CoreCatalog(ROOT)
+  registry=None if a.check else ServiceRegistry(catalog=catalog)
   created=False
   try:
    from profile_availability import inspect_profile
-   availability=inspect_profile(registry.catalog,a.core,a.profile)
+   availability=inspect_profile(catalog,a.core,a.profile)
    if not availability['available']:
     print(json.dumps({"schema":"shadow6.lifecycle-error.v1","stage":"setup","error":"ProfileUnavailable","profile":availability['profile'],"diagnostics":availability['diagnostics']},sort_keys=True),file=sys.stderr); return 2
    config=load_service_config(a.config); spec=service_spec(a); context=service_context(a)
+   if a.check:
+    catalog.binding(a.core,config)
+    bind_profile(a.core,a.profile)
+    print(json.dumps({"schema":"shadow6.setup-check.v1","service":a.name,
+        "core":a.core,"profile":availability['profile'],"available":True},sort_keys=True))
+    return 0
    try: existing=registry.inspect(a.name)
    except ValueError:
     existing=registry.create(a.name,core=a.core,profile=a.profile,config=config,privacy=a.privacy,spec=spec,context=context)
