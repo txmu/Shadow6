@@ -25,13 +25,13 @@ class UnifiedConnectTests(unittest.TestCase):
         sys.path.insert(0,str(ROOT/'Deployment'))
         from protocol_context import minimal_context
         from join_code import pack_protocol
-        for scope,expected in (('go',0),('all',2)):
+        for scope,expected in (('go',2),('all',2)):
             result=subprocess.run([sys.executable,str(ROOT/'CLI/shadow6.py'),'connect','--protocol-envelope',pack_protocol(minimal_context(scope))],capture_output=True,text=True,timeout=10)
             self.assertEqual(result.returncode,expected,result.stderr)
             if expected == 0:
                 import json
                 plan=json.loads(result.stdout);self.assertEqual(plan['schema'],'shadow6.connection-plan.v1');self.assertFalse(plan['connected'])
-            else:self.assertIn('AmbiguousCore',result.stderr)
+            else:self.assertIn('CoreSelectionRequired',result.stderr)
 
     def test_old_public6_provisioning_calls_shared_resolver(self):
         import tempfile
@@ -70,7 +70,7 @@ class UnifiedConnectTests(unittest.TestCase):
         from join_code import pack_protocol,issue_passport
         from protocol_context import minimal_context
         context=minimal_context('go')
-        argv=[sys.executable,str(ROOT/'CLI/shadow6.py'),'connect','--protocol-envelope',pack_protocol(context),'--role','client']
+        argv=[sys.executable,str(ROOT/'CLI/shadow6.py'),'connect','--protocol-envelope',pack_protocol(context),'--role','client','--core','go']
         result=subprocess.run(argv,capture_output=True,text=True,timeout=10)
         self.assertEqual(result.returncode,0,result.stderr)
         self.assertEqual(json.loads(result.stdout)['role'],'client')

@@ -198,7 +198,6 @@ def main():
                 raise ValueError("S6P1 Core does not match --core")
             if args.role and envelope["role"] not in (args.role, "all"):
                 raise ValueError("S6P1 role does not match --role")
-            args.core = args.core or (envelope["core"] if isinstance(envelope["core"],str) and envelope["core"] != "all" else None)
             args.role = args.role or (envelope["role"] if envelope["role"] in ("client", "agent") else None)
             embedded = envelope.get("credentials", {}).get("public6_invitation")
             if not isinstance(embedded, str):
@@ -222,7 +221,8 @@ def main():
             resolved = resolve(args.code, directory=args.directory, manual_profile=args.profile, manual_pin=args.pin)
             print(json.dumps({'routes': [{'core': route['core'], 'transport': route['transport']} for route in resolved['routes']]}))
             return
-        if not args.core or not args.role: raise ValueError("--core and --role are required")
+        if not args.core: raise ValueError("CoreSelectionRequired")
+        if not args.role: raise ValueError("--role is required")
         native = load_native(args.native_config) if args.native_config else None
         if native and (native['core'], native['role']) != (args.core, args.role):
             raise ValueError("native configuration core/role differs from Connect selection")

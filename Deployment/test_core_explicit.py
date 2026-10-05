@@ -19,6 +19,27 @@ class CoreExplicitTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             CoreCatalog().binding("go", {})
 
+    def test_single_candidate_requires_selection_but_recorded_binding_is_reused(self):
+        from Deployment.connection_plan import resolve_connection
+        from Deployment.protocol_context import minimal_context
+        catalog = CoreCatalog()
+        catalog._items = {'go': catalog.inspect('go')}
+        self.assertTrue(catalog.resolve({})['bindingRequired'])
+        context = minimal_context('go')
+        with self.assertRaisesRegex(ValueError, '^CoreSelectionRequired$'):
+            resolve_connection(context=context, catalog=catalog)
+        binding = catalog.binding('go', {'config_path': '/tmp/go.json'})
+        self.assertEqual(resolve_connection(context=context, catalog=catalog, binding=binding)['core'], 'go')
+
+    def test_reconfiguration_without_selection_preserves_record(self):
+        with tempfile.TemporaryDirectory() as directory:
+            registry = ServiceRegistry(Path(directory) / 'services.json')
+            original = registry.create('home/nas', core='go', config={'config_path': '/tmp/go.json'})
+            for operation in (registry.configure, registry.upgrade):
+                with self.assertRaisesRegex(ValueError, '^CoreSelectionRequired$'):
+                    operation('home/nas', core=None, config={})
+                self.assertEqual(registry.inspect('home/nas'), original)
+
     def test_imported_descriptor_is_explicit_and_resolvable(self):
         catalog = CoreCatalog()
         descriptor = catalog.inspect("go").copy()
@@ -31,10 +52,10 @@ class CoreExplicitTests(unittest.TestCase):
     def test_named_service_requires_explicit_binding(self):
         with tempfile.TemporaryDirectory() as directory:
             registry = ServiceRegistry(Path(directory) / "services.json")
-            item = registry.create("home/nas", core=None, config=None)
-            self.assertEqual(item["state"], "unresolved")
-            with self.assertRaises(ValueError): registry.require_binding("home/nas")
-            registry.configure("home/nas", core="go", config={"config_path":"/tmp/go.json"})
+            with self.assertRaisesRegex(ValueError, '^CoreSelectionRequired$'):
+                registry.create("home/nas", core=None, config=None)
+            self.assertEqual(registry.list(), [])
+            registry.create("home/nas", core="go", config={"config_path":"/tmp/go.json"})
             self.assertEqual(registry.require_binding("home/nas")["core"], "go")
 
 

@@ -211,6 +211,7 @@ class ServiceRegistry:
 
     @transaction
     def create(self, name, *, core, config, spec=None, privacy='native', context=None, profile=None):
+        if core is None or core == '': raise ValueError('CoreSelectionRequired')
         if not NAME.fullmatch(name) or name in self.services:
             raise ValueError('service name must be unique namespace/name')
         if len(self.services) >= service_capacity():

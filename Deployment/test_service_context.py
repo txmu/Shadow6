@@ -64,9 +64,11 @@ class ContextTests(unittest.TestCase):
         self.assertEqual(self.registry.require_binding('home/nas')['core'],'rust')
 
     def test_ambiguous_core_never_auto_selected(self):
-        with self.assertRaisesRegex(ValueError,'AmbiguousCore'):
+        with self.assertRaisesRegex(ValueError,'CoreSelectionRequired'):
             resolve_connection(context=minimal_context(),catalog=self.catalog)
-        self.assertEqual(resolve_connection(context=minimal_context('go'),catalog=self.catalog)['core'],'go')
+        with self.assertRaisesRegex(ValueError,'CoreSelectionRequired'):
+            resolve_connection(context=minimal_context('go'),catalog=self.catalog)
+        self.assertEqual(resolve_connection(context=minimal_context('go'),catalog=self.catalog,core='go')['core'],'go')
 
     def test_third_party_descriptor_participates(self):
         descriptor = copy.deepcopy(self.catalog.inspect('go'))
@@ -227,7 +229,7 @@ class ContextDriftAndScope(unittest.TestCase):
     create = ContextTests.create
     def test_candidate_scope_and_explicit_binding_are_consistent(self):
         context=minimal_context();context['core']=['go','rust']
-        with self.assertRaisesRegex(ValueError,'AmbiguousCore'):resolve_connection(context=context,catalog=self.catalog)
+        with self.assertRaisesRegex(ValueError,'CoreSelectionRequired'):resolve_connection(context=context,catalog=self.catalog)
         self.assertEqual(resolve_connection(context=context,catalog=self.catalog,core='rust')['core'],'rust')
         with self.assertRaisesRegex(ValueError,'scope'):self.create({**context,'core':['rust','gleam']})
         item=self.create(context)
@@ -394,20 +396,20 @@ class ObservedBoundaryContractTests(unittest.TestCase):
         catalog._items['go']['applicationBoundaries']=['stream','message']
         context=minimal_context('go');context['role']='client'
         runtime={'readiness':'application-ready','endpoint':{'host':'127.0.0.1','port':14433,'boundary':'stream','mode':'localhost-tcp-proxy','observation':'structured-ready-event'}}
-        plan=connection_plan(context,catalog=catalog,runtime=runtime)
+        plan=connection_plan(context,catalog=catalog,core='go',runtime=runtime)
         self.assertEqual(plan['capability']['sessionLaunch'],'local-application-stream')
         context['routes']=[{'boundary':'message'}]
         with self.assertRaisesRegex(ValueError,'S6P1 routes'):
-            connection_plan(context,catalog=catalog,runtime=runtime)
+            connection_plan(context,catalog=catalog,core='go',runtime=runtime)
         context['routes']=[];context['role']='broker'
         with self.assertRaisesRegex(ValueError,'S6P1 role'):
-            connection_plan(context,catalog=catalog,runtime=runtime)
+            connection_plan(context,catalog=catalog,core='go',runtime=runtime)
         context['role']='client';catalog._items['go']['applicationBoundaries']=['message']
         with self.assertRaisesRegex(ValueError,'not declared by Core'):
-            connection_plan(context,catalog=catalog,runtime=runtime)
+            connection_plan(context,catalog=catalog,core='go',runtime=runtime)
         context['role']='all';catalog._items['go']['applicationBoundaries']=['stream'];catalog._items['go']['roles']=['broker']
         with self.assertRaisesRegex(ValueError,'client role is not declared'):
-            connection_plan(context,catalog=catalog,runtime=runtime)
+            connection_plan(context,catalog=catalog,core='go',runtime=runtime)
 
     def test_udp_listener_cannot_prove_stream_application_readiness(self):
         temp=tempfile.TemporaryDirectory(prefix='shadow6-ready-udp-');self.addCleanup(temp.cleanup)
@@ -436,11 +438,11 @@ class ConnectionRoleTests(unittest.TestCase):
 
     def test_requested_role_filters_capability_and_preserves_context_digest(self):
         context=minimal_context('go');original=context_digest(context)
-        plan=resolve_connection(context=context,catalog=self.catalog,role='client')
+        plan=resolve_connection(context=context,catalog=self.catalog,core='go',role='client')
         self.assertEqual(plan['role'],'client');self.assertEqual(plan['contextDigest'],original)
         self.assertEqual(context['role'],'all')
         self.catalog._items['go']['roles']=['broker']
-        with self.assertRaises(ValueError):resolve_connection(context=context,catalog=self.catalog,role='client')
+        with self.assertRaises(ValueError):resolve_connection(context=context,catalog=self.catalog,core='go',role='client')
         with self.assertRaisesRegex(ValueError,'invalid requested role'):
             resolve_connection(context=context,catalog=self.catalog,role=['client'])
 
@@ -448,10 +450,10 @@ class ConnectionRoleTests(unittest.TestCase):
         from join_code import issue_passport
         context=minimal_context('go');context['role']='agent'
         with self.assertRaisesRegex(ValueError,'role mismatch'):
-            resolve_connection(context=context,catalog=self.catalog,role='client')
+            resolve_connection(context=context,catalog=self.catalog,core='go',role='client')
         context['role']='all';context['credentials']={'passport':issue_passport('nas',components=('all',),roles=('agent',),issuer_key=b'r'*32)}
         with self.assertRaisesRegex(ValueError,'role'):
-            resolve_connection(context=context,catalog=self.catalog,role='client')
+            resolve_connection(context=context,catalog=self.catalog,core='go',role='client')
 
     def test_named_role_request_matches_locked_native_realization(self):
         binary=self.directory/'fixture-core';binary.write_text('#!/usr/bin/env python3\nimport json,socket,time\ns=socket.socket();s.bind(("127.0.0.1",0));s.listen()\nprint(json.dumps({"event":"shadow6.ready","schema":1,"core":"shadow6-go","role":"client","application_boundary":{"kind":"stream","mode":"localhost-tcp-proxy","endpoint":{"host":"127.0.0.1","port":s.getsockname()[1]}}}),flush=True)\ntime.sleep(60)\n');binary.chmod(0o700)

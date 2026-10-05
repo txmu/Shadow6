@@ -571,6 +571,7 @@ def validate_topology(topo: Any) -> dict:
         if role not in VALID_ROLES:
             raise ValueError(f"node {name} has invalid type: {role!r}")
         engines = node.get("engines", [])
+        if engines is None or engines == []: raise ValueError('CoreSelectionRequired')
         if not isinstance(engines, list) or not engines or not all(isinstance(e, str) for e in engines):
             raise ValueError(f"node {name} has invalid engines")
         unknown_engines = set(engines) - CORE_ENGINES - OPTIONAL_COMPONENTS
@@ -874,9 +875,10 @@ def send_client_knock(
     secret: str,
     source_ip: Optional[str] = None,
     client_config: Optional[str] = None,
-    engine: str = "shadow6-rust",
+    engine: Optional[str] = None,
 ) -> dict:
     """Send one bounded SPA packet and optionally launch one fixed Core client."""
+    if client_config and not engine: raise ValueError("CoreSelectionRequired")
     if isinstance(target_port, bool) or not isinstance(target_port, int) or not 1 <= target_port <= 65535:
         raise ValueError("target_port must be between 1 and 65535")
     try:
@@ -943,7 +945,7 @@ def client_knock(
     secret: str = typer.Option(..., "--secret", envvar="SHADOW6_SPA_SECRET", prompt=True, hide_input=True),
     source_ip: Optional[str] = typer.Option(None, "--source-ip"),
     client_config: Optional[str] = typer.Option(None, "--client-config"),
-    engine: str = typer.Option("shadow6-rust", "--engine"),
+    engine: Optional[str] = typer.Option(None, "--engine"),
 ):
     """Executes Cryptographic SPA Knocking and starts local client."""
     try:

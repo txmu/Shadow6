@@ -19,6 +19,7 @@ def engine_id(value):
 
 
 def selected_engine(engines, role):
+    if engines is None or engines == []: raise ValueError('CoreSelectionRequired')
     if role not in {'broker', 'agent', 'client'}:
         raise ValueError('invalid topology role')
     if not isinstance(engines, list) or not 1 <= len(engines) <= 12:

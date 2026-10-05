@@ -33,6 +33,19 @@ from shadow6_auto import (
 
 class TestShadow6Auto(unittest.TestCase):
 
+    def test_client_launch_requires_core_before_network_activity(self):
+        from shadow6_auto import send_client_knock
+        with patch('shadow6_auto.socket.socket') as socket_factory:
+            with self.assertRaisesRegex(ValueError, '^CoreSelectionRequired$'):
+                send_client_knock('127.0.0.1', 12345, 'secret', client_config='/tmp/client.json')
+            socket_factory.assert_not_called()
+
+    def test_topology_missing_core_requires_selection(self):
+        from shadow6_auto import selected_core_engine
+        for engines in ([], ['guard']):
+            with self.assertRaisesRegex(ValueError, '^CoreSelectionRequired$'):
+                selected_core_engine({'type': 'client', 'engines': engines})
+
     def test_ada_rotation_binds_domains_and_cell_transport(self):
         with tempfile.TemporaryDirectory(prefix="shadow6-ada-auto-") as directory:
             topology = {"version": "1.0", "global": {"broker_scheme": "ws", "output_dir": directory}, "nodes": [

@@ -116,7 +116,7 @@ class ServiceLifecycleTests(unittest.TestCase):
 
     def test_stale_instances_reload_in_transaction(self):
         other = ServiceRegistry(self.registry.path, self.catalog)
-        other.create('home/other',core=None,config=None)
+        other.create('home/other',core='go',config={'config_path':str(self.config)})
         self.registry.init()
         self.assertEqual(len(other.list()), 2)
 
@@ -140,7 +140,7 @@ class ServiceLifecycleTests(unittest.TestCase):
         registry = ServiceRegistry(path, self.catalog)
         with patch('Deployment.service_registry.HostBudget.capture', return_value=host):
             for index in range(129):
-                registry.create(f'capacity/service-{index:03d}', core=None, config=None)
+                registry.create(f'capacity/service-{index:03d}', core='go', config={'config_path':str(self.config)})
         self.assertEqual(len(registry.list()), 129)
 
     def test_strict_json_and_private_config(self):

@@ -150,9 +150,10 @@ class CoreCatalog:
             missing = [k for k,v in requirements.items() if not meets(k,v)]
             (matches if not missing else rejected).append(item if not missing else {"core":item["id"],"reason":"requirements not met"})
         return {"schema":"shadow6.core-resolution.v1", "candidates":matches, "rejected":rejected,
-                "bindingRequired":len(matches) != 1, "ambiguous":len(matches)>1}
+                "bindingRequired":not bool(core), "ambiguous":len(matches)>1}
 
     def binding(self, core: str, config: dict[str, Any], version: str | None = None) -> dict[str, Any]:
+        if core is None or core == '': raise ValueError('CoreSelectionRequired')
         descriptor = self.inspect(core); normalized = validate_config(descriptor, config)
         payload = {"core":core, "version":version or descriptor["implementation"]["version"],
                    "binaryDigest":_digest(Path(descriptor["executable"])), "featureReportDigest":descriptor.get("featureReportDigest"),

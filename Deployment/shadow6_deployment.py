@@ -117,6 +117,7 @@ def validate_manifest(value: dict) -> dict:
     for broker in brokers:
         if not isinstance(broker, dict):
             raise ValueError("invalid broker set")
+        if not broker.get('core'): raise ValueError('CoreSelectionRequired')
         _keys(broker, {"id", "identity", "endpoints", "core", "mode", "route"}, {"id", "identity", "endpoints", "core"}, "broker set")
         bid = _id(broker["id"], "broker set id")
         if bid in broker_ids:
@@ -144,6 +145,7 @@ def validate_manifest(value: dict) -> dict:
     for node in nodes:
         if not isinstance(node, dict):
             raise ValueError("invalid node")
+        if not node.get('core'): raise ValueError('CoreSelectionRequired')
         _keys(node, {"id", "role", "core", "brokerSet", "platform", "artifact", "identityRef", "labels", "context"}, {"id", "role", "core", "brokerSet", "identityRef"}, "node")
         nid = _id(node["id"], "node id")
         if nid in node_ids:

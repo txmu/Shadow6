@@ -257,8 +257,8 @@ def main():
  ss=q.add_subparsers(dest="service_action",required=True); ss.add_parser("list")
  x=ss.add_parser("inspect"); x.add_argument("name")
  x=ss.add_parser("create"); x.add_argument("name"); x.add_argument("--core"); x.add_argument("--profile"); x.add_argument("--config",type=Path); add_service_options(x)
- x=ss.add_parser("configure"); x.add_argument("name"); x.add_argument("--core",required=True); x.add_argument("--profile"); x.add_argument("--config",type=Path,required=True); add_service_options(x)
- x=ss.add_parser("upgrade",help="atomically replace, lock and apply a stopped service"); x.add_argument("name"); x.add_argument("--core",required=True); x.add_argument("--profile"); x.add_argument("--config",type=Path,required=True); add_service_options(x)
+ x=ss.add_parser("configure"); x.add_argument("name"); x.add_argument("--core"); x.add_argument("--profile"); x.add_argument("--config",type=Path); add_service_options(x)
+ x=ss.add_parser("upgrade",help="atomically replace, lock and apply a stopped service"); x.add_argument("name"); x.add_argument("--core"); x.add_argument("--profile"); x.add_argument("--config",type=Path); add_service_options(x)
  for action in ("run","connect"):
   x=ss.add_parser(action); x.add_argument("name")
  for action in ("lock","apply","status","restart","stop","remove","doctor","signal"):
@@ -270,7 +270,7 @@ def main():
  q=sub.add_parser("install",help="install existing artifacts without compiling")
  q.add_argument("--prefix",type=Path,required=True); q.add_argument("--destdir",type=Path)
  q=sub.add_parser("setup",help="create, bind, lock and apply a named service")
- q.add_argument("name"); q.add_argument("--core",required=True); q.add_argument("--profile"); q.add_argument("--config",type=Path,default=Path.home()/'.config/shadow6/binding.json'); add_service_options(q); q.add_argument("--json",action="store_true"); q.add_argument("--check",action="store_true",help="check Profile and binding without creating a service"); q.add_argument("--run",dest="start_service",action="store_true",help="explicitly start the prepared service")
+ q.add_argument("name"); q.add_argument("--core"); q.add_argument("--profile"); q.add_argument("--config",type=Path,default=Path.home()/'.config/shadow6/binding.json'); add_service_options(q); q.add_argument("--json",action="store_true"); q.add_argument("--check",action="store_true",help="check Profile and binding without creating a service"); q.add_argument("--run",dest="start_service",action="store_true",help="explicitly start the prepared service")
  q=sub.add_parser("privacy-envelope",help="inspect the optional OCaml authenticated external envelope")
  q.add_argument("action",choices=("status","feature-report","compatibility","run")); q.add_argument("--core",action="append"); q.add_argument("--metrics",type=Path); q.add_argument("--config",type=Path)
  a=p.parse_args();tail=lambda v:v[1:] if v[:1]==["--"] else v
@@ -300,6 +300,8 @@ def main():
   else: result=catalog.import_file(a.descriptor)
   print(json.dumps(result,ensure_ascii=True,sort_keys=True,indent=2)); return 0
  if a.command=="service":
+  if a.service_action in {"create","configure","upgrade"} and not a.core: raise ValueError("CoreSelectionRequired")
+  if a.service_action in {"configure","upgrade"} and not a.config: raise ValueError("--config is required")
   registry=ServiceRegistry(catalog=CoreCatalog(ROOT))
   if a.service_action=="list": result={"schema":"shadow6.service-registry.v2","services":registry.list()}
   elif a.service_action=="inspect": result=registry.inspect(a.name)
@@ -325,6 +327,7 @@ def main():
    raise ValueError("installation paths must be absolute ASCII paths using letters, digits, slash, dot, underscore or hyphen")
   return subprocess.run(["make","install-prebuilt","PREFIX="+str(a.prefix)]+(["DESTDIR="+str(a.destdir)] if a.destdir else []),cwd=ROOT,check=False).returncode
  if a.command=="setup":
+  if not a.core: raise ValueError("CoreSelectionRequired")
   if a.check and a.start_service: raise ValueError("--check cannot start a service")
   catalog=CoreCatalog(ROOT)
   registry=None if a.check else ServiceRegistry(catalog=catalog)

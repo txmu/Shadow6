@@ -48,7 +48,7 @@ from Deployment.protocol_context import minimal_context
 from Deployment.connection_plan import resolve_connection
 catalog=CoreCatalog()
 assert catalog.root == __import__('pathlib').Path(sys.argv[2])
-assert resolve_connection(context=minimal_context('go'),catalog=catalog)['core']=='go'
+assert resolve_connection(context=minimal_context('go'),catalog=catalog,core='go')['core']=='go'
 print('installed imports passed')
 '''
             result=subprocess.run([sys.executable,'-I','-c',code,str(package.parent),str(installed/'share/shadow6/tree')],cwd=stage,env=env,capture_output=True,text=True,timeout=15)

@@ -58,3 +58,8 @@ Shadow6.zip
 
 OCaml/privacy_envelope/_build/
 OCaml/privacy_envelope/shadow6-privacy-envelope
+
+# Local build/release artifacts
+/Core-Rust/shadow6-go
+/Core-Rust/shadow6-go-crosed
+/release[0-9]*/

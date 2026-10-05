@@ -37,17 +37,14 @@ def connection_plan(context, *, catalog, core=None, binding=None, runtime=None, 
     effective_role = role or context['role']
     if core and binding and binding['core'] != core: raise ValueError('explicit Core differs from locked CoreBinding')
     requested = core or (binding or {}).get('core')
+    if not requested: raise ValueError('CoreSelectionRequired')
     scope = context['core']
     requirements = {}
     if effective_role != 'all': requirements['roles'] = effective_role
     kinds = {r['boundary'] for r in context['routes'] if r.get('boundary')}
     if kinds: requirements['applicationBoundaries'] = sorted(kinds)
-    resolution = catalog.resolve(requirements, requested or (scope if isinstance(scope,str) and scope != 'all' else None))
+    resolution = catalog.resolve(requirements, requested)
     candidates = [c for c in resolution['candidates'] if core_allowed(scope,c['id'])]
-    if not requested:
-        if len(candidates) > 1: raise ValueError('AmbiguousCore: explicit --core/CoreBinding required')
-        if not candidates: raise ValueError('capability unavailable: no compatible Core')
-        requested = candidates[0]['id']
     descriptor = check_binding(context, requested, catalog)
     profile = validate_profile_binding(profile_binding, core=requested) if profile_binding is not None else None
     if not any(c['id'] == requested for c in candidates): raise ValueError('capability unavailable: explicit Core does not satisfy context')
