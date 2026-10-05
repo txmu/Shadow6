@@ -598,11 +598,6 @@ def supervise(plan_path, ack):
                         webtransport='pending'
                 result = {'limitResolutionDigest': __import__('limits').LimitResolution(resolution).digest,
                           'effectiveLimits':resolution['effective_limits'],
-                          'hard_protocol_limits': {k: v['hard_protocol_limit'] for k, v in resolution['dimensions'].items()},
-                          'safe_defaults': {k: v['safe_default'] for k, v in resolution['dimensions'].items()},
-                          'recommended_limits': {k: v['recommended'] for k, v in resolution['dimensions'].items()},
-                          'host_derived_limits': {k: v['host_derived_ceiling'] for k, v in resolution['dimensions'].items()},
-                          'operator_overrides': {k: v['operator_request'] for k, v in resolution['dimensions'].items() if v['operator_request'] is not None},
                           'limitsEnforcement':{'process_fds':{'actual':resource.getrlimit(resource.RLIMIT_NOFILE)[0], 'enforced':True}},
                           'observedAt':int(time.time()), 'pid':os.getpid(), 'processIdentity':identity(os.getpid()),
                           'processes':[{'pid':p.pid,'processIdentity':identity(p.pid)} for p in children],

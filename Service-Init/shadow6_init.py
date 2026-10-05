@@ -7,7 +7,7 @@ import re
 import shlex
 import argparse
 import unicodedata
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from xml.sax.saxutils import escape as xml_escape
 
 SAFE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
@@ -43,9 +43,11 @@ def generate_init_script(system: str, name: str, bin_path: str, conf_path: str, 
     nofile = 4096 if fd_ceiling is None else fd_ceiling
     if not SAFE_NAME_RE.fullmatch(name):
         raise ValueError(f"unsafe service name: {name!r}")
-    if any(unicodedata.category(character) in {"Cc", "Cs"} for character in bin_path + conf_path) or not Path(bin_path).is_absolute() or not Path(conf_path).is_absolute():
-        raise ValueError("service paths must be absolute and contain no control characters")
     system = normalize_init_system(system)
+    def absolute(value):
+        return PurePosixPath(value).is_absolute() or (system == "windows-service" and PureWindowsPath(value).is_absolute())
+    if any(unicodedata.category(character) in {"Cc", "Cs"} for character in bin_path + conf_path) or not absolute(bin_path) or not absolute(conf_path):
+        raise ValueError("service paths must be absolute and contain no control characters")
     shell_bin, shell_conf = shlex.quote(bin_path), shlex.quote(conf_path)
     # rc frameworks interpret command_args a second time; quote each argv
     # member before quoting the shell assignment itself.
@@ -108,8 +110,8 @@ def generate_init_script(system: str, name: str, bin_path: str, conf_path: str, 
             f'    <property_group name="method_context" type="method"><method_credential user="shadow6"/></property_group>\n'
             '  </service>\n</service_bundle>\n')
     return (
-        ";; Add shadow6-service to the services field of your operating-system.\n"
-        "(use-modules (gnu services) (gnu services shepherd))\n\n(define shadow6-service\n  (shepherd-service\n"
+        ";; Add the resulting simple-service to your operating-system services.\n"
+        "(use-modules (gnu services) (gnu services shepherd) (guix gexp))\n\n(define shadow6-service\n  (shepherd-service\n"
         f"    (provision (list (string->symbol \"{name}\")))\n    (requirement '(networking))\n    (documentation \"Shadow6 service {name}\")\n"
         f"    (start #~(make-forkexec-constructor\n               (list {_scheme_quote(bin_path)} \"--config\" {_scheme_quote(conf_path)})\n"
         f"               #:log-file \"/var/log/{name}.log\"))\n    (stop #~(make-kill-destructor))))\n\n"

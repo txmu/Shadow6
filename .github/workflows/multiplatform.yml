@@ -12,6 +12,29 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ startsWith(github.ref, 'refs/heads/') || startsWith(github.ref, 'refs/pull/') }}
 jobs:
+  guix-init-contract:
+    name: Guix System Shepherd definition
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check workflow YAML syntax
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ruby
+          ruby Tools/check_workflows.rb .github/workflows/multiplatform.yml
+      - name: Install distribution Guix and Guile
+        run: |
+          sudo apt-get install -y --no-install-recommends guix guile-3.0
+      - name: Evaluate generated service with Guix modules
+        run: |
+          set -euo pipefail
+          python3 Service-Init/shadow6_init.py --system guix --name shadow6-ci \
+            --binary '/opt/shadow6 runner' --config '/var/lib/shadow6/plan.json' \
+            > "$RUNNER_TEMP/shadow6-guix-service.scm"
+          SHADOW6_GUIX_DEFINITION="$RUNNER_TEMP/shadow6-guix-service.scm" \
+            guix repl Service-Init/test_guix_init.scm
+
   portable-system-operation-contract:
     name: Typed Named Service operations (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -30,9 +53,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          export PYTHONPATH="$GITHUB_WORKSPACE:$GITHUB_WORKSPACE/Crosed:$GITHUB_WORKSPACE/Service-Init"
           python3 - <<'PY'
-          import hashlib, json, subprocess, sys
+          import json, os, sys
+          sys.path.insert(0, os.path.join(os.environ['GITHUB_WORKSPACE'], 'Service-Init'))
           from Deployment.system_operations import operation_request, validate_request, validate_receipt, BACKENDS
           from Deployment.supervisor_contract import capabilities
           import shadow6_init
@@ -45,15 +68,18 @@ jobs:
                   'observedAt':1010,'readiness':'unavailable'}
               assert validate_receipt(receipt, request, now=1010) == receipt
               assert capabilities(backend)['systemOperationSchema'] == 'shadow6.system-operation.v1'
-          for system in shadow6_init.INIT_SYSTEMS:
+          for system in sorted(shadow6_init.INIT_SYSTEMS):
               definition = shadow6_init.generate_init_script(system, 'shadow6-ci', '/opt/shadow6-runner', '/var/lib/shadow6/plan.json', fd_ceiling=1024)
-              assert definition and ('shadow6-ci' in definition)
+              assert definition and '/opt/shadow6-runner' in definition and '/var/lib/shadow6/plan.json' in definition, system
           print(json.dumps({'schema':'shadow6.ci.system-operation-contract.v1','backends':sorted(BACKENDS),
                             'initSystems':sorted(shadow6_init.INIT_SYSTEMS)}))
           PY
       - name: Run focused contract regression tests
         shell: bash
-        run: python3 -m unittest Service-Init.test_system_operations Service-Init.test_shadow6_init
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s Service-Init -p 'test_system_operations.py'
+          python3 -m unittest discover -s Service-Init -p 'test_shadow6_init.py'
 
   privacy-envelope-contract:
     name: OCaml external privacy envelope contract

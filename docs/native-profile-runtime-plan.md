@@ -1,6 +1,6 @@
 # Native Profile and Named Service completion ledger
 
-Updated 2026-10-04. This is the current status ledger; earlier progress notes
+Updated 2026-10-05. This is the current status ledger; earlier progress notes
 and repeated next-step lists were removed. Completed items are struck through
 as requested. A source implementation or local test does not imply platform
 parity or a passing post-change CI run.
@@ -33,17 +33,22 @@ parity or a passing post-change CI run.
 - ~~The Windows iperf3 matrix retries bounded transient loopback bind/startup
   failures, records each attempt, and emits its report even when the pressure
   step fails.~~
+- ~~The Nim/WebRTC Named Service owns a bounded S6SG1 signaling broker with
+  owner-only socket access and offer/poll/answer state cleanup.~~
+- ~~Existing artifacts have a no-compile installation path with admission
+  checks and no automatic service activation.~~
+- ~~Guix System definition evaluation is wired into CI using Guix modules.~~
 
-## Still active
+## Remaining validation and platform boundaries
 
 | Area | Current state | Completion evidence |
 | --- | --- | --- |
 | Full Profile runtime gate | Thirteen Linux Named Profile lifecycles are exercised against existing Linux Actions artifacts; current-source local artifact run is recorded in the dated review. | Fresh CI for the committed source, including Linux x86_64 and ARM64. Missing optional libraries or binaries must be reported as unavailable, not silently skipped. |
-| WebRTC signaling | Named Service owns a bounded owner-only S6SG1 broker for the explicitly bound Nim/WebRTC Profile. It creates and removes the socket with the supervised runtime, enforces peer identity, bounded SDP/session state, and offer/poll/answer cleanup. | Full native ICE/DTLS/DataChannel validation remains a GitHub Actions responsibility because the native WebRTC toolchain is optional locally. |
+| WebRTC native carrier | Named Service owns the bounded S6SG1 broker for the explicitly bound Nim/WebRTC Profile. | Full native ICE/DTLS/DataChannel validation remains a GitHub Actions responsibility because the native WebRTC toolchain is optional locally. |
 | Portable lifecycle | Typed system-operation abstractions exist for non-Linux targets. Linux remains the only platform with the pidfd-based Named Service process supervisor. | Add native lifecycle backends only where the platform contract can be implemented and tested; until then surface capability diagnostics and operator-controlled fixed actions. |
 | Android | Android shows the shared Profile ID and transport, uses its existing Core client proxy, and exposes optional authenticated S6NA VPN traffic observations. Its VPN carrier remains a single-peer IP tunnel. The APK does not embed the Python Named Service registry, S6EPE runtime, or S6SG1 signaling broker. | Verify the updated APK in Android CI. Any future Android Named Service support must consume an explicit portable contract rather than claiming Linux supervisor parity. |
 | Platform UX | The read-only Control Center web UI is available on hosts that run its local service. Android has adaptive phone/tablet navigation and accessible live state. | Review fresh CI/build results and keep platform-specific unavailable states visible; no UI may imply runtime or peer reachability from a process bit alone. |
-| Release evidence | Source changes and local evidence are prepared for commit and packaging. New Actions results are pending the push. | Record exact post-push jobs, warnings, audits, and archive inspection in the dated review and Chinese project history. |
+| Release evidence | Source changes and local evidence are prepared for commit. New Actions results are pending the push. | Record exact post-push jobs and warnings; archive inspection requires the release build outside this lightweight pass. |
 
 ## Limits and security boundaries
 

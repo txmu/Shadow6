@@ -588,8 +588,8 @@ Privacy Envelope 更新了配置、会话、防重放存储、Sodium FFI 与相�
 按已锁定服务自动选择 S6NA 透明应用垫片；同一 S6NA UDP 端点可承载多个有界应用流，
 应用仍可明确调用 `connect_native` 直连 Core。S6EPE/Nim-WebRTC 入口返回锁定的
 S6SG1 私有信令端点，Python 客户端反射器提供 offer/poll/answer 操作。当前 runner
-没有创建信令 broker，WebRTC 成对协商仍需操作员提供兼容 broker；不把端点暴露误写成
-完整服务端或全链路配对。
+随后已托管有界、仅属主可访问的 S6SG1 broker，并在服务结束时清理 socket 和会话；
+原生 ICE/DTLS/DataChannel 配对仍需在具备 WebRTC 工具链的 CI 环境验证。
 
 Named Service 登记容量取消旧 128 项上限，改按主机内存、FD 预算、64 MiB 注册表大小
 与 131,072 条保守绝对边界计算。非 Linux 增加固定操作类型、锁摘要和短时效回执合同，
@@ -624,3 +624,26 @@ observation 校验解析结果。host budget 变化会要求显式 relock，不�
 服务。Gate、S6EPE、Detector、Control Center 等外围组件尚未全部改为消费此结果，
 因此这是部分实现记录，不代表完整跨组件验收。测试和剩余限制见
 `docs/limits-history.zh-CN.md`。
+
+## 2026-10-05：#398 至 #400 的 CI 回归与轻量修复
+
+#398 Actions run `37238710525` 成功；后续 #399 (`033573f`) 与 #400
+(`37d31ae`) 引入的回归使 #400 run `37249221989` 出现 9 个失败作业。
+运行时观测新增五组重复限额字段，但严格解析器拒绝未知字段，造成多个 Core Profile、
+Deployment、OCaml 与 ARM64 生命周期失败；修复删除重复字段，保留有效限额、解析摘要
+和实际执行证据。跨平台合同修正 Python 导入和 unittest discovery，init 路径改按
+目标系统校验，修复 Windows 宿主对 POSIX 目标路径的误判。
+
+此前记录中的“runner 没有 broker”已过时：当前 Named Service 托管有界、仅属主可访问的
+S6SG1 broker，结束时清理 socket 和会话；原生 ICE/DTLS/DataChannel 仍由 CI 验证。
+新增 Guix System CI 作业，用 Guix 模块加载生成的 Shepherd service，不执行主机
+reconfigure，也不声称覆盖 Guix 虚拟机启动。现成产物可用 `shadow6 install` 或
+`make install-prebuilt` 免编译安装，不自动激活服务。
+
+本轮遵循轻量验证要求，不重新编译 Core、Android 或 OCaml，不生成发布包。
+Guix/Guile 本机不可用，真实 Scheme 求值由新增 CI 作业执行；待取得新 CI 结果后，
+方可把相应平台验证项标为完成。
+
+Ruby 的标准库 Psych 用于 CI 工作流 YAML 语法检查；Perl 的核心库 JSON::PP
+提供 Actions run JSON 失败作业清单。二者都是开发/CI 辅助工具，不进入 Core、
+运行时依赖或预编译安装流程。

@@ -8,9 +8,9 @@ signaling entry points, dynamic Named Service capacity, fixed system-operation
 adapters, read-only Control Center UX, Android Profile/traffic visibility,
 ARM64 Profile lifecycle CI, and bounded Windows iperf3 retries.
 
-The Linux WebRTC data path remains conditional on a separately operated S6SG1
-signaling broker. The service exposes the locked socket and client contract but
-does not host that broker. Windows/macOS expose typed operator actions but do
+The Named Service now owns the bounded S6SG1 signaling broker for explicit
+Nim/WebRTC bindings. Native ICE/DTLS/DataChannel validation still requires
+the optional native toolchain. Windows/macOS expose typed operator actions but do
 not claim Linux pidfd process-supervision parity. Android reports its four
 packaged Profile IDs and S6NA VPN observations; the APK does not embed the
 Python Named Service registry or S6EPE runtime.

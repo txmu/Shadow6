@@ -9,6 +9,27 @@ from shadow6_init import INIT_SYSTEMS, generate_init_script, rc_variable
 
 
 class InitTests(unittest.TestCase):
+    def test_all_target_definitions_keep_runner_and_config(self):
+        for system in sorted(INIT_SYSTEMS):
+            with self.subTest(system=system):
+                script = generate_init_script(system, 'shadow6-ci', '/opt/shadow6-runner',
+                                              '/var/lib/shadow6/plan.json', fd_ceiling=1024)
+                self.assertIn('/opt/shadow6-runner', script)
+                self.assertIn('/var/lib/shadow6/plan.json', script)
+
+    def test_paths_are_validated_for_target_platform(self):
+        import json
+        binary, config = r'C:\Shadow6\runner.exe', r'C:\Shadow6\plan.json'
+        definition = json.loads(generate_init_script('windows-service', 's6', binary, config))
+        self.assertEqual(definition['binary'], binary)
+        self.assertEqual(definition['config'], config)
+        for system in INIT_SYSTEMS:
+            for path in ('relative/runner', r'C:relative\runner'):
+                with self.subTest(system=system, path=path), self.assertRaises(ValueError):
+                    generate_init_script(system, 's6', path, '/etc/config')
+        with self.assertRaises(ValueError):
+            generate_init_script('systemd', 's6', binary, config)
+
     def test_supervisor_capabilities_report_observed_availability(self):
         from Deployment.supervisor_contract import capabilities
         strong = capabilities("strong")
@@ -51,7 +72,13 @@ class InitTests(unittest.TestCase):
             assignment = next(line for line in script.splitlines() if line.startswith("command_args="))
             value = shlex.split(assignment.split("=", 1)[1])[0]
             self.assertEqual(shlex.split(value)[-2:], ["--config", path])
-            subprocess.run(["/bin/sh", "-n"], input=script, text=True, check=True, timeout=5)
+
+    @unittest.skipUnless(Path('/bin/sh').is_file(), 'POSIX shell syntax check requires /bin/sh')
+    def test_rc_shell_syntax(self):
+        for system in ('openrc', 'rc.d'):
+            script = generate_init_script(system, 'shadow6-test.node', '/opt/a b/core',
+                                          '/etc/a b config.json')
+            subprocess.run(['/bin/sh', '-n'], input=script, text=True, check=True, timeout=5)
 
     def test_systemd_expansion_is_context_specific(self):
         script = generate_init_script("systemd", "s6", "/opt/${BIN}%i", "/etc/${CONF}%n")
