@@ -26,7 +26,7 @@ class ControlCenterTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix='shadow6-control-services-') as directory:
             path = Path(directory) / 'services.json'
             registry = ServiceRegistry(path, CoreCatalog(control.ROOT))
-            registry.create('home/nas', core=None, config=None)
+            registry.create('home/nas', core='go', config={'config_path': str(Path(directory) / 'go.json')})
             with mock.patch.dict('os.environ', {'SHADOW6_SERVICE_REGISTRY': str(path)}):
                 result = response({'method': 'service.status', 'params': {'name': 'home/nas'}}, allow_mutations=False)
                 self.assertTrue(result['ok'], result)
@@ -34,7 +34,9 @@ class ControlCenterTests(unittest.TestCase):
                 self.assertEqual(dispatch('service.list')['services'], registry.list())
                 doctor = dispatch('service.doctor', {'name': 'home/nas'})
                 self.assertFalse(doctor['healthy'])
-                self.assertIn('ProfileBindingMissingOrDrifted', doctor['findings'])
+                self.assertEqual(doctor['core'], 'go')
+                self.assertEqual(doctor['profileBinding'], registry.inspect('home/nas')['profileBinding'])
+                self.assertIn('DeploymentLockMissingOrDrifted', doctor['findings'])
                 rejected = response({'method': 'service.status', 'params': {'name': 'home/nas', 'pid': 123}}, allow_mutations=False)
                 self.assertFalse(rejected['ok'])
         for method in ('core.profiles', 'service.list', 'service.status', 'service.doctor', 'service.connect'):
@@ -458,7 +460,7 @@ class ControlHTTPTests(unittest.IsolatedAsyncioTestCase):
         with tempfile.TemporaryDirectory(prefix='shadow6-http-services-') as directory:
             path = Path(directory) / 'services.json'
             registry = ServiceRegistry(path, CoreCatalog(control.ROOT))
-            registry.create('home/nas', core=None, config=None)
+            registry.create('home/nas', core='go', config={'config_path': str(Path(directory) / 'go.json')})
             with mock.patch.dict('os.environ', {'SHADOW6_SERVICE_REGISTRY':str(path)}):
                 async with self.client.get(self.url+'/v1/services', headers=auth) as reply:
                     self.assertEqual(reply.status, 200)
