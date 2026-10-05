@@ -457,6 +457,7 @@ def supervise(plan_path, ack):
     import tempfile
     children = []
     attachment = None
+    signalling_broker = None
     application_completed = False
     stopping = False
     def request_stop(*_):
@@ -504,6 +505,12 @@ def supervise(plan_path, ack):
             if plan.get('envelopeConfig'):
                 envelope_fields=parse_envelope(private_read(plan['envelopeConfig']))
                 validate_envelope(envelope_fields)
+                if envelope_fields.get('carrier') == 'webrtc':
+                    try:
+                        from .webrtc_broker import SignallingBroker
+                    except ImportError:
+                        from webrtc_broker import SignallingBroker
+                    signalling_broker = SignallingBroker(envelope_fields['signal_path'], envelope_fields['signal_id'], max_sessions=int(envelope_fields.get('max_sessions','32'))).start()
                 commands.append([executable(plan['envelopeBinary']), '--config', plan['envelopeConfig']])
             gate_value = strict_json(private_read(plan['gateConfig'])) if plan.get('gateConfig') else None
             for component in ('gate','guard'):
@@ -591,6 +598,11 @@ def supervise(plan_path, ack):
                         webtransport='pending'
                 result = {'limitResolutionDigest': __import__('limits').LimitResolution(resolution).digest,
                           'effectiveLimits':resolution['effective_limits'],
+                          'hard_protocol_limits': {k: v['hard_protocol_limit'] for k, v in resolution['dimensions'].items()},
+                          'safe_defaults': {k: v['safe_default'] for k, v in resolution['dimensions'].items()},
+                          'recommended_limits': {k: v['recommended'] for k, v in resolution['dimensions'].items()},
+                          'host_derived_limits': {k: v['host_derived_ceiling'] for k, v in resolution['dimensions'].items()},
+                          'operator_overrides': {k: v['operator_request'] for k, v in resolution['dimensions'].items() if v['operator_request'] is not None},
                           'limitsEnforcement':{'process_fds':{'actual':resource.getrlimit(resource.RLIMIT_NOFILE)[0], 'enforced':True}},
                           'observedAt':int(time.time()), 'pid':os.getpid(), 'processIdentity':identity(os.getpid()),
                           'processes':[{'pid':p.pid,'processIdentity':identity(p.pid)} for p in children],
@@ -682,6 +694,8 @@ def supervise(plan_path, ack):
             os.write(ack, b'ERROR:' + str(error).encode('utf-8')[:2048])
         raise
     finally:
+        if signalling_broker is not None:
+            signalling_broker.close()
         if ack >= 0:
             os.close(ack)
         for p in children:

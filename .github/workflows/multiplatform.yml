@@ -12,6 +12,47 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ startsWith(github.ref, 'refs/heads/') || startsWith(github.ref, 'refs/pull/') }}
 jobs:
+  portable-system-operation-contract:
+    name: Typed Named Service operations (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-14, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - name: Verify every fixed backend request, definition and receipt contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PYTHONPATH="$GITHUB_WORKSPACE:$GITHUB_WORKSPACE/Crosed:$GITHUB_WORKSPACE/Service-Init"
+          python3 - <<'PY'
+          import hashlib, json, subprocess, sys
+          from Deployment.system_operations import operation_request, validate_request, validate_receipt, BACKENDS
+          from Deployment.supervisor_contract import capabilities
+          import shadow6_init
+          for backend in sorted(BACKENDS):
+              request = operation_request(backend=backend, operation='status', service='ci/profile',
+                  plan_path='/var/lib/shadow6/plan.json', lock_digest='sha256:'+'a'*64, now=1000, ttl=60)
+              assert validate_request(request, now=1010) == request
+              receipt = {'schema':'shadow6.system-operation-receipt.v1','requestId':request['requestId'],
+                  'operation':'status','lockDigest':request['lockDigest'],'result':'unavailable',
+                  'observedAt':1010,'readiness':'unavailable'}
+              assert validate_receipt(receipt, request, now=1010) == receipt
+              assert capabilities(backend)['systemOperationSchema'] == 'shadow6.system-operation.v1'
+          for system in shadow6_init.INIT_SYSTEMS:
+              definition = shadow6_init.generate_init_script(system, 'shadow6-ci', '/opt/shadow6-runner', '/var/lib/shadow6/plan.json', fd_ceiling=1024)
+              assert definition and ('shadow6-ci' in definition)
+          print(json.dumps({'schema':'shadow6.ci.system-operation-contract.v1','backends':sorted(BACKENDS),
+                            'initSystems':sorted(shadow6_init.INIT_SYSTEMS)}))
+          PY
+      - name: Run focused contract regression tests
+        shell: bash
+        run: python3 -m unittest Service-Init.test_system_operations Service-Init.test_shadow6_init
+
   privacy-envelope-contract:
     name: OCaml external privacy envelope contract
     runs-on: ubuntu-24.04
@@ -972,6 +1013,21 @@ jobs:
           make test-nim
           make test-d
           make test-hare
+      - name: Validate all 13 Native Profile contracts against built artifacts
+        run: |
+          set -euo pipefail
+          export PYTHONPATH="$GITHUB_WORKSPACE:$GITHUB_WORKSPACE/Crosed"
+          python3 Tools/validate_native_profiles.py --artifact-root "$GITHUB_WORKSPACE" > "$RUNNER_TEMP/native-profile-validation.json"
+          python3 - <<'PY'
+          import json, os
+          value=json.load(open(os.path.join(os.environ['RUNNER_TEMP'],'native-profile-validation.json')))
+          assert value['count'] == 13 and value['contractsPassed'] == 13
+          assert value['artifactsAvailable'] >= 11
+          PY
+      - name: Exercise all 13 Named Service lifecycle profiles
+        run: |
+          set -euo pipefail
+          .venv/bin/python integration/test_named_profiles.py -v
       - name: Verify native dependencies and hardening
         run: |
           check_elf() {

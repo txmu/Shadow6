@@ -4,7 +4,8 @@ import shutil
 import sys
 
 NATIVE = {'systemd':'systemctl','openrc':'rc-service','runit':'sv',
-          'sysv':'service','procd':'ubus','rc.d':'service','launchd':'launchctl','guix':'herd'}
+          'sysv':'service','procd':'ubus','rc.d':'service','launchd':'launchctl','guix':'herd',
+          'windows-service':'sc.exe','smf':'svcadm'}
 SYSTEM_OPERATIONS = ['install-definition','activate','deactivate','restart',
                     'status','remove-definition','logs']
 
@@ -42,7 +43,7 @@ def capabilities(backend='strong'):
             'runtimeObservation':native_observation,
             'readyEvent':'required','processAliveImpliesReady':False,
             'driftRevalidation':'available','bootIntegration':'partial' if manager else 'unavailable',
-            'nativeLogging':'partial' if backend in {'systemd','procd','launchd','guix'} else 'unavailable',
+            'nativeLogging':'partial' if backend in {'systemd','procd','launchd','guix','smf'} else 'unavailable',
             'systemOperationInterface':'available',
             'systemOperationProvider':'optional-external',
             'systemOperationSchema':'shadow6.system-operation.v1',

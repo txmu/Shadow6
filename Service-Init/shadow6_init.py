@@ -15,8 +15,10 @@ INIT_ALIASES = {
     "freebsd": "rc.d", "rcd": "rc.d", "openwrt": "procd",
     "macos": "launchd", "darwin": "launchd", "guixsd": "guix",
     "guix-system": "guix",
+    "windows": "windows-service", "win32": "windows-service",
+    "illumos": "smf", "omnios": "smf", "solaris": "smf",
 }
-INIT_SYSTEMS = {"systemd", "openrc", "runit", "sysv", "rc.d", "procd", "launchd", "guix"}
+INIT_SYSTEMS = {"systemd", "openrc", "runit", "sysv", "rc.d", "procd", "launchd", "guix", "windows-service", "smf"}
 
 
 def normalize_init_system(system: str) -> str:
@@ -85,6 +87,26 @@ def generate_init_script(system: str, name: str, bin_path: str, conf_path: str, 
             '  <key>ProcessType</key><string>Background</string>\n  <key>Umask</key><integer>63</integer>\n'
             f'  <key>StandardOutPath</key><string>/var/log/{name}.log</string>\n  <key>StandardErrorPath</key><string>/var/log/{name}.err</string>\n</dict>\n</plist>\n'
         )
+    if system == "windows-service":
+        # Typed definition consumed by the host-owned SCM adapter; no shell or
+        # arbitrary command is embedded in the contract.
+        import json
+        return json.dumps({"schema":"shadow6.windows-service-definition.v1",
+            "serviceName":name,"binary":bin_path,"config":conf_path,
+            "restart":"on-failure","fdCeiling":nofile,"owner":"shadow6"}, sort_keys=True) + "\n"
+    if system == "smf":
+        xml_name = xml_escape(name)
+        xml_bin = xml_escape(bin_path, {'"': '&quot;', "'": '&apos;'})
+        xml_conf = xml_escape(conf_path, {'"': '&quot;', "'": '&apos;'})
+        return (f'<?xml version="1.0"?>\n<!DOCTYPE service_bundle SYSTEM "/usr/share/lib/xml/dtd/service_bundle.dtd.1">\n'
+            f'<service_bundle type="manifest" name="shadow6:{xml_name}">\n  <service name="site/shadow6/{xml_name}" type="service" version="1">\n'
+            f'    <create_default_instance enabled="false"/>\n    <single_instance/>\n    <dependency name="network" grouping="require_all" restart_on="restart" type="service">\n'
+            '      <service_fmri value="svc:/milestone/network:default"/>\n    </dependency>\n'
+            '    <exec_method type="method" name="start" exec="' + xml_bin + ' --config ' + xml_conf + '" timeout_seconds="30"/>\n'
+            '    <exec_method type="method" name="stop" exec=":kill" timeout_seconds="30"/>\n'
+            f'    <property_group name="startd" type="framework"><propval name="duration" type="astring" value="transient"/></property_group>\n'
+            f'    <property_group name="method_context" type="method"><method_credential user="shadow6"/></property_group>\n'
+            '  </service>\n</service_bundle>\n')
     return (
         ";; Add shadow6-service to the services field of your operating-system.\n"
         "(use-modules (gnu services) (gnu services shepherd))\n\n(define shadow6-service\n  (shepherd-service\n"

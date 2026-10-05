@@ -15,13 +15,14 @@ SCHEMA = "shadow6.system-operation.v1"
 RECEIPT_SCHEMA = "shadow6.system-operation-receipt.v1"
 OPERATIONS = frozenset({"install-definition", "activate", "deactivate",
                         "restart", "status", "remove-definition", "logs"})
+BACKENDS = frozenset({"systemd", "openrc", "runit", "sysv", "rc.d", "procd", "launchd", "guix", "windows-service", "smf"})
 MAX_TTL = 300
 
 
 def operation_request(*, backend, operation, service, plan_path, lock_digest,
                       definition_digest=None, now=None, ttl=60):
     if not isinstance(backend, str) or backend not in {
-            "systemd", "openrc", "runit", "sysv", "rc.d", "procd", "launchd", "guix"}:
+            *BACKENDS}:
         raise ValueError("invalid system operation backend")
     if not isinstance(operation, str) or operation not in OPERATIONS:
         raise ValueError("unsupported system operation")
@@ -60,7 +61,7 @@ def validate_request(value, *, now=None):
     if not isinstance(value["requestId"], str) or re.fullmatch(r"[0-9a-f]{32}", value["requestId"]) is None:
         raise ValueError("invalid system operation request id")
     if not isinstance(value["backend"], str) or value["backend"] not in {
-            "systemd", "openrc", "runit", "sysv", "rc.d", "procd", "launchd", "guix"}:
+            *BACKENDS}:
         raise ValueError("invalid system operation backend")
     if not isinstance(value["operation"], str) or value["operation"] not in OPERATIONS:
         raise ValueError("unsupported system operation")
