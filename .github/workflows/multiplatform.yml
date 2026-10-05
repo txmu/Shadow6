@@ -1045,7 +1045,7 @@ jobs:
         run: |
           set -euo pipefail
           export PYTHONPATH="$GITHUB_WORKSPACE:$GITHUB_WORKSPACE/Crosed"
-          python3 Tools/validate_native_profiles.py --artifact-root "$GITHUB_WORKSPACE" > "$RUNNER_TEMP/native-profile-validation.json"
+          .venv/bin/python Tools/validate_native_profiles.py --artifact-root "$GITHUB_WORKSPACE" > "$RUNNER_TEMP/native-profile-validation.json"
           python3 - <<'PY'
           import json, os
           value=json.load(open(os.path.join(os.environ['RUNNER_TEMP'],'native-profile-validation.json')))
