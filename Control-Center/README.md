@@ -11,7 +11,7 @@ configuration, missing files and sample ages outside 0..5 seconds report
 includes live `active_sessions`; cumulative authentication counters and the
 historical v5 schema cannot establish active-session readiness. See the
 [current envelope contract](../docs/privacy-envelope.md) for mandatory v3
-encryption, explicit Nim/WebRTC deployment and legacy compatibility-table limits.
+encryption, explicit Nim/WebRTC deployment and source compatibility mappings and installed/runtime admission limits.
 
 `shadow6-control` is the versioned one-stop CLI/API and tool server for feature configuration,
 init rendering, Core/topology/policy/plugin validation, signed plugin inventory,

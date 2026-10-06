@@ -22,6 +22,18 @@ a name never silently selects or migrates a protocol family.
 Gate 不会因安装或注册服务而升级权限。Named Service 目前使用 Linux pidfd 管理实际
 进程；其他平台继续使用各 Core 原生命令与 Service-Init。
 
+## Fast path
+
+Global installation is optional for an extracted prebuilt tar. From any cwd use
+`python3 /absolute/path/Shadow6/CLI/shadow6.py doctor --human` (or a compatible
+package `.venv/bin/python`). Select an available Core/Profile explicitly, prepare
+a private native configuration, then combine preparation and startup with
+`setup NAME --core CORE --profile PROFILE --native-config NATIVE --run`. The
+advanced binding-file path below remains available through `--config BINDING`.
+Use `status NAME`, `doctor NAME`, and `connect NAME`; add `--human` for summaries.
+Environment doctor requires no registry initialization. Installed Profile
+availability is distinct from observed application/session readiness.
+
 ## Install existing artifacts
 
 From a source checkout, use `.venv/bin/python CLI/shadow6.py` instead of
@@ -42,7 +54,9 @@ binary-containing tar is the no-compile distribution input. Inspect the
 available artifacts with `install --json` before installing.
 
 Choose a writable prefix. `--prefix` and `--destdir` accept absolute ASCII paths
-containing letters, digits, slash, dot, underscore and hyphen. `make install`
+containing letters, digits, slash, dot, underscore and hyphen. Add `--json` to an
+installation operation for a structured result on stdout and installer logs on
+stderr; `--human` adds the installed CLI doctor command. `make install`
 retains the build-then-install workflow; `install-prebuilt` fails when a selected
 required artifact is missing. Select the intended components with `BUILD_*`.
 It neither starts Gate nor changes host service/firewall configuration.
@@ -89,13 +103,16 @@ starting it; `setup --run` explicitly also starts it. `setup --check` checks the
 selected Profile and binding without writing the registry or starting a process;
 it does not prove network reachability. `setup` reads
 `~/.config/shadow6/binding.json` by default; `--config` overrides that path.
-It never creates native Core configuration or credentials. `run` requires an existing
+It never creates native Core configuration or credentials. `--native-config PATH`
+uses an existing private native configuration directly and forms the same
+CoreBinding in memory, avoiding a second file. It is mutually exclusive with
+`--config BINDING`. A relative `config_path` in the binding file resolves relative to that file, not the current working directory. `run` requires an existing
 DeploymentLock and never chooses or repairs a Profile.
 `service configure NAME --core CORE --profile PROFILE --config BINDING` requires
 the service to be stopped. A previously locked service receives replacement
 material validation before its old binding/lock is invalidated; failed admission
 keeps the original approved record. Reconfiguration then needs explicit
-`lock`/`apply` followed by `run`. Repeating an identical
+`lock`/`apply` followed by `run`. `relock NAME` is the explicit top-level alias for `lock NAME`; it requires a stopped service and does not automatically apply or start it. Repeating an identical
 `setup` or `run` reuses a living process. A different binding or privacy policy
 requires explicit reconfiguration. Native configuration contents, binary bytes,
 ProfileBinding contract digest, S6P1 logical context, privacy mode and peripheral

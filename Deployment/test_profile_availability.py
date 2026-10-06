@@ -53,6 +53,17 @@ class ProfileAvailabilityTests(unittest.TestCase):
         self.assertEqual(bounded_probe.call_count, 12)
         self.assertEqual(result['availableProfiles'], ['gleam-secure-stream', 'gleam-micro-mux'])
 
+    def test_sctp_and_webrtc_prerequisite_diagnostics_are_explicit(self):
+        with patch('Deployment.profile_availability.socket.socket',side_effect=OSError('SCTP unavailable')):
+            result=inspect_profile(self.catalog,'cpp','cpp-sctp-tls13',report=self.report('cpp'))
+        self.assertFalse(result['available'])
+        self.assertEqual(result['diagnostics'][0]['code'],'KernelSCTPUnavailable')
+        self.assertIn('operator',result['diagnostics'][0]['action'])
+        with patch('Deployment.service_runtime.feature_report',side_effect=ValueError('libdatachannel unavailable')):
+            result=inspect_profile(self.catalog,'nim','nim-webrtc')
+        self.assertFalse(result['available'])
+        self.assertIn('libdatachannel',result['diagnostics'][0]['action'])
+
     def test_supervisor_degradation_is_explicit_and_unavailable(self):
         with patch('Deployment.profile_availability.sys.platform', 'darwin'):
             result = inspect_profile(self.catalog, 'go', report=self.report('go'))

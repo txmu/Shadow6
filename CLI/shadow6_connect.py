@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""One-click Public6 connection tool for all twelve Shadow6 Cores."""
+"""Explicit Named Service and Public6 connection plans and bounded attachment."""
 import argparse, json, sys
 from pathlib import Path
 
@@ -8,21 +8,24 @@ if not (ROOT / "Public6").is_dir():
     ROOT = ROOT / "share/shadow6/tree"
 sys.path.insert(0, str(ROOT / "Tools"))
 from python_runtime import bootstrap
-if __name__ == "__main__":
-    bootstrap(ROOT, Path(__file__).resolve())
 sys.path.insert(0, str(ROOT / "Public6"))
 sys.path.insert(0, str(ROOT / "Deployment"))
-from core_catalog import CoreCatalog
-from connection_plan import resolve_connection, open_local_session
-from protocol_context import minimal_context, core_allowed, admit
-from service_registry import ServiceRegistry
-from join_code import resolve, install_peer, unpack_invitation, resolve_protocol_envelope
+try:
+    from core_catalog import CoreCatalog
+    from connection_plan import resolve_connection, open_local_session
+    from protocol_context import minimal_context, core_allowed, admit
+    from service_registry import ServiceRegistry
+    from join_code import resolve, install_peer, unpack_invitation, resolve_protocol_envelope
 
-from core_catalog import CORE_IDS
-CORE_NAMES = CORE_IDS
+    from core_catalog import CORE_IDS
+    CORE_NAMES = CORE_IDS
 
-from native_key import generate_native_key
-from native_config import secure_read, load as load_native, prepare, native_binary, write_new
+    from native_key import generate_native_key
+    from native_config import secure_read, load as load_native, prepare, native_binary, write_new
+except ImportError as error:
+    IMPORT_ERROR = str(error)
+else:
+    IMPORT_ERROR = None
 
 def connect(code: str, core: str, role: str, output_dir: Path, carrier: str,
             gate_port: int, peer_port: int, interactive: bool, directory: str = None, profile: Path = None, pin: str = None, check: bool = False, context: dict = None, adapter: str = "native-single"):
@@ -35,7 +38,7 @@ def connect(code: str, core: str, role: str, output_dir: Path, carrier: str,
         raise ValueError(f"role must be client or agent, got {role}")
     if carrier not in ("gate", "s6na"):
         raise ValueError(f"carrier must be gate or s6na, got {carrier}")
-    
+
     if interactive:
         print(f"Connecting {core} {role} to Public6")
         print(f"Carrier: {carrier}")
@@ -43,7 +46,7 @@ def connect(code: str, core: str, role: str, output_dir: Path, carrier: str,
         if confirm and confirm != "y":
             print("Aborted")
             return
-    
+
     if carrier == "s6na":
         raise ValueError("Connect Virtual Peer currently supports Gate only; use shadow6 network for S6NA configuration")
     if context is None:
@@ -145,12 +148,14 @@ def record_session(plan):
             selector.close(); os.set_blocking(output_fd, blocking)
 
 def main():
-    p = argparse.ArgumentParser(description="Resolve Named Service or S6P1/invitation to one connection plan; provision Public6 when offered")
+    p = argparse.ArgumentParser(prog="shadow6 connect", description="Inspect an observed Named Service application connection, or provision an explicitly selected Public6 Core.", epilog="Examples: shadow6 connect home/nas --human; shadow6 connect home/nas --stdio (stream); shadow6 connect home/nas --records (message). A connection plan alone does not forward application data.")
     p.add_argument("code", nargs="?", help="namespace/name service or 40-char Public6 join code")
     p.add_argument("--core", help="explicit Core Catalog identity")
     p.add_argument("--stdio",action="store_true",help="attach an observed local application stream to stdin/stdout, bounded to 300s/16MiB")
     p.add_argument("--records",action="store_true",help="attach a message boundary using explicit uint32-length record stdio")
-    p.add_argument("--json", action="store_true", help="structured connection plan")
+    output = p.add_mutually_exclusive_group()
+    output.add_argument("--json", action="store_true", help="structured connection plan (default)")
+    output.add_argument("--human", action="store_true", help="readable Named Service connection plan")
     p.add_argument("--adapter", choices=("native-single","gate","broker-set-selector"), default=None)
     p.add_argument("--role", choices=["client", "agent"])
     p.add_argument("--output", type=Path, default=Path.cwd() / "shadow6-public")
@@ -170,9 +175,22 @@ def main():
     p.add_argument("--list-routes", action="store_true", help="resolve invitation and show offered core transports without provisioning")
     p.add_argument("--native-config", type=Path, help="validate and emit a bounded native configuration alongside Virtual Peer files")
     args = p.parse_args()
+    def fail(error):
+        hint = "Run shadow6 doctor --human; for a Named Service run shadow6 status NAME and shadow6 doctor NAME before retrying connect."
+        if 'CoreSelectionRequired' in str(error):
+            hint = "Choose --core explicitly; inspect shadow6 core profiles --installed or connect --list-routes for Public6 offers."
+        if args.json:
+            p.exit(2, json.dumps({"schema":"shadow6.lifecycle-error.v1","stage":"connect","error":str(error),"hint":hint},sort_keys=True)+"\n")
+        p.exit(2, f"error: {error}\nNext: {hint}\n")
+    if IMPORT_ERROR:
+        if __name__ == "__main__":
+            try: bootstrap(ROOT, Path(__file__).resolve())
+            except RuntimeError: pass
+        fail("Python runtime dependency unavailable: "+IMPORT_ERROR+"; use the package compatible Python environment")
     envelope = None
     try:
         import re
+        if args.human and (args.stdio or args.records): raise ValueError("choose --human for a plan or --stdio/--records for data attachment")
         if args.code and re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]{0,63}/[A-Za-z0-9][A-Za-z0-9._-]{0,63}', args.code):
             if any((args.invitation,args.protocol_envelope,args.protocol_file,args.code_file,args.profile)):
                 raise ValueError('choose one connection resolve source')
@@ -184,7 +202,18 @@ def main():
             if args.stdio:
                 if result.get("applicationBoundary") != "stream": raise ValueError("UnsupportedApplicationBoundary: use --records for message attachment")
                 stream_session(result); return
-            print(json.dumps(result,sort_keys=True)); return
+            if args.human:
+                profile=(result.get('profileBinding') or {}).get('profile','unknown')
+                print(f"Named Service: {args.code}\nCore: {result.get('core')}\nProfile: {profile}\nState: {result.get('state')}\nReadiness: {result.get('readiness')}\nApplication boundary: {result.get('applicationBoundary')}")
+                print("Endpoint: "+json.dumps(result.get('endpoint'),sort_keys=True))
+                print("Observed connection plan; no application data attached.")
+                boundary=result.get('applicationBoundary')
+                if result.get('readiness') == 'application-ready' and boundary in {'stream','message'}:
+                    print(f"Next: shadow6 connect {args.code} "+("--stdio" if boundary == 'stream' else "--records"))
+                else: print(f"Next: shadow6 doctor {args.code}; inspect the declared application boundary and authenticated readiness.")
+            else: print(json.dumps(result,sort_keys=True))
+            return
+        if args.human: raise ValueError("--human requires a Named Service; Public6 provisioning retains its existing output")
         if args.records: raise ValueError("--records requires a running named service")
         if args.stdio: raise ValueError("--stdio requires a running named service with observed application readiness")
         if args.protocol_envelope and args.protocol_file:
@@ -229,8 +258,8 @@ def main():
         if args.generate_key_only and (args.check or native):
             raise ValueError("key-only cannot be combined with --check or --native-config")
     except (ValueError, OSError) as error:
-        p.exit(2, f"error: {error}\n")
-    
+        fail(error)
+
     if args.generate_key_only:
         if args.core not in ("carp", "idris"):
             p.error("--generate-key-only requires --core carp or idris")
@@ -238,10 +267,10 @@ def main():
         try:
             generate_native_key(args.core, args.role, args.code, key_out)
         except (ValueError, OSError) as error:
-            p.exit(2, f"error: {error}\n")
+            fail(error)
         print(f"Generated: {key_out}")
         return
-    
+
     try:
         connected = connect(args.code, args.core, args.role, args.output, args.carrier,
                 args.gate_port, args.peer_port, args.interactive, args.directory, args.profile, args.pin, args.check, envelope, args.adapter)
@@ -252,7 +281,7 @@ def main():
             write_new(destination / 'argv.json', json.dumps(argv).encode())
             print(f"Native files and fixed argv: {destination}")
     except (ValueError, OSError) as error:
-        p.exit(2, f"error: {error}\n")
+        fail(error)
 
 if __name__ == "__main__":
     main()

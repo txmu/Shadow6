@@ -33,7 +33,7 @@
         <label for="token" data-i18n="tokenLabel">Local bearer token</label>
         <div class="auth-row">
           <input id="token" name="token" type="password" autocomplete="off" spellcheck="false" maxlength="4096" required>
-          <button class="primary-button" type="submit" data-i18n="connect">Connect</button>
+          <button class="primary-button" type="submit" data-i18n="connect">View local status</button>
         </div>
         <p class="hint" data-i18n="tokenHint">The token stays in memory and is sent only to this loopback API.</p>
       </form>
@@ -45,7 +45,7 @@
     <section class="overview-grid" aria-label="System status">
       <article class="panel status-panel">
         <div class="section-heading"><div><p class="eyebrow" data-i18n="overview">OVERVIEW</p><h2 data-i18n="hostStatus">Host status</h2></div><button id="refresh" class="quiet-button" type="button" data-i18n="refresh" disabled>Refresh</button></div>
-        <div id="status" class="status-content empty-state" data-i18n="connectToView">Connect to view current status.</div>
+        <div id="status" class="status-content empty-state" data-i18n="connectToView">View local status with your local bearer token.</div>
       </article>
       <article class="panel count-panel">
         <p class="eyebrow" data-i18n="serviceCount">NAMED SERVICES</p>
@@ -61,9 +61,10 @@
 
     <section class="panel" aria-labelledby="services-title">
       <div class="section-heading"><div><p class="eyebrow" data-i18n="operations">OPERATIONS</p><h2 id="services-title" data-i18n="namedServices">Named Services</h2></div><span id="page-caption" class="muted"></span></div>
+      <p class="hint" data-i18n="readinessHint">Inspect status and doctor before connect; review drift before relock.</p>
       <div class="table-scroll">
         <table><thead><tr><th data-i18n="name">Name</th><th data-i18n="core">Core</th><th data-i18n="profile">Profile</th><th data-i18n="state">Observed state</th><th data-i18n="endpoint">Endpoint</th></tr></thead>
-          <tbody id="services"><tr><td colspan="5" class="empty-state" data-i18n="servicesEmpty">Connect to load service status.</td></tr></tbody>
+          <tbody id="services"><tr><td colspan="5" class="empty-state" data-i18n="servicesEmpty">View local status to load Named Services.</td></tr></tbody>
         </table>
       </div>
       <nav class="pagination" aria-label="Named Service pages">
@@ -74,8 +75,8 @@
     </section>
 
     <section class="panel" aria-labelledby="profiles-title">
-      <div class="section-heading"><div><p class="eyebrow" data-i18n="capabilities">CAPABILITIES</p><h2 id="profiles-title" data-i18n="nativeProfiles">Native Profiles</h2></div><span class="muted" data-i18n="profileReadOnly">Read-only availability</span></div>
-      <div id="profiles" class="profile-grid"><p class="empty-state" data-i18n="profilesEmpty">Connect to inspect installed Profile prerequisites.</p></div>
+      <div class="section-heading"><div><p class="eyebrow" data-i18n="capabilities">CAPABILITIES</p><h2 id="profiles-title" data-i18n="nativeProfiles">Native Profiles</h2></div><span class="muted" data-i18n="profileReadOnly">Installed prerequisites · connection readiness is checked separately</span></div>
+      <div id="profiles" class="profile-grid"><p class="empty-state" data-i18n="profilesEmpty">View local status to inspect installed Profile prerequisites.</p></div>
     </section>
     <footer><span data-i18n="footer">Shadow6 Control Center · authenticated, loopback-only, read-only by default</span></footer>
   </main>

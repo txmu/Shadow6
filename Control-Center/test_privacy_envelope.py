@@ -105,8 +105,24 @@ class ObservationTests(unittest.TestCase):
                     path.write_text(json.dumps({**value,field:replacement}))
                     with self.assertRaises(ValueError):read_metrics(path)
 
-    def test_unsupported_or_unknown_core_does_not_claim_compatibility(self):
-        self.assertFalse(compatibility('nim')['supported'])
+    def test_legacy_envelope_is_reported_unavailable_without_relabeling_it(self):
+        from privacy_envelope import feature_availability
+        current={'schema':'shadow6.privacy-envelope.v1','wire_version':3,
+                 'payload_encryption':True,'mode':'encrypted-authenticated-envelope'}
+        self.assertTrue(feature_availability(current)['available'])
+        for report in ({**current,'wire_version':2},{**current,'payload_encryption':False},
+                       {**current,'wire_version':True},{**current,'mode':'authenticated-envelope'}):
+            result=feature_availability(report)
+            self.assertFalse(result['available'])
+            self.assertEqual(result['diagnostics'][0]['code'],'OutdatedEnvelopeContract')
+
+    def test_message_carriers_and_unknown_core(self):
+        for core, carrier in (('nim', 'webrtc'), ('cpp', 'sctp')):
+            result = compatibility(core)
+            self.assertTrue(result['supported'])
+            self.assertEqual(result['mode'], 'message')
+            self.assertEqual(result['carriers'], [carrier])
+            self.assertEqual(result['evidence'], 'source-contract-only')
         with self.assertRaises(ValueError): compatibility('unknown')
 
 if __name__ == "__main__": unittest.main()

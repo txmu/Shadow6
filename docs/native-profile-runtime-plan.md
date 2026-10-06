@@ -1,6 +1,6 @@
 # Native Profile and Named Service completion ledger
 
-Updated 2026-10-05. This is the current status ledger; earlier progress notes
+Updated 2026-10-06. This is the current status ledger; earlier progress notes
 and repeated next-step lists were removed. Completed items are struck through
 as requested. A source implementation or local test does not imply platform
 parity or a passing post-change CI run.
@@ -53,6 +53,18 @@ parity or a passing post-change CI run.
 | Android | Android shows the shared Profile ID and transport, uses its existing Core client proxy, and exposes optional authenticated S6NA VPN traffic observations. Its VPN carrier remains a single-peer IP tunnel. The APK does not embed the Python Named Service registry, S6EPE runtime, or S6SG1 signaling broker. | Verify the updated APK in Android CI. Any future Android Named Service support must consume an explicit portable contract rather than claiming Linux supervisor parity. |
 | Platform UX | The read-only Control Center web UI is available on hosts that run its local service. Android has adaptive phone/tablet navigation and accessible live state. | Review fresh CI/build results and keep platform-specific unavailable states visible; no UI may imply runtime or peer reachability from a process bit alone. |
 | Release evidence | Source changes and local evidence are prepared for commit. New Actions results are pending the push. | Record exact post-push jobs and warnings; archive inspection requires the release build outside this lightweight pass. |
+
+## Product handoff — 2026-10-06
+
+The first-run route is now `doctor` → explicit Core/Profile selection →
+`setup --run` → `status` / `doctor NAME` → `connect`. CLI and read-only dashboard
+help and recovery instructions share this vocabulary. Portable and staged
+installation regressions cover non-repository cwd, missing runtime dependencies,
+owner-controlled runtime materials and the same packaged native-config adapter.
+SCTP and WebRTC source compatibility metadata is synchronized; installed S6EPE
+feature probes explicitly reject legacy unencrypted v2 artifacts as unavailable.
+See [the dated product review](review-2026-10-06-product-ux.md) for exact scoped
+test counts, unavailable native providers and build/release limitations.
 
 ## Limits and security boundaries
 

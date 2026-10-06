@@ -94,10 +94,33 @@ creates that broker as part of its own lifecycle. No STUN/TURN servers are
 configured implicitly; reachable ICE candidates and explicitly matching
 negotiated DataChannel policies remain operator/client responsibilities.
 
-The legacy `shadow6 privacy-envelope compatibility` diagnostic still reports
-Nim/C++ as unsupported by its raw stream/datagram mapping. That output is not
-the current message-carrier deployment contract: use the executable feature
-report, explicit Profile binding and Deployment admission/runtime observations.
+`shadow6 privacy-envelope compatibility` reports source carrier mappings,
+including explicit Nim/WebRTC and C++/Linux SCTP message boundaries. It does not
+probe installed artifacts or establish runtime readiness. Use `shadow6 doctor`,
+the executable feature report, explicit Profile binding and Deployment admission
+and runtime observations for those checks. `feature-report` exits with status 1
+and `available: false` for missing or legacy unencrypted artifacts, preserving
+the actual reported fields and explaining the required prebuilt replacement.
+
+## Message Carrier operator checklist
+
+Both carriers use `mode=message`, explicit matching channel policy and the same
+independent encrypted S6EPE authentication. Diagnose without building:
+`shadow6 doctor --human`, `shadow6 privacy-envelope feature-report`, then
+`shadow6 doctor NAME --human` and `shadow6 privacy-envelope status --metrics PATH`.
+A source compatibility mapping or cumulative session counter is not readiness.
+
+| Operator check | SCTP Carrier | WebRTC Carrier |
+| --- | --- | --- |
+| Platform/runtime | Linux kernel SCTP; feature report must list `sctp` in message adapters | Linux libdatachannel; feature report must list `webrtc` in message adapters |
+| Configuration | `carrier=sctp`, established compatible native SCTP upstream, stream/PPID/PR policy | `carrier=webrtc`, explicit Nim/WebRTC Profile, server role, private `signal_path` and `signal_id`, DataChannel policy |
+| Pairing | Explicit compatible SCTP association at both ends | Named Service owns the bounded S6SG1 broker; standalone mode needs an explicit broker; ICE candidates must be reachable |
+| Observation | Fresh strict v4 SCTP telemetry plus owned native/public SCTP endpoints; listener presence alone is not peer authentication | Fresh strict v6 with active authenticated sessions plus an owned UDP socket |
+| Recovery | Review diagnostics and channel/endpoint configuration; stop before changing locked material, then relock/apply/run | Review diagnostics, signaling ownership, channel policy and ICE reachability; stop before changing locked material, then relock/apply/run |
+
+Carrier availability and application readiness remain distinct. Native message
+attachment uses `connect NAME --records` only when the connection plan admits a
+message application boundary; a Carrier is not itself an application endpoint.
 
 ## Native SCTP message carrier
 

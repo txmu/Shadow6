@@ -1,5 +1,49 @@
 # Shadow6
 
+## First Named Service without global installation
+
+Use a trusted **prebuilt tar** for your platform, verify its published digest,
+and extract it. The text-only ZIP cannot run Core binaries. Python 3.11+ and
+the selected Core's runtime libraries are needed; no compiler or global install
+is required. From any directory, invoke the extracted CLI by its absolute path:
+
+```sh
+python3 /absolute/path/Shadow6/CLI/shadow6.py doctor --human
+python3 /absolute/path/Shadow6/CLI/shadow6.py core profiles --installed
+```
+
+If the package has a compatible `.venv`, use its `bin/python` instead of
+`python3`. `doctor` reports available Core/Profile pairs and missing prerequisites;
+choose your Core explicitly. All peers on the native path use the same family.
+Prepare the selected Core's native configuration using its README as an
+owner-controlled regular file, mode `0600`. `setup --native-config` uses that
+file directly through the existing CoreBinding contract. The advanced
+`--config BINDING` path accepts a private binding JSON containing
+`{"config_path":"/absolute/path/core.json"}`; relative `config_path` resolves
+beside the binding file, independently of your working directory.
+
+```sh
+# Example only: explicitly choose Go/KCP if doctor reports it available.
+python3 /absolute/path/Shadow6/CLI/shadow6.py setup home/nas --core go --profile go-kcp --native-config /absolute/path/core.json --run --human
+python3 /absolute/path/Shadow6/CLI/shadow6.py status home/nas --human
+python3 /absolute/path/Shadow6/CLI/shadow6.py doctor home/nas --human
+python3 /absolute/path/Shadow6/CLI/shadow6.py connect home/nas --human
+```
+
+`setup --check` preflights without creating a service. `setup --run` prepares,
+locks, applies and explicitly starts it. `connect NAME` returns an observed
+connection plan; use `--stdio` for a stream or `--records` for a message boundary
+to attach data. A live process alone does not prove application readiness, and
+a broker still needs its configured peers. Named Service supervision currently
+requires Linux pidfd; other platforms report unavailable and retain native/init
+paths. JSON remains the default; lifecycle summaries accept `--human`.
+
+For a stopped service whose material changed, review `doctor NAME` before
+`relock NAME`, `apply NAME`, then `run NAME`. `stop`, `restart` and `remove` also
+have `--help`. Optional installation reuses `install --prefix /absolute/writable/prefix`;
+package-manager and build/install paths remain available. See the
+[full lifecycle guide](docs/named-services.md) for credentials and manual setup.
+
 For install/run, named services, real privacy telemetry and their current platform
 limits, start with [the lifecycle guide](docs/named-services.md). The optional
 [OCaml Privacy Envelope](docs/privacy-envelope.md) has a client/server E2E test

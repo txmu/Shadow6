@@ -165,10 +165,11 @@ def runtime_material_paths(root):
         'service_runtime','service_registry','runtime_observation','application_attachment',
         'credited_attachment','service_storage','profile_registry','protocol_context',
         'service_composition','broker_set')}
-    # The installed CLI adapter lives with the Python modules, not inside the
-    # installed Core artifact tree. Lock the implementation actually used by
-    # this invocation so an installed Named Service can be prepared there.
+    # Lock the one existing adapter in a checkout or the installed companion
+    # tree. The installed deployment module is a sibling of tree/, not CLI/.
     config_adapter = here.parent / 'CLI/native_config.py'
+    if not config_adapter.is_file():
+        config_adapter = Path(root) / 'CLI/native_config.py'
     if not config_adapter.is_file():
         config_adapter = here / 'native_config.py'
     files.update(native_config=str(config_adapter),
@@ -194,7 +195,7 @@ def runtime_material_digest(key, path):
     # Core and peripheral binaries.
     return executable_digest(path) if key == 'envelope_webrtc_provider' else source_material_digest(path)
 
-def feature_report(binary: str) -> dict:
+def feature_report(binary: str, *, require_core=True) -> dict:
     import selectors
     binary_path = Path(executable(binary))
     before = executable_digest(binary_path)
@@ -241,7 +242,7 @@ def feature_report(binary: str) -> dict:
     finally:
         process.stdout.close()
     value = strict_json(bytes(data))
-    if not isinstance(value, dict) or not isinstance(value.get("core"), str):
+    if not isinstance(value, dict) or (require_core and not isinstance(value.get("core"), str)):
         raise ValueError("invalid Core feature-report")
     if executable_digest(binary_path) != before:
         raise ValueError("feature-report binary changed during probe")

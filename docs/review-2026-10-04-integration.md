@@ -50,9 +50,20 @@ need the post-push Android CI job. The prior Actions baseline, run
 Android debug job; the only producer failure was the Windows-amd64 iperf3
 loopback pressure job. Those results predate this source update.
 
-## Post-push CI and package
+## Post-push CI and package (historical observation)
 
-Pending. Add the exact new Actions run, matrix jobs, audit totals, warnings,
-and Android/ARM64/Windows results here after completion. Generate and inspect
-the source-only `Shadow6.zip` only after the post-change release checks finish;
-record its path, size, and SHA-256 in this section and the Chinese history.
+Actions run `37235236319` at `fef48804` completed the Linux build, Crosed
+variants, `make test`, `make check`, offline audit, assistant checks, and staged
+installation. The audit reported 115 passed, 0 failed, 15 skipped. Twelve of
+thirteen real Named Service Profile lifecycles passed; Carp briefly returned a
+degraded health observation during `doctor`. Android APK, Windows-amd64 iperf3,
+Gleam x86_64/ARM64 and multiple BSD/QEMU jobs passed before the run was
+cancelled for the health retry fix.
+
+Commit `bce9e0cd` adds a bounded three-second retry for a live supervisor and a
+regression test. Full validation was submitted as [Actions run
+37238710525](https://github.com/txmu/Shadow6/actions/runs/37238710525). This records the earlier handoff, not a current observation of that
+run. Its final matrix, toolchain availability, audit counts, warnings and package
+results require a separate CI/release observation. The final source-only
+`Shadow6.zip` has not yet been generated; record its path, size and SHA-256
+here and in the Chinese project history after inspection.

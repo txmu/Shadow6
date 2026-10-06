@@ -91,7 +91,7 @@ Named Service WebRTC readiness. Cumulative `authenticated_sessions` alone does
 not. Observations are `current` for sample ages 0..5 seconds and `stale`
 otherwise; invalid schemas fail rather than inventing counters.
 
-The legacy CLI `privacy-envelope compatibility` table maps raw stream/datagram
-boundaries and still reports Nim/C++ unsupported. It does not describe the
-current explicit Nim/WebRTC message Profile or the Linux SCTP carrier; consult
-the feature report and Deployment admission for those contracts.
+The CLI `privacy-envelope compatibility` diagnostic includes raw stream/datagram
+and explicit Nim/WebRTC and C++/Linux SCTP message mappings. These are source
+contracts. `shadow6 doctor` probes installed availability; Deployment admission
+and fresh authenticated runtime observations establish deployment readiness.

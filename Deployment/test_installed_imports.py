@@ -24,6 +24,21 @@ class InstalledImports(unittest.TestCase):
             for args in (['abi','catalog'],['connect','--help'],['core','list'],['core','profiles'],['setup','--help'],['doctor','--help']):
                 result=subprocess.run([sys.executable,str(installed/'bin/shadow6'),*args],cwd=stage,env=env,capture_output=True,text=True,timeout=15)
                 self.assertEqual(result.returncode,0,result.stderr)
+            # No Core artifacts are selected above; environment doctor must
+            # diagnose that explicitly from the staged layout, without writes.
+            registry=stage/'first-run-services.json'
+            result=subprocess.run([sys.executable,str(installed/'bin/shadow6'),'doctor','--json'],
+                cwd=stage,env={**env,'SHADOW6_SERVICE_REGISTRY':str(registry)},capture_output=True,text=True,timeout=15)
+            self.assertEqual(result.returncode,1,result.stderr)
+            report=json.loads(result.stdout)
+            self.assertEqual(report['root'],str(installed/'share/shadow6/tree'))
+            self.assertEqual(report['availableProfiles'],[])
+            self.assertEqual(report['runtimeMaterialsMissing'],[])
+            self.assertFalse(registry.exists())
+            for action in ('connect','setup','relock'):
+                result=subprocess.run([sys.executable,'-S',str(installed/'bin/shadow6'),action,'--help'],
+                    cwd=stage,env=env,capture_output=True,text=True,timeout=15)
+                self.assertEqual(result.returncode,0,result.stderr)
             package=next(installed.glob('lib/python*/site-packages/Deployment')) if list(installed.glob('lib/python*/site-packages/Deployment')) else next(installed.glob('lib/python*/dist-packages/Deployment'))
             code='''import sys,json
 sys.path.insert(0,sys.argv[1])

@@ -71,10 +71,30 @@ def read_metrics(path=None):
     return {**value, 'observation': 'current' if 0 <= age <= 5 else 'stale'}
 
 
+def feature_availability(report):
+    """Separate current encrypted capabilities from presence of a legacy binary."""
+    current = (isinstance(report, dict) and report.get('schema') == 'shadow6.privacy-envelope.v1'
+               and type(report.get('wire_version')) is int and report['wire_version'] == 3
+               and report.get('payload_encryption') is True
+               and report.get('mode') == 'encrypted-authenticated-envelope')
+    diagnostics = [] if current else [{'code':'OutdatedEnvelopeContract',
+        'message':'The installed S6EPE artifact does not declare the current encrypted wire v3 contract.',
+        'action':'Supply a matching prebuilt S6EPE artifact and provider runtime; review and relock affected stopped services. Do not treat source SCTP/WebRTC support as installed capability.'}]
+    return {'available':current, 'diagnostics':diagnostics, 'evidence':'bounded-installed-feature-probe'}
+
+
 def compatibility(core):
+    """Source carrier mapping; installed admission and readiness are separate."""
     datagram = {'go', 'rust', 'zig', 'd', 'pony', 'hare', 'carp', 'idris'}
     stream = {'gleam', 'ada'}
     if core not in datagram | stream | {'nim', 'cpp'}:
         raise ValueError('unknown Core identity')
-    return {'core':core, 'supported':core not in {'nim', 'cpp'}, 'mode':'datagram' if core in datagram else 'stream' if core in stream else None,
-            'reason':'explicit matching local endpoint required; native interoperability and E2E remain Core-specific' if core not in {'nim', 'cpp'} else 'Native WebRTC/SCTP endpoint mapping requires a separate adapter; a TCP application boundary must be selected explicitly'}
+    mode = 'datagram' if core in datagram else 'stream' if core in stream else 'message'
+    carriers = ['raw'] if mode == 'datagram' else ['raw', 'tls'] if mode == 'stream' else ['webrtc'] if core == 'nim' else ['sctp']
+    return {'core': core, 'supported': True, 'mode': mode, 'carriers': carriers,
+            'evidence': 'source-contract-only',
+            'reason': ('Explicit Nim/WebRTC Profile and Named Service-owned S6SG1 broker required; '
+                       'fresh v6 active authenticated sessions and an owned UDP socket determine readiness.' if core == 'nim' else
+                       'Linux kernel SCTP and explicitly matching message endpoints required.' if core == 'cpp' else
+                       'Explicit matching local endpoint required; native interoperability and E2E remain Core-specific')
+                      + ' Probe installed availability with shadow6 doctor; source compatibility does not prove a working connection.'}

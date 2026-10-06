@@ -1,5 +1,11 @@
 # Shadow6 Control Center
 
+首次使用先运行 `shadow6 doctor --human`，明确选择 Core/Profile，再 `setup --run`。
+Web UI 的 Named Service 空状态给出这条路径；运行状态、应用 readiness 与锁的 drift
+必须分别判断。界面只读，修复通过 CLI 的显式 stop/relock/apply/run 完成。
+S6EPE compatibility 已包含 SCTP 与 Nim/WebRTC message Carrier 的源契约；
+`privacy-envelope feature-report` 检查已编译能力，`doctor NAME` 检查运行事实。
+
 新增的 `privacy.report` 与 `system.guide` 在 CLI、MCP、LSP、函数工具和 HTTP
 中共享同一契约。JSONL 也默认只读，详见[隐私与接口说明](../docs/privacy-interfaces.md)。
 

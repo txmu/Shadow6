@@ -127,7 +127,7 @@ METHOD_SPECS: dict[str, dict[str, Any]] = {
     "deployment.plan": _method("Render a bounded deployment plan and capability requirements.", {"manifest": _PATH}, ("manifest",)),
     "deployment.lock": _method("Create a canonical deployment lock document without generating secrets.", {"manifest": _PATH}, ("manifest",)),
     "abi.catalog": _method("Return the S6ABI/1 application boundary and bounded state contract."),
-    "acceptance.run": _method("Run the single source/artifact acceptance gate.", {"manifest": _PATH, "artifact_dir": _PATH, "output": _PATH, "source_only": _BOOL}, ("manifest",)),
+    "acceptance.run": _method("Run the single source/artifact acceptance gate.", {"manifest": _PATH, "artifact_dir": _PATH, "output": _PATH, "source_only": _BOOL}, ("manifest",),mutating=True),
     "ipc.catalog": _method("Return the built-in Node FastRPC, RawIPC and C11Relay bridge contract."),
     "ipc.call": _method("Call an authenticated operator-configured FastRPC component; requires mutation permission.",
         {"method": _STRING, "params": _OBJECT}, ("method",), mutating=True),
@@ -224,6 +224,54 @@ METHOD_SPECS: dict[str, dict[str, Any]] = {
     "result.validate": _method("Validate a bounded Control API result envelope.", {"result":_OBJECT}, ("result",)),
 }
 
+# Named Service tools route to the same canonical registry as the CLI. Metadata
+# describes authority/effect; it never grants permission or supplies runtime facts.
+_SERVICE_TARGET = {"name": {"type":"string","maxLength":129}, "core":{"type":"string","maxLength":64},
+                   "profile":{"type":"string","maxLength":64}, "native_config":_PATH,
+                   "privacy":{"type":"string","enum":["native","envelope"]},
+                   "protocol_envelope":{"type":"string","maxLength":262144},
+                   "spec":_input_schema({"ttl":{"type":"integer","minimum":30,"maximum":86400},
+                       **{key:_PATH for key in ("envelope_config","metrics_path","gate_config","guard_config","credited_config")},
+                       "limits":_input_schema({"mode":{"type":"string","enum":["safe","elastic","custom"]},
+                                              "operator_overrides":_OBJECT})})}
+_CONFIRMED = {"type":"boolean","enum":[True],"description":"True only after the host obtains explicit user approval for this exact operation; the model must not self-approve."}
+_REVIEWED_LOCK = {"type":"string","maxLength":71,"description":"Exact DeploymentLock digest from inspect/plan; empty only when no lock exists."}
+METHOD_SPECS.update({
+    "core.list":_method("List canonical Core descriptors; never choose one."),
+    "core.inspect":_method("Inspect one explicit canonical Core descriptor.",{"core":_STRING},("core",)),
+    "system.doctor":_method("Reuse the CLI environment, installed-Profile and runtime-material doctor."),
+    "service.inspect":_method("Inspect the persisted canonical service binding and lock.",{"name":_STRING},("name",)),
+    "service.propose":_method("Return canonical installed candidates and diagnostics for explanation; no selection, writes or startup.",
+                              {"core":_STRING,"profile":_STRING}),
+    "service.validate":_method("Validate explicit Core/Profile, private native config and canonical deployment material without writing.",
+                               _SERVICE_TARGET,("name","core","profile","native_config")),
+    "service.plan":_method("Explain the same canonical setup validation and fixed next operations without claiming runtime readiness.",
+                           _SERVICE_TARGET,("name","core","profile","native_config")),
+    "service.create":_method("Create an explicitly bound draft after user approval; does not lock/apply/run.",
+                             {**_SERVICE_TARGET,"confirmed":_CONFIRMED,"expected_material_digest":_REVIEWED_LOCK},("name","core","profile","native_config","confirmed","expected_material_digest"),mutating=True),
+    "service.setup":_method("Use the CLI canonical setup path: prepare, lock/apply, optionally run after user approval.",
+                            {**_SERVICE_TARGET,"run":_BOOL,"confirmed":_CONFIRMED,"expected_material_digest":_REVIEWED_LOCK},("name","core","profile","native_config","confirmed","expected_material_digest"),mutating=True),
+})
+for _action in ("run","stop","restart","relock","apply","remove"):
+    _properties={"name":_STRING,"confirmed":_CONFIRMED,"expected_lock_digest":_REVIEWED_LOCK}
+    _required=("name","confirmed","expected_lock_digest")
+    if _action=="relock":
+        _properties["expected_material_digest"]={"type":"string","maxLength":71,"description":"Canonical materialDigest from a fresh service.plan; review it before confirming."}
+        _required+=("expected_material_digest",)
+    METHOD_SPECS["service."+_action]=_method("Use the fixed canonical "+_action+" operation after approval; reject a changed reviewed lock.",_properties,_required,mutating=True)
+for _name,_specification in METHOD_SPECS.items():
+    _permissions=["MUTATE"] if _specification["mutating"] else ["READ"]
+    if _name in {"deployment.plan","deployment.validate","deployment.lock","service.propose","service.validate","service.plan","service.connect"}:
+        _permissions=["PLAN"]
+    if _name in {"service.run","service.restart","capsule.start","ipc.call","ipc.raw"}:
+        _permissions.append("CONNECT")
+    if _name=="service.setup": _permissions.append("CONNECT")  # Conservative: run may be requested.
+    if _name in {"service.stop","service.restart","service.relock","service.remove","capsule.stop","capsule.pause"}:
+        _permissions.append("DESTRUCTIVE")
+    _specification.update(permissions=_permissions,
+        confirmation_required=_name.startswith("service.") and _specification["mutating"],
+        core_selection="explicit-or-existing-binding" if _name.startswith(("service.","core.","capsule.")) else "not-applicable")
+
 MUTATING_METHODS = {name for name, spec in METHOD_SPECS.items() if spec["mutating"]}
 
 
@@ -276,6 +324,12 @@ def schema() -> dict[str, Any]:
         "network_adapter_backends": ["python", "node"],
         "config_kinds": [*sorted("core-" + core.removeprefix("shadow6-") for core in CONFIGURABLE_CORES), "topology", "security-policy", "plugin", "package", "slots", "public6-offer", "virtual-broker", "counterstrike-policy"],
         "methods": METHOD_SPECS,
+        "agent_control": {"schema":"shadow6.agent-control.v1","fact_source":"canonical contracts; LLM intent is never runtime evidence",
+            "permissions":{"READ":"observe canonical state", "PLAN":"read-only canonical validation and proposal",
+                           "MUTATE":"operator must enable --allow-mutations", "CONNECT":"actual I/O/startup requires mutation opt-in; service.connect only returns a plan",
+                           "DESTRUCTIVE":"Named Service tools require per-operation confirmed=true and the reviewed lock; relock also checks reviewed material"},
+            "confirmation_authority":"hosting user/operator; model must not set confirmed without explicit approval",
+            "workflow":["system.doctor","core.list","core.inspect","core.profiles","service.propose","service.validate","service.plan","service.create","service.setup","service.run","service.status","service.doctor","service.connect","service.stop","service.restart","service.relock","service.remove"]},
         "transport": {
             "jsonl": {"max_request_bytes": MAX_REQUEST, "mutations_default": False},
             "http": {"loopback_only": True, "bearer_token": True, "mutations_default": False},
@@ -400,27 +454,67 @@ def _plugin_registry(params: dict[str, Any], root: Path) -> PluginRegistry:
     return PluginRegistry(plugin_root, trust_store)
 
 
+def _lifecycle_dispatch(method, params):
+    for directory in (ROOT/'Deployment', HERE.parent/'share/shadow6/deployment', ROOT/'CLI'):
+        if directory.is_dir(): sys.path.insert(0,str(directory))
+    from core_catalog import CoreCatalog
+    from service_registry import ServiceRegistry
+    from profile_registry import profiles, select_profile
+    from profile_availability import installed_profiles
+    catalog=CoreCatalog(ROOT)
+    if method=='core.list': return {'schema':'shadow6.core-catalog.v1','cores':catalog.list()}
+    if method=='core.inspect': return catalog.inspect(params['core'])
+    if method=='system.doctor':
+        from shadow6 import environment_doctor
+        return environment_doctor()
+    if method in {'core.profiles','service.propose'}:
+        report={**installed_profiles(catalog),'sourceContracts':profiles()}
+        if method=='core.profiles': return report
+        core=params.get('core'); profile=params.get('profile')
+        if core: catalog.inspect(core)
+        if profile:
+            if core: select_profile(core,profile)
+            elif not any(item['id']==profile for item in profiles()): raise ValueError('UnknownNativeProfile')
+        candidates=[item for item in report['profiles'] if (not core or item['core']==core) and (not profile or item['profile']==profile)]
+        return {'schema':'shadow6.service-proposal.v1','candidates':candidates,
+                'availableCandidates':[{'core':item['core'],'profile':item['profile']} for item in candidates if item['available']],
+                'selectionRequired':not bool(core and profile),'selected':None,
+                'sourceContracts':[item for item in report['sourceContracts'] if (not core or item['core']==core) and (not profile or item['id']==profile)],
+                'nextActions':[{'method':'service.validate','required':['name','core','profile','native_config']}],
+                'evidence':'canonical installed probes; no Core selection or peer readiness inferred'}
+    registry=ServiceRegistry(catalog=catalog)
+    if method=='service.list': return {'schema':'shadow6.service-registry.v2','services':registry.list()}
+    reads={'service.inspect':registry.inspect,'service.status':registry.status,'service.doctor':registry.doctor,'service.connect':registry.connect}
+    if method in reads: return reads[method](params['name'])
+    if method in {'service.plan','service.validate','service.create','service.setup'}:
+        from service_storage import private_read
+        from limits import validate_policy
+        from protocol_context import validate_context
+        path=Path(params['native_config']).expanduser()
+        if not path.is_absolute(): raise ValueError('native_config must be an absolute path for portable Agent requests')
+        private_read(path)
+        spec={'ttl':3600,'limits':validate_policy(None),**params.get('spec',{})}
+        arguments={'core':params['core'],'profile':params['profile'],'config':{'config_path':str(path)},
+                   'spec':spec,'privacy':params.get('privacy','native'),
+                   'context':validate_context(params['protocol_envelope']) if params.get('protocol_envelope') else None}
+        plan=registry.preview_setup(params['name'],**arguments)
+        if method in {'service.plan','service.validate'}:
+            return {**plan,'permissions':['PLAN'],'nextActions':([{'method':'service.setup','confirmationRequired':True,'explicitCore':True}] if plan['valid'] else [{'method':'system.doctor'}])}
+        if not plan['valid']: raise ValueError('ProfileUnavailable')
+        if params['expected_material_digest'] != plan['materialDigest']: raise ValueError('ReviewedMaterialChanged')
+        if method=='service.create': return registry.create(params['name'],**arguments)
+        return registry.setup(params['name'],**arguments,start=params.get('run',False),expected_material_digest=params['expected_material_digest'])
+    return registry.control_action(method.removeprefix('service.'),params['name'],expected_lock_digest=params['expected_lock_digest'],expected_material_digest=params.get('expected_material_digest'))
+
+
 def dispatch(method: str, raw_params: Any = None) -> Any:
     params = _params(raw_params)
     if not isinstance(method, str) or method not in METHOD_SPECS:
         raise ValueError("unknown method")
     validate_portable(params)
     _validate_input(params, METHOD_SPECS[method]["input_schema"])
-    if method == 'core.profiles' or method.startswith('service.'):
-        for directory in (ROOT / 'Deployment', HERE.parent / 'share/shadow6/deployment'):
-            if directory.is_dir(): sys.path.insert(0, str(directory))
-        from core_catalog import CoreCatalog
-        from service_registry import ServiceRegistry
-        catalog = CoreCatalog(ROOT)
-        if method == 'core.profiles':
-            from profile_registry import profiles
-            from profile_availability import installed_profiles
-            return {**installed_profiles(catalog), 'sourceContracts': profiles()}
-        registry = ServiceRegistry(catalog=catalog)
-        if method == 'service.list':
-            return {'schema': 'shadow6.service-registry.v2', 'services': registry.list()}
-        return {'service.status': registry.status, 'service.doctor': registry.doctor,
-                'service.connect': registry.connect}[method](params['name'])
+    if method.startswith(('core.','service.')) or method == 'system.doctor':
+        return _lifecycle_dispatch(method, params)
     if method == "network.interface_plan":
         from setup_interface import plan
         return plan(**params)
@@ -511,9 +605,9 @@ def dispatch(method: str, raw_params: Any = None) -> Any:
         zh = params.get("lang", "en") == "zh"
         return {
             "lang": "zh" if zh else "en",
-            "message": ("欢迎。先查看功能，再做只读检查；分享诊断时，请使用隐私摘要。" if zh else
-                        "Welcome. Check available features first, then local health. Use the privacy summary when sharing diagnostics."),
-            "steps": ["shadow6 features", "shadow6 privacy", "shadow6 schema"],
+            "message": ("欢迎。先运行 doctor，明确选择可用 Core/Profile，再 setup --run；通过 status/doctor 检查 readiness 后 connect。分享诊断时使用隐私摘要。" if zh else
+                        "Welcome. Run doctor, explicitly choose an available Core/Profile, then setup --run. Check status/doctor readiness before connect. Use the privacy summary when sharing diagnostics."),
+            "steps": ["shadow6 doctor --human", "shadow6 core profiles --installed", "shadow6 setup NAME --core CORE --profile PROFILE --config /absolute/path/binding.json --run", "shadow6 status NAME --human", "shadow6 doctor NAME --human", "shadow6 connect NAME --human", "shadow6 features", "shadow6 privacy"],
             "privacy": ("摘要仅返回检查计数，不含路径、身份或原始日志；这不提供网络匿名性。" if zh else
                         "The summary contains check counts only, without paths, identities or raw logs. It does not provide network anonymity."),
             "permissions": ("RPC、MCP、LSP、函数工具和 HTTP 默认只读。核对任务后才使用 --allow-mutations。" if zh else
@@ -943,10 +1037,12 @@ def _tool_definitions(protocol: str) -> list[dict[str, Any]]:
                 "name": name,
                 "description": spec["description"],
                 "inputSchema": spec["input_schema"],
+                "_meta": {"shadow6.permissions":spec["permissions"],"shadow6.confirmationRequired":spec["confirmation_required"],"shadow6.coreSelection":spec["core_selection"]},
                 "annotations": {
                     "readOnlyHint": not spec["mutating"],
-                    "destructiveHint": spec["mutating"],
+                    "destructiveHint": "DESTRUCTIVE" in spec["permissions"],
                     "idempotentHint": not spec["mutating"],
+                    "openWorldHint": "CONNECT" in spec["permissions"],
                 },
             })
         elif protocol == "openai":

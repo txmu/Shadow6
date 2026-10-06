@@ -216,6 +216,13 @@ class ServiceRegistry:
             raise ValueError('service name must be unique namespace/name')
         if len(self.services) >= service_capacity():
             raise ValueError('host service capacity reached; remove unused services or increase available host resources')
+        item = self._draft(name, core=core, config=config, spec=spec, privacy=privacy, context=context, profile=profile)
+        self.services[name] = item; self._save(); return item
+
+    def _draft(self, name, *, core, config, spec=None, privacy='native', context=None, profile=None):
+        """The same canonical record preparation used by create and preview."""
+        if not core: raise ValueError('CoreSelectionRequired')
+        if not NAME.fullmatch(name): raise ValueError('invalid namespace/name')
         spec = spec or {}; self._spec(spec)
         if privacy not in ('native', 'envelope'):
             raise ValueError('privacy must be native or envelope')
@@ -225,9 +232,67 @@ class ServiceRegistry:
         if profile is not None and core is None: raise ValueError('ProfileBinding requires explicit Core')
         profile_binding = bind_profile(core, profile) if core in CORE_IDS else None
         if profile is not None and profile_binding is None: raise ValueError('UnknownNativeProfile')
-        item = {'name': name, 'protocolContext': context, 'spec': spec, 'privacy': privacy, 'coreBinding': binding, 'profileBinding': profile_binding,
+        return {'name': name, 'protocolContext': context, 'spec': spec, 'privacy': privacy, 'coreBinding': binding, 'profileBinding': profile_binding,
                 'state': 'unresolved' if binding is None else 'ready'}
-        self.services[name] = item; self._save(); return item
+
+    def preview_setup(self, name, *, core, config, spec=None, privacy='native', context=None, profile=None):
+        """Validate canonical material in memory without writing or starting."""
+        try:
+            from .profile_availability import inspect_profile
+        except ImportError:
+            from profile_availability import inspect_profile
+        if not core: raise ValueError('CoreSelectionRequired')
+        availability = inspect_profile(self.catalog, core, profile)
+        if not availability['available']:
+            return {'schema':'shadow6.service-plan.v1', 'valid':False,
+                    'core':core, 'profile':availability['profile'], 'diagnostics':availability['diagnostics']}
+        draft = self._draft(name, core=core, config=config, spec=spec, privacy=privacy, context=context, profile=profile)
+        existing = self.services.get(name)
+        fields = ('coreBinding','profileBinding','protocolContext','spec','privacy')
+        if existing and any(existing[key] != draft[key] for key in fields):
+            raise ValueError('setup differs from existing service; explicitly stop and service configure first')
+        self.services[name] = draft
+        try:
+            material = self._material(name)
+            resolution = LimitResolver().resolve(validate_profile_binding(draft['profileBinding']), draft['spec'].get('limits')).to_dict()
+            return {'schema':'shadow6.service-plan.v1','valid':True,'name':name,
+                    'coreBinding':draft['coreBinding'],'profileBinding':draft['profileBinding'],
+                    'materialDigest':digest(encoded(material)), 'limitResolution':resolution,
+                    'wouldCreate':existing is None, 'diagnostics':[],
+                    'evidence':'canonical-material-validation-only; no peer reachability or runtime readiness claim'}
+        finally:
+            if existing is None: self.services.pop(name, None)
+            else: self.services[name] = existing
+
+    @transaction
+    def setup(self, name, *, core, config, spec=None, privacy='native', context=None, profile=None, start=False, expected_material_digest=None):
+        """The CLI/MCP prepare, lock/apply, optionally run path with cleanup."""
+        draft = self._draft(name, core=core, config=config, spec=spec, privacy=privacy, context=context, profile=profile)
+        existing = self.services.get(name)
+        created = existing is None
+        if existing and any(existing[key] != draft[key] for key in ('coreBinding','profileBinding','protocolContext','spec','privacy')):
+            raise ValueError('setup differs from existing service; explicitly stop and service configure first')
+        try:
+            if created: self.create(name,core=core,config=config,spec=spec,privacy=privacy,context=context,profile=profile)
+            self.apply(name)
+            if expected_material_digest is not None and self.inspect(name)['deploymentLock']['digest'] != expected_material_digest:
+                raise ValueError('ReviewedMaterialChanged')
+            return self.run(name) if start else self.status(name)
+        except (ValueError,OSError):
+            if created: self.remove(name)
+            raise
+
+    @transaction
+    def control_action(self, action, name, *, expected_lock_digest, expected_material_digest=None):
+        """Fixed transport actions check reviewed state inside the transaction."""
+        handlers = {'run':self.run, 'stop':self.stop, 'restart':self.restart,
+                    'relock':self.lock, 'apply':self.apply, 'remove':self.remove}
+        if action not in handlers: raise ValueError('unknown lifecycle control action')
+        item = self.inspect(name)
+        if (item.get('deploymentLock') or {}).get('digest', '') != expected_lock_digest:
+            raise ValueError('ReviewedLockChanged')
+        if action == 'relock': return self.lock(name, expected_material_digest=expected_material_digest)
+        return handlers[action](name)
 
     @transaction
     def configure(self, name, *, core, config, privacy=None, spec=None, context=None, profile=None):
@@ -390,11 +455,13 @@ class ServiceRegistry:
         return inputs
 
     @transaction
-    def lock(self, name):
+    def lock(self, name, *, expected_material_digest=None):
         item = self.inspect(name)
         if runtime.alive(item.get('runtime', {})):
             raise ValueError('stop service before locking')
         material = self._material(name)
+        if expected_material_digest is not None and digest(encoded(material)) != expected_material_digest:
+            raise ValueError('ReviewedMaterialChanged')
         resolution = LimitResolver().resolve(validate_profile_binding(self.require_profile_binding(name)), item['spec'].get('limits')).to_dict()
         components = LimitResolver().resolve_components(self._component_limit_inputs(name),
             host=HostBudget.from_dict(resolution['host_budget']),
@@ -761,6 +828,15 @@ class ServiceRegistry:
                 current = self.status(name)
         if current.get('runtime') and current['state'] != 'running':
             findings.append('RuntimeNotReady:' + current['state'])
+        if not findings:
+            hint = ('Use shadow6 connect ' + name + '; --stdio/--records require observed application readiness.'
+                    if current['state'] == 'running' else 'Use shadow6 run ' + name + ', then shadow6 status ' + name + ' and shadow6 connect ' + name + '.')
+        elif not feature_valid:
+            hint = 'Run shadow6 core profiles ' + str((item.get('coreBinding') or {}).get('core')) + ' --installed; supply a matching prebuilt artifact/runtime library, then explicitly stop, review, reconfigure and relock/apply before run.'
+        elif not valid_lock:
+            hint = 'Inspect material/permissions and drift with shadow6 status ' + name + '; stop before changing bindings or approving new material via shadow6 relock ' + name + ', shadow6 apply ' + name + ', then shadow6 run ' + name + '.'
+        else:
+            hint = 'Run shadow6 status ' + name + '; inspect peer endpoints, authenticated readiness and runtime diagnostics before retrying. Do not infer readiness from process-alive or cumulative session counters.'
         return {'schema':'shadow6.named-service-doctor.v1', 'service':name,
                 'limitResolution':(lock or {}).get('limitResolution'),
                 'currentHostBudget':HostBudget.capture().to_dict(),
@@ -770,4 +846,4 @@ class ServiceRegistry:
                 'featureReportValid':feature_valid, 'findings':sorted(set(findings)),
                 'healthy':not findings, 'runtime':current.get('runtime'),
                 'runtimeObservation':current.get('runtimeObservation'),
-                'hint':'Use explicit stop, upgrade/reconfigure, lock/apply and run; run never builds or changes Profile.'}
+                'hint':hint}

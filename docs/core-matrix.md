@@ -9,9 +9,11 @@ The Native Profile source authority is
 Profiles, including separate `gleam-secure-stream` and `gleam-micro-mux`
 contracts. Inspect them with `shadow6 core profiles [CORE]`. The current source
 has passed all thirteen real Linux Named Service Profile lifecycle integrations
-against existing Actions-built artifacts in the local artifact tree. Fresh CI
-for the pending source changes is still required; see [the completion
-ledger](native-profile-runtime-plan.md) and dated
+against existing Actions-built artifacts in the local artifact tree. The first
+full post-change Linux CI run passed twelve; a transient Carp doctor observation
+is fixed with a bounded recheck. Linux x86_64 and ARM64 follow-up validation was
+submitted as [Actions run 37238710525](https://github.com/txmu/Shadow6/actions/runs/37238710525);
+see [the completion ledger](native-profile-runtime-plan.md) and dated
 [integration review](review-2026-10-04-integration.md). This Linux result does
 not claim lifecycle parity on Windows, macOS, or Android.
 

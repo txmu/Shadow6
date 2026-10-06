@@ -1,5 +1,42 @@
 # 入门指南
 
+## 解压后建立第一个 Named Service
+
+下载适合本机平台的可信预编译 tar，核对公开摘要后解压。纯文本 ZIP 不含可运行
+Core。需要 Python 3.11+ 和所选 Core 的运行库，无需全局安装或编译器。
+在任意目录都可通过绝对路径运行：
+
+```sh
+python3 /absolute/path/Shadow6/CLI/shadow6.py doctor --human
+python3 /absolute/path/Shadow6/CLI/shadow6.py core profiles --installed
+```
+
+包内有可用 `.venv` 时，改用它的 `bin/python`。根据 doctor 结果明确选择
+Core/Profile，同一原生路径的各端使用同一个 Core 家族。按该 Core 的 README
+准备原生配置，配置文件须归当前用户所有、普通非链接文件、权限 `0600`。
+`setup --native-config` 直接复用这份原生配置和既有 CoreBinding 契约。高级路径仍可用
+`--config BINDING`，其 binding.json 包含 `{"config_path":"/absolute/path/core.json"}`，
+相对 config_path 按 binding 文件所在目录解析，不依赖当前目录。
+
+```sh
+# 示例：仅在 doctor 报告可用且你明确选择 Go/KCP 时使用。
+python3 /absolute/path/Shadow6/CLI/shadow6.py setup home/nas --core go --profile go-kcp --native-config /absolute/path/core.json --run --human
+python3 /absolute/path/Shadow6/CLI/shadow6.py status home/nas --human
+python3 /absolute/path/Shadow6/CLI/shadow6.py doctor home/nas --human
+python3 /absolute/path/Shadow6/CLI/shadow6.py connect home/nas --human
+```
+
+`setup --check` 只做预检查，`setup --run` 合并准备、lock、apply 和显式启动。
+`connect NAME` 返回连接计划；真正接入应用数据使用 stream 的 `--stdio` 或
+message 的 `--records`。进程存活不等于应用 readiness，broker 仍需配置好的
+peer。Named Service supervisor 目前要求 Linux pidfd，其他平台保留 native/init
+路径并明确报告不可用。默认输出 JSON，生命周期摘要可用 `--human`。
+
+材料 drift 后先用 `doctor NAME` 检查并停止服务，审阅变化后执行
+`relock NAME` → `apply NAME` → `run NAME`。需要安装时复用
+`install --prefix /absolute/writable/prefix`；高级配置见[命名服务指南](named-services.md)。
+
+
 已有编译制品可用 `shadow6 install --prefix /home/admin/shadow6-local` 安装而不重编译；
 请换成你有权限写入的 ASCII 绝对路径。
 然后按[命名服务指南](named-services.md)执行 `init`、`setup`、`status`、`stop`。
@@ -16,8 +53,7 @@ shadow6 control -- status
 ```
 
 如果你在源码目录中工作，还没有安装 `shadow6`，把它换成
-`.venv/bin/python CLI/shadow6.py` 即可。若提示组件缺失，请在仓库根目录运行
-`make build`，完成后再试。
+`.venv/bin/python CLI/shadow6.py` 即可。若提示组件缺失，请运行 `shadow6 doctor --human`，补齐匹配的预编译制品与运行库；源码构建是高级可选路径。
 
 `shadow6 features` 输出一个聚合 JSON 对象；需要单个 Core 时可运行
 `shadow6 features --component pony`。Python facade 安装到所选 Python 的
@@ -57,7 +93,7 @@ Control Center 默认只读。它的 HTTP API 只监听本机回环地址，并�
 
 ```sh
 shadow6 features
-.venv/bin/python Security-Assistants/shadow6_security.py doctor
+shadow6 doctor --human
 shadow6 control -- --help
 ```
 

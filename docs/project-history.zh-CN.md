@@ -621,6 +621,13 @@ Actions job。
 release 与 Android debug job 通过，唯一生产者失败为 Windows-amd64 iperf3 loopback
 pressure；新的修复与 ARM64 lifecycle 步骤尚待本轮推送后执行。更新后的逐项状态和
 最终源码 ZIP 校验信息见[本轮集成审查](review-2026-10-04-integration.md)。
+
+推送提交 `fef48804` 后，run `37235236319` 完成 Linux 构建、L0/L5 变体、`make test`、
+`make check`、离线审计、assistant 检查和 staged install；审计为 115 项通过、0 失败、
+15 项显式跳过。十三个真实 Profile 生命周期中 12 项通过，Carp 在 `doctor` 时遇到一次
+短暂的 supervisor observation 过期。后续 `bce9e0cd` 为存活 supervisor 增加最多 3 秒的
+有界重读，并补回归测试。新的全量矩阵 run `37238710525` 正在验证该修复；本记录、审查
+和计划账本将在其结束后补齐最终平台结果及源码 ZIP 校验信息。
 # 2026-10-04：统一弹性 Limits（实现记录）
 
 本阶段为 13 个 Native Profile 声明了统一限额模型；Named Service 的锁记录

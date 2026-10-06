@@ -47,9 +47,13 @@ COMPONENTS.update({
 })
 try:
  from core_catalog import CoreCatalog, CORE_IDS
+except ImportError:
+ CoreCatalog = None
+ CORE_IDS = tuple(p["core"] for p in profiles() if p["primary"])
+try:
  from service_registry import ServiceRegistry
 except ImportError:
- CoreCatalog = ServiceRegistry = None
+ ServiceRegistry = None
 if not (ROOT/"Makefile").is_file():
  bin_dir=Path(sys.argv[0]).resolve().parent
  COMPONENTS={name:bin_dir/("shadow6-"+name) for name in COMPONENTS}
@@ -177,31 +181,161 @@ def service_context(args):
 
 def load_service_config(path):
  from service_storage import private_read, strict_json
- return strict_json(private_read(path))
+ config=strict_json(private_read(path))
+ if isinstance(config,dict) and isinstance(config.get("config_path"),str):
+  native=Path(config["config_path"]).expanduser()
+  if not native.is_absolute(): config={**config,"config_path":str((path.absolute().parent/native).absolute())}
+ return config
+
+def recovery_hint(error, name="NAME"):
+ """Offer fixed operator steps without executing or guessing a Core."""
+ text=str(error)
+ if "CoreSelectionRequired" in text:
+  return "Choose explicitly: shadow6 core profiles --installed; then shadow6 setup NAME --core CORE --profile PROFILE --config /absolute/path/binding.json --run"
+ if "0600" in text or "owner" in text or "symlink" in text:
+  return "Use a regular file owned by your account with mode 0600; inspect its path and permissions before retrying."
+ if "No such file" in text or "config_path" in text:
+  return "Prepare the selected Core's native configuration and an owner-only binding.json containing its absolute config_path; see shadow6 setup --help."
+ if "drift" in text.lower() or "lock" in text.lower():
+  return f"Inspect with shadow6 doctor {name}; stop the service and review changes before shadow6 relock {name}, shadow6 apply {name}, and shadow6 run {name}."
+ if "unknown service" in text.lower() or "not found" in text.lower():
+  return "List registered services with shadow6 service list; prepare a new service with shadow6 setup --help."
+ return f"Run shadow6 doctor (environment) or shadow6 doctor {name} (service); use shadow6 setup --help for the first-run path."
+
+
+def lifecycle_output(result, *, human=False, stage=None, name=None, error=False):
+ stream=sys.stderr if error else sys.stdout
+ if not human:
+  print(json.dumps(result,ensure_ascii=False,sort_keys=True,indent=2),file=stream)
+  return
+ if error:
+  print("Error: "+str(result.get("error","unknown error")),file=stream)
+  for issue in result.get("diagnostics",[]): print(f"{issue['code']}: {issue['message']} Next: {issue['action']}",file=stream)
+ else:
+  print("Shadow6 "+str(stage or result.get("stage","diagnostic"))+(" · "+name if name else ""),file=stream)
+  for key in ("core","profile","state","healthy","verified","materialValid","lockValid","featureReportValid","available","availableProfiles","removed","prefix","exit_code"):
+   if key in result: print(f"{key}: {result[key]}",file=stream)
+  binding=result.get("coreBinding") or {}
+  if binding: print("Core: "+str(binding.get("core")),file=stream)
+  if result.get("services") == []: print("No Named Services yet. Next: shadow6 doctor --human; shadow6 setup --help (choose Core/Profile explicitly).",file=stream)
+  for service in result.get("services",[]):
+   print(f"{service['name']}: Core={(service.get('coreBinding') or {}).get('core')} Profile={(service.get('profileBinding') or {}).get('profile')} state={service.get('state')}",file=stream)
+  profile_binding=result.get("profileBinding") or {}
+  if profile_binding: print("Profile: "+str(profile_binding.get("profile")),file=stream)
+  observation=result.get("runtimeObservation") or result.get("runtime") or {}
+  for key in ("readiness","applicationReadiness","transportReadiness","endpoint"):
+   if key in observation: print(f"{key}: {json.dumps(observation[key],ensure_ascii=False)}",file=stream)
+  if result.get("privacyTelemetry"):
+   privacy=result["privacyTelemetry"]
+   print(f"S6EPE Carrier: {privacy.get('carrier','raw/unknown')} · observation: {privacy.get('observation','unknown')}",file=stream)
+  for item in result.get("profiles",[]):
+   print(f"{item['core']} / {item['profile']}: {'available' if item['available'] else 'unavailable'}",file=stream)
+   for issue in item.get("diagnostics",[]): print(f"  {issue['code']}: {issue['message']} Next: {issue['action']}",file=stream)
+  for finding in result.get("findings",[]): print("Finding: "+str(finding),file=stream)
+  for issue in result.get("diagnostics",[]): print(f"{issue['code']}: {issue['message']} Next: {issue['action']}",file=stream)
+  if result.get("python"):
+   print("Python: "+result["python"]["executable"],file=stream)
+   for issue in result["python"]["errors"]: print("Dependency: "+issue,file=stream)
+ if result.get("runtimeMaterialsMissing"):
+  print("Runtime materials missing: "+", ".join(result["runtimeMaterialsMissing"]),file=stream)
+ if result.get("privacyEnvelope"):
+  envelope=result["privacyEnvelope"]
+  print("S6EPE executable: "+envelope["executable"],file=stream)
+  print("S6EPE available: "+str(envelope["available"]),file=stream)
+  for issue in envelope.get("diagnostics",[]): print(f"{issue['code']}: {issue['message']} Next: {issue['action']}",file=stream)
+  print("S6EPE: "+envelope["hint"],file=stream)
+ if result.get("hint"): print("Next: "+result["hint"],file=stream)
+ if not error and name and stage:
+  steps={"setup":f"shadow6 status {name}; shadow6 doctor {name}; shadow6 run {name}","run":f"shadow6 status {name}; shadow6 doctor {name}; shadow6 connect {name}","status":f"shadow6 doctor {name}; shadow6 connect {name} (requires observed application readiness)","stop":f"shadow6 run {name}","relock":f"shadow6 apply {name}; shadow6 run {name}","lock":f"shadow6 apply {name}; shadow6 run {name}","restart":f"shadow6 status {name}; shadow6 doctor {name}"}
+  if stage=="setup": steps[stage]=(f"shadow6 status {name}; shadow6 doctor {name}; shadow6 connect {name}" if result.get("state")=="running" else f"shadow6 run {name}; shadow6 status {name}; shadow6 doctor {name}")
+  if stage in steps: print("Next: "+steps[stage],file=stream)
+
+
+LIFECYCLE_ACTIONS = ("run","status","restart","stop","remove","apply","lock","relock","doctor")
+
+
+def lifecycle_action(action, name, *, human=False):
+ if ServiceRegistry is None: raise ValueError("Named Service Python dependencies unavailable; run shadow6 doctor --human")
+ registry=ServiceRegistry(catalog=CoreCatalog(ROOT))
+ handler=registry.lock if action=="relock" else getattr(registry,action)
+ try: result=handler(name)
+ except (ValueError,OSError) as error:
+  lifecycle_output({"schema":"shadow6.lifecycle-error.v1","stage":action,"error":str(error),"hint":recovery_hint(error,name)},human=human,stage=action,name=name,error=True)
+  return 2
+ lifecycle_output(result,human=human,stage=action,name=name)
+ return 0
+
+
+def install_inspection(catalog):
+ from profile_availability import installed_profiles
+ report=installed_profiles(catalog)
+ checks=[{"core":core["id"],"available":Path(core["executable"]).is_file(),"executable":os.access(core["executable"],os.X_OK)} for core in catalog.list()]
+ return {**report,"schema":"shadow6.lifecycle.v1","stage":"install","operation":"inspect",
+         "verified":bool(report['availableProfiles']),"cores":checks,
+         "hint":"Use the extracted CLI directly from any cwd, or shadow6 install --prefix /absolute/writable/path to install existing artifacts without building; choose Core/Profile explicitly with shadow6 setup --help."}
+
+
+def envelope_feature_report(catalog):
+ path=catalog.envelope_binary()
+ if not path.is_file():
+  return {"schema":"shadow6.privacy-envelope.v1","implementation":"ocaml","available":False,
+          "diagnostics":[{"code":"EnvelopeArtifactMissing","message":"Optional S6EPE artifact is absent.","action":"Supply a matching prebuilt artifact only if the deployment uses S6EPE; native services do not require it."}]}
+ from service_runtime import feature_report
+ from privacy_envelope import feature_availability
+ report=feature_report(str(path),require_core=False)
+ return {**report,**feature_availability(report)}
+
+
+def environment_doctor():
+ """Reuse bounded Profile and Python probes; never create registry state."""
+ sys.path.insert(0,str(ROOT/"Tools"))
+ from python_runtime import runtime_report
+ from profile_availability import installed_profiles
+ python=runtime_report("network")
+ catalog=CoreCatalog(ROOT)
+ report=installed_profiles(catalog)
+ from service_runtime import runtime_material_paths, runtime_material_digest
+ missing=[]
+ material_diagnostics=[]
+ for key,path in runtime_material_paths(ROOT).items():
+  try: runtime_material_digest(key,path)
+  except (ValueError,OSError) as error:
+   missing.append(key)
+   material_diagnostics.append({"code":"RuntimeMaterialUnavailableOrUnsafe","message":key+": "+str(error),
+       "action":"Inspect "+str(path)+"; restore a trusted regular owner-controlled file without group/world write permissions. Review changes before explicitly relocking stopped services."})
+ try: envelope_report=envelope_feature_report(catalog)
+ except (ValueError,OSError,subprocess.SubprocessError) as error:
+  envelope_report={"available":False,"diagnostics":[{"code":"EnvelopeFeatureContractUnavailable","message":str(error),"action":"Inspect the optional S6EPE artifact and bundled runtime libraries; supply a matching prebuilt package."}]}
+ envelope={**envelope_report,"executable":str(catalog.envelope_binary()),"present":catalog.envelope_binary().is_file(),
+           "hint":"Optional: shadow6 privacy-envelope feature-report checks the executable's compiled carriers. SCTP needs Linux kernel SCTP and compatible native message associations; WebRTC needs libdatachannel and explicit Nim/WebRTC binding, private S6SG1 signaling and reachable ICE candidates. Both need message mode, explicit channel policy and authenticated readiness; neither is selected automatically."}
+ return {**report,"schema":"shadow6.environment-doctor.v1","stage":"doctor",
+         "root":str(ROOT),"python":python,"runtimeMaterialsMissing":missing,"diagnostics":material_diagnostics,"privacyEnvelope":envelope,
+         "healthy":bool(report["availableProfiles"]) and python["usable"] and ServiceRegistry is not None and not missing,
+         "hint":"Choose a Core/Profile explicitly from availableProfiles; prepare its native config and run shadow6 setup --help. If dependencies are missing, use the package's compatible Python environment or the documented minimal runtime requirements; compilers are unnecessary for prebuilt products."}
+
 
 def main():
  raw=sys.argv[1:]
+ if not raw: raw=["--help"]
  events=bool(raw and raw[0]=="--json-events")
  if events:raw=raw[1:]
- if raw and raw[0] in {"install", "init"} and raw[1:] in ([], ["--json"]):
+ if ServiceRegistry is None and raw and raw[0] in {"init","service","setup","run","status","restart","stop","remove","apply","lock","relock"} and not any(flag in raw for flag in ("--help","-h")):
+  if __name__ == "__main__":
+   sys.path.insert(0,str(ROOT/"Tools"))
+   try:
+    from python_runtime import bootstrap
+    bootstrap(ROOT,Path(__file__).resolve())
+   except RuntimeError:
+    pass
+  raise ValueError("Named Service Python dependencies unavailable; run shadow6 doctor --human and use a compatible package Python environment")
+ if raw and raw[0] in {"install", "init"} and raw[1:] in ([], ["--json"], ["--human"]):
   catalog=CoreCatalog(ROOT)
   if raw[0]=="init": result=ServiceRegistry(catalog=catalog).init()
-  else:
-   checks=[{"core":c["id"],"available":Path(c["executable"]).is_file(),"executable":os.access(c["executable"],os.X_OK)} for c in catalog.list()]
-   from profile_availability import installed_profiles
-   profile_report=installed_profiles(catalog)
-   result={"schema":"shadow6.lifecycle.v1","stage":"install","operation":"inspect","verified":bool(profile_report['availableProfiles']),"cores":checks,"profiles":profile_report['profiles'],"availableProfiles":profile_report['availableProfiles'],"hint":"Use shadow6 install --prefix /absolute/path to install existing artifacts without building."}
-  print(json.dumps(result,sort_keys=True,indent=2)); return 0
- if raw and raw[0] in {"run","status","restart","stop","remove","apply","lock","doctor"} and len(raw) >= 2 and not raw[1].startswith("-"):
-  if raw[2:] not in ([], ["--json"]): raise ValueError("unexpected service arguments")
-  registry=ServiceRegistry(catalog=CoreCatalog(ROOT)); action=raw[0]; name=raw[1]
-  handlers={"run":registry.run,"status":registry.status,"restart":registry.restart,"stop":registry.stop,"remove":registry.remove,"apply":registry.apply,"lock":registry.lock,"doctor":registry.doctor}
-  try: result=handlers[action](name)
-  except (ValueError,OSError) as exc: print(json.dumps({"schema":"shadow6.lifecycle-error.v1","stage":action,"error":str(exc)})); return 2
-  print(json.dumps(result,sort_keys=True,indent=2)); return 0
+  else: result=install_inspection(catalog)
+  lifecycle_output(result,human="--human" in raw,stage=raw[0]); return 0
  if raw and raw[0] in COMPONENTS and raw[0] not in {"virtual-broker","virtual-client","virtual-agent","deployment","acceptance","privacy-envelope"}:
   args=raw[1:];return run(raw[0],args[1:] if args[:1]==["--"] else args,events)
- p=argparse.ArgumentParser(prog="shadow6");p.add_argument("--json-events",action="store_true");sub=p.add_subparsers(dest="command",required=True)
+ p=argparse.ArgumentParser(prog="shadow6",description="Explicit Core/Profile → setup/run → status/doctor → connect",epilog="Start: shadow6 doctor --human; shadow6 setup --help. JSON is the default; lifecycle commands also accept --human.");p.add_argument("--json-events",action="store_true");sub=p.add_subparsers(dest="command",required=True)
  q=sub.add_parser("tools",help="list all fixed tool routes and availability")
  q=sub.add_parser("guide",help="read a friendly getting-started guide / 查看中英文入门指引");q.add_argument("--lang",choices=("en","zh"),default="en")
  c=sub.add_parser("component");c.add_argument("name",choices=sorted(COMPONENTS));c.add_argument("args",nargs=argparse.REMAINDER)
@@ -262,18 +396,25 @@ def main():
  for action in ("run","connect"):
   x=ss.add_parser(action); x.add_argument("name")
  for action in ("lock","apply","status","restart","stop","remove","doctor","signal"):
-  x=ss.add_parser(action); x.add_argument("name")
- for parser in ss.choices.values(): parser.add_argument("--json",action="store_true",help="emit JSON (the default)")
- for action in ("run","status","restart","stop","remove","apply","lock","doctor"):
-  q=sub.add_parser(action,help=action+" a named service"); q.add_argument("name"); q.add_argument("--json",action="store_true")
+  x=ss.add_parser(action,aliases=["relock"] if action=="lock" else []); x.add_argument("name")
+ for parser in set(ss.choices.values()):
+  output=parser.add_mutually_exclusive_group(); output.add_argument("--json",action="store_true",help="structured JSON (default)"); output.add_argument("--human",action="store_true",help="readable summary and next steps")
+ for action in LIFECYCLE_ACTIONS:
+  q=sub.add_parser(action,help=("diagnose environment or a named service" if action=="doctor" else action+" a named service"),description=("Without NAME, diagnose host, Python dependencies, installed Profiles and package runtime materials. With NAME, diagnose its binding, lock, drift and observed readiness." if action=="doctor" else "Review current materials and explicitly replace a stopped service lock; follow with apply and run." if action=="relock" else action+" uses the explicitly bound Core/Profile; no automatic selection or repair."),epilog="Example: shadow6 "+action+" home/nas --human")
+  q.add_argument("name",nargs="?" if action=="doctor" else None); output=q.add_mutually_exclusive_group(); output.add_argument("--json",action="store_true",help="structured JSON (default)"); output.add_argument("--human",action="store_true",help="readable summary and next steps")
  # init retains its native init-system routing when arguments are supplied.
- q=sub.add_parser("install",help="install existing artifacts without compiling")
- q.add_argument("--prefix",type=Path,required=True); q.add_argument("--destdir",type=Path)
- q=sub.add_parser("setup",help="create, bind, lock and apply a named service")
- q.add_argument("name"); q.add_argument("--core"); q.add_argument("--profile"); q.add_argument("--config",type=Path,default=Path.home()/'.config/shadow6/binding.json'); add_service_options(q); q.add_argument("--json",action="store_true"); q.add_argument("--check",action="store_true",help="check Profile and binding without creating a service"); q.add_argument("--run",dest="start_service",action="store_true",help="explicitly start the prepared service")
+ q=sub.add_parser("install",help="inspect or install existing artifacts without compiling",description="Without arguments, inspect package artifacts. Global installation is optional; --prefix reuses the existing prebuilt installer.",epilog="Inspect: shadow6 install --human. Install: shadow6 install --prefix /absolute/writable/prefix")
+ q.add_argument("--prefix",type=Path,help="absolute writable prefix; optional for using the extracted package directly"); q.add_argument("--destdir",type=Path)
+ output=q.add_mutually_exclusive_group(); output.add_argument("--json",action="store_true",help="JSON inspection/result; installer logs go to stderr"); output.add_argument("--human",action="store_true",help="readable inspection/result and next steps")
+ q=sub.add_parser("setup",help="prepare a named service; --run also starts it",description="Select --core explicitly. Use --native-config for an existing private Core configuration, or --config for a private binding JSON containing config_path. No credentials are generated.",epilog="Inspect: shadow6 doctor --human\nCheck: shadow6 setup home/nas --core go --profile go-kcp --config /absolute/path/binding.json --check\nStart: shadow6 setup home/nas --core go --profile go-kcp --native-config /absolute/path/core.json --run\nObserve: shadow6 status home/nas; shadow6 doctor home/nas; shadow6 connect home/nas",formatter_class=argparse.RawDescriptionHelpFormatter)
+ q.add_argument("name"); q.add_argument("--core",help="required explicit Core identity; inspect core profiles --installed"); q.add_argument("--profile",help="explicit Native Profile ID; primary Profile of the selected Core if omitted"); binding_source=q.add_mutually_exclusive_group(); binding_source.add_argument("--config",type=Path,help="private binding.json (relative config_path resolves beside this file)",default=Path.home()/'.config/shadow6/binding.json'); binding_source.add_argument("--native-config",type=Path,help="use an existing private native configuration directly; reuse the same CoreBinding contract"); add_service_options(q); output=q.add_mutually_exclusive_group(); output.add_argument("--json",action="store_true",help="structured JSON (default)"); output.add_argument("--human",action="store_true",help="readable summary and next steps"); q.add_argument("--check",action="store_true",help="check Profile and binding without creating a service"); q.add_argument("--run",dest="start_service",action="store_true",help="explicitly start the prepared service")
  q=sub.add_parser("privacy-envelope",help="inspect the optional OCaml authenticated external envelope")
  q.add_argument("action",choices=("status","feature-report","compatibility","run")); q.add_argument("--core",action="append"); q.add_argument("--metrics",type=Path); q.add_argument("--config",type=Path)
- a=p.parse_args();tail=lambda v:v[1:] if v[:1]==["--"] else v
+ a=p.parse_args((["--json-events"] if events else [])+raw);tail=lambda v:v[1:] if v[:1]==["--"] else v
+ if a.command in LIFECYCLE_ACTIONS:
+  if a.command=="doctor" and a.name is None:
+   result=environment_doctor(); lifecycle_output(result,human=a.human,stage="doctor"); return 0 if result["healthy"] else 1
+  return lifecycle_action(a.command,a.name,human=a.human)
  if a.command=="tools":
   print(json.dumps({"schema":"shadow6.tools.v1","tools":[{"name":n,"path":str(path),"available":path.is_file()} for n,path in sorted(COMPONENTS.items())]},indent=2));return 0
  if a.command=="guide":return run("control",["guide","--lang",a.lang],a.json_events)
@@ -310,7 +451,7 @@ def main():
    if a.service_action=="create": result=registry.create(a.name,core=a.core,profile=a.profile,config=config,privacy=a.privacy,spec=service_spec(a),context=service_context(a))
    elif a.service_action=="upgrade": result=registry.upgrade(a.name,core=a.core,profile=a.profile,config=config,privacy=a.privacy,spec=service_spec(a),context=service_context(a))
    else: result=registry.configure(a.name,core=a.core,profile=a.profile,config=config,privacy=a.privacy,spec=service_spec(a),context=service_context(a))
-  elif a.service_action=="lock": result=registry.lock(a.name)
+  elif a.service_action in {"lock","relock"}: result=registry.lock(a.name)
   elif a.service_action=="apply": result=registry.apply(a.name)
   elif a.service_action=="doctor": result=registry.doctor(a.name)
   elif a.service_action=="signal": result=registry.webrtc_signal_endpoint(a.name)
@@ -320,44 +461,48 @@ def main():
   elif a.service_action=="stop": result=registry.stop(a.name)
   elif a.service_action=="remove": result=registry.remove(a.name)
   else: result=registry.run(a.name) if a.service_action=="run" else registry.connect(a.name)
-  print(json.dumps(result,ensure_ascii=True,sort_keys=True,indent=2)); return 0
+  lifecycle_output(result,human=a.human,stage=a.service_action,name=getattr(a,"name",None)); return 0
  if a.command=="install":
+  if a.prefix is None:
+   if a.destdir is not None: raise ValueError("--destdir requires an explicit --prefix")
+   lifecycle_output(install_inspection(CoreCatalog(ROOT)),human=a.human,stage="install"); return 0
   import re
   if any(not path.is_absolute() or not re.fullmatch(r"/[A-Za-z0-9_./-]+",str(path)) or ".." in path.parts for path in (a.prefix,a.destdir) if path is not None):
    raise ValueError("installation paths must be absolute ASCII paths using letters, digits, slash, dot, underscore or hyphen")
-  return subprocess.run(["make","install-prebuilt","PREFIX="+str(a.prefix)]+(["DESTDIR="+str(a.destdir)] if a.destdir else []),cwd=ROOT,check=False).returncode
+  installed=subprocess.run(["make","install-prebuilt","PREFIX="+str(a.prefix)]+(["DESTDIR="+str(a.destdir)] if a.destdir else []),cwd=ROOT,stdout=sys.stderr if a.json else None,check=False)
+  if a.json or a.human:
+   prefix=a.destdir/a.prefix.relative_to("/") if a.destdir else a.prefix
+   lifecycle_output({"schema":"shadow6.lifecycle.v1","stage":"install","operation":"install-prebuilt","prefix":str(prefix),"exit_code":installed.returncode,"verified":installed.returncode==0,"hint":str(prefix/"bin/shadow6")+" doctor --human" if installed.returncode==0 else "Inspect installer diagnostics above; the existing installer retains the old prefix on failed admission."},human=a.human,stage="install")
+  return installed.returncode
  if a.command=="setup":
   if not a.core: raise ValueError("CoreSelectionRequired")
   if a.check and a.start_service: raise ValueError("--check cannot start a service")
   catalog=CoreCatalog(ROOT)
+  if not a.check and ServiceRegistry is None: raise ValueError("Named Service Python dependencies unavailable; run shadow6 doctor")
   registry=None if a.check else ServiceRegistry(catalog=catalog)
-  created=False
   try:
    from profile_availability import inspect_profile
    availability=inspect_profile(catalog,a.core,a.profile)
    if not availability['available']:
-    print(json.dumps({"schema":"shadow6.lifecycle-error.v1","stage":"setup","error":"ProfileUnavailable","profile":availability['profile'],"diagnostics":availability['diagnostics']},sort_keys=True),file=sys.stderr); return 2
-   config=load_service_config(a.config); spec=service_spec(a); context=service_context(a)
+    lifecycle_output({"schema":"shadow6.lifecycle-error.v1","stage":"setup","error":"ProfileUnavailable","profile":availability['profile'],"diagnostics":availability['diagnostics'],"hint":"Run shadow6 doctor --human; explicitly choose an available Core/Profile or supply the missing runtime prerequisite."},human=a.human,error=True); return 2
+   if a.native_config:
+    from service_storage import private_read
+    private_read(a.native_config)
+    config={"config_path":str(a.native_config.expanduser().absolute())}
+   else: config=load_service_config(a.config)
+   spec=service_spec(a); context=service_context(a)
    if a.check:
     catalog.binding(a.core,config)
     bind_profile(a.core,a.profile)
-    print(json.dumps({"schema":"shadow6.setup-check.v1","service":a.name,
-        "core":a.core,"profile":availability['profile'],"available":True},sort_keys=True))
+    lifecycle_output({"schema":"shadow6.setup-check.v1","service":a.name,
+        "core":a.core,"profile":availability['profile'],"available":True},human=a.human,stage="check",name=a.name)
     return 0
-   try: existing=registry.inspect(a.name)
-   except ValueError:
-    existing=registry.create(a.name,core=a.core,profile=a.profile,config=config,privacy=a.privacy,spec=spec,context=context)
-    created=True
-   if existing.get("profileBinding") != bind_profile(a.core,a.profile) or existing.get("coreBinding") != registry.catalog.binding(a.core,config) or existing["spec"] != spec or existing["privacy"] != a.privacy or existing["protocolContext"] != context:
-    raise ValueError("setup differs from existing service; explicitly stop and service configure first")
-   registry.apply(a.name); result=registry.run(a.name) if a.start_service else registry.status(a.name)
+   result=registry.setup(a.name,core=a.core,profile=a.profile,config=config,privacy=a.privacy,
+                         spec=spec,context=context,start=a.start_service)
   except (ValueError,OSError,json.JSONDecodeError) as exc:
    error=str(exc)
-   if created:
-    try: registry.remove(a.name)
-    except (ValueError,OSError) as cleanup_error: error += '; failed to remove incomplete service: '+str(cleanup_error)
-   print(json.dumps({"schema":"shadow6.lifecycle-error.v1","stage":"setup","error":error}),file=sys.stderr); return 2
-  print(json.dumps(result,sort_keys=True,indent=2)); return 0
+   lifecycle_output({"schema":"shadow6.lifecycle-error.v1","stage":"setup","error":error,"hint":recovery_hint(error,a.name)},human=a.human,stage="setup",name=a.name,error=True); return 2
+  lifecycle_output(result,human=a.human,stage="setup",name=a.name); return 0
  if a.command=="privacy-envelope":
   from privacy_envelope import read_metrics, compatibility
   if a.action=="run":
@@ -365,16 +510,9 @@ def main():
    from service_runtime import executable
    return subprocess.run([executable(CoreCatalog(ROOT).envelope_binary()),"--config",str(a.config.absolute())],check=False).returncode
   if a.action=="status": result=read_metrics(a.metrics)
-  elif a.action=="feature-report":
-   path=CoreCatalog(ROOT).envelope_binary()
-   if path.is_file():
-    from service_runtime import executable
-    probe=subprocess.run([executable(path),"--feature-report"],capture_output=True,text=True,timeout=5,check=True)
-    from service_storage import strict_json
-    result={**strict_json(probe.stdout),"available":True}
-   else: result={"schema":"shadow6.privacy-envelope.v1","implementation":"ocaml","available":False,"build":"make privacy-envelope"}
+  elif a.action=="feature-report": result=envelope_feature_report(CoreCatalog(ROOT))
   else: result={"schema":"shadow6.privacy-envelope-compatibility.v1","cores":[compatibility(c) for c in (a.core or list(CoreCatalog(ROOT)._items))]}
-  print(json.dumps(result,sort_keys=True,indent=2)); return 0
+  print(json.dumps(result,sort_keys=True,indent=2)); return 1 if a.action=="feature-report" and not result["available"] else 0
  if a.command=="acceptance":
   deployment_dir = ROOT / "Deployment" if (ROOT / "Deployment").is_dir() else ROOT / "share" / "shadow6" / "deployment"
   sys.path.insert(0, str(deployment_dir))
@@ -440,6 +578,6 @@ def main():
  return 0
 if __name__=="__main__":
  try: raise SystemExit(main())
- except (ValueError, OSError, subprocess.SubprocessError) as exc:
-  print(json.dumps({"schema":"shadow6.lifecycle-error.v1","error":str(exc)}),file=sys.stderr)
+ except (ValueError, OSError, ImportError, subprocess.SubprocessError) as exc:
+  lifecycle_output({"schema":"shadow6.lifecycle-error.v1","error":str(exc),"hint":recovery_hint(exc)},human="--human" in sys.argv,error=True)
   raise SystemExit(2)
