@@ -1,5 +1,16 @@
 # Shadow6 deployment and S6ABI/1
 
+Optional S6EPE v3 deployment preserves opaque native stream, datagram or message
+semantics with mandatory encrypted payloads. Raw/TLS, Linux SCTP, and Linux
+libdatachannel WebRTC have distinct carrier contracts. Named Service owns the
+bounded private S6SG1 broker for an explicit Nim/WebRTC Profile, requires fresh
+v6 active authenticated-session telemetry plus an owned UDP socket for startup,
+and rejects WebRTC/Gate composition. Configuration, native/component materials
+and fixed runtime inputs are locked and rechecked; a repository-local optional
+WebRTC provider is included when present. See the
+[envelope guide](../docs/privacy-envelope.md) and
+[Named Service lifecycle](../docs/named-services.md) for provider/platform limits.
+
 `shadow6.deployment.v1` is a strict, Core-neutral intent document. It names
 logical Broker endpoint sets, node identities, loopback services, policies and
 application requirements. It never contains private keys or native Core

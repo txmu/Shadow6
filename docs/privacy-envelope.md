@@ -63,18 +63,41 @@ pair receives a fresh random signalling ID. `signal_id` in the config is a
 service prefix, not a session identifier. The default raw carrier and the
 other Core Profiles remain unchanged. See the signalling handoff contract
 below and the [Carrier/Adapter Contract](privacy-envelope-carrier-contract.md).
-The current Named Service exposes a lock-bound S6SG1 client endpoint but does
-not create or supervise a signalling broker. An operator-provided compatible
-broker must own the configured socket and perform peer pairing.
+Named Service creates and owns the bounded, owner-only S6SG1 signalling broker
+and cleans up its socket and session state when the service ends. It exposes
+the lock-bound client endpoint for explicit offer/poll/answer operations.
 The [Carrier/Adapter Contract](privacy-envelope-carrier-contract.md) separates
 the stream security engine from transport I/O. Its default raw provider remains
 identifiable; the TLS 1.3 provider encapsulates the hello in a real encrypted
 TLS connection; the dedicated Linux SCTP message provider preserves native
 records. The WebRTC provider preserves native DataChannels. Its executable
-session starts only after the external signalling broker returns an SDP
-answer, completes ICE/DTLS/DataChannel admission, and authenticates the S6EPE
+session starts only after the local signalling broker returns an SDP
+answer, completes ICE/DTLS/SCTP/DataChannel admission, and authenticates the S6EPE
 message handshake. Named Service startup waits for a fresh authenticated
-session observation.
+session observation and an owned UDP transport socket. Starting a process or
+merely discovering the signalling endpoint does not establish readiness.
+
+`mode=stream` preserves opaque bytes through raw or TLS carriers;
+`mode=datagram` preserves UDP packet boundaries through raw capsules;
+`mode=message` preserves native message boundaries and channel policy through
+SCTP or WebRTC. These modes do not convert native wire families. Named Service
+rejects WebRTC with Gate and requires the explicit Nim/WebRTC Profile binding.
+
+WebRTC executable configuration requires `role=server`, `mode=message`,
+`carrier=webrtc`, `metrics_path`, `signal_path` and `signal_id`. It is a
+server-owned bridge, not a symmetric client executable mode. The outer leg
+offers SDP; the native leg polls an offer and returns an answer. Native
+PeerConnections are established before the independent S6EPE proof completes,
+but no application payload is forwarded until authentication. A standalone run
+requires a compatible broker already serving the private socket; Named Service
+creates that broker as part of its own lifecycle. No STUN/TURN servers are
+configured implicitly; reachable ICE candidates and explicitly matching
+negotiated DataChannel policies remain operator/client responsibilities.
+
+The legacy `shadow6 privacy-envelope compatibility` diagnostic still reports
+Nim/C++ as unsupported by its raw stream/datagram mapping. That output is not
+the current message-carrier deployment contract: use the executable feature
+report, explicit Profile binding and Deployment admission/runtime observations.
 
 ## Native SCTP message carrier
 
@@ -227,14 +250,20 @@ rejection/byte/record/timeout counters, shaping overhead and enabled state.
 TLS metrics v3 additionally declare `carrier=tls` and
 `wire_appearance=standard-tls13`; SCTP metrics v4 add `carrier=sctp`,
 `wire_appearance=standard-sctp`, native send abandonment and established-session
-rejection counters. WebRTC metrics v5 report `carrier=webrtc` and
+rejection counters. Current WebRTC metrics v6 report `carrier=webrtc` and
 `wire_appearance=standard-webrtc-datachannel` with bounded message failure
 counters and `active_sessions`; Named Service uses that live counter for
 authenticated WebRTC readiness. Snapshots capture counters under one lock. Raw
-remains v2. Control Center strictly recognizes v1 through v6 and reports
+remains v2; historical WebRTC v5 lacks the active-session counter and cannot
+establish current readiness. Control Center strictly recognizes v1 through v6 and reports
 current/stale/unavailable separately. No secret or native payload is
 written to telemetry. Configuration/key epoch changes invalidate DeploymentLock;
-Named Service revalidates admission and files during supervision.
+Named Service revalidates admission and files during supervision. Locks include
+the fixed supervisor/configuration/record adapter sources, native and component
+materials, and the optional repository-local `libdatachannel.so.0.23` provider
+when present; its digest uses the bounded executable-material checks. This does
+not attest every externally installed provider library. Linux pidfd supervision
+and provider availability remain deployment prerequisites, not portable S6P1 facts.
 
 ```sh
 make privacy-envelope-test

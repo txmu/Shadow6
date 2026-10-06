@@ -3,6 +3,16 @@
 See [privacy across interfaces](../docs/privacy-interfaces.md) for the shared
 `privacy.report` and `system.guide` methods and JSONL's read-only default.
 
+`privacy-envelope.status` reads only the operator's `SHADOW6_ENVELOPE_METRICS`
+private file and accepts empty parameters. It strictly accepts telemetry v1..v6;
+current raw/TLS/SCTP/WebRTC snapshots use v2/v3/v4/v6 respectively. Missing
+configuration, missing files and sample ages outside 0..5 seconds report
+`not-configured`, `unavailable` and `stale`; invalid data fails closed. WebRTC v6
+includes live `active_sessions`; cumulative authentication counters and the
+historical v5 schema cannot establish active-session readiness. See the
+[current envelope contract](../docs/privacy-envelope.md) for mandatory v3
+encryption, explicit Nim/WebRTC deployment and legacy compatibility-table limits.
+
 `shadow6-control` is the versioned one-stop CLI/API and tool server for feature configuration,
 init rendering, Core/topology/policy/plugin validation, signed plugin inventory,
 Crosed feature inspection, typed Slots, security/infrastructure assistants, and signed fixed

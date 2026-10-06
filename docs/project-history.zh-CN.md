@@ -536,6 +536,11 @@ VCore、driver 与 `libshadow6` 按 feature-report/application boundary 发现�
 
 ## 2026-10-03：Privacy Envelope 与命名服务生命周期
 
+此节记录当日的早期实现，不代表当前协议。当前 S6EPE v3 强制加密 payload，
+支持 raw/TLS/Linux SCTP/WebRTC，datagram 必须使用持久 replay；Named Service
+已托管显式 Nim/WebRTC Profile 的 S6SG1 broker，并使用 v6 active-session
+telemetry 与进程持有的 UDP socket 判断 readiness。参见 [当前指南](privacy-envelope.md)。
+
 新增可选 OCaml External Privacy Envelope（S6EPE），支持 authenticated-envelope 的
 stream 与 datagram-preserving 模式。它位于公网入口和本地 Core endpoint 之间，只做认证、
 授权、资源限制和不透明字节转发；十二个 Core 的 native wire protocol、magic、frame layout、

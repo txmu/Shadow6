@@ -3,8 +3,9 @@
 For install/run, named services, real privacy telemetry and their current platform
 limits, start with [the lifecycle guide](docs/named-services.md). The optional
 [OCaml Privacy Envelope](docs/privacy-envelope.md) has a client/server E2E test
-suite; [the review record](docs/review-2026-10-03.md) separates implemented controls
-from remaining native-artifact and deployment checks.
+suite and current raw/TLS/Linux SCTP/WebRTC carriers. The
+[dated review record](docs/review-2026-10-03.md) describes an earlier snapshot;
+the envelope and lifecycle guides describe current deployment contracts.
 The [native security capability matrix](docs/native-security-capabilities.md)
 distinguishes each family's native security from the independent S6EPE domain.
 
@@ -399,4 +400,4 @@ gleam-mux udp R node 0.29 72.8% - 7.89 75
 
 Named Service v2 持有 S6P1 逻辑/准入上下文；CoreBinding 显式锁定本机 Core，Runtime 只记录实际进程、端点和 readiness。`shadow6 connect home/nas` 与 S6P1/invitation 汇入同一 connection-plan resolver；已观测到的本地 client stream 可通过 `--stdio` 或 libshadow6 真正建立会话。多 Broker 使用 S6P1.routes BrokerSet 和显式 Gate 适配，不承诺既有 session 无缝迁移。参见 [完整链路与边界](docs/service-connections.md)。
 
-普通 topology 的 Broker/Agent/Client 必须使用同一 engine family；Core-Blind 不代表 native wire compatibility。Zig Broker 的 Go/Rust 控制兼容声明只是明确例外，不提供任意跨 Core 翻译。Auto-Orchestrator 保留 topology/fleet 与 SSH/MTD 执行能力，Deployment 收口 node/service realization。S6EPE v3 提供 authenticated encrypted outer stream/UDP、可显式选择的 TLS 1.3 Carrier（将 hello 封装在真实 mTLS 内）、可选持久 replay 和有界 stream padding/jitter/cover；它不保证匿名、不可检测或不可封锁。参见 [S6EPE v3](docs/privacy-envelope.md)。
+普通 topology 的 Broker/Agent/Client 必须使用同一 engine family；Core-Blind 不代表 native wire compatibility。Zig Broker 的 Go/Rust 控制兼容声明只是明确例外，不提供任意跨 Core 翻译。Auto-Orchestrator 保留 topology/fleet 与 SSH/MTD 执行能力，Deployment 收口 node/service realization。S6EPE v3 强制加密 outer stream/UDP/message payload，支持 raw、TLS 1.3、Linux SCTP 和真实 libdatachannel ICE/DTLS/SCTP/DataChannel WebRTC Carrier。datagram 必须配置持久 replay；stream/message shaping 有界且默认关闭。显式 Nim/WebRTC Profile 的 Named Service 托管 S6SG1 信令 broker，并依据新鲜 v6 active authenticated session 和进程持有的 UDP socket 判断 readiness。TLS/WebRTC 可隐藏内层内容，但不保证匿名、浏览器不可区分、anti-DPI 或不可封锁。参见 [S6EPE v3](docs/privacy-envelope.md)。

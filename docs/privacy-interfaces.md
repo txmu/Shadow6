@@ -82,3 +82,16 @@ fabricated zero counters. Files are private and strictly parsed with an allowlis
 See [the lifecycle guide](named-services.md) and [the envelope guide](privacy-envelope.md).
 Envelope observations include an integer sample time and are local diagnostics;
 `privacy.report` remains the timestamp-free sharing surface.
+
+Current envelope wire version is v3, independent of telemetry versions. Raw
+emits v2 snapshots, TLS v3, SCTP v4 and WebRTC v6. Control Center accepts strict
+schemas v1 through v6; v5 is historical WebRTC telemetry without active-session
+readiness. Only a fresh v6 `active_sessions > 0` plus an owned UDP socket supports
+Named Service WebRTC readiness. Cumulative `authenticated_sessions` alone does
+not. Observations are `current` for sample ages 0..5 seconds and `stale`
+otherwise; invalid schemas fail rather than inventing counters.
+
+The legacy CLI `privacy-envelope compatibility` table maps raw stream/datagram
+boundaries and still reports Nim/C++ unsupported. It does not describe the
+current explicit Nim/WebRTC message Profile or the Linux SCTP carrier; consult
+the feature report and Deployment admission for those contracts.

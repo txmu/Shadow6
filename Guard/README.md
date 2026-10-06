@@ -2,8 +2,8 @@
 
 Guard owns perimeter/exposure policy: SPA/IP windows, rate control, AntiProbe,
 Broker Shield and TLS/Web facade. An IP unlock is not session authentication.
-S6EPE independently authenticates each stream session/datagram before allocating
-a native upstream; Gate independently provides an authenticated encrypted
+S6EPE independently authenticates stream/message sessions and datagrams before
+forwarding payloads; Gate independently provides an authenticated encrypted
 Shadow6 path; Core owns native data-plane semantics.
 
 Explicit optional combinations are S6EPE -> Core, Guard -> S6EPE -> Core,

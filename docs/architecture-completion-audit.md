@@ -1,6 +1,17 @@
 # Architecture integration audit
 
-## Current source snapshot — 2026-10-05
+## Current documentation scope — 2026-10-06
+
+S6EPE currently implements mandatory encrypted wire v3 with raw/TLS stream,
+raw datagram and Linux SCTP/WebRTC message carriers. The executable's real
+libdatachannel ICE/DTLS/SCTP/DataChannel bridge and explicit Nim/WebRTC Deployment
+binding are implemented. Named Service owns the bounded S6SG1 broker, rechecks
+locked runtime material, and waits for fresh v6 active authenticated-session
+telemetry plus an owned UDP socket. These are source/test contracts, not a new
+claim that platform CI or the entire architecture has passed. See the
+[current guide](privacy-envelope.md) for deployment and provider limits.
+
+## Source snapshot — 2026-10-05
 
 The current worktree integrates the Native Profile registry with Named Service
 setup and lock checks, multi-stream S6NA reflection, dynamic service-count
@@ -216,6 +227,12 @@ cross-platform verification still require CI evidence.
 
 ### WebRTC provider evidence
 
+Historical provider-stage evidence (2026-10-04): the v5 and rejected/unfinished
+executable claims below applied at this stage only. Current configuration,
+feature reports, Deployment admission and Named Service broker integration
+supersede them; WebRTC now emits v6 active-session telemetry. This section's
+test totals remain the recorded totals, not verification of today's checkout.
+
 After explicit operator approval, the existing CI-pinned libdatachannel commit
 `9e6a13abbb6846c003d817d0387b6706466e2b03` and pinned submodules were downloaded
 and source-built solely in `/tmp/shadow6-webrtc.FTsiIy`, with no global package
@@ -334,7 +351,11 @@ and Web API least-privilege defaults remain constraints on the UI work.
 | 11. Native security matrix | Crosed/security_capabilities.json covers twelve families and legacy limits; strict loader, generated docs, source audit and portable export share it; 22 matrix/feature tests passed | CI verification of integration; source references are not cryptographic proofs or runtime attestations |
 | 12. Current documentation | privacy-envelope.md describes v3 and identifiable hello; exposure audit distinguishes encrypted payload from public hello | Update README/architecture/security/deployment/named-service guides against final implementations and label historical v2/process-only claims |
 
-## Next work
+## Historical next work (2026-10-04)
+
+The WebRTC configuration, S6SG1 handoff, DeploymentLock/runtime observation and
+Named Service broker work listed below has since been implemented. The table
+above records starting evidence and gates at that date, not current omissions.
 
 Complete WebRTC CLI configuration and standard signalling handoff, connect both
 local Native Core boundary and remote outer DataChannel through the existing

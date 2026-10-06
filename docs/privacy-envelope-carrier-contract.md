@@ -83,8 +83,8 @@ consumed; a stale event cannot certify later sends. Real envelope loopback tests
 verify opaque messages, metadata, wrong-proof rejection before opening native
 upstream, and authenticated association close. Feature reports advertise SCTP
 only where the native backend is available. These component tests do not certify
-twelve-Core deployment compatibility. WebRTC's dedicated provider and actual
-ICE/DTLS/DataChannel deployment integration remain required.
+twelve-Core deployment compatibility. The executable WebRTC integration below
+is admitted only for the explicitly bound Nim/WebRTC Profile.
 
 ## Native WebRTC provider and current integration boundary
 
@@ -161,8 +161,8 @@ the worst-case 128-pair queue reservation below the provider aggregate cap.
 S6EPE v6 metrics report active authenticated sessions; Named Service waits for
 that evidence and an owned UDP transport socket before acknowledging startup.
 Deployment admits this realization only for the explicitly bound Nim/WebRTC
-Profile. It does not translate data to another Core family. The broker remains
-a Named Service dependency and must implement this fixed local handoff contract;
+Profile. It does not translate data to another Core family. Named Service creates
+and owns the bounded broker implementing this fixed local handoff contract;
 the executable never starts or exposes a public signalling listener itself.
 
 To source-build this optional Linux provider with the pinned dependency in a
@@ -175,13 +175,17 @@ this optional backend is missing, rather than accepting a skip as coverage.
 
 ## Wire appearance and evidence
 
+The contract version in this document's title describes the carrier interface;
+it is separate from S6EPE wire v3 and WebRTC telemetry schema v6.
+
 Raw v3 exposes its hello magic. Moving it into a genuine standard carrier means
 the outer endpoint first establishes that carrier and the hello travels as
 carrier content. A natural encrypted carrier can conceal the inner hello from
 passive wire inspection; an unencrypted framing change alone cannot. Deleting or
 randomizing magic is not camouflage. SCTP alone exposes its message content;
-WebRTC/DTLS, authenticated TLS or an explicitly authenticated encrypted SCTP
-carrier have different observable security/appearance properties.
+WebRTC/DTLS and authenticated TLS conceal inner content. The current native
+SCTP carrier does not supply encrypted carrier concealment; independent S6EPE
+payload encryption does not conceal its hello.
 
 Keep these claims separate in configuration, observations and exposure audits:
 native identity disclosure, traffic-analysis shaping and actual carrier

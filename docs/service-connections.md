@@ -207,7 +207,7 @@ Core/Gate listener; Guard forwarding features must target EPE. All critical
 processes share supervision and terminate if one exits. EPE config/binary drift
 invalidates the lock.
 
-S6EPE v3 encrypts its outer stream/datagram payloads, with explicit bounded
+S6EPE v3 encrypts its outer stream/datagram/message payloads, with explicit bounded
 optional stream padding/jitter/cover records. It does not provide anonymity,
 DPI-proof transport or undetectability. Gate retains routing/relay/BrokerSet
 responsibilities; S6EPE does not translate native wire families. See the

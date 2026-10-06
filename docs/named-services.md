@@ -197,10 +197,10 @@ translate across Core families and cannot compose with Gate.
 `shadow6 service signal NAME` exposes the lock-bound S6SG1 endpoint without
 returning native config or credentials. `libshadow6` provides
 `webrtc_client_reflector()` for callers that need explicit offer/poll/answer
-operations, alongside the transparent application facade. The client contract
-is implemented, but the Named Service runner does not create the local
-signalling broker: an operator-provided broker must exist at `signal_path`
-before WebRTC startup, and this endpoint by itself does not pair peers.
+operations, alongside the transparent application facade. The Named Service
+runner creates and owns the bounded local signalling broker at `signal_path`
+and cleans up its socket and session state on exit. The broker pairs matching
+session IDs; endpoint discovery alone does not prove an authenticated session.
 For the read-only Control Center API, configure `SHADOW6_ENVELOPE_METRICS` in its
 operator environment, then call `privacy-envelope.status` with empty parameters.
 RPC clients cannot choose arbitrary metrics files. No telemetry is sent off-host.
