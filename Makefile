@@ -379,6 +379,7 @@ test:
 	@$(MAKE) deployment-test
 	@$(PYTHON) -m unittest -v test_compliance.py
 	@PYTHONPATH=Tools $(PYTHON) -m unittest discover -s Tools -p 'test_*.py' -v
+	@PYTHONPATH=Crosed $(PYTHON) -m unittest discover -s Test-Lab -p 'test_*.py' -v
 	@$(PYTHON) -m unittest -v libshadow6/test_libshadow6.py
 	@PYTHONPATH=Tools $(PYTHON) -m unittest -v Tools/test_app_flow_proxy.py
 ifeq ($(BUILD_HARE),1)
@@ -475,7 +476,7 @@ ifeq ($(BUILD_RELAY),1)
 		$(CC) -std=c11 -O0 -Wall -Wextra -Wpedantic -D_GNU_SOURCE -fsyntax-only c11relay.c; \
 	fi
 endif
-	@PYTHONPATH=Control-Center:Slot-System:Service-Init:Package-Manager:Public6:Migration:I18n $(PYTHON) -m py_compile Service-Init/*.py Auto-Orchestrator/shadow6_auto.py integration/stack_test.py Detector/*.py Plugin-System/*.py Package-Manager/*.py EasyBuild/*.py Android/*.py plugins/*/main.py Crosed/*.py Application-Layer/*.py Security-Assistants/*.py Infrastructure-Assistants/*.py Slot-System/*.py Control-Center/*.py Public6/*.py Migration/*.py I18n/*.py shadow6_audit.py
+	@PYTHONPATH=Control-Center:Slot-System:Service-Init:Package-Manager:Public6:Migration:I18n:Crosed $(PYTHON) -m py_compile Service-Init/*.py Auto-Orchestrator/shadow6_auto.py integration/stack_test.py Detector/*.py Plugin-System/*.py Package-Manager/*.py EasyBuild/*.py Android/*.py Test-Lab/*.py Tools/package_ci_artifacts.py Tools/install_platform_payload.py Tools/test_package_ci_artifacts.py Android/export_native_profiles.py plugins/*/main.py Crosed/*.py Application-Layer/*.py Security-Assistants/*.py Infrastructure-Assistants/*.py Slot-System/*.py Control-Center/*.py Public6/*.py Migration/*.py I18n/*.py shadow6_audit.py
 
 deployment-test:
 	@PYTHONPATH=Deployment:Control-Center $(PYTHON) -m unittest -v Deployment/test_deployment.py
@@ -723,7 +724,7 @@ install-tree:
 clean:
 	@rm -f Core-Hare/shadow6-hare Core-Go/shadow6-go Core-Go/shadow6-go-crosed Core-Go/shadow6-go-public6 Core-Rust/shadow6-rust Core-Rust/shadow6-rust-crosed Core-Rust/shadow6-rust-public6 Core-Gleam/shadow6-gleam Core-Gleam/shadow6-gleam-crosed Core-Cpp/shadow6-cpp C11Relay/bridge_relay C11Relay/c11relay_test Guard/shadow6-guard Gate/shadow6-gate
 	@$(MAKE) -C Core-Gleam clean
-	@find Service-Init Auto-Orchestrator Detector Plugin-System Package-Manager EasyBuild Android plugins integration Crosed Application-Layer Network-Adapter Security-Assistants Infrastructure-Assistants Slot-System Control-Center Public6 -type d -name __pycache__ -prune -exec rm -rf {} +
+	@find Service-Init Auto-Orchestrator Detector Plugin-System Package-Manager EasyBuild Android Test-Lab Tools plugins integration Crosed Application-Layer Network-Adapter Security-Assistants Infrastructure-Assistants Slot-System Control-Center Public6 -type d -name __pycache__ -prune -exec rm -rf {} +
 
 distclean: clean
 	@rm -f config.mk

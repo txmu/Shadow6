@@ -5,9 +5,33 @@ from pathlib import Path
 
 import build_android_cores
 import check_build_resources
+import export_native_profiles
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'Crosed'))
+from native_profiles import CORE_IDS, profile_digest, profiles
 
 ROOT = Path(__file__).resolve().parent
 class AndroidProjectTests(unittest.TestCase):
+    def test_android_profile_catalog_is_exported_from_the_authoritative_registry(self):
+        value = export_native_profiles.catalog()
+        self.assertEqual(value['schema'], 'shadow6.android-native-profile-catalog.v1')
+        self.assertEqual(len({item['core'] for item in value['profiles'] if item['primary']}), len(CORE_IDS))
+        self.assertEqual(len(value['profiles']), len(profiles()))
+        by_id = {item['id']: item for item in value['profiles']}
+        for profile in profiles():
+            self.assertEqual(by_id[profile['id']]['contractDigest'], profile_digest(profile))
+            self.assertEqual(by_id[profile['id']]['applicationBoundary'], profile['applicationBoundary'])
+        gradle = (ROOT / 'app/build.gradle.kts').read_text()
+        self.assertIn('generateNativeProfileCatalog', gradle)
+        self.assertIn('dependsOn(generateNativeProfileCatalog)', gradle)
+        runtime = (ROOT / 'app/src/main/java/org/shadow6/android/core/CoreRuntime.kt').read_text()
+        self.assertIn('applicationSessionProbe', runtime)
+        self.assertIn('application-ready', runtime)
+        self.assertIn('processIdentity', runtime)
+        self.assertIn('RuntimeObservation field set', runtime)
+        self.assertNotIn('shadow6.android-runtime-observation.v1', runtime)
+        self.assertIn('use a controlled remote capture endpoint', runtime)
+
     def test_d_android_link_contract(self):
         for abi, (_, target) in build_android_cores.TARGETS.items():
             with self.subTest(abi=abi), tempfile.TemporaryDirectory() as directory:

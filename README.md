@@ -318,6 +318,11 @@ installed entrypoints:
 make install DESTDIR=/tmp/shadow6-package PREFIX=/usr/local
 ```
 
+For artifact-backed all-Core WAN/PCAP checks, Android capability observations,
+and the same-run platform/architecture release bundle, see the bilingual
+[WAN / PCAP Test Lab guide](docs/wan-pcap-test-lab.md) and
+[project history](docs/project-history.en.md).
+
 ## Configuration
 
 Use the core binaries' `--gen-key`, `--init-config`, and `--check-config`

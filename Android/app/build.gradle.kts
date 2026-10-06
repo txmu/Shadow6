@@ -3,10 +3,21 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+val nativeProfileCatalog = layout.buildDirectory.file("generated/native-profile-assets/native-profiles.json")
+val generateNativeProfileCatalog by tasks.registering(Exec::class) {
+    val repositoryRoot = projectDir.parentFile.parentFile
+    inputs.file(repositoryRoot.resolve("Crosed/native_profiles.py"))
+    inputs.file(repositoryRoot.resolve("Android/export_native_profiles.py"))
+    outputs.file(nativeProfileCatalog)
+    commandLine("python3", repositoryRoot.resolve("Android/export_native_profiles.py").absolutePath,
+        "--output", nativeProfileCatalog.get().asFile.absolutePath)
+}
+
 fun enabled(name: String, default: Boolean = true) = providers.gradleProperty(name).orNull?.toBooleanStrictOrNull() ?: default
 
 android {
     namespace = "org.shadow6.android"
+    sourceSets.getByName("main").assets.srcDir(nativeProfileCatalog.get().asFile.parentFile)
     compileSdk = 36
     defaultConfig {
         applicationId = "org.shadow6.android"
@@ -35,6 +46,8 @@ android {
     }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
 }
+
+tasks.named("preBuild").configure { dependsOn(generateNativeProfileCatalog) }
 
 dependencies {
     // Compose 1.12 requires compileSdk 37.  Keep the dependency train aligned

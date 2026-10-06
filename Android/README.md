@@ -138,3 +138,48 @@ payload packets, not proof of peer reachability. Android's supported Core set
 is still Go, Rust, D, and Nim. The cross-platform read-only Control Center
 dashboard is available on systems that run its local Python service; it is not
 embedded in the Android APK.
+
+## Android Native Profile and Test Lab observations
+
+At build time, `app/build.gradle.kts` runs `Android/export_native_profiles.py`;
+that exporter reads the authoritative `Crosed/native_profiles.py` registry and
+embeds all current Profile descriptors. The app inventory shows each of the
+twelve Cores and every registered Profile with `RUNNABLE`, `ARTIFACT-UNBOUND`,
+or `NOT-PACKAGED` state for the installed APK/ABI. The four current Android
+Core engines are Go/KCP, Rust/QUIC, D/secure-stream, and Nim/WebRTC.
+
+For a Client Profile, the action is **Connect Core**. Android waits for the
+Core's structured `shadow6.ready` event instead of treating a live process as
+ready. Once the local ApplicationBoundary listener is reported, **Run 4 KiB
+application echo correctness probe** sends deterministic bounded bytes through
+that endpoint and checks the full echo and SHA-256. Configure the remote
+Agent's target port to a controlled echo service first. The probe reports
+application readiness only after the data check passes. The JSON copied by
+**Copy redacted runtime/Test Lab observation JSON** contains the Profile,
+transport, boundary, lifecycle/readiness and explicit capability limits; it
+does not include configuration or credentials.
+
+The Android app sandbox does not capture device PCAP. Capture on a host you
+control using the [WAN / PCAP Test Lab guide](../docs/wan-pcap-test-lab.md), and
+label source/destination captures as remote evidence. Android supervisor,
+S6EPE, S6SG1, desktop LLM Lifecycle and device-side PCAP are reported as
+unavailable; they are not emulated through a shared ABI or a Python control
+service.
+
+### Android Test Lab（中文）
+
+构建 APK 时，`app/build.gradle.kts` 调用 `Android/export_native_profiles.py`，直接从权威
+`Crosed/native_profiles.py` 导出所有 Profile 描述符。应用能力清单显示全部十二 Core 和全部
+已注册 Profile，并针对当前 APK/ABI 标记 `RUNNABLE`、`ARTIFACT-UNBOUND` 或 `NOT-PACKAGED`。
+当前 Android 可运行 Core 为 Go/KCP、Rust/QUIC、D/secure-stream 和 Nim/WebRTC。
+
+选择 Client Profile 后，按钮为 **Connect Core**。Android 等待 Core 输出结构化
+`shadow6.ready` event；进程仍存活不会被误报成已就绪。出现本机 ApplicationBoundary listener
+后，可运行 **Run 4 KiB application echo correctness probe**，它经由本机 endpoint 发送确定性
+有界数据并验证完整回显和 SHA-256。请先把远端 Agent target port 配置成受控 echo service。
+只有数据校验通过后才报告 application-ready。**Copy redacted runtime/Test Lab observation
+JSON** 会复制 Profile、transport、boundary、生命周期/就绪状态及明确的能力限制，不含配置和凭据。
+
+Android app sandbox 无法抓取设备 PCAP。请通过[WAN / PCAP Test Lab 指南](../docs/wan-pcap-test-lab.md)
+在自己控制的主机抓包，并把源端/目的端捕获标为远端证据。Android supervisor、S6EPE、S6SG1、
+桌面 LLM Lifecycle 与设备内 PCAP 都明确显示 unavailable；应用不会通过统一 ABI 或 Python 控制服务伪造这些能力。

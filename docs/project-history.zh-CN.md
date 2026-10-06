@@ -673,3 +673,36 @@ CI 将旧版 Node 20 官方 action 升至 Node 24 版本；第三方 action 与�
 ARM64 可选证据文件不存在时不再触发空 artifact 上传告警；该 job 的 Go 自动缓存关闭，
 避免依赖文件查找误报。`goto-bus-stop/setup-zig@v2` 上游仍声明 Node 20，暂保留
 版本钉选及强制 Node 24，后续需等待可信的 Node 24 兼容替代。
+
+## 2026-10-06：artifact-backed WAN/PCAP Lab、Android Profile 目录与 CI 总包
+
+新增 `Test-Lab/`，权威十二 Core/十三 Native Profile 来自现有 Crosed Profile Registry，
+通过 `integration/stack_test.py` 运行真实 Native 三角色 echo；Artifact manifest 绑定
+commit、Profile digest、可执行文件模式与 SHA-256。抓包、flow fingerprint、netem 场景、
+分 Core/profile/scenario 的 JSON/Markdown 结果和 fixture 单测归入统一入口。CI Linux producer
+写入 manifest，下游 job 下载同 run artifact，以同一 Test Lab 执行矩阵；公网 WAN 不进入 PR
+默认依赖。Linux loopback netns 仍是模拟环境，双向设置在当前 loopback runner 中退化为保守
+对称边界，veth pair 尚未接入完整矩阵。
+
+Android APK 构建从 `Crosed/native_profiles.py` 生成 Profile catalog，显示十二 Core/全部
+注册 Profile 在当前 APK/ABI 中的产物与 controller 可用性。状态读取 Core 的结构化 listener
+ready event；RuntimeObservation 保持 Deployment 的规范字段集合。Client 增加 bounded application
+echo correctness probe，只有回显正确才报告 application-ready，并复制不含配置密钥的诊断 JSON。
+桌面 supervisor、设备 PCAP、S6EPE/S6SG1、桌面 LLM Lifecycle、SSH/VPS Test Lab、S6EPE 四
+Carrier 抓包和 Detector 的 capture-group train/test 当前都如实标注 unavailable/未接入，不能
+据此声称本轮完整 WAN/PCAP acceptance 已通过。
+
+多平台 CI 所有产物汇合后新增 `shadow6-artifacts-all` 总包，按平台/架构组织各自 payload、
+本地 manifest、说明与 `install.sh`/`install.ps1`；总 manifest 绑定 run/commit、逐文件 SHA-256，
+外层 ZIP 另有 SHA-256 sidecar。平台汇总 job 依赖所有产物生产 job，总包 job 在其后运行。Linux
+完整 release 调用现有免编译预编译安装；Android 用 adb 安装；组件型平台包仅暂存到当前用户
+目录，不激活服务。每个平台目录携带自己的清单和安装 helper，单独提取后也可验证 payload。
+
+本轮成功登录 GitHub，并从 Actions run `37425155442` 下载其预编译产物；源 commit 为
+`9b7cced4ca474982555964a95d63cd4dbe08bed3`。本地 Test Lab 确认 12/12 主 Native Profile 与
+13/13 注册 Profile 的 clean correctness smoke 均 PASS，没有为本轮重编 Core。该主机没有
+`CAP_NET_ADMIN` 和 `tc`，所以请求的 netem 场景为 `BLOCKED`，52 个请求的 PCAP 均为 `SKIP`；
+这不是 WAN/PCAP 通过。S6EPE 已有 Python 测试 39 PASS、1 个可选 WebRTC observer 因缺开发头文件
+SKIP；Control Center envelope 测试 10 PASS。四 Carrier PCAP、SSH/VPS 真实 WAN、完整 veth 分端
+矩阵、Android 设备抓包、capture-group 安全的 Detector 实验仍未实现。新增 CI 总包 workflow
+尚未在当前 revision 运行，不能声称该总包已由 GitHub 构建验证。

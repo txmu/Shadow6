@@ -3,6 +3,8 @@
 package org.shadow6.android
 
 import android.content.Context
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Intent
 import android.content.res.Configuration
 import android.net.Uri
@@ -293,11 +295,11 @@ fun Shadow6App() {
 
 @Composable
 private fun CoreStatusPill(status: CoreStatus) {
-    val background = if (status.running) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceVariant
-    val foreground = if (status.running) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
-    val stateText = if (status.running) stringResource(R.string.status_running_port, status.port)
-        else stringResource(R.string.stopped)
-    val spokenState = if (status.running) stringResource(R.string.core_online) else stringResource(R.string.core_offline)
+    val ready = status.observation?.readiness in setOf("listener-ready", "control-ready", "application-ready")
+    val background = if (ready) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceVariant
+    val foreground = if (ready) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
+    val stateText = when { !status.running -> stringResource(R.string.stopped); ready -> stringResource(R.string.status_running_port, status.port); else -> stringResource(R.string.core_process_active) }
+    val spokenState = when { !status.running -> stringResource(R.string.core_offline); ready -> stringResource(R.string.core_online); else -> stringResource(R.string.core_readiness_unavailable) }
     Surface(color = background, shape = RoundedCornerShape(99.dp), modifier = Modifier.semantics {
         contentDescription = spokenState
     }) {
@@ -380,6 +382,11 @@ private fun OverviewScreen(runtime: CoreRuntime, status: CoreStatus, onStatusCha
     var gateFailureReported by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf("") }
+    var sessionResult by remember { mutableStateOf("") }
+    var sessionBusy by remember { mutableStateOf(false) }
+    var showProfileInventory by remember { mutableStateOf(false) }
+    var diagnosticNotice by remember { mutableStateOf("") }
+    val profileInventory = remember(runtime) { runCatching { runtime.profileAvailability() }.getOrDefault(emptyList()) }
     val scope = rememberCoroutineScope()
     LaunchedEffect(runtime, gateEnabled, publicNodeEnabled, gateExpected, status.running) {
         while (true) {
@@ -427,14 +434,17 @@ private fun OverviewScreen(runtime: CoreRuntime, status: CoreStatus, onStatusCha
                     Image(painterResource(R.drawable.shadow6_app_icon), null, Modifier.size(72.dp))
                     Spacer(Modifier.width(16.dp))
                     Column {
+                        val ready = status.observation?.readiness in setOf("listener-ready", "control-ready", "application-ready")
                         Text(
-                            if (status.running) stringResource(R.string.core_online) else stringResource(R.string.core_offline),
+                            when { !status.running -> stringResource(R.string.core_offline); ready -> stringResource(R.string.core_online); else -> stringResource(R.string.core_process_active) },
                             color = Color.White,
                             style = MaterialTheme.typography.headlineSmall,
                             fontWeight = FontWeight.Bold,
                         )
                         Text(status.endpoint, color = Color(0xFFCFFAFE), style = MaterialTheme.typography.titleMedium, maxLines = 2)
                         Text(stringResource(R.string.native_profile, engine.profileId, engine.transport.uppercase(Locale.ROOT)),
+                            color = Color(0xFFDCEAFE), style = MaterialTheme.typography.bodySmall)
+                        Text("${stringResource(R.string.runtime_readiness)}: ${status.observation?.readiness ?: "unavailable"}",
                             color = Color(0xFFDCEAFE), style = MaterialTheme.typography.bodySmall)
                     }
                 }
@@ -446,6 +456,31 @@ private fun OverviewScreen(runtime: CoreRuntime, status: CoreStatus, onStatusCha
                 }
             }
         }
+
+        SectionLabel(stringResource(R.string.native_profile_inventory))
+        Text(stringResource(R.string.native_profile_inventory_summary, profileInventory.filter { it.state == "RUNNABLE" }.map { it.core }.distinct().size,
+            profileInventory.filter { it.state == "RUNNABLE" }.size), style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
+        TextButton(onClick = { showProfileInventory = !showProfileInventory }, modifier = Modifier.fillMaxWidth()) {
+            Text(if (showProfileInventory) stringResource(R.string.hide_profile_inventory) else stringResource(R.string.show_profile_inventory))
+        }
+        AnimatedVisibility(showProfileInventory) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                profileInventory.forEach { item ->
+                    ListItem(
+                        headlineContent = { Text("${item.core} · ${item.profile}", style = MaterialTheme.typography.bodyMedium) },
+                        supportingContent = { Text("${item.nativeTransport} · ${item.applicationBoundary}${item.reason?.let { " · $it" } ?: ""}", style = MaterialTheme.typography.bodySmall) },
+                        trailingContent = { Text(item.state, style = MaterialTheme.typography.labelSmall) },
+                    )
+                }
+            }
+        }
+        TextButton(onClick = {
+            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            clipboard.setPrimaryClip(ClipData.newPlainText("Shadow6 Test Lab observation", runtime.diagnosticJson().toString(2)))
+            diagnosticNotice = context.getString(R.string.diagnostic_copied)
+        }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.export_runtime_observation)) }
+        if (diagnosticNotice.isNotBlank()) Text(diagnosticNotice, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
 
         SectionLabel(stringResource(R.string.core_engine))
         SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
@@ -595,7 +630,8 @@ private fun OverviewScreen(runtime: CoreRuntime, status: CoreStatus, onStatusCha
                                     activeProfile.toJson(engine)
                                     persist()
                                     context.startForegroundService(Intent(context, CoreService::class.java).setAction(CoreService.ACTION_KEEP_ALIVE))
-                                    runtime.start(engine, activeProfile).also {
+                                    (if (activeProfile.role == CoreRole.CLIENT) runtime.connect(engine, activeProfile)
+                                     else runtime.start(engine, activeProfile)).also {
                                         if (!publicNodeEnabled && gateEnabled) {
                                             gateRuntime.start(GateProfile(true, gateLocalPort.toIntOrNull() ?: 0, gateRemoteHost.trim(), "127.0.0.1:4433", privateKey.trim(), brokerPublicKey.trim(), "unconditional"))
                                             gateFailureReported = false
@@ -623,7 +659,7 @@ private fun OverviewScreen(runtime: CoreRuntime, status: CoreStatus, onStatusCha
             if (busy) CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
             else Icon(if (status.running) Icons.Outlined.Close else Icons.Outlined.PlayArrow, null)
             Spacer(Modifier.width(8.dp))
-            Text(if (status.running) stringResource(R.string.stop_core) else stringResource(R.string.start_core), fontWeight = FontWeight.Bold)
+            Text(if (status.running) stringResource(R.string.stop_core) else if (role == CoreRole.CLIENT) stringResource(R.string.connect_core) else stringResource(R.string.start_core), fontWeight = FontWeight.Bold)
         }
         if (error.isNotBlank()) Text(error, color = MaterialTheme.colorScheme.error)
         if (status.detail.isNotBlank()) Text(status.detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -646,6 +682,21 @@ private fun OverviewScreen(runtime: CoreRuntime, status: CoreStatus, onStatusCha
                         modifier = Modifier.fillMaxWidth().height(52.dp),
                         enabled = status.port > 0,
                     ) { Text(stringResource(R.string.open_local_proxy)) }
+                    Button(onClick = {
+                        sessionBusy = true
+                        sessionResult = ""
+                        scope.launch {
+                            val result = withContext(Dispatchers.IO) { runtime.applicationSessionProbe() }
+                            sessionResult = result.toJson().toString(2)
+                            onStatusChange(runtime.status())
+                            sessionBusy = false
+                        }
+                    }, modifier = Modifier.fillMaxWidth(), enabled = status.port > 0 && !sessionBusy) {
+                        if (sessionBusy) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                        else Text(stringResource(R.string.run_application_session_probe))
+                    }
+                    if (sessionResult.isNotBlank()) Text(sessionResult, style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         }

@@ -755,7 +755,7 @@ jobs:
           cat "$output_dir/SHA256SUMS"
       - uses: actions/upload-artifact@v6
         with:
-          name: shadow6-idris-${{ matrix.os }}
+          name: shadow6-idris-${{ matrix.os }}-${{ runner.arch }}
           path: ${{ runner.temp }}/core-idris-artifact-${{ runner.os }}/core-idris-runtime.tar.gz
           if-no-files-found: error
   linux-gleam:
@@ -887,7 +887,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             build-essential pkg-config libssl-dev libsodium-dev libunistring-dev \
-            gnat gprbuild ldc shellcheck unzip iperf3
+            gnat gprbuild ldc shellcheck unzip iperf3 tcpdump iproute2
           # Idris2's compiled Chez images require the exact Chez fasl ABI used
           # by the producer job. Install the same Homebrew Chez on this Ubuntu
           # consumer instead of executing with the distro's older ABI.
@@ -1276,6 +1276,12 @@ jobs:
           test "$(tar -tzf ci-artifacts/linux/Shadow6.tar.gz | grep -c 'Core-Hare/shadow6-hare$')" -eq 1
           unzip -Z1 ci-artifacts/linux/Shadow6.zip | awk 'NF && $0 !~ /\/$/ && $0 !~ /\.txt$/ {bad=1} END {exit bad}'
           unzip -Z1 ci-artifacts/linux/Shadow6.zip | grep -qx 'Shadow6/.github/workflows/multiplatform.yml.txt'
+      - name: Write verified twelve-Core artifact provenance manifest
+        run: |
+          .venv/bin/python Test-Lab/shadow6_test_lab.py --write-manifest \
+            --manifest-output ci-artifacts/linux/shadow6-test-lab-artifact-manifest.json \
+            --run-attempt "$GITHUB_RUN_ATTEMPT" --workflow multiplatform \
+            --platform linux --architecture x86_64
       - name: Dump Linux environment and benchmark diagnostics
         if: always()
         run: |
@@ -1300,11 +1306,97 @@ jobs:
             Core-Pony/shadow6-pony*
             Core-Hare/shadow6-hare*
             Core-Carp/shadow6-carp*
+            Core-Idris/shadow6-idris
+            Core-Idris/shadow6-idris_app/**
+            Core-Idris/ffi/libsodium_ffi.so
+            Core-Nim/libdatachannel.so.0.23
             Gate/shadow6-gate
             Guard/shadow6-guard
             C11Relay/bridge_relay
             C11Relay/c11relay_test
           if-no-files-found: error
+  native-test-lab:
+    name: Artifact-backed all-Core WAN/PCAP Test Lab
+    needs: [linux, idris, privacy-envelope-contract]
+    if: always() && needs.linux.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with: {python-version: '3.12'}
+      - name: Download same-run Linux Core artifacts and provenance manifest
+        uses: actions/download-artifact@v7
+        with:
+          name: shadow6-linux-release
+          path: .tmp/test-lab-artifacts
+      - name: Download same-run Idris and Native WebRTC runtime companions
+        uses: actions/download-artifact@v7
+        with:
+          pattern: shadow6-idris-ubuntu-latest-X64
+          merge-multiple: false
+          path: .tmp/test-lab-companions
+      - uses: actions/download-artifact@v7
+        with:
+          name: shadow6-s6epe-linux-runtime
+          path: .tmp/test-lab-companions/shadow6-s6epe-linux-runtime
+      - name: Prepare bounded capture and namespace tools
+        uses: Homebrew/actions/setup-homebrew@49d03f1bf5d455a413dfbdf99e6718054a4cd975
+      - name: Install bounded capture tools and the matching Idris runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends tcpdump iproute2
+          eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+          brew install chezscheme
+          echo "$(brew --prefix chezscheme)/bin" >> "$GITHUB_PATH"
+      - name: Run every registered Native Profile against the downloaded artifacts
+        run: |
+          set +e
+          sudo --preserve-env=PATH,GITHUB_SHA,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT \
+            python3 Test-Lab/shadow6_test_lab.py --all-profiles \
+              --artifacts-dir .tmp/test-lab-artifacts \
+              --companion-artifacts-dir .tmp/test-lab-companions \
+              --scenario clean --scenario good-wan --scenario high-jitter --scenario failure-recovery \
+              --payload-bytes 1024 --requests 2 --capture \
+              --output-dir .tmp/wan-pcap/ci-${GITHUB_RUN_ID}
+          set -e
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          path = Path('.tmp/wan-pcap/ci-' + os.environ['GITHUB_RUN_ID'] + '/report.json')
+          if not path.is_file():
+              raise SystemExit('Test Lab did not produce report.json')
+          report = json.loads(path.read_text())
+          coverage = report['nativeCoreCoverage']
+          if coverage['denominator'] != 12 or len(coverage['cores']) != 12:
+            raise SystemExit('Native Core denominator changed from twelve')
+          if report['inventory']['available'] != 12:
+            raise SystemExit(f"same-run artifact inventory is {report['inventory']['available']}/12")
+          failures = [row for row in report['results'] if row.get('status') == 'FAIL']
+          if failures:
+            raise SystemExit(f"Test Lab found {len(failures)} Core/Profile regression(s)")
+          if coverage['executed'] != 12:
+            print(f"::warning::Native correctness environment executed {coverage['executed']}/12 primary Profiles")
+          missing_primary_capture = [row for row in report['results']
+              if row.get('scenario') == 'clean' and row.get('profile') == next(
+                  core['profile'] for core in coverage['cores'] if core['core'] == row.get('core'))
+              and row.get('capture', {}).get('status') != 'PASS']
+          if missing_primary_capture:
+            print(f"::warning::PCAP environment captured {12-len(missing_primary_capture)}/12 primary Profiles")
+          blocked = [row for row in report['results'] if row.get('status') == 'BLOCKED']
+          if blocked:
+              reasons = sorted({row.get('reason', 'unspecified environment block') for row in blocked})
+              print('::warning::Test Lab environment blocked some requested rows: ' + '; '.join(reasons)[:1500])
+          print(f"Native Core coverage: {coverage['executed']}/12 executed; {coverage['counts']}")
+          PY
+      - name: Upload all-Core WAN/PCAP Test Lab report and captures
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: shadow6-linux-native-wan-pcap
+          path: .tmp/wan-pcap/ci-${{ github.run_id }}/
+          if-no-files-found: warn
+          retention-days: 14
   linux-arm64:
     name: Linux ARM64 complete component matrix
     runs-on: ubuntu-24.04-arm
@@ -2340,6 +2432,20 @@ jobs:
           done
       - name: Build debug APK
         run: gradle --no-daemon --no-configuration-cache --max-workers=16 --console=plain -Dorg.gradle.jvmargs='-Xms256m -Xmx2g -XX:MaxMetaspaceSize=768m -XX:ReservedCodeCacheSize=128m -XX:ActiveProcessorCount=8' -p Android assembleDebug
+      - name: Verify APK embeds all registry-derived Android Profile descriptors
+        run: |
+          python3 Android/export_native_profiles.py --output "$RUNNER_TEMP/native-profiles.json"
+          python3 - <<'PY'
+          import json, os, zipfile
+          from pathlib import Path
+          apk = Path('Android/app/build/outputs/apk/debug/app-debug.apk')
+          expected = json.loads(Path(os.environ['RUNNER_TEMP'] + '/native-profiles.json').read_text())
+          with zipfile.ZipFile(apk) as package:
+              embedded = json.loads(package.read('assets/native-profiles.json'))
+          assert embedded == expected
+          assert len({p['core'] for p in embedded['profiles'] if p['primary']}) == 12
+          print(f"Android APK Profile catalog smoke: 12 Cores / {len(embedded['profiles'])} Profiles")
+          PY
       - name: Test Android public-node and Core contracts
         run: gradle --no-daemon --no-configuration-cache --max-workers=16 --console=plain -Dorg.gradle.jvmargs='-Xms256m -Xmx2g -XX:MaxMetaspaceSize=768m -XX:ReservedCodeCacheSize=128m -XX:ActiveProcessorCount=8' -p Android testDebugUnitTest
       - uses: actions/upload-artifact@v6
@@ -2351,6 +2457,11 @@ jobs:
     name: Cross-platform support summary
     if: always()
     needs:
+      - guix-init-contract
+      - portable-system-operation-contract
+      - privacy-envelope-contract
+      - deployment-abi-acceptance
+      - standalone-coreless
       - python-network-runtime
       - iperf3-matrix
       - iperf3-musl
@@ -2372,6 +2483,7 @@ jobs:
       - netbsd
       - unix-extra
       - android
+      - native-test-lab
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -2381,6 +2493,11 @@ jobs:
       - name: Write platform result matrix
         env:
           NODE_ADAPTER: ${{ needs['node-adapter'].result }}
+          GUIX_INIT: ${{ needs['guix-init-contract'].result }}
+          PORTABLE_OPERATIONS: ${{ needs['portable-system-operation-contract'].result }}
+          PRIVACY_ENVELOPE: ${{ needs['privacy-envelope-contract'].result }}
+          DEPLOYMENT_ABI: ${{ needs['deployment-abi-acceptance'].result }}
+          CORELESS: ${{ needs['standalone-coreless'].result }}
           PONY: ${{ needs['pony-only'].result }}
           HARE: ${{ needs['hare-only'].result }}
           CARP: ${{ needs['carp-only'].result }}
@@ -2397,11 +2514,17 @@ jobs:
           NETBSD: ${{ needs.netbsd.result }}
           UNIX_EXTRA: ${{ needs['unix-extra'].result }}
           ANDROID: ${{ needs.android.result }}
+          NATIVE_TEST_LAB: ${{ needs['native-test-lab'].result }}
         run: |
           set -u
           mkdir -p support-summary
           {
             echo '{'
+            printf '  "guix-init-contract": "%s",\n' "$GUIX_INIT"
+            printf '  "portable-system-operation-contract": "%s",\n' "$PORTABLE_OPERATIONS"
+            printf '  "privacy-envelope-contract": "%s",\n' "$PRIVACY_ENVELOPE"
+            printf '  "deployment-abi-acceptance": "%s",\n' "$DEPLOYMENT_ABI"
+            printf '  "standalone-coreless": "%s",\n' "$CORELESS"
             printf '  "node-adapter": "%s",\n' "$NODE_ADAPTER"
             printf '  "pony-only": "%s",\n' "$PONY"
             printf '  "hare-only": "%s",\n' "$HARE"
@@ -2418,11 +2541,12 @@ jobs:
             printf '  "openbsd": "%s",\n' "$OPENBSD"
             printf '  "netbsd": "%s",\n' "$NETBSD"
             printf '  "unix-extra": "%s",\n' "$UNIX_EXTRA"
-            printf '  "android": "%s"\n' "$ANDROID"
+            printf '  "android": "%s",\n' "$ANDROID"
+            printf '  "native-test-lab": "%s"\n' "$NATIVE_TEST_LAB"
             echo '}'
           } > support-summary/platform-results.json
           cat support-summary/platform-results.json
-          for status in "$NODE_ADAPTER" "$PONY" "$HARE" "$CARP" "$IDRIS" "$GLEAM" "$LINUX" "$LINUX_ARM64" "$LINUX_MUSL" "$LINUX_QEMU" "$MACOS" "$WINDOWS" "$FREEBSD" "$OPENBSD" "$NETBSD" "$UNIX_EXTRA" "$ANDROID"; do
+          for status in "$GUIX_INIT" "$PORTABLE_OPERATIONS" "$PRIVACY_ENVELOPE" "$DEPLOYMENT_ABI" "$CORELESS" "$NODE_ADAPTER" "$PONY" "$HARE" "$CARP" "$IDRIS" "$GLEAM" "$LINUX" "$LINUX_ARM64" "$LINUX_MUSL" "$LINUX_QEMU" "$MACOS" "$WINDOWS" "$FREEBSD" "$OPENBSD" "$NETBSD" "$UNIX_EXTRA" "$ANDROID" "$NATIVE_TEST_LAB"; do
             case "$status" in
               failure|cancelled) exit 1 ;;
             esac
@@ -2461,3 +2585,44 @@ jobs:
           PERFORMANCE_NEEDS: ${{ toJSON(needs) }}
         run: |
           python -c 'import json,os,sys; jobs=json.loads(os.environ["PERFORMANCE_NEEDS"]); sys.exit(any(v["result"] in ("failure","cancelled") for v in jobs.values()))'
+  artifact-bundle:
+    name: Platform/architecture artifact bundle
+    needs: [platform-summary]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with: {python-version: '3.12'}
+      - name: Download every same-run Shadow6 build and evidence artifact
+        uses: actions/download-artifact@v7
+        with:
+          pattern: shadow6-*
+          merge-multiple: false
+          path: .tmp/ci-artifact-input
+      - name: Group by platform and architecture and create installers
+        run: |
+          mkdir -p ci-artifact-bundle
+          python3 -m unittest discover -s Tools -p 'test_package_ci_artifacts.py' -v
+          python3 Tools/package_ci_artifacts.py \
+            --input .tmp/ci-artifact-input \
+            --output ci-artifact-bundle/shadow6-artifacts-all.zip \
+            --run-id "$GITHUB_RUN_ID" --commit "$GITHUB_SHA"
+          sha256sum ci-artifact-bundle/shadow6-artifacts-all.zip > ci-artifact-bundle/SHA256SUMS
+          python3 - <<'PY'
+          import zipfile
+          path = 'ci-artifact-bundle/shadow6-artifacts-all.zip'
+          with zipfile.ZipFile(path) as bundle:
+              bad = bundle.testzip()
+              if bad:
+                  raise SystemExit('combined platform artifact ZIP failed verification: ' + bad)
+              print(f'Combined platform bundle contains {len(bundle.namelist())} entries')
+          PY
+      - name: Upload final combined platform artifact package
+        uses: actions/upload-artifact@v6
+        with:
+          name: shadow6-artifacts-all
+          path: ci-artifact-bundle/
+          if-no-files-found: error
+          retention-days: 30
