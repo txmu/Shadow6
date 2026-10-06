@@ -57,9 +57,17 @@ For an LLM or other automation client, the controlled lifecycle is documented in
 [LLM Lifecycle](llm-lifecycle.md). `service.connect` is always the read-only
 plan step. Real execution uses `service.connect_execute` only after a human has
 reviewed the exact plan, material and DeploymentLock digests and supplied
-`confirmed: true`; `service.disconnect` closes the same canonical runtime
-through the existing stop path. A returned plan, intent, or process-alive state
-never proves a session. Only the fresh runtime observation does.
+`confirmed: true`. When that reviewed runtime exposes a supported local native
+stream/message attachment, execution opens the existing `open_local_session`
+path and returns an opaque process-local handle. `service.session_read`,
+`service.session_write`, and `service.session_close` provide bounded data-plane
+access through that handle without repeating human confirmation for every
+chunk; the adapter still requires `--allow-mutations`. Only a successful real
+attachment reports `sessionState=connected`; listener-only state is
+`transport-ready`, and unsupported application-ready endpoints receive no fake
+handle. `service.disconnect` closes every handle for the service and then uses
+the canonical stop path. A returned plan, intent, or process-alive state never
+proves a session.
 
 `shadow6 connect home/nas` resolves the name into its S6P1 context, locked binding
 and actual runtime endpoint. `shadow6 connect --protocol-envelope S6P1...`

@@ -59,12 +59,18 @@ available for API compatibility.
 
 `service.list`, `service.status`, `service.doctor` and `service.connect` read the
 same Named Service Registry, DeploymentLock and runtime observation as the CLI.
-The reviewed LLM lifecycle is `service.connect` (plan),
-`service.connect_execute` (confirmed execution), status observation, and
-`service.disconnect`; see [docs/llm-lifecycle.md](../docs/llm-lifecycle.md).
-Connection resolution does not open a session. UI clients should display these
-observed states and diagnostics directly, including stale/degraded/failed, rather
-than treating a PID or a cached successful action as a running service.
+The reviewed LLM lifecycle is `service.connect` (read-only plan),
+`service.connect_execute` (confirmed attach), bounded `service.session_read`,
+`service.session_write`, `service.session_close`, and finally the explicitly
+confirmed `service.disconnect`; see
+[docs/llm-lifecycle.md](../docs/llm-lifecycle.md). Connection resolution itself
+does not open a session. `connect_execute` reports `connected` only after the
+existing local application attachment has actually opened and then returns an
+opaque process-local handle. Session I/O inherits that approved capability and
+therefore does not repeat human confirmation per chunk, while every mutation
+adapter still requires `--allow-mutations`. UI clients should display observed
+states and diagnostics directly, including stale/degraded/failed, rather than
+treating a PID or a cached successful action as a running service.
 `core.profiles` returns all source contracts with bounded installed-artifact
 and runtime-prerequisite diagnostics. Build prerequisites are informational;
 the doctor never installs a compiler or builds a Core.

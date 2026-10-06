@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import base64
+import binascii
 import contextlib
 import hmac
 import ipaddress
@@ -236,8 +237,14 @@ _SERVICE_TARGET = {"name": {"type":"string","maxLength":129}, "core":{"type":"st
                                               "operator_overrides":_OBJECT})})}
 _CONFIRMED = {"type":"boolean","enum":[True],"description":"True only after the host obtains explicit user approval for this exact operation; the model must not self-approve."}
 _REVIEWED_LOCK = {"type":"string","maxLength":71,"description":"Exact DeploymentLock digest from inspect/plan; empty only when no lock exists."}
+_SESSION_HANDLE = {"type":"string","minLength":32,"maxLength":128,"description":"Opaque process-local application session capability returned by service.connect_execute."}
+_SESSION_B64 = {"type":"string","maxLength":44000,"description":"Strict base64 payload; decoded data is bounded to 32768 bytes."}
+_SESSION_TIMEOUT = {"type":"integer","minimum":1,"maximum":5000}
 METHOD_SPECS.update({
-    "service.connect_execute": _method("Execute a reviewed connection plan after explicit human confirmation and return observed session state.", {"name": _STRING, "confirmed": _CONFIRMED, "expected_plan_digest": _REVIEWED_LOCK, "expected_material_digest": _REVIEWED_LOCK, "expected_lock_digest": _REVIEWED_LOCK, "core": _STRING, "role": _STRING}, ("name", "confirmed", "expected_plan_digest", "expected_material_digest", "expected_lock_digest"), mutating=True),
+    "service.connect_execute": _method("Execute a reviewed connection plan after explicit human confirmation; open a bounded local application session only when the reviewed runtime attachment is real.", {"name": _STRING, "confirmed": _CONFIRMED, "expected_plan_digest": _REVIEWED_LOCK, "expected_material_digest": _REVIEWED_LOCK, "expected_lock_digest": _REVIEWED_LOCK, "core": _STRING, "role": _STRING}, ("name", "confirmed", "expected_plan_digest", "expected_material_digest", "expected_lock_digest"), mutating=True),
+    "service.session_read": _method("Read one bounded chunk or one complete application record from an already approved opaque session capability.", {"handle": _SESSION_HANDLE, "max_bytes":{"type":"integer","minimum":1,"maximum":65536}, "timeout_ms":_SESSION_TIMEOUT}, ("handle","max_bytes","timeout_ms"), mutating=True),
+    "service.session_write": _method("Write one bounded byte chunk or one complete application record to an already approved opaque session capability.", {"handle": _SESSION_HANDLE, "data_base64":_SESSION_B64, "timeout_ms":_SESSION_TIMEOUT}, ("handle","data_base64","timeout_ms"), mutating=True),
+    "service.session_close": _method("Close an already approved opaque application session capability; closing an absent handle is idempotent.", {"handle": _SESSION_HANDLE}, ("handle",), mutating=True),
     "service.disconnect": _method("Disconnect a reviewed runtime session after explicit human confirmation.", {"name": _STRING, "confirmed": _CONFIRMED, "expected_lock_digest": _REVIEWED_LOCK}, ("name", "confirmed", "expected_lock_digest"), mutating=True),
     "core.list":_method("List canonical Core descriptors; never choose one."),
     "core.inspect":_method("Inspect one explicit canonical Core descriptor.",{"core":_STRING},("core",)),
@@ -265,13 +272,13 @@ for _name,_specification in METHOD_SPECS.items():
     _permissions=["MUTATE"] if _specification["mutating"] else ["READ"]
     if _name in {"deployment.plan","deployment.validate","deployment.lock","service.propose","service.validate","service.plan","service.connect"}:
         _permissions=["PLAN"]
-    if _name in {"service.run","service.restart","capsule.start","ipc.call","ipc.raw"}:
+    if _name in {"service.run","service.restart","service.connect_execute","service.session_read","service.session_write","service.session_close","capsule.start","ipc.call","ipc.raw"}:
         _permissions.append("CONNECT")
     if _name=="service.setup": _permissions.append("CONNECT")  # Conservative: run may be requested.
     if _name in {"service.stop","service.restart","service.relock","service.remove","service.disconnect","capsule.stop","capsule.pause"}:
         _permissions.append("DESTRUCTIVE")
     _specification.update(permissions=_permissions,
-        confirmation_required=_name.startswith("service.") and _specification["mutating"],
+        confirmation_required=_name.startswith("service.") and _specification["mutating"] and _name not in {"service.session_read","service.session_write","service.session_close"},
         core_selection="explicit-or-existing-binding" if _name.startswith(("service.","core.","capsule.")) else "not-applicable")
 
 MUTATING_METHODS = {name for name, spec in METHOD_SPECS.items() if spec["mutating"]}
@@ -328,10 +335,10 @@ def schema() -> dict[str, Any]:
         "methods": METHOD_SPECS,
         "agent_control": {"schema":"shadow6.agent-control.v1","fact_source":"canonical contracts; LLM intent is never runtime evidence",
             "permissions":{"READ":"observe canonical state", "PLAN":"read-only canonical validation and proposal",
-                           "MUTATE":"operator must enable --allow-mutations", "CONNECT":"actual I/O/startup requires mutation opt-in; service.connect only returns a plan",
-                           "DESTRUCTIVE":"Named Service tools require per-operation confirmed=true and the reviewed lock; relock also checks reviewed material"},
-            "confirmation_authority":"hosting user/operator; model must not set confirmed without explicit approval",
-            "workflow":["system.doctor","core.list","core.inspect","core.profiles","service.propose","service.validate","service.plan","service.create","service.setup","service.run","service.status","service.doctor","service.connect","service.stop","service.restart","service.relock","service.remove"]},
+                           "MUTATE":"operator must enable --allow-mutations", "CONNECT":"actual I/O/startup/session access requires mutation opt-in; service.connect only returns a plan",
+                           "DESTRUCTIVE":"Named Service lifecycle changes require reviewed authority; closing an already approved bearer session is idempotent"},
+            "confirmation_authority":"hosting user/operator; model must not set confirmed without explicit approval; session read/write/close inherit the approved connect_execute capability and do not re-prompt",
+            "workflow":["system.doctor","core.list","core.inspect","core.profiles","service.propose","service.validate","service.plan","service.create","service.setup","service.run","service.status","service.doctor","service.connect","service.connect_execute","service.session_read","service.session_write","service.session_close","service.disconnect","service.stop","service.restart","service.relock","service.remove"]},
         "transport": {
             "jsonl": {"max_request_bytes": MAX_REQUEST, "mutations_default": False},
             "http": {"loopback_only": True, "bearer_token": True, "mutations_default": False},
@@ -485,6 +492,22 @@ def _lifecycle_dispatch(method, params):
                 'nextActions':[{'method':'service.validate','required':['name','core','profile','native_config']}],
                 'evidence':'canonical installed probes; no Core selection or peer readiness inferred'}
     registry=ServiceRegistry(catalog=catalog)
+    if method.startswith('service.session_'):
+        from session_handles import sessions
+        if method == 'service.session_read':
+            result = sessions.read(params['handle'], params['max_bytes'], params['timeout_ms'])
+            data = result.pop('data')
+            result['dataBase64'] = base64.b64encode(data).decode('ascii')
+            return result
+        if method == 'service.session_write':
+            try:
+                data = base64.b64decode(params['data_base64'].encode('ascii'), validate=True)
+            except (UnicodeEncodeError, binascii.Error) as error:
+                raise ValueError('InvalidApplicationSessionBase64') from error
+            if len(data) > 32768:
+                raise ValueError('InvalidApplicationSessionWriteBound')
+            return sessions.write(params['handle'], data, params['timeout_ms'])
+        return sessions.close(params['handle'])
     if method=='service.list': return {'schema':'shadow6.service-registry.v2','services':registry.list()}
     reads={'service.inspect':registry.inspect,'service.status':registry.status,'service.doctor':registry.doctor,'service.connect':registry.connect}
     if method in reads: return reads[method](params['name'])

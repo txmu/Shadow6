@@ -749,7 +749,16 @@ class ServiceRegistry:
             raise ValueError('RuntimeObservationRequired')
         result = json.loads(json.dumps(observed))
         result['connectionPlanDigest'] = expected_plan_digest
-        result['sessionState'] = 'connected' if observed.get('runtime', {}).get('readiness') == 'application-ready' else 'transport-ready'
+        readiness = observed.get('runtime', {}).get('readiness')
+        result['sessionState'] = 'transport-ready' if readiness == 'listener-ready' else 'application-ready'
+        launch = (plan.get('capability') or {}).get('sessionLaunch')
+        if readiness == 'application-ready' and launch in {'local-application-stream', 'local-application-message'}:
+            try:
+                from .session_handles import sessions
+            except ImportError:
+                from session_handles import sessions
+            result['session'] = sessions.open(name, expected_lock_digest, expected_plan_digest, plan)
+            result['sessionState'] = 'connected'
         return result
 
     @transaction
@@ -763,7 +772,13 @@ class ServiceRegistry:
 
     @transaction
     def stop(self, name):
-        item = self.inspect(name); runtime.stop(item.get('runtime', {}))
+        item = self.inspect(name)
+        try:
+            from .session_handles import sessions
+        except ImportError:
+            from session_handles import sessions
+        sessions.close_service(name)
+        runtime.stop(item.get('runtime', {}))
         if item.get('runtime'):
             item['runtime'].update(state='stopped',endpoint=None,readiness='unavailable')
         item['state'] = 'stopped'; self._save(); return item
