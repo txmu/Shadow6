@@ -727,6 +727,41 @@ class ServiceRegistry:
                                   core=core, role=role, adapter=adapter)
 
     @transaction
+    def connect_execute(self, name, *, confirmed, expected_plan_digest, expected_material_digest,
+                        expected_lock_digest, core=None, role=None, adapter=None):
+        """Execute one reviewed connection plan and expose only observed runtime state."""
+        if confirmed is not True:
+            raise ValueError('ExplicitHumanConfirmationRequired')
+        item, material = self.connection_inputs(name)
+        lock = item.get('deploymentLock') or {}
+        if lock.get('digest') != expected_lock_digest:
+            raise ValueError('ReviewedLockChanged')
+        material_digest = digest(encoded(material))
+        if material_digest != expected_material_digest:
+            raise ValueError('ReviewedMaterialChanged')
+        plan = self.connect(name, core=core, role=role, adapter=adapter)
+        if digest(encoded(plan)) != expected_plan_digest:
+            raise ValueError('ReviewedPlanChanged')
+        # A plan is evidence of intent. The canonical runtime status is the
+        # sole source of truth for whether a session actually exists.
+        observed = self.status(name)
+        if observed.get('state') not in ('running', 'degraded') or not observed.get('runtimeObservation'):
+            raise ValueError('RuntimeObservationRequired')
+        result = json.loads(json.dumps(observed))
+        result['connectionPlanDigest'] = expected_plan_digest
+        result['sessionState'] = 'connected' if observed.get('runtime', {}).get('readiness') == 'application-ready' else 'transport-ready'
+        return result
+
+    @transaction
+    def disconnect(self, name, *, confirmed, expected_lock_digest):
+        if confirmed is not True:
+            raise ValueError('ExplicitHumanConfirmationRequired')
+        item = self.inspect(name)
+        if (item.get('deploymentLock') or {}).get('digest') != expected_lock_digest:
+            raise ValueError('ReviewedLockChanged')
+        return self.stop(name)
+
+    @transaction
     def stop(self, name):
         item = self.inspect(name); runtime.stop(item.get('runtime', {}))
         if item.get('runtime'):

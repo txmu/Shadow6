@@ -59,6 +59,9 @@ available for API compatibility.
 
 `service.list`, `service.status`, `service.doctor` and `service.connect` read the
 same Named Service Registry, DeploymentLock and runtime observation as the CLI.
+The reviewed LLM lifecycle is `service.connect` (plan),
+`service.connect_execute` (confirmed execution), status observation, and
+`service.disconnect`; see [docs/llm-lifecycle.md](../docs/llm-lifecycle.md).
 Connection resolution does not open a session. UI clients should display these
 observed states and diagnostics directly, including stale/degraded/failed, rather
 than treating a PID or a cached successful action as a running service.

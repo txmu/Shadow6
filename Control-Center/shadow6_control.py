@@ -237,6 +237,8 @@ _SERVICE_TARGET = {"name": {"type":"string","maxLength":129}, "core":{"type":"st
 _CONFIRMED = {"type":"boolean","enum":[True],"description":"True only after the host obtains explicit user approval for this exact operation; the model must not self-approve."}
 _REVIEWED_LOCK = {"type":"string","maxLength":71,"description":"Exact DeploymentLock digest from inspect/plan; empty only when no lock exists."}
 METHOD_SPECS.update({
+    "service.connect_execute": _method("Execute a reviewed connection plan after explicit human confirmation and return observed session state.", {"name": _STRING, "confirmed": _CONFIRMED, "expected_plan_digest": _REVIEWED_LOCK, "expected_material_digest": _REVIEWED_LOCK, "expected_lock_digest": _REVIEWED_LOCK, "core": _STRING, "role": _STRING}, ("name", "confirmed", "expected_plan_digest", "expected_material_digest", "expected_lock_digest"), mutating=True),
+    "service.disconnect": _method("Disconnect a reviewed runtime session after explicit human confirmation.", {"name": _STRING, "confirmed": _CONFIRMED, "expected_lock_digest": _REVIEWED_LOCK}, ("name", "confirmed", "expected_lock_digest"), mutating=True),
     "core.list":_method("List canonical Core descriptors; never choose one."),
     "core.inspect":_method("Inspect one explicit canonical Core descriptor.",{"core":_STRING},("core",)),
     "system.doctor":_method("Reuse the CLI environment, installed-Profile and runtime-material doctor."),
@@ -266,7 +268,7 @@ for _name,_specification in METHOD_SPECS.items():
     if _name in {"service.run","service.restart","capsule.start","ipc.call","ipc.raw"}:
         _permissions.append("CONNECT")
     if _name=="service.setup": _permissions.append("CONNECT")  # Conservative: run may be requested.
-    if _name in {"service.stop","service.restart","service.relock","service.remove","capsule.stop","capsule.pause"}:
+    if _name in {"service.stop","service.restart","service.relock","service.remove","service.disconnect","capsule.stop","capsule.pause"}:
         _permissions.append("DESTRUCTIVE")
     _specification.update(permissions=_permissions,
         confirmation_required=_name.startswith("service.") and _specification["mutating"],
@@ -486,6 +488,16 @@ def _lifecycle_dispatch(method, params):
     if method=='service.list': return {'schema':'shadow6.service-registry.v2','services':registry.list()}
     reads={'service.inspect':registry.inspect,'service.status':registry.status,'service.doctor':registry.doctor,'service.connect':registry.connect}
     if method in reads: return reads[method](params['name'])
+    if method == 'service.connect_execute':
+        plan = registry.connect(params['name'], core=params.get('core'), role=params.get('role'))
+        from service_registry import digest, encoded
+        if digest(encoded(plan)) != params['expected_plan_digest']:
+            raise ValueError('ReviewedPlanChanged')
+        return registry.connect_execute(params['name'], confirmed=params['confirmed'],
+            expected_plan_digest=params['expected_plan_digest'], expected_material_digest=params['expected_material_digest'],
+            expected_lock_digest=params['expected_lock_digest'], core=params.get('core'), role=params.get('role'))
+    if method == 'service.disconnect':
+        return registry.disconnect(params['name'], confirmed=params['confirmed'], expected_lock_digest=params['expected_lock_digest'])
     if method in {'service.plan','service.validate','service.create','service.setup'}:
         from service_storage import private_read
         from limits import validate_policy

@@ -53,6 +53,14 @@ running merely because a recorded PID exists.
 
 ## One connect resolver
 
+For an LLM or other automation client, the controlled lifecycle is documented in
+[LLM Lifecycle](llm-lifecycle.md). `service.connect` is always the read-only
+plan step. Real execution uses `service.connect_execute` only after a human has
+reviewed the exact plan, material and DeploymentLock digests and supplied
+`confirmed: true`; `service.disconnect` closes the same canonical runtime
+through the existing stop path. A returned plan, intent, or process-alive state
+never proves a session. Only the fresh runtime observation does.
+
 `shadow6 connect home/nas` resolves the name into its S6P1 context, locked binding
 and actual runtime endpoint. `shadow6 connect --protocol-envelope S6P1...`
 resolves portable intent. Invitations and join codes retain Public6 provisioning,
