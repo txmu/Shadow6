@@ -278,3 +278,12 @@ The supervisor preserves the original S6P1 in its locked launch plan, rechecks
 admission during runtime and rehashes material at bounded five-second intervals.
 Expired admission or material drift shuts down the critical component group.
 Restart verifies approved material before stopping an existing healthy group.
+
+## Versioned application handles and Operator UI
+
+The [application SDK](application-sdk.md) adds direct fd/socket handoff and
+nullable flow capabilities without changing native Core protocols.
+`service.connection_review` returns the canonical plan and all three execution
+digests without opening I/O. The [Operator gateway](operator-web.md) uses that
+review before `service.connect_execute`; SDK direct attachments preserve the
+existing operator-selected Named Service binding.

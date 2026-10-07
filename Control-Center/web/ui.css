@@ -105,3 +105,89 @@ footer { text-align: center; color: var(--muted); font-size: .78rem; padding: 8p
   .status-content { gap: 16px; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; } }
+/* Operator controls share the device console tokens and remain usable on phones. */
+.operator-workspace { display: grid; gap: 16px; }
+.operator-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.operator-workspace button, .operator-workspace input, .operator-workspace select,
+dialog button, dialog input { min-height: 44px; font: inherit; }
+.operator-workspace textarea { display: block; width: 100%; min-height: 88px; font: inherit; }
+.operator-facts, .operator-output { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 24rem; overflow: auto; }
+dialog { max-width: min(92vw, 36rem); border-radius: 12px; padding: 24px; }
+dialog p { white-space: pre-wrap; overflow-wrap: anywhere; }
+dialog button { margin: 8px; }
+dialog::backdrop { background: rgb(0 0 0 / 60%); }
+.operator-navigation { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px; }
+.operator-navigation a { display: inline-flex; align-items: center; min-height: 44px; padding: 8px 16px; border: 1px solid currentColor; border-radius: 8px; text-decoration: none; }
+.operator-navigation a[aria-current="page"] { font-weight: 700; border-width: 2px; }
+[hidden] { display: none !important; }
+@media (max-width: 768px) {
+  .table-scroll { overflow: visible; }
+  table, tbody, tr, td { display: block; width: 100%; }
+  thead { display: none; }
+  tr { margin-bottom: 24px; }
+  td { overflow-wrap: anywhere; }
+  td::before { content: attr(data-label); display: block; font-size: 0.875rem; font-weight: 600; }
+  .operator-workspace, .operator-output { min-width: 0; }
+}
+:root {
+  --primary-ink: #ffffff;
+  --primary-hover: #066b76;
+  --success: #08794f;
+  --success-soft: #def6eb;
+  --warning: #845000;
+  --warning-soft: #fff4dc;
+  --info: #176393;
+  --info-soft: #e7f2fb;
+  --scrim: rgb(0 0 0 / 60%);
+  --motion-fast: 160ms;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --primary-ink: #09212d;
+    --primary-hover: #9debf0;
+    --success: #9ae8c4;
+    --success-soft: #163d36;
+    --warning: #efc07c;
+    --warning-soft: #473419;
+    --info: #90c8ee;
+    --info-soft: #172e49;
+  }
+}
+textarea, select { font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; max-width: 100%; }
+textarea:focus-visible, select:focus-visible, summary:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+button, .operator-navigation a { transition: background-color var(--motion-fast), border-color var(--motion-fast); touch-action: manipulation; }
+button:active:not(:disabled) { background: var(--accent-soft); border-color: var(--accent); }
+.primary-button { background: var(--accent); color: var(--primary-ink); border-color: var(--accent); }
+.primary-button:hover:not(:disabled) { background: var(--primary-hover); }
+dialog { color: var(--ink); background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow); }
+dialog::backdrop { background: var(--scrim); }
+.native-fields { display: grid; gap: 12px; margin: 16px 0; }
+.native-fields fieldset { border: 1px solid var(--line); border-radius: 12px; padding: 16px; min-width: 0; }
+.native-fields fieldset > div, .native-fields fieldset { display: grid; gap: 8px; }
+.native-fields legend { color: var(--accent); font-weight: 650; padding: 0 8px; }
+.operator-workspace form { display: grid; gap: 12px; }
+.operator-workspace label { font-weight: 600; }
+.operator-workspace input[type="checkbox"] { width: 44px; }
+.operator-facts { padding: 16px; border-radius: 12px; background: var(--surface-soft); font-size: .875rem; }
+.operator-output { min-height: 240px; padding: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-soft); }
+.operator-shell .layout { grid-template-columns: 208px minmax(0,1fr); }
+.operator-shell .layout > .panel, .operator-shell .overview-grid, .operator-shell .notice { grid-column: 2; }
+.operator-shell .layout > .welcome, .operator-shell footer { grid-column: 1 / -1; }
+.operator-shell .operator-navigation { grid-column: 1; grid-row: 2 / span 2; display: grid; align-self: start; position: sticky; top: 20px; }
+.operator-navigation a { border-color: transparent; color: var(--muted); }
+.operator-navigation a[aria-current="page"] { border: 1px solid var(--line); color: var(--ink); background: var(--surface); }
+@media (max-width: 1024px) {
+  .operator-shell .layout { grid-template-columns: minmax(0,1fr); }
+  .operator-shell .layout > .panel, .operator-shell .overview-grid, .operator-shell .notice { grid-column: 1; }
+  .operator-shell .operator-navigation { grid-column: 1; grid-row: auto; display: flex; position: static; }
+}
+@media (max-width: 768px) {
+  table { min-width: 0; }
+  tbody tr { border: 1px solid var(--line); border-radius: 12px; background: var(--surface-soft); padding: 8px; }
+  .operator-workspace section, .operator-workspace form { min-width: 0; }
+  .operator-output { min-height: 40dvh; }
+}
+@media (prefers-reduced-motion: reduce) {
+  button, .operator-navigation a { transition: none; }
+  html { scroll-behavior: auto; }
+}

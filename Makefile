@@ -41,6 +41,9 @@ PYTHON_SITE_PACKAGES ?= $(shell $(PYTHON) -c 'import sysconfig; print(sysconfig.
 .PHONY: all build benchmark performance-matrix benchmark-test network-adapter-test node-ipc-test network-adapter-benchmark privacy-envelope-test core-go core-rust core-gleam test-gleam core-cpp core-hare test-hare core-carp test-carp core-pony test-pony pony-crosed-variant gate migration i18n crosed-variants public6 public6-variants public6-contract relay guard service-init auto detector plugins package-manager easybuild crosed app-layer extension-system assistants slots control-center android-preflight android-cores android-apk integration-test deployment-test ocaml-control-test acceptance test check audit package install install-tree clean distclean
 
 .PHONY: privacy-envelope
+.PHONY: application-sdk
+application-sdk:
+	@$(MAKE) -C libshadow6/native check
 privacy-envelope:
 	@command -v dune >/dev/null 2>&1 || { echo 'OCaml/Dune required for the explicitly selected envelope target' >&2; exit 1; }
 	@dune build --root OCaml/privacy_envelope
@@ -380,7 +383,7 @@ test:
 	@$(PYTHON) -m unittest -v test_compliance.py
 	@PYTHONPATH=Tools $(PYTHON) -m unittest discover -s Tools -p 'test_*.py' -v
 	@PYTHONPATH=Crosed $(PYTHON) -m unittest discover -s Test-Lab -p 'test_*.py' -v
-	@$(PYTHON) -m unittest -v libshadow6/test_libshadow6.py
+	@$(PYTHON) -m unittest -v libshadow6/test_libshadow6.py libshadow6/test_boundary.py
 	@PYTHONPATH=Tools $(PYTHON) -m unittest -v Tools/test_app_flow_proxy.py
 ifeq ($(BUILD_HARE),1)
 	@$(MAKE) test-hare
@@ -436,6 +439,7 @@ ifeq ($(BUILD_ASSISTANTS),1)
 endif
 ifeq ($(BUILD_CONTROL),1)
 	@PYTHONPATH=Control-Center $(PYTHON) -m unittest -v Control-Center/test_control.py
+	@PYTHONPATH=Control-Center $(PYTHON) -m unittest -v Control-Center/test_web_gateway.py
 	@PYTHONPATH=Control-Center $(PYTHON) -m unittest -v Control-Center/test_capability_capsule.py
 	@PYTHONPATH=Control-Center $(PYTHON) -m unittest -v Control-Center/test_privacy_envelope.py
 endif
@@ -567,14 +571,25 @@ endif
 	@install -d -m 0755 "$(DESTDIR)$(PREFIX)/share/shadow6/deployment"
 	@install -m 0644 Deployment/__init__.py Deployment/protocol_context.py Deployment/topology_contract.py Deployment/profile_registry.py Deployment/profile_availability.py Deployment/native_realization.py Deployment/topology_services.py Deployment/connection_plan.py Deployment/session_handles.py Deployment/broker_set.py Deployment/runtime_observation.py Deployment/application_attachment.py Deployment/service_composition.py Deployment/core_catalog.py Deployment/service_registry.py Deployment/service_storage.py Deployment/service_runtime.py Deployment/shadow6_deployment.py Deployment/shadow6_abi.py Deployment/shadow6_driver.py Deployment/shadow6_acceptance.py "$(DESTDIR)$(PREFIX)/share/shadow6/deployment/"
 	@install -m 0644 Deployment/credited_attachment.py Deployment/supervisor_contract.py Deployment/system_operations.py "$(DESTDIR)$(PREFIX)/share/shadow6/deployment/"
+	@install -m 0644 Deployment/config_store.py "$(DESTDIR)$(PREFIX)/share/shadow6/deployment/"
+	@install -m 0644 Deployment/configuration_forms.py "$(DESTDIR)$(PREFIX)/share/shadow6/deployment/"
 	@install -m 0644 Deployment/shadow6_deployment.py Deployment/shadow6_abi.py Deployment/shadow6_driver.py Deployment/shadow6_acceptance.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/"
 	@install -m 0644 Tools/python_runtime.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/"
 	@install -d -m 0755 "$(DESTDIR)$(PYTHON_SITE_PACKAGES)/libshadow6"
 	@install -d -m 0755 "$(DESTDIR)$(PYTHON_SITE_PACKAGES)/Deployment"
 	@install -m 0644 Deployment/__init__.py Deployment/protocol_context.py Deployment/topology_contract.py Deployment/profile_registry.py Deployment/profile_availability.py Deployment/native_realization.py Deployment/topology_services.py Deployment/connection_plan.py Deployment/session_handles.py Deployment/broker_set.py Deployment/runtime_observation.py Deployment/application_attachment.py Deployment/service_composition.py Deployment/core_catalog.py Deployment/service_registry.py Deployment/service_storage.py Deployment/service_runtime.py Deployment/shadow6_deployment.py Deployment/shadow6_abi.py Deployment/shadow6_driver.py Deployment/shadow6_acceptance.py "$(DESTDIR)$(PYTHON_SITE_PACKAGES)/Deployment/"
 	@install -m 0644 Deployment/credited_attachment.py Deployment/supervisor_contract.py Deployment/system_operations.py "$(DESTDIR)$(PYTHON_SITE_PACKAGES)/Deployment/"
+	@install -m 0644 Deployment/config_store.py "$(DESTDIR)$(PYTHON_SITE_PACKAGES)/Deployment/"
+	@install -m 0644 Deployment/configuration_forms.py "$(DESTDIR)$(PYTHON_SITE_PACKAGES)/Deployment/"
 	@install -m 0644 libshadow6/__init__.py "$(DESTDIR)$(PYTHON_SITE_PACKAGES)/libshadow6/"
 	@install -m 0644 libshadow6/webrtc_signal.py "$(DESTDIR)$(PYTHON_SITE_PACKAGES)/libshadow6/"
+	@install -m 0644 libshadow6/boundary.py "$(DESTDIR)$(PYTHON_SITE_PACKAGES)/libshadow6/"
+	@install -m 0644 libshadow6/control.py "$(DESTDIR)$(PYTHON_SITE_PACKAGES)/libshadow6/"
+	@install -d -m 0755 "$(DESTDIR)$(PREFIX)/include" "$(DESTDIR)$(PREFIX)/lib" "$(DESTDIR)$(PREFIX)/share/shadow6/sdk/examples" "$(DESTDIR)$(PREFIX)/share/shadow6/sdk/schemas"
+	@install -m 0644 libshadow6/include/shadow6.h "$(DESTDIR)$(PREFIX)/include/"
+	@install -m 0644 libshadow6/examples/direct.c libshadow6/examples/game.py "$(DESTDIR)$(PREFIX)/share/shadow6/sdk/examples/"
+	@install -m 0644 libshadow6/schemas/boundary-descriptor.v1.schema.json "$(DESTDIR)$(PREFIX)/share/shadow6/sdk/schemas/"
+	@if test -f libshadow6/native/libshadow6.so.1; then install -m 0755 libshadow6/native/libshadow6.so.1 "$(DESTDIR)$(PREFIX)/lib/"; install -m 0755 libshadow6/native/libshadow6.so.1 "$(DESTDIR)$(PREFIX)/lib/libshadow6.so"; fi
 	@install -m 0644 Network-Adapter/shadow6_network.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/"
 	@install -m 0644 Network-Adapter/shadow6_network.mjs "$(DESTDIR)$(PREFIX)/share/shadow6/modules/"
 	@install -m 0644 Network-Adapter/secure_key_windows.ps1 "$(DESTDIR)$(PREFIX)/share/shadow6/modules/"
@@ -663,8 +678,13 @@ ifeq ($(BUILD_ASSISTANTS),1)
 endif
 ifeq ($(BUILD_CONTROL),1)
 	@install -m 0755 Control-Center/shadow6_control.py "$(DESTDIR)$(PREFIX)/bin/shadow6-control"
+	@install -m 0755 Control-Center/web_gateway.py "$(DESTDIR)$(PREFIX)/bin/shadow6-web-gateway"
+	@install -m 0755 CLI/shadow6_web.py "$(DESTDIR)$(PREFIX)/bin/shadow6-web"
+	@install -m 0644 Control-Center/operator_evidence.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/"
+	@install -m 0644 Control-Center/fd_gateway.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/"
 	@install -d -m 0755 "$(DESTDIR)$(PREFIX)/share/shadow6/control/web"
 	@install -m 0644 Control-Center/web/index.html Control-Center/web/ui.css Control-Center/web/ui.js "$(DESTDIR)$(PREFIX)/share/shadow6/control/web/"
+	@install -m 0644 Control-Center/web/operator.js "$(DESTDIR)$(PREFIX)/share/shadow6/control/web/"
 	@install -d -m 0755 "$(DESTDIR)$(PREFIX)/share/shadow6/modules"
 	@install -m 0644 Control-Center/s6ar.py Control-Center/ipc_client.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/"
 	@install -m 0644 Auto-Orchestrator/shadow6_auto.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/shadow6_auto.py"

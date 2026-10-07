@@ -64,10 +64,10 @@ def write_new(path, data):
     with os.fdopen(fd, 'wb') as handle:
         handle.write(data)
 
-def validate(config):
-    if type(config) is not dict or config.get('core') not in CORES or config.get('role') not in ROLES:
+def configuration_fields(core, role):
+    """Expose the same normalized native field contract to operator forms."""
+    if core not in CORES or role not in ROLES:
         raise ValueError('invalid core or role')
-    core, role = config['core'], config['role']
     fields = {'core', 'role', 'listen_port'}
     if core == 'hare':
         fields |= {'target_port', 'peer_public_key'}
@@ -78,6 +78,14 @@ def validate(config):
         fields |= {'peer_port', 'application_port', 'key_material'}
         if core == 'idris':
             fields |= {'listen_host', 'peer_host', 'application_host', 'iterations'}
+    return fields
+
+
+def validate(config):
+    if type(config) is not dict:
+        raise ValueError('invalid core or role')
+    core, role = config.get('core'), config.get('role')
+    fields = configuration_fields(core, role)
     if set(config) != fields:
         raise ValueError('missing or unsupported native configuration fields')
     for field, value in config.items():

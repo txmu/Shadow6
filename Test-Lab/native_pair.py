@@ -70,6 +70,7 @@ def case(profile, binary, scenario, output, run_id, *, capture_enabled, payload_
                 observer.close()
                 if observer.errors: raise ValueError('Native pair socket observation failed')
                 row.update(status=result['status'], correctness=result.get('correctness'), metrics=result.get('metrics'),
+                    applicationGame=result.get('applicationGame'),
                     reason=result.get('reason'), runtimeObservation=result.get('runtimeObservation'))
                 if result['status'] == 'PASS':
                     namespaces = result['runtimeObservation']
@@ -79,7 +80,8 @@ def case(profile, binary, scenario, output, run_id, *, capture_enabled, payload_
                             for child in role['processNamespaces']):
                         raise ValueError('complete Native trio namespace evidence mismatch')
                     echo = strict_json(private_read(echo_config['metrics']))
-                    if min(echo['bytesIn'], echo['bytesOut']) != result['correctness']['bytesSent']:
+                    expected_bytes = result['correctness']['bytesSent'] + (result.get('applicationGame') or {}).get('bytesSent', 0)
+                    if min(echo['bytesIn'], echo['bytesOut']) != expected_bytes:
                         raise ValueError('Native application bytes did not traverse remote B target')
                     row['targetObservation'] = echo
                 impairment.close()

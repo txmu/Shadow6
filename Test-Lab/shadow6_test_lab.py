@@ -350,6 +350,7 @@ def _scenario_case(profile, binary, scenario, output_dir, run_id, *, capture_ena
         row["correctness"] = worker_result.get("correctness")
         row["metrics"] = worker_result.get("metrics")
         row['runtimeObservation'] = worker_result.get('runtimeObservation')
+        row['applicationGame'] = worker_result.get('applicationGame')
         row["reason"] = worker_result.get("reason")
         row["workload"] = "stream-or-message contract selected by Native Profile; exact echo comparison"
     except subprocess.TimeoutExpired:

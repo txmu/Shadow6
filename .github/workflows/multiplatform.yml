@@ -12,6 +12,29 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ startsWith(github.ref, 'refs/heads/') || startsWith(github.ref, 'refs/pull/') }}
 jobs:
+  application-sdk:
+    name: Linux application attachment SDK
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - name: Compile the C application ABI without building Cores
+        run: |
+          set -euo pipefail
+          make -C libshadow6/native check
+          mkdir -p application-sdk/include application-sdk/lib application-sdk/examples application-sdk/schemas
+          cp libshadow6/include/shadow6.h application-sdk/include/
+          cp libshadow6/native/libshadow6.so.1 application-sdk/lib/
+          cp libshadow6/native/libshadow6.so.1 application-sdk/lib/libshadow6.so
+          cp libshadow6/examples/direct.c libshadow6/examples/game.py application-sdk/examples/
+          cp libshadow6/schemas/*.json application-sdk/schemas/
+          cp docs/application-sdk.md application-sdk/README.md
+          git rev-parse HEAD > application-sdk/COMMIT
+          (cd application-sdk && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)
+      - uses: actions/upload-artifact@v6
+        with:
+          name: shadow6-linux-application-sdk
+          path: application-sdk/
   guix-init-contract:
     name: Guix System Shepherd definition
     runs-on: ubuntu-24.04
@@ -161,6 +184,7 @@ jobs:
       - name: Run one acceptance gate without compiling native Cores
         run: |
           set -euo pipefail
+          PYTHONPATH=Control-Center .venv/bin/python -m unittest -v Control-Center/test_web_gateway.py libshadow6/test_boundary.py libshadow6/test_libshadow6.py
           .venv/bin/python -m unittest discover -s Test-Lab -p 'test_*.py' -v
           sudo .venv/bin/python -m unittest discover -s Test-Lab -p 'test_s6epe_runner.py' -v
           .venv/bin/python -m unittest -v \

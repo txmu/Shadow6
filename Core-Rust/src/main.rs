@@ -269,19 +269,33 @@ fn crosed_signed_payload(request: &CrosedRequest) -> Result<Vec<u8>, String> {
 }
 
 fn validate_crosed_payload(value: &serde_json::Value, depth: usize) -> Result<(), String> {
-    if depth > 16 { return Err("Crosed payload nesting exceeds 16 levels".into()); }
+    if depth > 16 {
+        return Err("Crosed payload nesting exceeds 16 levels".into());
+    }
     match value {
         serde_json::Value::Null | serde_json::Value::Bool(_) => Ok(()),
         serde_json::Value::Number(number) => {
-            if number.is_f64() || !number.as_i64().is_some_and(|n| (-9_007_199_254_740_991..=9_007_199_254_740_991).contains(&n)) {
+            if number.is_f64()
+                || !number
+                    .as_i64()
+                    .is_some_and(|n| (-9_007_199_254_740_991..=9_007_199_254_740_991).contains(&n))
+            {
                 Err("Crosed numbers must be portable integers".into())
-            } else { Ok(()) }
+            } else {
+                Ok(())
+            }
         }
         serde_json::Value::String(text) => {
-            if text.len() > 16_384 || text.contains('\0') { Err("invalid Crosed string".into()) } else { Ok(()) }
+            if text.len() > 16_384 || text.contains('\0') {
+                Err("invalid Crosed string".into())
+            } else {
+                Ok(())
+            }
         }
         serde_json::Value::Array(items) => {
-            for item in items { validate_crosed_payload(item, depth + 1)?; }
+            for item in items {
+                validate_crosed_payload(item, depth + 1)?;
+            }
             Ok(())
         }
         serde_json::Value::Object(items) => {
@@ -378,7 +392,10 @@ fn handle_crosed_request(request_path: &str, trust_path: &str) -> Result<CrosedR
             || required > request.requested_level
             || (capability == "transport.application" && !response.features.app_transport)
         {
-            return denied(response, "capability unavailable at requested level or build");
+            return denied(
+                response,
+                "capability unavailable at requested level or build",
+            );
         }
         response.granted_capabilities.push(capability.clone());
     }
@@ -423,7 +440,10 @@ fn handle_crosed_request(request_path: &str, trust_path: &str) -> Result<CrosedR
         .max()
         .unwrap_or(0);
     if granted < request.requested_level {
-        return denied(response, "granted capabilities do not cover the requested level");
+        return denied(
+            response,
+            "granted capabilities do not cover the requested level",
+        );
     }
 
     // Commit the nonce before releasing the grant so an identical signed request
@@ -484,9 +504,7 @@ fn reserve_crosed_nonce(
     }
     let metadata = std::fs::symlink_metadata(&directory)
         .map_err(|error| format!("Crosed replay store unavailable: {error}"))?;
-    if !metadata.is_dir()
-        || metadata.mode() & 0o777 != 0o700
-        || metadata.uid() != parent_meta.uid()
+    if !metadata.is_dir() || metadata.mode() & 0o777 != 0o700 || metadata.uid() != parent_meta.uid()
     {
         return Err("Crosed replay store must be a regular owner-only directory".into());
     }
@@ -539,7 +557,9 @@ fn crosed_replay_prune(directory: &str, now: i64) -> Result<(), String> {
         live += 1;
     }
     if live >= CROSED_REPLAY_MAX_ENTRIES {
-        return Err(format!("Crosed replay store is saturated ({live} live entries)"));
+        return Err(format!(
+            "Crosed replay store is saturated ({live} live entries)"
+        ));
     }
     Ok(())
 }
@@ -2653,11 +2673,6 @@ async fn start_client(cfg: Config) -> Result<(), String> {
         .local_addr()
         .map_err(|error| format!("cannot inspect local proxy address: {error}"))?;
     let local_port = local_addr.port();
-    println!("{}", serde_json::json!({
-        "event": "shadow6.ready", "schema": 1, "core": "shadow6-rust", "role": "client",
-        "application_boundary": {"kind": "stream", "mode": "localhost-tcp-proxy",
-            "endpoint": {"host": "127.0.0.1", "port": local_port}}
-    }));
 
     // Establish QUIC Connection
     let target_addr = match target_address {
@@ -2682,6 +2697,16 @@ async fn start_client(cfg: Config) -> Result<(), String> {
     let connection = connecting
         .await
         .map_err(|error| format!("QUIC connection failed: {error}"))?;
+
+    // Application readiness requires the pinned, authenticated QUIC session.
+    println!(
+        "{}",
+        serde_json::json!({
+            "event": "shadow6.ready", "schema": 1, "core": "shadow6-rust", "role": "client",
+            "application_boundary": {"kind": "stream", "mode": "localhost-tcp-proxy",
+                "endpoint": {"host": "127.0.0.1", "port": local_port}}
+        })
+    );
 
     s6_log("[=========================================]", "");
     s6_log("[+]", "SECURE QUIC E2EE TUNNEL ESTABLISHED!");
@@ -2718,7 +2743,9 @@ async fn start_client(cfg: Config) -> Result<(), String> {
             .accept()
             .await
             .map_err(|error| format!("local proxy accept failed: {error}"))?;
-        user_conn.set_nodelay(true).map_err(|error| format!("local TCP_NODELAY failed: {error}"))?;
+        user_conn
+            .set_nodelay(true)
+            .map_err(|error| format!("local TCP_NODELAY failed: {error}"))?;
         let permit = local_slots
             .clone()
             .acquire_owned()
@@ -2731,8 +2758,7 @@ async fn start_client(cfg: Config) -> Result<(), String> {
         tokio::spawn(async move {
             let _permit = permit;
             let (mut local_read, mut local_write) = user_conn.into_split();
-            let upload =
-                tokio::spawn(async move { copy_data(&mut local_read, &mut send).await });
+            let upload = tokio::spawn(async move { copy_data(&mut local_read, &mut send).await });
             let download =
                 tokio::spawn(async move { copy_data(&mut recv, &mut local_write).await });
             let _ = tokio::try_join!(upload, download);
@@ -3047,12 +3073,20 @@ async fn run() -> Result<(), String> {
 mod tests {
     #[test]
     fn shared_portable_json_conformance() {
-        let corpus: serde_json::Value = serde_json::from_str(include_str!("../../Tools/strict_json_conformance.json")).unwrap();
+        let corpus: serde_json::Value =
+            serde_json::from_str(include_str!("../../Tools/strict_json_conformance.json")).unwrap();
         assert_eq!(corpus["schema"], "shadow6.strict-json-conformance.v1");
         for case in corpus["cases"].as_array().unwrap() {
-            let parsed = super::strict_json::from_str::<serde_json::Value>(case["input"].as_str().unwrap());
-            let accepted = parsed.is_ok_and(|value| super::validate_crosed_payload(&value, 0).is_ok());
-            assert_eq!(accepted, case["accepted"].as_bool().unwrap(), "fixture {}", case["id"]);
+            let parsed =
+                super::strict_json::from_str::<serde_json::Value>(case["input"].as_str().unwrap());
+            let accepted =
+                parsed.is_ok_and(|value| super::validate_crosed_payload(&value, 0).is_ok());
+            assert_eq!(
+                accepted,
+                case["accepted"].as_bool().unwrap(),
+                "fixture {}",
+                case["id"]
+            );
         }
     }
     use super::*;
@@ -3693,7 +3727,10 @@ mod tests {
         OsRng.fill_bytes(&mut random);
         let directory =
             env::temp_dir().join(format!("shadow6-crosed-test-{}", hex::encode(random)));
-        std::fs::DirBuilder::new().mode(0o700).create(&directory).unwrap();
+        std::fs::DirBuilder::new()
+            .mode(0o700)
+            .create(&directory)
+            .unwrap();
         let request_path = directory.join("request.json");
         let trust_path = directory.join("trust.json");
         write_owner_only(
@@ -3721,10 +3758,8 @@ mod tests {
         let replay_dir = format!("{}.replay", trust_path.to_str().unwrap());
         if report.crosed_compiled {
             assert!(Path::new(&replay_dir).is_dir());
-            let replayed = handle_crosed_request(
-                request_path.to_str().unwrap(),
-                trust_path.to_str().unwrap(),
-            );
+            let replayed =
+                handle_crosed_request(request_path.to_str().unwrap(), trust_path.to_str().unwrap());
             match replayed {
                 Err(error) if error.contains("replayed Crosed request") => {}
                 other => panic!("replayed Crosed request was not refused: {other:?}"),

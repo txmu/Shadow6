@@ -151,6 +151,11 @@ time.sleep(60)
             self.assertEqual(result['runtime']['readiness'],'application-ready')
             self.assertNotEqual(result['runtime']['endpoint']['port'],1)
             self.assertEqual(self.registry.connect('home/nas')['applicationBoundary'],'stream')
+            from Deployment.service_registry import digest, encoded
+            review = self.registry.connection_review('home/nas')
+            self.assertEqual(review['expected_plan_digest'], digest(encoded(review['plan'])))
+            self.assertEqual(review['expected_lock_digest'],
+                             self.registry.inspect('home/nas')['deploymentLock']['digest'])
         finally:self.registry.stop('home/nas')
 
     def test_envelope_rejects_public_upstream_and_native_exposure(self):

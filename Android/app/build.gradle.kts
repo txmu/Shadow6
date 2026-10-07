@@ -64,6 +64,8 @@ dependencies {
     implementation("androidx.compose.foundation:foundation")
     implementation("androidx.compose.ui:ui")
     testImplementation("junit:junit:4.13.2")
+    // JVM contract tests serialize real JSON; android.jar methods are stubs.
+    testImplementation("org.json:json:20240303")
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 }

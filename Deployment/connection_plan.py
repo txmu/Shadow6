@@ -126,6 +126,9 @@ def resolve_connection(*, catalog, service=None, registry=None, context=None, co
         runtime=runtime, source=source, adapter=adapter, role=role,
         profile_binding=profile_binding)
     if service is not None:
+        result['readinessEvidence'] = item.get('readinessEvidence', {})
+        result['transportReadiness'] = (item.get('runtimeObservation') or {}).get('transportReadiness', 'unavailable')
+        result['effectiveLimits'] = (item.get('runtimeObservation') or {}).get('effectiveLimits', {})
         attachment = material.get('creditedAttachment')
         profile = validate_profile_binding(profile_binding, core=binding['core'])
         result['applicationAdapter'] = application_adapter(profile,
@@ -239,6 +242,10 @@ class LocalMessageSession:
         if not alive(plan.get('runtimeIdentity', {})) or not alive(owner):
             raise ValueError('ApplicationEndpointOwnerUnavailable')
         self.max_record = profile['limits']['max_record']
+        effective = plan.get('effectiveLimits', {}).get('max_record', self.max_record)
+        if type(effective) is not int or not 1 <= effective <= self.max_record:
+            raise ValueError('InvalidApplicationRecordLimit')
+        self.max_record = effective
         self.mode = target['mode']; self.eof = self.write_closed = False
         self.deadline = time.monotonic() + 300; self.remaining = 16 * 1024 * 1024
         self.socket = None

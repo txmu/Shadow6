@@ -9,6 +9,7 @@ import tempfile
 import tarfile
 import hashlib
 import unittest
+import time
 import artifacts
 
 HERE = Path(__file__).resolve().parent
@@ -55,7 +56,14 @@ class AttachmentTests(unittest.TestCase):
         with socket.create_connection(('127.0.0.1', local), timeout=3) as connection:
             connection.settimeout(3); connection.sendall(payload)
             self.assertEqual(exact(connection, len(payload)), payload)
-        observation = strict_json(private_read(value['metrics']))
+        # Receiving the echo precedes the worker's atomic metrics publication.
+        # Wait for evidence, not a scheduler-dependent fixed sleep.
+        deadline = time.monotonic() + 3
+        while True:
+            observation = strict_json(private_read(value['metrics']))
+            if observation['bytesOut'] >= len(payload) or time.monotonic() >= deadline:
+                break
+            time.sleep(.01)
         self.assertEqual((observation['bytesIn'], observation['bytesOut'], observation['failures']), (4096, 4096, 0))
     def test_record_stream_attachment_preserves_distinct_empty_and_nonempty_records(self):
         profile = select_profile('gleam', 'gleam-micro-mux')

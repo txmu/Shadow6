@@ -114,11 +114,15 @@ _OBJECT = {"type": "object"}
 
 METHOD_SPECS: dict[str, dict[str, Any]] = {
     "system.schema": _method("Return the complete versioned Shadow6 control schema."),
+    "system.activity": _method("Read bounded local Operator operation metadata; never payloads, credentials or configurations."),
+    "lab.report": _method("Read the operator-attached existing Test Lab report and provenance; no host file path input."),
     "core.profiles": _method("Inspect all 13 source Profile contracts and installed runtime prerequisites."),
+    "core.config_form": _method("Read an explicit Profile's operator form from its existing native configuration authority.", {"core":_STRING,"profile":_STRING,"role":{"type":"string","enum":["broker","agent","client"]}}, ("core","profile","role")),
     "service.list": _method("Observe named services through the local lifecycle authority."),
     "service.status": _method("Read verified Named Service process, binding, lock and endpoint state.", {"name": _STRING}, ("name",)),
     "service.doctor": _method("Diagnose the same Profile, lock, material and runtime truth used by the CLI.", {"name": _STRING}, ("name",)),
     "service.connect": _method("Resolve a connection plan without opening a stream or starting a service.", {"name": _STRING}, ("name",)),
+    "service.connection_review": _method("Review the canonical connection plan and execution digests without opening data I/O.", {"name": _STRING}, ("name",)),
     "protocol.envelope.validate": _method(
         "Decode and validate a complete S6P1 envelope, including standard credential scope.",
         {"envelope": {"type": "string", "maxLength": 262144},
@@ -240,7 +244,17 @@ _REVIEWED_LOCK = {"type":"string","maxLength":71,"description":"Exact Deployment
 _SESSION_HANDLE = {"type":"string","minLength":32,"maxLength":128,"description":"Opaque process-local application session capability returned by service.connect_execute."}
 _SESSION_B64 = {"type":"string","maxLength":44000,"description":"Strict base64 payload; decoded data is bounded to 32768 bytes."}
 _SESSION_TIMEOUT = {"type":"integer","minimum":1,"maximum":5000}
+_CONFIG_DRAFT = {"name":_STRING,"core":_STRING,"profile":_STRING,
+    "role":{"type":"string","enum":["broker","agent","client"]},
+    "document":{"type":"string","maxLength":65536},
+    "expected_digest":{"type":["string","null"],"maxLength":71}}
 METHOD_SPECS.update({
+    "service.config_plan": _method("Plan an explicitly selected managed draft using canonical deployment/material/HostBudget validation.", {"name":_STRING,"core":_STRING,"profile":_STRING,"privacy":{"type":"string","enum":["native","envelope"]},"spec":_OBJECT,"context":_OBJECT}, ("name","core","profile")),
+    "service.config_apply": _method("Apply/relock a reviewed managed configuration only to a stopped service; optional explicit run.", {"name":_STRING,"core":_STRING,"profile":_STRING,"privacy":{"type":"string","enum":["native","envelope"]},"spec":_OBJECT,"context":_OBJECT,"confirmed":_CONFIRMED,"expected_plan_digest":_REVIEWED_LOCK,"expected_material_digest":_REVIEWED_LOCK,"expected_lock_digest":{"type":"string","maxLength":71},"run":_BOOL}, ("name","core","profile","confirmed","expected_plan_digest","expected_material_digest","expected_lock_digest"),mutating=True),
+    "service.config_inspect": _method("Read redacted owner-controlled managed configuration; no browser host paths.", {"name":_STRING}, ("name",)),
+    "service.config_reclaim": _method("Reclaim only hash-verified unreferenced managed snapshots; preserve active and current draft materials.", {"name":_STRING,"confirmed":_CONFIRMED,"expected_digest":{"type":["string","null"],"maxLength":71}}, ("name","confirmed","expected_digest"),mutating=True),
+    "service.config_review": _method("Review a strict managed draft and secret-safe semantic diff without saving or applying.", _CONFIG_DRAFT, tuple(key for key in _CONFIG_DRAFT if key != 'role')),
+    "service.config_save": _method("Save a reviewed managed draft atomically; never apply/relock/start implicitly.", {**_CONFIG_DRAFT,"confirmed":_CONFIRMED,"expected_review_digest":_REVIEWED_LOCK}, tuple(key for key in _CONFIG_DRAFT if key != 'role')+("confirmed","expected_review_digest"),mutating=True),
     "service.connect_execute": _method("Execute a reviewed connection plan after explicit human confirmation; open a bounded local application session only when the reviewed runtime attachment is real.", {"name": _STRING, "confirmed": _CONFIRMED, "expected_plan_digest": _REVIEWED_LOCK, "expected_material_digest": _REVIEWED_LOCK, "expected_lock_digest": _REVIEWED_LOCK, "core": _STRING, "role": _STRING}, ("name", "confirmed", "expected_plan_digest", "expected_material_digest", "expected_lock_digest"), mutating=True),
     "service.session_read": _method("Read one bounded chunk or one complete application record from an already approved opaque session capability.", {"handle": _SESSION_HANDLE, "max_bytes":{"type":"integer","minimum":1,"maximum":65536}, "timeout_ms":_SESSION_TIMEOUT}, ("handle","max_bytes","timeout_ms"), mutating=True),
     "service.session_write": _method("Write one bounded byte chunk or one complete application record to an already approved opaque session capability.", {"handle": _SESSION_HANDLE, "data_base64":_SESSION_B64, "timeout_ms":_SESSION_TIMEOUT}, ("handle","data_base64","timeout_ms"), mutating=True),
@@ -270,11 +284,12 @@ for _action in ("run","stop","restart","relock","apply","remove"):
     METHOD_SPECS["service."+_action]=_method("Use the fixed canonical "+_action+" operation after approval; reject a changed reviewed lock.",_properties,_required,mutating=True)
 for _name,_specification in METHOD_SPECS.items():
     _permissions=["MUTATE"] if _specification["mutating"] else ["READ"]
-    if _name in {"deployment.plan","deployment.validate","deployment.lock","service.propose","service.validate","service.plan","service.connect"}:
+    if _name in {"deployment.plan","deployment.validate","deployment.lock","service.propose","service.validate","service.plan","service.connect","service.connection_review","service.config_review","service.config_plan"}:
         _permissions=["PLAN"]
     if _name in {"service.run","service.restart","service.connect_execute","service.session_read","service.session_write","service.session_close","capsule.start","ipc.call","ipc.raw"}:
         _permissions.append("CONNECT")
     if _name=="service.setup": _permissions.append("CONNECT")  # Conservative: run may be requested.
+    if _name=="service.config_apply": _permissions.extend(("CONNECT","DESTRUCTIVE"))
     if _name in {"service.stop","service.restart","service.relock","service.remove","service.disconnect","capsule.stop","capsule.pause"}:
         _permissions.append("DESTRUCTIVE")
     _specification.update(permissions=_permissions,
@@ -366,7 +381,15 @@ def _only(params: dict[str, Any], allowed: set[str]) -> None:
 def _validate_input(value: Any, contract: dict[str, Any], name: str = "params") -> None:
     """Enforce the same bounded schema advertised to every API client."""
     kind = contract.get("type")
-    expected = {"object": dict, "array": list, "string": str, "boolean": bool, "integer": int}
+    if isinstance(kind, list):
+        for candidate in kind:
+            try:
+                _validate_input(value, {**contract, "type":candidate}, name)
+                return
+            except ValueError:
+                pass
+        raise ValueError(f"{name} does not match its declared types")
+    expected = {"object": dict, "array": list, "string": str, "boolean": bool, "integer": int, "null": type(None)}
     if kind in expected and (not isinstance(value, expected[kind]) or kind == "integer" and isinstance(value, bool)):
         raise ValueError(f"{name} must be {kind}")
     if "enum" in contract and value not in contract["enum"]:
@@ -467,6 +490,9 @@ def _lifecycle_dispatch(method, params):
     for directory in (ROOT/'Deployment', HERE.parent/'share/shadow6/deployment', ROOT/'CLI'):
         if directory.is_dir(): sys.path.insert(0,str(directory))
     from core_catalog import CoreCatalog
+    if method == 'core.config_form':
+        from configuration_forms import form
+        return form(CoreCatalog(), **params)
     from service_registry import ServiceRegistry
     from profile_registry import profiles, select_profile
     from profile_availability import installed_profiles
@@ -509,7 +535,10 @@ def _lifecycle_dispatch(method, params):
             return sessions.write(params['handle'], data, params['timeout_ms'])
         return sessions.close(params['handle'])
     if method=='service.list': return {'schema':'shadow6.service-registry.v2','services':registry.list()}
-    reads={'service.inspect':registry.inspect,'service.status':registry.status,'service.doctor':registry.doctor,'service.connect':registry.connect}
+    if method.startswith('service.config_'):
+        arguments = {key:value for key,value in params.items() if key != 'name'}
+        return getattr(registry, method.removeprefix('service.'))(params['name'], **arguments)
+    reads={'service.inspect':registry.inspect,'service.status':registry.status,'service.doctor':registry.doctor,'service.connect':registry.connect,'service.connection_review':registry.connection_review}
     if method in reads: return reads[method](params['name'])
     if method == 'service.connect_execute':
         plan = registry.connect(params['name'], core=params.get('core'), role=params.get('role'))
@@ -548,6 +577,12 @@ def dispatch(method: str, raw_params: Any = None) -> Any:
         raise ValueError("unknown method")
     validate_portable(params)
     _validate_input(params, METHOD_SPECS[method]["input_schema"])
+    if method == 'system.activity':
+        from operator_evidence import activity_read
+        return activity_read()
+    if method == 'lab.report':
+        from operator_evidence import lab_report
+        return lab_report()
     if method.startswith(('core.','service.')) or method == 'system.doctor':
         return _lifecycle_dispatch(method, params)
     if method == "network.interface_plan":
@@ -968,6 +1003,24 @@ def _safe_error(exc: Exception) -> str:
     return "Operation failed. Run a local health check; implementation details are withheld."
 
 
+def _error_code(exc: Exception) -> str:
+    """Only fixed canonical codes may cross the operator boundary."""
+    allowed = {'ReviewedLockChanged','ReviewedMaterialChanged','ReviewedPlanChanged',
+        'ReviewedConfigurationChanged','ManagedConfigurationCapacity','ServiceStopRequired',
+        'NativeConfigurationRejected','SecretReplacementRequired','HostCommandConfigurationRejected',
+        'ConfigurationRoleMismatch',
+        'HostBudgetInsufficient','HostBudgetDrift','ComponentLimitsDrift','LimitResolutionDrift',
+        'ComponentLimitExceedsProcessFds','ComponentLimitExceedsHostFds','ComponentLimitExceedsHostMemory',
+        'LimitRequestExceedsCeiling','LimitNotRuntimeConfigurable','MissingLimitEnforcer',
+        'ProfileUnavailable','RuntimeObservationRequired','ExplicitHumanConfirmationRequired',
+        'ApplicationSessionTimeout','ApplicationSessionCapacityReached',
+        'ApplicationSessionExpiredOrUnknown','FlowCapabilityUnavailable'}
+    value = str(exc).split(':', 1)[0]
+    if value == 'ApplicationBoundaryBusy' or value in allowed:
+        return value
+    return type(exc).__name__
+
+
 def response(request: Any, *, allow_mutations: bool = False) -> dict[str, Any]:
     if isinstance(request, dict) and (request.get("schema") == "shadow6.api-receiver-router.v1" or "s6ar1" in request):
         envelope = None
@@ -1002,9 +1055,12 @@ def response(request: Any, *, allow_mutations: bool = False) -> dict[str, Any]:
         _transport_execution_policy(method, params)
         result = {"id": request_id, "ok": True, "result": dispatch(method, params)}
         _bounded_json(result)
+        if method in MUTATING_METHODS:
+            from operator_evidence import activity_append
+            activity_append(method, params, 'Completed')
         return result
     except Exception as exc:  # API boundary intentionally normalizes implementation errors.
-        return {"id": request_id, "ok": False, "error": {"code": type(exc).__name__, "message": _safe_error(exc)}}
+        return {"id": request_id, "ok": False, "error": {"code": _error_code(exc), "message": _safe_error(exc)}}
 
 
 def _bounded_lines():
@@ -1559,18 +1615,25 @@ def http_runner(app):
     return BoundedRunner(app, access_log=None)
 
 
-async def serve(host: str, port: int, token_file: Path, allow_mutations: bool) -> None:
+async def serve(host: str, port: int, token_file: Path, allow_mutations: bool, unix_socket: Path | None = None) -> None:
     from aiohttp import web
     if not _loopback(host) or type(port) is not int or not 1 <= port <= 65535:
         raise ValueError("HTTP API must use a loopback host and a valid port")
     token = secure_read(token_file, 4096, secret=True).decode("utf-8").strip()
     runner = http_runner(http_app(token, allow_mutations))
     await runner.setup()
+    fd_gateway = None
     try:
+        if unix_socket is not None:
+            for directory in (ROOT/'Deployment', HERE.parent/'share/shadow6/deployment'):
+                if directory.is_dir(): sys.path.insert(0,str(directory))
+            from fd_gateway import FDGateway
+            fd_gateway = await FDGateway(unix_socket, token, allow_mutations=allow_mutations).start()
         await web.TCPSite(runner, "127.0.0.1" if host.lower() == "localhost" else host, port, backlog=64).start()
         print(f"Shadow6 Control Center listening on http://{host}:{port}/v1", flush=True)
         await asyncio.Event().wait()
     finally:
+        if fd_gateway is not None: await fd_gateway.close()
         await runner.cleanup()
 
 
@@ -1597,6 +1660,7 @@ def main() -> int:
     server.add_argument("--port", type=int, default=9466)
     server.add_argument("--token-file", type=Path, required=True)
     server.add_argument("--allow-mutations", action="store_true")
+    server.add_argument("--unix-socket", type=Path, help="optional owner-only direct application FD attachment adapter")
     args = parser.parse_args()
     if args.command == "schema":
         result = schema()
@@ -1619,7 +1683,7 @@ def main() -> int:
     elif args.command == "openai-rpc":
         return openai_jsonl(args.allow_mutations)
     else:
-        asyncio.run(serve(args.host, args.port, args.token_file, args.allow_mutations))
+        asyncio.run(serve(args.host, args.port, args.token_file, args.allow_mutations, args.unix_socket))
         return 0
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0

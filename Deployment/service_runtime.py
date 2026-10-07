@@ -941,7 +941,7 @@ def observe(item, plan_path):
         except ImportError:
             from application_attachment import owned_seqpacket
         actual = (actual and profile['attachment']['mode'] == 'seqpacket-fd' and
-                  target['maxRecord'] == profile['limits']['max_record'] and
+                  target['maxRecord'] == resolution['effective_limits']['max_record'] and
                   any(e.get('transport') == 'unix-seqpacket' and e.get('path') == target['path'] for e in sockets(process['pid'])) and
                   owned_seqpacket(children[0]['pid'], target['nativeFd'], target['nativeInode']))
     elif target is not None and value['readiness'] in ('application-ready', 'application-active'):

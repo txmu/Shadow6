@@ -42,6 +42,7 @@ COMPONENTS.update({
  "performance": ROOT/"Benchmark/component_benchmark.py", "collect-performance": ROOT/"Tools/collect_performance.py",
  "ipc": ROOT/"Node-IPC/cli.mjs",
  "deployment": ROOT/"Deployment/shadow6_deployment.py",
+ "web": ROOT/"CLI/shadow6_web.py",
  "acceptance": ROOT/"Deployment/shadow6_acceptance.py",
 
 })

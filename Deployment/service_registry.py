@@ -235,7 +235,7 @@ class ServiceRegistry:
         return {'name': name, 'protocolContext': context, 'spec': spec, 'privacy': privacy, 'coreBinding': binding, 'profileBinding': profile_binding,
                 'state': 'unresolved' if binding is None else 'ready'}
 
-    def preview_setup(self, name, *, core, config, spec=None, privacy='native', context=None, profile=None):
+    def preview_setup(self, name, *, core, config, spec=None, privacy='native', context=None, profile=None, _allow_reconfigure=False):
         """Validate canonical material in memory without writing or starting."""
         try:
             from .profile_availability import inspect_profile
@@ -249,7 +249,7 @@ class ServiceRegistry:
         draft = self._draft(name, core=core, config=config, spec=spec, privacy=privacy, context=context, profile=profile)
         existing = self.services.get(name)
         fields = ('coreBinding','profileBinding','protocolContext','spec','privacy')
-        if existing and any(existing[key] != draft[key] for key in fields):
+        if existing and not _allow_reconfigure and any(existing[key] != draft[key] for key in fields):
             raise ValueError('setup differs from existing service; explicitly stop and service configure first')
         self.services[name] = draft
         try:
@@ -328,7 +328,7 @@ class ServiceRegistry:
         return replacement
 
     @transaction
-    def upgrade(self, name, *, core, config, privacy=None, spec=None, context=None, profile=None):
+    def upgrade(self, name, *, core, config, privacy=None, spec=None, context=None, profile=None, expected_material_digest=None):
         """Atomically stage, lock and apply a stopped service replacement.
 
         This commits registry intent only; it never builds, installs, activates,
@@ -343,7 +343,7 @@ class ServiceRegistry:
         try:
             self.configure(name, core=core, config=config, privacy=privacy,
                            spec=spec, context=context, profile=profile)
-            self.lock(name)
+            self.lock(name, expected_material_digest=expected_material_digest)
             return self.apply(name)
         except BaseException:
             self.services = original_services
@@ -720,6 +720,8 @@ class ServiceRegistry:
         item, _material = self.connection_inputs(name)
         if item.get('runtime', {}).get('readiness') == 'application-active':
             raise ValueError('ApplicationBoundaryBusy: the current owned stream attachment is active')
+        if (item.get('runtime', {}).get('endpoint') or {}).get('attachmentState', 'available') != 'available':
+            raise ValueError('ApplicationBoundaryBusy:AttachmentConsumed')
         if item.get('privacy') == 'envelope':
             fields = runtime.parse_envelope(private_read(item['spec']['envelope_config']))
             if fields.get('carrier') == 'webrtc' and (item.get('runtimeObservation') or {}).get('transportReadiness') != 'ready':
@@ -736,6 +738,81 @@ class ServiceRegistry:
             raise ValueError('service runtime readiness is unavailable; connect requires an observed listener or native ready event')
         return resolve_connection(service=name, registry=self, catalog=self.catalog,
                                   core=core, role=role, adapter=adapter)
+
+    @transaction
+    def connection_review(self, name):
+        """Return authoritative digests for a reviewed connect operation."""
+        item, material = self.connection_inputs(name)
+        plan = self.connect(name)
+        return {'schema':'shadow6.connection-review.v1', 'plan':plan,
+                'expected_plan_digest':digest(encoded(plan)),
+                'expected_material_digest':digest(encoded(material)),
+                'expected_lock_digest':item['deploymentLock']['digest']}
+
+    @transaction
+    def config_inspect(self, name):
+        try: from .config_store import ConfigStore
+        except ImportError: from config_store import ConfigStore
+        return ConfigStore(self).inspect(name)
+
+    @transaction
+    def config_reclaim(self, name, **params):
+        try: from .config_store import ConfigStore
+        except ImportError: from config_store import ConfigStore
+        return ConfigStore(self).reclaim(name, **params)
+
+    @transaction
+    def config_review(self, name, **params):
+        try: from .config_store import ConfigStore
+        except ImportError: from config_store import ConfigStore
+        review = ConfigStore(self).review(name, **params)
+        return {'review':review, 'expected_review_digest':digest(encoded(review))}
+
+    @transaction
+    def config_save(self, name, **params):
+        try: from .config_store import ConfigStore
+        except ImportError: from config_store import ConfigStore
+        return ConfigStore(self).save(name, **params)
+
+    @transaction
+    def config_plan(self, name, *, core, profile, privacy=None, spec=None, context=None, _include_arguments=False):
+        try: from .config_store import ConfigStore
+        except ImportError: from config_store import ConfigStore
+        store = ConfigStore(self)
+        draft_path = store.path(name)
+        raw = private_read(draft_path,limit=65536)
+        material_path = draft_path.parent/('material-'+hashlib.sha256(raw).hexdigest()+'.json')
+        if private_read(material_path,limit=65536) != raw:
+            raise ValueError('ManagedConfigurationMaterialChanged')
+        existing = self.services.get(name)
+        arguments = {'core':core,'profile':profile,'config':{'config_path':str(material_path)},
+            'privacy':privacy if privacy is not None else existing['privacy'] if existing else 'native',
+            'spec':spec if spec is not None else existing['spec'] if existing else None,
+            'context':context if context is not None else existing['protocolContext'] if existing else None}
+        plan = self.preview_setup(name, **arguments, _allow_reconfigure=True)
+        result = {**plan,'schema':'shadow6.managed-config-plan.v1',
+            'expected_lock_digest':(existing.get('deploymentLock') or {}).get('digest','') if existing else '',
+            'requiresStop':bool(existing and runtime.alive(existing.get('runtime',{})))}
+        result['expected_plan_digest'] = digest(encoded(result))
+        if _include_arguments: result['arguments'] = arguments
+        return result
+
+    @transaction
+    def config_apply(self, name, *, confirmed, expected_plan_digest,
+                     expected_material_digest, expected_lock_digest, run=False, **params):
+        if confirmed is not True: raise ValueError('ExplicitHumanConfirmationRequired')
+        plan = self.config_plan(name, **params, _include_arguments=True)
+        if plan['expected_lock_digest'] != expected_lock_digest: raise ValueError('ReviewedLockChanged')
+        if plan['expected_plan_digest'] != expected_plan_digest: raise ValueError('ReviewedPlanChanged')
+        if not plan.get('valid'): raise ValueError('ProfileUnavailable')
+        if plan['materialDigest'] != expected_material_digest: raise ValueError('ReviewedMaterialChanged')
+        if plan['requiresStop']: raise ValueError('ServiceStopRequired')
+        arguments = plan['arguments']
+        if name in self.services:
+            self.upgrade(name, **arguments, expected_material_digest=expected_material_digest)
+            return self.run(name) if run else self.status(name)
+        return self.setup(name, **arguments, start=run,
+                          expected_material_digest=expected_material_digest)
 
     @transaction
     def connect_execute(self, name, *, confirmed, expected_plan_digest, expected_material_digest,

@@ -45,15 +45,16 @@ loopback-only. Send RPC bodies as uncompressed UTF-8 JSON with
 `Content-Type: application/json`. The server rejects ambiguous authentication,
 unexpected Host values and cross-origin browser requests. Request bodies,
 connections and concurrency are bounded. State-changing methods are rejected
-unless `--allow-mutations` is explicitly set. A reverse proxy or remote listener
-is outside this tool's trust boundary.
+unless `--allow-mutations` is explicitly set. The optional [Operator gateway](../docs/operator-web.md) fronts this fixed
+loopback API; the canonical Control Center never becomes a public listener.
 
 Opening `http://127.0.0.1:9466/` serves the bundled responsive dashboard. Static
 HTML/CSS/JS contain no account data and may load without a token; the read-only
 API remains bearer-authenticated. Enter the local token in the page to view host
 status, a paged Named Service list, and installed Native Profile diagnostics.
-The dashboard keeps the token only in memory, uses same-origin requests, and
-does not offer lifecycle mutations. `GET /v1/services/page?limit=50&offset=0`
+This compatibility dashboard keeps the token only in memory and uses same-origin
+requests. `shadow6 web` provides the separately authenticated Operator surface
+with reviewed lifecycle controls and bounded application session I/O. `GET /v1/services/page?limit=50&offset=0`
 returns a bounded, redacted page; the original `/v1/services` response remains
 available for API compatibility.
 

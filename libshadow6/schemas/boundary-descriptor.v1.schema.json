@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:shadow6:boundary-descriptor:v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "kind", "realization", "semantics", "max_record", "reliable", "ordered", "freshness_preferred", "fd_ownership", "data_path"],
+  "properties": {
+    "schema": {"const": "shadow6.boundary-descriptor.v1"},
+    "kind": {"enum": ["stream", "message"]},
+    "realization": {"enum": ["localhost-tcp-proxy", "localhost-udp-datagram-proxy", "seqpacket-fd"]},
+    "semantics": {"enum": ["stream", "datagram", "record", "message"]},
+    "max_record": {"type": ["integer", "null"], "minimum": 1, "maximum": 65536},
+    "reliable": {"type": ["boolean", "null"]},
+    "ordered": {"type": ["boolean", "null"]},
+    "freshness_preferred": {"type": ["boolean", "null"]},
+    "fd_ownership": {"const": "borrowed-until-close"},
+    "data_path": {"const": "native-socket"}
+  }
+}

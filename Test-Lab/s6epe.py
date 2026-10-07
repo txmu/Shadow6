@@ -406,6 +406,7 @@ def case(profile, core_binary, epe_binary, adapter, scenario, output, run_id, *,
                 on_ready=impairment.workload_ready, target_port=target_port)
             observer.close()
             row['coreRuntimeObservation'] = result.get('runtimeObservation')
+            row['applicationGame'] = result.get('applicationGame')
             row['stages']['correctness'] = result.get('correctness') or {'status': result['status'], 'reason': result.get('reason')}
             row['metrics'] = result.get('metrics')
             if result['status'] != 'PASS': raise RuntimeError(result.get('reason') or 'Core application correctness failed')
@@ -425,7 +426,7 @@ def case(profile, core_binary, epe_binary, adapter, scenario, output, run_id, *,
             if adapter.name == 'webrtc' and (telemetry.get('active_sessions', 0) < 1 or
                     not any(s['transport'] == 'udp' for s in server_process.snapshot()['sockets'])):
                 raise ValueError('fresh active authenticated WebRTC session/owned UDP socket unavailable')
-            expected = row['stages']['correctness']['bytesSent']
+            expected = row['stages']['correctness']['bytesSent'] + (row.get('applicationGame') or {}).get('bytesSent', 0)
             if min(telemetry['bytes_in'], telemetry['bytes_out']) < expected:
                 raise ValueError('S6EPE application byte accounting does not cover Core probe')
             row['endpointOwnership'] = after; row['privacyTelemetry'] = telemetry

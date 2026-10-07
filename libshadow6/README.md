@@ -1,7 +1,12 @@
 # libshadow6
 
-`libshadow6` is the Python application facade for a locally managed Shadow6
-deployment. It asks Control Center for registered Core boundaries, selects a
+`libshadow6` is the application facade for a locally managed Shadow6
+deployment. The versioned direct attachment API and C/C++ application ABI are
+documented in [Application SDK](../docs/application-sdk.md). `connect_handle()`
+returns a structured handle and native socket/fd; it does not forward packets.
+`ControlClient` optionally reuses a persistent loopback control connection.
+
+The legacy capsule API It asks Control Center for registered Core boundaries, selects a
 matching client boundary, starts a capability capsule, returns its loopback
 endpoint, and owns the capsule until the session or facade closes. It does not
 implement a Core wire protocol.
@@ -21,6 +26,7 @@ print(s6.call("guide", "--lang", "en"))
 with Shadow6() as s6:
     session = s6.open(
         {"kind": "stream", "reliable": True, "ordered": True},
+        core="rust",
         config="/etc/shadow6/client.json",
     )
     print(session.core, session.endpoint)
@@ -80,4 +86,4 @@ protocol negotiation.
 
 ## Named Service connections
 
-`Shadow6.connection_plan("home/nas")` returns the same structured plan as `shadow6 connect home/nas --json`. `with Shadow6().connect("home/nas") as session:` actually attaches to a process-owned, structured-ready loopback TCP client application proxy. Use `session.send(bytes)` and `session.receive()`; unsupported boundaries raise a capability error. This session is bounded to 300s/16MiB and 30s socket inactivity. S6P1 owns intent, S6AR1 control transport, S6ABI application boundaries; local PID/config/digests stay outside S6P1. See [service connections](../docs/service-connections.md).
+`Shadow6.connection_plan("home/nas")` returns the same structured plan as `shadow6 connect home/nas --json`. `with Shadow6().connect("home/nas") as session:` actually attaches to the Profile's process-owned, observed stream or message boundary. Use `session.send(bytes)` and `session.receive()`; unsupported boundaries raise a capability error. This session is bounded to 300s/16MiB and 30s socket inactivity. S6P1 owns intent, S6AR1 control transport, S6ABI application boundaries; local PID/config/digests stay outside S6P1. See [service connections](../docs/service-connections.md).

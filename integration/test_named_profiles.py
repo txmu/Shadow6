@@ -36,6 +36,32 @@ from stack_test import (generate_configs, EchoTarget, DatagramEchoTarget,
 
 
 class NamedProfileTests(unittest.TestCase):
+    def game_attachment(self, facade, name, profile):
+        # Native fd data path: no per-packet control calls or Core branches.
+        with facade.connect_handle(name) as handle:
+            self.assertEqual(handle.boundary.kind, profile['applicationBoundary']['kind'])
+            self.assertFalse(os.get_inheritable(handle.fileno()))
+            self.assertEqual(handle.describe()['profileBinding']['profile'], profile['id'])
+            connection = handle.socket
+            for sequence in range(60):
+                tick = time.monotonic()
+                payload = sequence.to_bytes(4, 'big') + b'game-state-60Hz'
+                if handle.boundary.semantics == 'stream':
+                    connection.sendall(payload)
+                    received = bytearray()
+                    while len(received) < len(payload):
+                        chunk = connection.recv(len(payload) - len(received))
+                        self.assertTrue(chunk, 'unexpected native stream EOF')
+                        received.extend(chunk)
+                    self.assertEqual(bytes(received), payload)
+                else:
+                    self.assertLessEqual(len(payload), handle.boundary.max_record)
+                    self.assertEqual(connection.send(payload), len(payload))
+                    received, _, flags, _ = connection.recvmsg(handle.boundary.max_record)
+                    self.assertFalse(flags & socket.MSG_TRUNC)
+                    self.assertEqual(received, payload)
+                time.sleep(max(0, 1/60 - (time.monotonic() - tick)))
+
     def check_profile(self, profile):
         binary = ROOT / profile['artifact']
         self.assertTrue(binary.is_file(), 'required installed artifact missing: ' + str(binary))
@@ -119,23 +145,29 @@ class NamedProfileTests(unittest.TestCase):
                         self.assertEqual(cli('run', names[role])['runtime']['pid'], item['runtime']['pid'])
                         doctor = cli('doctor', names[role])
                         self.assertEqual(doctor['findings'], [], doctor)
-                    with facade.connect(names['client']) as session:
-                        payload = b'named-profile:' + profile['id'].encode()
-                        if message:
-                            session.send_record(payload)
-                            received = session.receive_record()
-                            if received != payload:
-                                self.fail('message reply differs: ' + repr(received) + '; states=' + repr({role:cli('status',names[role])['state'] for role in names}))
-                            with self.assertRaisesRegex(ValueError, 'UnsupportedApplicationHalfClose'):
-                                session.half_close()
-                        else:
-                            session.send(payload)
-                            received = bytearray()
-                            while len(received) < len(payload):
-                                data = session.receive(len(payload) - len(received))
-                                self.assertTrue(data, 'unexpected stream EOF')
-                                received.extend(data)
-                            self.assertEqual(bytes(received), payload)
+                    if cycle:
+                        identity = current['client']['runtime']['pid']
+                        self.game_attachment(facade, names['client'], profile)
+                        self.assertTrue(service_runtime.alive(current['client']['runtime']))
+                        self.assertEqual(cli('status', names['client'])['runtime']['pid'], identity)
+                    else:
+                        with facade.connect(names['client']) as session:
+                            payload = b'named-profile:' + profile['id'].encode()
+                            if message:
+                                session.send_record(payload)
+                                received = session.receive_record()
+                                if received != payload:
+                                    self.fail('message reply differs: ' + repr(received) + '; states=' + repr({role:cli('status',names[role])['state'] for role in names}))
+                                with self.assertRaisesRegex(ValueError, 'UnsupportedApplicationHalfClose'):
+                                    session.half_close()
+                            else:
+                                session.send(payload)
+                                received = bytearray()
+                                while len(received) < len(payload):
+                                    data = session.receive(len(payload) - len(received))
+                                    self.assertTrue(data, 'unexpected stream EOF')
+                                    received.extend(data)
+                                self.assertEqual(bytes(received), payload)
                     for role in ('client', 'agent', 'broker'):
                         stopped = cli('stop', names[role])
                         self.assertFalse(service_runtime.alive(stopped.get('runtime', {})))

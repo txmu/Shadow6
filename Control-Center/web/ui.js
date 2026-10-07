@@ -40,6 +40,8 @@ const translations = {
 const $ = (id) => document.getElementById(id);
 let language = navigator.language.toLowerCase().startsWith("zh") ? "zh" : "en";
 let bearer = "";
+let gatewayAuth = false;
+let operatorCSRF = "";
 let offset = 0;
 let totalServices = 0;
 const pageSize = 50;
@@ -57,7 +59,8 @@ function showError(message) { $("error").textContent = message; $("error").hidde
 function setLoading(value) { $("loading").hidden = !value; }
 async function request(path, options = {}) {
   const headers = new Headers(options.headers || {});
-  if (bearer) headers.set("Authorization", `Bearer ${bearer}`);
+  if (bearer && !gatewayAuth) headers.set("Authorization", `Bearer ${bearer}`);
+  if (gatewayAuth && options.method === "POST") headers.set("X-Shadow6-CSRF", operatorCSRF);
   const response = await fetch(path, { ...options, headers, cache: "no-store", credentials: "same-origin", redirect: "error" });
   if (!response.ok) {
     if (response.status === 401) throw new Error(translate("unauthorized"));
@@ -112,6 +115,12 @@ function renderServices(page) {
     }
     const endpoint = document.createElement("td"); endpoint.textContent = typeof item.endpoint === "string" ? item.endpoint : item.endpoint ? JSON.stringify(item.endpoint) : "—";
     row.append(name, core, profile, stateCell, endpoint); body.append(row);
+    if (gatewayAuth) {
+      const choose = document.createElement("button"); choose.textContent = item.name;
+      choose.addEventListener("click", () => window.dispatchEvent(new CustomEvent("shadow6-service-selected", {detail:item.name})));
+      name.replaceChildren(choose);
+    }
+    for (const [cell, label] of [[name,"name"],[core,"core"],[profile,"profile"],[stateCell,"state"],[endpoint,"endpoint"]]) cell.dataset.label = translate(label);
   }
   const pages = Math.max(1, Math.ceil(page.total / pageSize));
   const current = Math.min(pages, Math.floor(offset / pageSize) + 1);

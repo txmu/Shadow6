@@ -5,9 +5,12 @@ No keys, topology policy or toolchain are chosen by this pure realization helper
 """
 import ipaddress
 import re
-from .topology_contract import engine_id, selected_engine, check_topology
-
-from .profile_registry import topology_profile, transport_map
+try:
+    from .topology_contract import engine_id, selected_engine, check_topology
+    from .profile_registry import topology_profile, transport_map
+except ImportError:
+    from topology_contract import engine_id, selected_engine, check_topology
+    from profile_registry import topology_profile, transport_map
 
 TRANSPORTS = transport_map(configuration=True)
 

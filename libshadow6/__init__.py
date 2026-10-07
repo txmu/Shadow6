@@ -11,9 +11,12 @@ from threading import RLock
 from pathlib import Path
 
 __all__ = ["Shadow6", "Shadow6Error", "Session", "CreditedSession",
-           "WebrtcClientReflector", "run"]
+           "WebrtcClientReflector", "BoundaryDescriptor", "ConnectionHandle", "ConnectionError", "ControlClient", "RegistryControl", "run"]
 
 from .webrtc_signal import WebrtcClientReflector
+from .boundary import BoundaryDescriptor, ConnectionHandle, ConnectionError
+from .control import ControlClient, RegistryControl
+from .peer import PeerConnection
 
 try:
     from Deployment.core_catalog import CoreCatalog
@@ -275,13 +278,14 @@ def run(*args: str, input: str | None = None, timeout: float = 30,
 class Shadow6:
     """Discover compatible client boundaries and own their capsule lifecycle."""
 
-    def __init__(self, cli: str | os.PathLike[str] | None = None):
+    def __init__(self, cli: str | os.PathLike[str] | None = None, *, control: ControlClient | None = None):
         if cli is not None:
             self.cli = str(Path(cli).expanduser())
             if not Path(self.cli).is_file() or not os.access(self.cli, os.X_OK):
                 raise Shadow6Error("configured Shadow6 CLI is not executable")
         else:
-            self.cli = _cli()
+            self.cli = None if control is not None else _cli()
+        self._control_client = control
         self._sessions: set[Session] = set()
         self._attachments: set[CreditedSession] = set()
         self._attachment_pools: set[CreditedPool] = set()
@@ -289,6 +293,78 @@ class Shadow6:
         self._service_attachment_pools: dict[str, CreditedPool] = {}
         self._attachment_lock = RLock()
         self._closed = False
+
+    def connect_handle(self, name: str, *, timeout: float = 10, cancellation=None,
+                       require: dict | None = None):
+        self._ensure_attachment_state()
+        with self._attachment_lock:
+            if not hasattr(self, '_connections'): self._connections = set()
+            if not hasattr(self, '_pending_connections'): self._pending_connections = 0
+            if len(self._connections) + self._pending_connections >= 64:
+                raise ConnectionError('ApplicationSessionCapacityReached', retryable=True)
+            self._pending_connections += 1
+        try:
+            return self._connect_handle(name, timeout=timeout, cancellation=cancellation, require=require)
+        finally:
+            with self._attachment_lock:
+                self._pending_connections -= 1
+
+    def _connect_handle(self, name: str, *, timeout: float, cancellation,
+                        require: dict | None):
+        """Return a direct native socket after canonical readiness and admission.
+
+        The Named Service supplies the operator-selected Core/Profile. This
+        version fails closed for credited paths requiring a userspace facade.
+        Existing connect/open_application APIs remain available for those paths.
+        """
+        import time
+        if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or not 0 < timeout <= 300:
+            raise ValueError('timeout must be in (0, 300]')
+        self._ensure_attachment_state()
+        deadline = time.monotonic() + timeout
+        initial = None
+        while True:
+            if self._closed:
+                raise ConnectionError('FacadeClosed')
+            if cancellation is not None and cancellation.is_set():
+                raise ConnectionError('ConnectionCancelled', state='cancelled')
+            plan = self.connection_plan(name)
+            binding = (plan.get('lockDigest'), plan.get('profileBinding'), plan.get('applicationAdapter'))
+            if initial is None:
+                initial = binding
+            elif initial != binding:
+                raise ConnectionError('ReviewedLockChanged')
+            if plan.get('readiness') == 'application-ready':
+                break
+            if time.monotonic() >= deadline:
+                raise ConnectionError('ApplicationReadinessTimeout', retryable=True)
+            if cancellation is not None:
+                cancellation.wait(min(.1, max(0, deadline-time.monotonic())))
+            else:
+                time.sleep(min(.1, max(0, deadline-time.monotonic())))
+        if (plan.get('applicationAdapter') or {}).get('provider') == 's6na':
+            raise ConnectionError('DirectBoundaryUnavailable')
+        descriptor = BoundaryDescriptor.from_plan(plan)
+        capabilities = descriptor.to_dict()
+        if require is not None:
+            if not isinstance(require, dict) or set(require) - {'kind','semantics','reliable','ordered','freshness_preferred'}:
+                raise ValueError('invalid flow requirements')
+            if any(capabilities.get(key) != value for key, value in require.items()):
+                raise ConnectionError('FlowCapabilityUnavailable')
+        from Deployment.connection_plan import open_local_session
+        attachment = open_local_session(plan)
+        try:
+            if cancellation is not None and cancellation.is_set():
+                raise ConnectionError('ConnectionCancelled', state='cancelled')
+            handle = ConnectionHandle(self, name, plan, attachment, descriptor)
+            with self._attachment_lock:
+                if self._closed: raise ConnectionError('FacadeClosed')
+                if not hasattr(self, '_connections'): self._connections = set()
+                self._connections.add(handle)
+            return handle
+        except BaseException:
+            attachment.close()
+            raise
 
     def _ensure_attachment_state(self):
         if not hasattr(self, "_attachments"):
@@ -306,14 +382,37 @@ class Shadow6:
         return run(*args, input=input, timeout=timeout, cli=self.cli).stdout
 
     def json(self, *args: str, input: str | None = None, timeout: float = 30) -> dict:
-        try: value = json.loads(self.call(*args, input=input, timeout=timeout))
-        except json.JSONDecodeError as exc: raise Shadow6Error("invalid JSON response") from exc
+        from Deployment.service_storage import strict_json
+        try: value = strict_json(self.call(*args, input=input, timeout=timeout), limit=1048576)
+        except ValueError as exc: raise Shadow6Error("invalid JSON response") from exc
         if not isinstance(value, dict): raise Shadow6Error("expected JSON object")
         return value
 
     def connection_plan(self, name: str) -> dict:
         """Resolve a named service through the same S6P1 connection pipeline."""
-        return self.json('connect', name, '--json')
+        return self._control('service.connect', {'name':name})
+
+    def profiles(self) -> dict:
+        return self._control('core.profiles', {})
+
+    def peer(self, name: str, **options) -> PeerConnection:
+        return PeerConnection(self,name,**options)
+
+    def service_status(self, name: str) -> dict:
+        return self._control('service.status', {'name':name})
+
+    def lifecycle(self, method: str, params: dict) -> dict:
+        """Forward fixed lifecycle operations to the canonical dispatcher.
+
+        Setup requires explicit Core/Profile. Mutations retain canonical
+        confirmation/digest checks; the facade supplies no implicit consent.
+        """
+        allowed = {'service.propose','service.validate','service.plan','service.create',
+            'service.setup','service.run','service.stop','service.restart','service.relock',
+            'service.apply','service.remove','service.connection_review'}
+        if method not in allowed:
+            raise ValueError('unsupported lifecycle operation')
+        return self._control(method, params)
 
     def connect(self, name: str, *, adapter: str = "auto"):
         """Open a lock-selected application path without naming a Core or Profile.
@@ -497,9 +596,21 @@ class Shadow6:
         return reports[0]
 
     def _control(self, method: str, params: dict) -> dict:
-        result = self.json("control", "call", method, "--params",
-                           json.dumps(params, ensure_ascii=False, separators=(",", ":")))
-        return result
+        if getattr(self, '_control_client', None) is not None:
+            return self._control_client.call(method, params)
+        mutating = {'service.create','service.setup','service.run','service.stop',
+            'service.restart','service.relock','service.apply','service.remove',
+            'service.config_save','service.config_apply','service.config_reclaim',
+            'capsule.start','capsule.stop','capsule.pause','capsule.resume'}
+        arguments = ('control','rpc') + (('--allow-mutations',) if method in mutating else ())
+        result = self.json(*arguments, input=json.dumps({'method':method,'params':params},
+            ensure_ascii=True,allow_nan=False,separators=(',',':'))+'\n')
+        if set(result) - {'id','ok','result','error'} or result.get('ok') is not True:
+            code = (result.get('error') or {}).get('code','ControlRequestRejected')
+            if not isinstance(code,str) or not code.isascii() or not code.isalpha() or len(code)>96:
+                code = 'ControlRequestRejected'
+            raise ConnectionError(code)
+        return result['result']
 
     @staticmethod
     def _matches(boundary: dict, require: dict) -> bool:
@@ -578,6 +689,12 @@ class Shadow6:
     def close(self) -> None:
         if self._closed:
             return
+        self._ensure_attachment_state()
+        with self._attachment_lock:
+            self._closed = True
+            connections = tuple(getattr(self, '_connections', ()))
+        for connection in connections:
+            connection.close()
         errors = []
         for session in tuple(getattr(self, "_sessions", ())):
             try:

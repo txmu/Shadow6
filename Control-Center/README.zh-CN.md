@@ -86,3 +86,8 @@ endpoint。`Session.close()` 或退出 `Shadow6` context 会停止所拥有的 c
 OpenAI 函数工具发现，参见[配置与协议说明](../Node-IPC/README.md)。
 
 [Read in English](README.md)
+
+Operator Web Gateway 与现有直接 Bearer dashboard 并存。`shadow6 web`
+显式启动可写的人机界面，使用独立配对凭据、HttpOnly cookie 与 CSRF；
+所有服务操作仍经 canonical dispatcher。见 [Operator Web](../docs/operator-web.md)
+和 [应用 SDK](../docs/application-sdk.md)。

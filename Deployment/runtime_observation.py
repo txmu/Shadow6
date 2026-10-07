@@ -43,8 +43,10 @@ def readiness_evidence(value, state, *, now=None):
     readiness = value.get('readiness') if isinstance(value, dict) else 'unavailable'
     runtime_ready = current and readiness in {'listener-ready', 'control-ready', 'application-ready', 'application-active'}
     application_ready = current and readiness in {'application-ready', 'application-active'} and value['applicationReadiness'] == 'ready'
+    target = value.get('endpoint') or {} if isinstance(value,dict) else {}
+    attachable = target.get('attachmentState', 'available') == 'available'
     return {'schema': 'shadow6.readiness-evidence.v1', 'runtimeReady': bool(runtime_ready),
-        'applicationReady': bool(application_ready), 'newAttachmentAvailable': bool(application_ready and readiness == 'application-ready'),
+        'applicationReady': bool(application_ready), 'newAttachmentAvailable': bool(application_ready and readiness == 'application-ready' and attachable),
         'observation': readiness if current else 'unavailable',
         'reason': 'verified-current-observation' if current else 'runtime-observation-unavailable-or-stale',
         'admissionGrant': False}

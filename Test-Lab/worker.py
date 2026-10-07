@@ -14,6 +14,7 @@ import tempfile
 import time
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "Deployment"))
 sys.path.insert(0, str(ROOT / "integration"))
 sys.path.insert(0, str(ROOT / "Crosed"))
@@ -23,7 +24,8 @@ from core_catalog import CoreCatalog
 from service_registry import ServiceRegistry
 from service_storage import atomic_write
 from protocol_context import minimal_context
-from connection_plan import open_local_session
+from libshadow6 import Shadow6, RegistryControl
+from application_game import game_workload
 
 
 def named_workload(profile, binary, payload_bytes, requests, rtt_ms, target_port=None):
@@ -101,7 +103,7 @@ def named_workload(profile, binary, payload_bytes, requests, rtt_ms, target_port
             received_digest = None
             record_bytes = min(payload_bytes, profile['applicationBoundary'].get('max_record', payload_bytes), 512) if message else payload_bytes
             started = time.monotonic()
-            with open_local_session(registry.connect(names['client'], core=profile['core'])) as session:
+            with Shadow6(control=RegistryControl(registry)) as facade, facade.connect_handle(names['client']) as session:
                 session.socket.settimeout(10)
                 for _ in range(requests):
                     request_started = time.monotonic()
@@ -109,13 +111,18 @@ def named_workload(profile, binary, payload_bytes, requests, rtt_ms, target_port
                     for offset in range(0, payload_bytes, record_bytes):
                         part = payload[offset:offset + record_bytes]
                         if message:
-                            session.send_record(part)
-                            reply = session.receive_record()
+                            if len(part) > session.boundary.max_record:
+                                raise ValueError('application record exceeds negotiated boundary')
+                            if session.socket.send(part) != len(part):
+                                raise ValueError('partial application record')
+                            reply, _, flags, _ = session.socket.recvmsg(session.boundary.max_record)
+                            if flags & socket.MSG_TRUNC:
+                                raise ValueError('truncated native application record')
                         else:
-                            session.send(part)
+                            session.socket.sendall(part)
                             reply = bytearray()
                             while len(reply) < len(part):
-                                chunk = session.receive(len(part) - len(reply))
+                                chunk = session.socket.recv(len(part) - len(reply))
                                 if not chunk: raise EOFError('application echo ended early')
                                 reply.extend(chunk)
                             reply = bytes(reply)
@@ -128,6 +135,8 @@ def named_workload(profile, binary, payload_bytes, requests, rtt_ms, target_port
                     received_digest = hashlib.sha256(echoed).hexdigest()
                     latencies.append(time.monotonic() - request_started)
                     if rtt_ms: time.sleep(rtt_ms / 1000)
+                echo_duration = time.monotonic() - started
+                game = game_workload(session)
                 # Check while the attachment is still open. Closing a declared
                 # one-flow/record attachment can legitimately drain and stop
                 # its Core; that must not be mistaken for mid-probe PID drift.
@@ -150,7 +159,7 @@ def named_workload(profile, binary, payload_bytes, requests, rtt_ms, target_port
                     time.sleep(0.1)
                 for role, item in final.items():
                     evidence[role]['runtimeObservation'] = item['runtimeObservation']
-                duration = time.monotonic() - started
+                duration = echo_duration
             result = stack_test.benchmark_metrics(payload, latencies, duration)
             result.update(bytes_sent=sent, bytes_received=received_count,
                 exact_echo={'payload_sha256': hashlib.sha256(payload).hexdigest(),
@@ -159,7 +168,7 @@ def named_workload(profile, binary, payload_bytes, requests, rtt_ms, target_port
                 runtime_observation={'status': 'observed', 'scope': 'during-application-probe',
                     'retainedLiveCapability': False, 'roles': evidence,
                     'namespaceIdentity': os.readlink('/proc/self/ns/net')},
-                pacing_ms=rtt_ms)
+                pacing_ms=rtt_ms, application_game=game)
             return result
         finally:
             errors = []
@@ -208,6 +217,7 @@ def run(core: str, profile_id: str, binary: Path, payload_bytes: int, requests: 
                 "cpuSeconds": None, "peakRssBytes": None,
                 "unavailableMetrics": ["native process CPU/RSS counters", "Core-internal transport counters"]},
             "runtimeObservation": result['runtime_observation'],
+            "applicationGame": result['application_game'],
             "adapter": None, "carrier": "native"}
 
 

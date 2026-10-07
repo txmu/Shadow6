@@ -63,3 +63,6 @@ OCaml/privacy_envelope/shadow6-privacy-envelope
 /Core-Rust/shadow6-go
 /Core-Rust/shadow6-go-crosed
 /release[0-9]*/
+/libshadow6/native/libshadow6.so
+/libshadow6/native/libshadow6.so.1
+/libshadow6/native/*.o

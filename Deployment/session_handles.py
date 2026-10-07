@@ -183,6 +183,22 @@ class SessionHandleManager:
             self._close_entry(entry)
         return {'schema': 'shadow6.application-session-close.v1', 'handle': handle, 'closed': True}
 
+    def transfer_fd(self, handle):
+        """Transfer one approved attachment to an owner-controlled Unix peer.
+
+        The caller owns the returned descriptor. The web facade's byte/time
+        budget no longer applies; native deployment limits still apply. This
+        is used only by the fixed local FD adapter, never HTTP/MCP/LLM tools.
+        """
+        entry = self._entry(handle)
+        with entry['ioLock']:
+            self._ensure_current(handle,entry)
+            with self._lock:
+                if self._entries.get(handle) is not entry:
+                    raise ValueError('ApplicationSessionExpiredOrUnknown')
+                del self._entries[handle]
+            return entry['session'].socket.detach()
+
     def close_service(self, service):
         with self._lock:
             handles = [handle for handle, entry in self._entries.items() if entry['service'] == service]
