@@ -1111,7 +1111,7 @@ jobs:
           set -euo pipefail
           .venv/bin/python integration/test_named_profiles.py -v
           make -C libshadow6/native check
-          PYTHONPATH=Control-Center .venv/bin/python -m unittest -v Control-Center/test_fd_gateway.py
+          PYTHONPATH="$GITHUB_WORKSPACE:$GITHUB_WORKSPACE/Control-Center" .venv/bin/python -m unittest -v Control-Center/test_fd_gateway.py
           .venv/bin/python -m pip install 'playwright==1.58.0'
           .venv/bin/python -m playwright install chromium
           SHADOW6_BROWSER_TEST=1 .venv/bin/python integration/test_application_lifecycle.py -v
