@@ -149,8 +149,11 @@ or `NOT-PACKAGED` state for the installed APK/ABI. The four current Android
 Core engines are Go/KCP, Rust/QUIC, D/secure-stream, and Nim/WebRTC.
 
 For a Client Profile, the action is **Connect Core**. Android waits for the
-Core's structured `shadow6.ready` event instead of treating a live process as
-ready. Once the local ApplicationBoundary listener is reported, **Run 4 KiB
+Core's structured `shadow6.ready` event, its owned TCP listener and an owned
+child identity (`boot_id:start_ticks`). Child discovery examines only this
+app's task children and checks parent and executable identity. Devices that
+deny those proc observations report unavailable readiness. Process death,
+identity change and stop invalidate the observation. **Run 4 KiB
 application echo correctness probe** sends deterministic bounded bytes through
 that endpoint and checks the full echo and SHA-256. Configure the remote
 Agent's target port to a controlled echo service first. The probe reports

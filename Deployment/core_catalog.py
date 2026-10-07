@@ -88,7 +88,7 @@ def validate_config(descriptor: dict[str, Any], config: dict[str, Any]) -> dict[
     return {"config_path": str(Path(path).expanduser().absolute())}
 
 class CoreCatalog:
-    def __init__(self, root: Path | None = None):
+    def __init__(self, root: Path | None = None, *, descriptor_path: Path | None = None):
         if root is None:
             try:
                 from install_layout import tree_root
@@ -99,7 +99,7 @@ class CoreCatalog:
                              if (ancestor / 'share/shadow6/tree/Makefile').is_file()), here.parents[1])
         self.root = Path(root)
         self._items = {c: _descriptor(c, self.root) for c in CORE_IDS}
-        self.descriptor_path = Path(os.environ.get('SHADOW6_CORE_DESCRIPTORS',Path.home()/'.config/shadow6/cores.json'))
+        self.descriptor_path = Path(descriptor_path) if descriptor_path is not None else Path(os.environ.get('SHADOW6_CORE_DESCRIPTORS',Path.home()/'.config/shadow6/cores.json'))
         self._load_imported()
 
     def _load_imported(self):

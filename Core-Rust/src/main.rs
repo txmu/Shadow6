@@ -3045,6 +3045,16 @@ async fn run() -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn shared_portable_json_conformance() {
+        let corpus: serde_json::Value = serde_json::from_str(include_str!("../../Tools/strict_json_conformance.json")).unwrap();
+        assert_eq!(corpus["schema"], "shadow6.strict-json-conformance.v1");
+        for case in corpus["cases"].as_array().unwrap() {
+            let parsed = super::strict_json::from_str::<serde_json::Value>(case["input"].as_str().unwrap());
+            let accepted = parsed.is_ok_and(|value| super::validate_crosed_payload(&value, 0).is_ok());
+            assert_eq!(accepted, case["accepted"].as_bool().unwrap(), "fixture {}", case["id"]);
+        }
+    }
     use super::*;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::time::timeout;

@@ -42,6 +42,20 @@ class CoreRuntimeTest {
         assertEquals(34129, CoreRuntime.parseClientReadyEndpoint(event, CoreEngine.GO, profile))
         assertNull(CoreRuntime.parseClientReadyEndpoint(event.replace("localhost-tcp-proxy", "other"), CoreEngine.GO, profile))
         assertNull(CoreRuntime.parseClientReadyEndpoint(event.replace("shadow6-go", "shadow6-rust"), CoreEngine.GO, profile))
+        assertNull(CoreRuntime.parseClientReadyEndpoint(event.replace("34129", "4295001425"), CoreEngine.GO, profile))
+        assertNull(CoreRuntime.parseClientReadyEndpoint(event.replace("\"schema\":1", "\"schema\":1,\"extra\":true"), CoreEngine.GO, profile))
+    }
+
+    @Test
+    fun processStatUsesParentAndStartTicksWithParenthesesInTheCommand() {
+        val fields = MutableList(20) { "0" }
+        fields[0] = "S"
+        fields[1] = "123"
+        fields[19] = "4567"
+        assertEquals(123L to 4567L, CoreRuntime.procDetails("999 (core (worker)) " + fields.joinToString(" ")))
+        fields[19] = "-1"
+        assertNull(CoreRuntime.procDetails("999 (core) " + fields.joinToString(" ")))
+        assertNull(CoreRuntime.procDetails("999 (core) S 123"))
     }
 
     @Test

@@ -133,6 +133,7 @@ data class CoreSetupObservation(
 class CoreRuntime(private val context: Context) {
     @Volatile private var process: Process? = null
     private var outputThread: Thread? = null
+    private var ownedChild: ObservedProcessIdentity? = null
     private val outputLock = Any()
     private var boundedOutput = ""
     @Volatile private var current = CoreStatus()
@@ -171,6 +172,7 @@ class CoreRuntime(private val context: Context) {
             val exitCode = runCatching { active.exitValue() }.getOrDefault(-1)
             val output = synchronized(outputLock) { boundedOutput.trim() }
             process = null
+            ownedChild = null
             current = current.copy(
                 running = false,
                 port = 0,
@@ -179,11 +181,15 @@ class CoreRuntime(private val context: Context) {
                 observation = null,
             )
         }
+        if (current.running && ownedChild?.let { linuxProcessIdentity(it.pid) != it.processIdentity } != false) {
+            current = current.copy(pid = null, observation = null,
+                detail = "Core process identity is unavailable; application readiness cannot be verified")
+        }
         if (current.running && current.role == CoreRole.CLIENT) {
             val output = synchronized(outputLock) { boundedOutput }
             val selected = runCatching { profileFor(current.engine) }.getOrNull()
             parseClientReadyEndpoint(output, current.engine, selected)?.let { port ->
-                if (current.port != port || current.host != CoreStatus.LOOPBACK_HOST) {
+                if (ownsTcpListener(port) && (current.port != port || current.host != CoreStatus.LOOPBACK_HOST)) {
                     current = current.copy(
                         host = CoreStatus.LOOPBACK_HOST,
                         port = port,
@@ -222,8 +228,12 @@ class CoreRuntime(private val context: Context) {
                             endpoint: Map<String, Any?>? = null): RuntimeObservation? {
         val parentPid = android.os.Process.myPid().toLong()
         val parentIdentity = linuxProcessIdentity(parentPid) ?: return null
-        val childPid = process?.pid() ?: return null
+        if (process?.isAlive != true) return null
+        val child = ownedChild ?: return null
+        val childPid = child.pid
         val childIdentity = linuxProcessIdentity(childPid) ?: return null
+        if (childIdentity != child.processIdentity ||
+            runCatching { procDetails(readProcFile("/proc/$childPid/stat", 4096))?.first }.getOrNull() != parentPid) return null
         val applicationReady = readiness == "application-ready"
         return RuntimeObservation(core = profile.core, profile = profile.id,
             nativeTransport = profile.nativeTransport, applicationBoundary = boundaryLabel(profile),
@@ -234,13 +244,67 @@ class CoreRuntime(private val context: Context) {
     }
 
     private fun linuxProcessIdentity(pid: Long): String? = runCatching {
-        val bootId = File("/proc/sys/kernel/random/boot_id").readText().trim()
+        val bootId = readProcFile("/proc/sys/kernel/random/boot_id", 256).trim()
         require(bootId.matches(Regex("[0-9a-fA-F-]{36}")))
-        val fields = File("/proc/$pid/stat").readText().substringAfterLast(")", "").trim()
-            .split(Regex("\\s+"))
-        val startTicks = fields.getOrNull(19)?.toLongOrNull() ?: error("process start identity is unavailable")
+        val startTicks = procDetails(readProcFile("/proc/$pid/stat", 4096))?.second
+            ?: error("process start identity is unavailable")
         "$bootId:$startTicks"
     }.getOrNull()
+
+    private fun readProcFile(path: String, limit: Int): String = File(path).inputStream().use { input ->
+        val buffer = ByteArray(limit + 1)
+        var count = 0
+        while (count < buffer.size) {
+            val n = input.read(buffer, count, buffer.size - count)
+            if (n < 0) break
+            count += n
+        }
+        require(count <= limit) { "Process observation exceeds its byte bound" }
+        String(buffer, 0, count, Charsets.US_ASCII)
+    }
+
+    /** Enumerate only this application's own task children, never global PIDs. */
+    private fun taskChildren(): Set<Long> = runCatching {
+        val tasks = File("/proc/self/task").listFiles() ?: error("Task observation unavailable")
+        require(tasks.size <= 512)
+        val children = tasks.flatMap { task ->
+            readProcFile("${task.path}/children", 8192).trim().split(Regex("\\s+"))
+                .filter { it.isNotEmpty() }.map { it.toLong().also { pid -> require(pid > 0) } }
+        }.toSet()
+        require(children.size <= 128)
+        children
+    }.getOrDefault(emptySet())
+
+    private fun identifyChild(binary: File, previous: Set<Long>): ObservedProcessIdentity? {
+        val parentPid = android.os.Process.myPid().toLong()
+        val candidates = (taskChildren() - previous).mapNotNull { pid -> runCatching {
+            val identity = linuxProcessIdentity(pid) ?: return@runCatching null
+            val details = procDetails(readProcFile("/proc/$pid/stat", 4096)) ?: return@runCatching null
+            if (details.first != parentPid || android.system.Os.readlink("/proc/$pid/exe") != binary.canonicalPath ||
+                linuxProcessIdentity(pid) != identity) return@runCatching null
+            ObservedProcessIdentity(pid, identity)
+        }.getOrNull() }
+        return candidates.singleOrNull()
+    }
+
+    private fun ownsTcpListener(port: Int): Boolean = runCatching {
+        val child = ownedChild ?: return@runCatching false
+        if (process?.isAlive != true || linuxProcessIdentity(child.pid) != child.processIdentity) return@runCatching false
+        val descriptors = File("/proc/${child.pid}/fd").listFiles() ?: return@runCatching false
+        require(descriptors.size <= 512)
+        val inodes = descriptors.mapNotNull { descriptor ->
+            runCatching { android.system.Os.readlink(descriptor.path) }.getOrNull()
+                ?.takeIf { it.startsWith("socket:[") && it.endsWith("]") }
+                ?.substringAfter("socket:[")?.removeSuffix("]")
+        }.toSet()
+        val owned = readProcFile("/proc/${child.pid}/net/tcp", 65536).lineSequence().drop(1).any { row ->
+            val fields = row.trim().split(Regex("\\s+"))
+            fields.size >= 10 && fields[3] == "0A" && fields[9] in inodes &&
+                fields[1].substringBefore(':') == "0100007F" &&
+                fields[1].substringAfter(':').toIntOrNull(16) == port
+        }
+        owned && linuxProcessIdentity(child.pid) == child.processIdentity
+    }.getOrDefault(false)
 
     private fun writeConfig(profile: CoreProfile, engine: CoreEngine): File {
         // Keep credentials and runtime configuration in app-private storage.
@@ -280,8 +344,10 @@ class CoreRuntime(private val context: Context) {
         checkedProcess(listOf(binary.absolutePath, "--config", config.absolutePath, "--check-config"))
         val coreArgs = listOf(binary.absolutePath, "--config", config.absolutePath)
         synchronized(outputLock) { boundedOutput = "" }
+        val previousChildren = taskChildren()
         val active = ProcessBuilder(coreArgs).redirectErrorStream(true).start()
         process = active
+        ownedChild = null
         drainOutput(active)
         if (active.waitFor(STARTUP_PROBE_MILLIS, TimeUnit.MILLISECONDS)) {
             process = null
@@ -299,13 +365,17 @@ class CoreRuntime(private val context: Context) {
                 CoreRole.AGENT -> profile.endpoint().substringBeforeLast(':', profile.endpoint())
             },
             port = if (profile.role == CoreRole.BROKER) profile.listenPort else 0,
-            pid = active.pid(),
+            pid = null,
             startedAtMillis = System.currentTimeMillis(),
             detail = "${profile.role.name.lowercase().replaceFirstChar(Char::uppercase)} Core process started • readiness is being observed",
             observation = observation(engine, nativeProfile, "process-alive"),
         )
         val readyDeadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(STARTUP_READY_WAIT_MILLIS)
         while (active.isAlive && System.nanoTime() < readyDeadline) {
+            if (ownedChild == null) {
+                ownedChild = identifyChild(binary, previousChildren)
+                current = current.copy(pid = ownedChild?.pid)
+            }
             if (observeReadiness(engine, nativeProfile, profile)) return current
             Thread.sleep(100)
         }
@@ -327,7 +397,7 @@ class CoreRuntime(private val context: Context) {
         val output = synchronized(outputLock) { boundedOutput }
         val clientPort = if (profile.role == CoreRole.CLIENT)
             parseClientReadyEndpoint(output, engine, nativeProfile) else null
-        if (clientPort != null) {
+        if (clientPort != null && ownsTcpListener(clientPort)) {
             current = current.copy(host = CoreStatus.LOOPBACK_HOST, port = clientPort,
                 observation = observation(engine, nativeProfile, "listener-ready"),
                 detail = "Client Core reported its Profile-owned endpoint; application session is not yet verified")
@@ -355,6 +425,9 @@ class CoreRuntime(private val context: Context) {
         if (!active.running || active.role != CoreRole.CLIENT || active.port !in 1..MAX_PORT) {
             return blocked("A running Client with a reported ApplicationBoundary listener is required")
         }
+        if (active.pid == null || active.observation == null || !ownsTcpListener(active.port)) {
+            return blocked("A current process identity and its owned ApplicationBoundary listener are required")
+        }
         if (selected.applicationBoundary["kind"] != "stream" || selected.applicationBoundary["mode"] != "localhost-tcp-proxy") {
             return blocked("Android correctness probe currently supports only the registered localhost TCP stream boundary")
         }
@@ -378,6 +451,9 @@ class CoreRuntime(private val context: Context) {
                 }
                 val receivedDigest = sha256(received)
                 val match = sent.contentEquals(received)
+                if (current.pid != active.pid || !ownsTcpListener(active.port)) {
+                    throw IllegalStateException("Core identity or listener changed during the Application Session")
+                }
                 val sessionStatus = if (match) "PASS" else "FAIL"
                 val endpoint = mapOf<String, Any?>("host" to CoreStatus.LOOPBACK_HOST,
                     "port" to active.port, "boundary" to selected.applicationBoundary["kind"],
@@ -386,6 +462,7 @@ class CoreRuntime(private val context: Context) {
                     "owner" to mapOf("pid" to active.pid, "processIdentity" to linuxProcessIdentity(active.pid!!)))
                 val observed = if (match) observation(active.engine, selected,
                     "application-ready", endpoint) else observation(active.engine, selected, "process-alive")
+                if (match && observed == null) throw IllegalStateException("Current Core identity cannot be observed")
                 current = current.copy(observation = observed)
                 ApplicationSessionObservation(core = selected.core, profile = selected.id,
                     nativeTransport = selected.nativeTransport, applicationBoundary = boundary,
@@ -448,6 +525,7 @@ class CoreRuntime(private val context: Context) {
     fun stop(): CoreStatus {
         val active = process
         process = null
+        ownedChild = null
         active?.destroy()
         active?.waitFor(2, TimeUnit.SECONDS)
         if (active?.isAlive == true) { active.destroyForcibly(); active.waitFor(1, TimeUnit.SECONDS) }
@@ -473,29 +551,39 @@ class CoreRuntime(private val context: Context) {
         private const val NATIVE_PROFILE_ASSET = "native-profiles.json"
         private val CLIENT_PROXY_PATTERN = Regex("(?:\\[Client]\\s+)?(?:Secure\\s+)?[Ll]ocal proxy listening on 127\\.0\\.0\\.1:([0-9]{1,5})(?:\\s|$)")
 
+        internal fun procDetails(stat: String): Pair<Long, Long>? {
+            if (stat.length > 4096 || ')' !in stat) return null
+            val fields = stat.substringAfterLast(')').trim().split(Regex("\\s+"))
+            val parent = fields.getOrNull(1)?.toLongOrNull() ?: return null
+            val ticks = fields.getOrNull(19)?.toLongOrNull() ?: return null
+            return if (parent > 0 && ticks > 0) parent to ticks else null
+        }
+
         internal fun parseClientProxyPort(output: String): Int? =
             CLIENT_PROXY_PATTERN.findAll(output).lastOrNull()?.groupValues?.get(1)?.toIntOrNull()?.takeIf { it in 1..MAX_PORT }
 
         internal fun parseClientReadyEndpoint(output: String, engine: CoreEngine,
                                               profile: NativeProfileDescriptor?): Int? {
             if (profile == null) return null
-            output.lineSequence().takeLast(128).forEach { line ->
+            output.lines().takeLast(128).forEach { line ->
                 val event = runCatching { StrictJson.objectValue(StrictJson.parse(line)) }.getOrNull() ?: return@forEach
-                if (event["event"] != "shadow6.ready" || event["schema"] != 1L ||
+                if (event.keys != setOf("event", "schema", "core", "role", "application_boundary") ||
+                    event["event"] != "shadow6.ready" || event["schema"] != 1L ||
                     event["core"] != "shadow6-${engine.name.lowercase()}" || event["role"] != "client") return@forEach
                 val boundary = runCatching { StrictJson.objectValue(event["application_boundary"]) }.getOrNull() ?: return@forEach
-                if (boundary["kind"] != profile.applicationBoundary["kind"] ||
+                if (boundary.keys != setOf("kind", "mode", "endpoint") ||
+                    boundary["kind"] != profile.applicationBoundary["kind"] ||
                     boundary["mode"] != profile.applicationBoundary["mode"]) return@forEach
                 val endpoint = runCatching { StrictJson.objectValue(boundary["endpoint"]) }.getOrNull() ?: return@forEach
-                if (endpoint["host"] != CoreStatus.LOOPBACK_HOST) return@forEach
-                val port = (endpoint["port"] as? Long)?.toInt() ?: return@forEach
-                if (port in 1..MAX_PORT) return port
+                if (endpoint.keys != setOf("host", "port") || endpoint["host"] != CoreStatus.LOOPBACK_HOST) return@forEach
+                val port = endpoint["port"] as? Long ?: return@forEach
+                if (port in 1L..MAX_PORT.toLong()) return port.toInt()
             }
             return null
         }
 
         internal fun brokerListenerReported(output: String): Boolean =
-            output.lineSequence().takeLast(128).any { line ->
+            output.lines().takeLast(128).any { line ->
                 line.contains("[Broker] Listening on ") ||
                     line.contains("[Broker] Core-D authenticated control listening on ") ||
                     line.trim() == "Broker ready"

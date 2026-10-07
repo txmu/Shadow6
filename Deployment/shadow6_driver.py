@@ -16,8 +16,10 @@ from typing import Any
 
 try:
     from .shadow6_abi import capability_payload
+    from .service_storage import strict_json
 except ImportError:  # direct import from an installed deployment module path
     from shadow6_abi import capability_payload
+    from service_storage import strict_json
 
 CORE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}\Z")
 
@@ -38,7 +40,7 @@ def read_feature_report(binary: str | Path, *, timeout: int = 10) -> dict:
     if result.returncode != 0 or len(result.stdout) > 262144:
         raise ValueError("Core feature-report failed")
     try:
-        report = json.loads(result.stdout)
+        report = strict_json(result.stdout, limit=262144)
     except json.JSONDecodeError as exc:
         raise ValueError("Core feature-report is not JSON") from exc
     return report
@@ -97,7 +99,7 @@ def ready_event(line: str) -> dict:
     if not isinstance(line, str) or len(line) > 65536:
         raise ValueError("ready event is oversized")
     try:
-        value = json.loads(line)
+        value = strict_json(line, limit=262144)
     except json.JSONDecodeError as exc:
         raise ValueError("ready event is not JSON") from exc
     if not isinstance(value, dict) or value.get("event") not in ("ready", "shadow6.ready"):

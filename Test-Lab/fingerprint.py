@@ -135,10 +135,11 @@ def _packet_network(packet: bytes, linktype: int):
 
 
 def _decode_pcap(path: Path):
+    from artifacts import _read_file
     info = path.lstat()
     if not os.path.isfile(path) or path.is_symlink() or info.st_size > MAX_PCAP_BYTES:
         raise ValueError("PCAP must be a regular non-symlink file no larger than 8 MiB")
-    data = path.read_bytes()
+    data = _read_file(path, maximum=MAX_PCAP_BYTES)
     if len(data) < 24:
         raise ValueError("truncated PCAP global header")
     variants = {
@@ -230,10 +231,20 @@ def analyze(path: Path, *, run_id=None, core=None, profile=None, link_type="unkn
         if marker in raw.lower():
             marker_found.add(marker.decode("ascii"))
     explicit = []
+    if not isinstance(forbidden_literals, (tuple, list)) or len(forbidden_literals) > 32:
+        raise ValueError('forbidden literal inventory must contain at most 32 entries')
+    literal_evidence = []
     for literal in forbidden_literals:
-        value = literal if isinstance(literal, bytes) else str(literal).encode("utf-8")
-        if value and value in raw:
-            explicit.append(hashlib.sha256(value).hexdigest())
+        if not isinstance(literal, (bytes, str)):
+            raise ValueError('forbidden literal must be text or bytes')
+        value = literal if isinstance(literal, bytes) else literal.encode("utf-8")
+        if not 1 <= len(value) <= 4096:
+            raise ValueError('forbidden literal size must be 1..4096 bytes')
+        digest = hashlib.sha256(value).hexdigest()
+        hit = value in raw
+        literal_evidence.append({'sha256': digest, 'hit': hit})
+        if hit:
+            explicit.append(digest)
     for packet in packets:
         network = packet["network"]
         label = _packet_class(network)
@@ -306,4 +317,5 @@ def analyze(path: Path, *, run_id=None, core=None, profile=None, link_type="unkn
         "flows": normalized,
         "leakScan": {"status": "detected" if marker_found or explicit else "no-known-marker-found",
             "publicMarkers": sorted(marker_found), "explicitForbiddenLiteralDigests": sorted(explicit),
+            'forbiddenLiterals': literal_evidence,
             "secretCoverage": "explicit literal and common Shadow6 identity markers only; not a general secret detector"}}

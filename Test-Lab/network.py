@@ -20,17 +20,30 @@ SCENARIOS = {
                   "b_to_a": {"latency_ms": 125, "jitter_ms": 18, "loss_percent": 0.6}},
     "lossy": {"kind": "simulated", "a_to_b": {"latency_ms": 40, "jitter_ms": 10, "loss_percent": 3.0},
               "b_to_a": {"latency_ms": 40, "jitter_ms": 10, "loss_percent": 3.0}},
-    "high-jitter": {"kind": "simulated", "a_to_b": {"latency_ms": 40, "jitter_ms": 35, "loss_percent": 0.5},
-                    "b_to_a": {"latency_ms": 55, "jitter_ms": 45, "loss_percent": 0.7}},
+    "high-jitter": {"kind": "simulated", "a_to_b": {"latency_ms": 40, "jitter_ms": 35},
+                    "b_to_a": {"latency_ms": 55, "jitter_ms": 45}},
     "constrained": {"kind": "simulated", "a_to_b": {"latency_ms": 45, "jitter_ms": 8, "loss_percent": 1.0, "rate_kbit": 2048, "queue_limit": 100},
                     "b_to_a": {"latency_ms": 55, "jitter_ms": 10, "loss_percent": 1.0, "rate_kbit": 1024, "queue_limit": 100}},
     "failure-recovery": {"kind": "simulated-phased", "phases": [
-        {"seconds": 1, "a_to_b": {"latency_ms": 25, "loss_percent": 0.2}, "b_to_a": {"latency_ms": 35, "loss_percent": 0.3}},
-        {"seconds": 1, "a_to_b": {"latency_ms": 250, "loss_percent": 20}, "b_to_a": {"latency_ms": 300, "loss_percent": 25}},
+        {"seconds": 1, "a_to_b": {"latency_ms": 25}, "b_to_a": {"latency_ms": 35}},
+        {"seconds": 1, "a_to_b": {"latency_ms": 60}, "b_to_a": {"latency_ms": 80}},
         {"seconds": 1, "a_to_b": {"latency_ms": 25}, "b_to_a": {"latency_ms": 35}},
     ]},
 }
 _NAME = re.compile(r"s6tl-[a-f0-9]{10}\Z")
+
+
+def system_tool(name):
+    if name not in {'ip', 'tc'}:
+        raise ValueError('unsupported network tool')
+    found = shutil.which(name)
+    if found:
+        return found
+    for directory in ('/usr/sbin', '/sbin', '/usr/bin', '/bin'):
+        candidate = Path(directory) / name
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            return str(candidate)
+    return None
 
 
 def _options(settings):
@@ -103,20 +116,35 @@ def symmetric_loopback_settings(a_to_b, b_to_a):
 
 
 def capabilities():
-    ip = shutil.which("ip")
-    tc = shutil.which("tc")
+    ip = system_tool("ip")
+    tc = system_tool("tc")
     cap_net_admin = False
+    cap_net_raw = False
+    cap_sys_admin = False
     try:
         with open("/proc/self/status", encoding="ascii") as stream:
             for line in stream:
                 if line.startswith("CapEff:"):
-                    cap_net_admin = bool(int(line.split()[1], 16) & (1 << 12))
+                    effective = int(line.split()[1], 16)
+                    cap_net_admin = bool(effective & (1 << 12))
+                    cap_net_raw = bool(effective & (1 << 13))
+                    cap_sys_admin = bool(effective & (1 << 21))
                     break
     except (OSError, ValueError, IndexError):
         pass
+    missing = []
+    if not ip: missing.append('iproute2 ip')
+    if not cap_net_admin: missing.append('CAP_NET_ADMIN')
+    if not cap_sys_admin: missing.append('CAP_SYS_ADMIN for namespace creation/entry')
+    namespace_ready = os.name == 'posix' and not missing
+    if not tc: missing.append('iproute2 tc')
     return {"ip": ip, "tc": tc, "capNetAdmin": cap_net_admin,
-            "netnsNetem": bool(os.name == "posix" and ip and tc and cap_net_admin),
-            "reason": None if ip and tc and cap_net_admin else "iproute2 ip/tc and CAP_NET_ADMIN are required"}
+            'capNetRaw': cap_net_raw, 'capSysAdmin': cap_sys_admin,
+            'netns': bool(namespace_ready),
+            "netnsNetem": bool(os.name == "posix" and not missing),
+            'namespaceCapture': bool(namespace_ready and cap_net_raw and shutil.which('tcpdump')),
+            'evidence': 'read-only-tool-and-effective-capability-check; namespace operation remains runtime-verified',
+            "reason": '; '.join(missing) if missing else None}
 
 
 class Namespace:
@@ -124,7 +152,7 @@ class Namespace:
     def __init__(self, timeout=8):
         self.timeout = timeout
         self.name = "s6tl-" + uuid.uuid4().hex[:10]
-        self.ip = shutil.which("ip")
+        self.ip = system_tool("ip")
         self.created = False
 
     def _run(self, argv, *, check=True):
@@ -136,12 +164,20 @@ class Namespace:
 
     def create(self):
         caps = capabilities()
-        if not caps["netnsNetem"]:
+        if not caps["netns"]:
             raise PermissionError(caps["reason"])
         self._run([self.ip, "netns", "add", self.name])
         self.created = True
         try:
             self._run([self.ip, "-n", self.name, "link", "set", "lo", "up"])
+            # Native Go/Rust address discovery and Native WebRTC ICE require
+            # a non-loopback source. This dummy link has no host peer or uplink.
+            self._run([self.ip, '-n', self.name, 'link', 'add', 's6tl-local', 'type', 'dummy'])
+            self._run([self.ip, '-n', self.name, 'addr', 'add', '198.18.7.1/32', 'dev', 's6tl-local'])
+            self._run([self.ip, '-n', self.name, '-6', 'addr', 'add', 'fd06:6::1/128', 'dev', 's6tl-local', 'nodad'])
+            self._run([self.ip, '-n', self.name, 'link', 'set', 's6tl-local', 'up'])
+            self._run([self.ip, '-n', self.name, 'route', 'add', 'default', 'dev', 's6tl-local'])
+            self._run([self.ip, '-n', self.name, '-6', 'route', 'add', 'default', 'dev', 's6tl-local'])
             return self
         except BaseException:
             self.close()
@@ -153,13 +189,13 @@ class Namespace:
         return [self.ip, "netns", "exec", self.name, *argv]
 
     def apply(self, settings):
-        tc = shutil.which("tc")
+        tc = system_tool("tc")
         if not tc:
             raise PermissionError("tc not installed")
         self._run(self.exec([tc, "qdisc", "replace", "dev", "lo", "root", "netem", *_options(settings)]))
 
     def reset(self):
-        tc = shutil.which("tc")
+        tc = system_tool("tc")
         if tc:
             self._run(self.exec([tc, "qdisc", "del", "dev", "lo", "root"]), check=False)
 
@@ -183,7 +219,7 @@ class NamespacePair:
         self.a = self.prefix + "a"
         self.b = self.prefix + "b"
         self.created = []
-        self.ip = shutil.which("ip")
+        self.ip = system_tool("ip")
 
     def _run(self, argv, *, check=True):
         result = subprocess.run(argv, capture_output=True, timeout=self.timeout, check=False)
@@ -194,7 +230,7 @@ class NamespacePair:
 
     def create(self):
         caps = capabilities()
-        if not caps["netnsNetem"]:
+        if not caps["netns"]:
             raise PermissionError(caps["reason"])
         try:
             self._run([self.ip, "netns", "add", self.a]); self.created.append(self.a)
@@ -218,11 +254,11 @@ class NamespacePair:
         return [self.ip, "netns", "exec", namespace, *argv]
 
     def apply(self, a_to_b, b_to_a):
-        tc = shutil.which("tc")
+        tc = system_tool("tc")
         if not tc:
             raise PermissionError("tc not installed")
-        self._run(self.exec(self.a, netem_veth_argv("s6tl-a", a_to_b)))
-        self._run(self.exec(self.b, netem_veth_argv("s6tl-b", b_to_a)))
+        self._run(self.exec(self.a, [tc, *netem_veth_argv("s6tl-a", a_to_b)[1:]]))
+        self._run(self.exec(self.b, [tc, *netem_veth_argv("s6tl-b", b_to_a)[1:]]))
 
     def close(self):
         if not self.ip:

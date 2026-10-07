@@ -1,7 +1,7 @@
 # Shadow6 WAN / PCAP Test Lab
 
 This guide is bilingual. The Test Lab consumes the Native Profile Registry and
-the existing `integration/stack_test.py` workload. It does not define another
+the existing Native config generators and Named Service lifecycle. It does not define another
 Core list or normalize Core wire protocols. Reports always name the Core,
 Profile, native transport, application boundary, adapter, and carrier.
 
@@ -21,7 +21,7 @@ download digest; the report shows that per-file provenance was unavailable.
 python3 Test-Lab/shadow6_test_lab.py --fetch-artifacts --check
 python3 Test-Lab/shadow6_test_lab.py --fetch-artifacts --all-profiles \
   --scenario clean --scenario good-wan --scenario high-jitter \
-  --scenario failure-recovery --capture --payload-bytes 1024 --requests 2
+  --scenario failure-recovery --capture --payload-bytes 4096 --requests 2
 ```
 
 Use `--run-id RUN_ID`, `--commit FULL_SHA`, or `--tag TAG` to pin a source. To
@@ -31,12 +31,19 @@ Cores plus every registered Profile. `--all-cores` executes each Core's
 primary Profile; `--all-profiles` also executes the additional Gleam
 micro-mux Profile. `--core` and `--profile` narrow a debugging run.
 
-The runner currently drives the repository's real three-role Native integration
-workload and exact bounded echo correctness check. Stream and record-oriented
-Profiles are selected from their registered ApplicationBoundary contracts.
+The runner creates temporary Named Services through the existing setup, lock,
+run, status and connection APIs. Binary and config material are locked before
+launch, and structured readiness, owned endpoints and RuntimeObservation are
+required before attaching. The deterministic 4 KiB logical payload is compared
+byte for byte, with sent/received lengths and SHA-256 recorded. Message Profiles
+use whole records bounded by the Profile max_record, including the real
+seqpacket-fd attachment; stream Profiles use the registered TCP boundary.
 Each measured goodput result is accepted only after payload correctness passes.
-Failure/recovery applies bounded impairment phases, then reports only what the
-ephemeral run observed; it does not claim Named Service reconnect or migration.
+Failure/recovery schedules latency-only baseline, degraded and restored phases
+after the worker emits its structured workload-ready event. Twelve bounded
+probes span the phases while preserving the exact echo contract for best-effort
+datagram profiles. RTT excludes explicit test pacing, whose value is reported
+separately. This does not prove loss recovery, reconnect or migration.
 
 ### Simulated network and PCAP
 
@@ -50,13 +57,22 @@ python3 Test-Lab/fingerprint_cli.py capture.pcap --run-id RUN_ID \
   --output flow.json
 ```
 
-The runner capability-checks Linux `ip`, `tc`, and `CAP_NET_ADMIN`. Simulated
+The runner checks Linux `ip`/`tc` (including standard sbin locations),
+`CAP_NET_ADMIN`, `CAP_SYS_ADMIN` and capture `CAP_NET_RAW`. Clean namespace
+capture does not require tc. Run with explicit operator-provided sudo privileges
+when the current process lacks these capabilities. Downloaded artifacts must be
+owned by the execution identity or root before feature admission. Namespace
+workers drop to the checkout owner after namespace entry. A namespace-local
+dummy interface provides Native address discovery/ICE candidates with no host
+uplink; its routes exist only inside the owned namespace. Simulated
 WAN runs use a private network namespace and `tc netem` on its loopback path;
 the configured directional profile is reduced to a conservative symmetric
 loopback impairment because one loopback qdisc cannot distinguish endpoint
 directions. `NamespacePair` contains a veth/netns helper for future separated
 endpoint runs, but the current matrix runner does not yet route its Core trio
-over that pair. These results are explicitly **simulated**, never real-WAN
+over that pair. Failure-recovery uses bounded latency-only baseline, degraded
+and restored phases so best-effort datagram profiles can still meet the exact
+echo contract; it does not claim loss recovery or reconnect. These results are explicitly **simulated**, never real-WAN
 measurements. When namespace capability is missing, the affected rows are
 `BLOCKED` with the detected reason; a requested capture never falls back to
 capturing a host interface.
@@ -92,8 +108,9 @@ to the workflow run and source commit; `SHA256SUMS` covers the overall ZIP.
 The Linux `native-test-lab` job downloads the same-run Linux release artifact
 and runs every registered Native Profile with bounded correctness, simulated
 WAN, PCAP and fingerprint analysis. It never recompiles the Core binaries.
-Environment capability failures are reported as `BLOCKED` and uploaded; a
-Core/Profile `FAIL` fails that job. Ordinary PR execution uses no public VPS.
+Environment capability failures are reported as `BLOCKED` and uploaded; both
+`BLOCKED` and Core/Profile `FAIL` fail that job. A missing requested PCAP cannot
+produce a scenario PASS. Ordinary PR execution uses no public VPS.
 
 ### S6EPE, real WAN and Android limits
 
@@ -139,7 +156,7 @@ GitHub 可提供的 artifact digest、ZIP 边界与安全路径、Profile 合同
 python3 Test-Lab/shadow6_test_lab.py --fetch-artifacts --check
 python3 Test-Lab/shadow6_test_lab.py --fetch-artifacts --all-profiles \
   --scenario clean --scenario good-wan --scenario high-jitter \
-  --scenario failure-recovery --capture --payload-bytes 1024 --requests 2
+  --scenario failure-recovery --capture --payload-bytes 4096 --requests 2
 ```
 
 可用 `--run-id RUN_ID`、`--commit FULL_SHA` 或 `--tag TAG` 固定来源；已有下载目录用
@@ -147,10 +164,13 @@ python3 Test-Lab/shadow6_test_lab.py --fetch-artifacts --all-profiles \
 `--all-cores` 跑每个 Core 的主 Profile；`--all-profiles` 还会跑 Gleam micro-mux。
 调试时用 `--core` 或 `--profile` 缩小矩阵。
 
-当前 runner 复用仓库真实的三角色 Native 集成 workload 和有界 echo 正确性校验，按
-Registry 中的 ApplicationBoundary 区分 stream 与 message Profile。只有收到数据正确后，
-吞吐结果才算通过。failure/recovery 会应用有界网络阶段并报告实际观察；当前 workload
-是临时三角色，不声称 Named Service 已验证重连或迁移。
+当前 runner 复用 Named Service 的 setup、lock、run、status 和 connection API，先锁定
+binary/config，再要求结构化 readiness、归属正确的 endpoint 与 RuntimeObservation。
+确定性 4 KiB 逻辑 payload 检查逐字节一致性、长度和发送/接收 SHA-256。message Profile
+按 max_record 分段，真正使用声明的 seqpacket-fd 或 UDP record 边界；stream 使用 TCP
+边界。failure/recovery 在 workload-ready 后施加 latency-only baseline、退化和恢复阶段，
+用 12 次有界 probe 跨越三个阶段，以便 best-effort datagram 仍可验证 exact echo。RTT 不含
+单独记录的 pacing；不声称验证了丢包恢复、reconnect 或 migration。
 
 ### 模拟网络和抓包
 
@@ -164,7 +184,10 @@ python3 Test-Lab/fingerprint_cli.py capture.pcap --run-id RUN_ID \
   --output flow.json
 ```
 
-runner 会检测 Linux `ip`、`tc` 与 `CAP_NET_ADMIN`。模拟 WAN 在隔离 network namespace 的
+runner 会在 PATH 和标准 sbin 目录检测 `ip`/`tc`，并检查 `CAP_NET_ADMIN`、`CAP_SYS_ADMIN`
+和抓包所需的 `CAP_NET_RAW`。clean 抓包不依赖 tc；需要时由操作者显式使用 sudo。
+进入 namespace 后，worker 降权为 checkout owner。dummy 地址和路由只存在于该隔离
+namespace，不连接主机 uplink。模拟 WAN 在隔离 network namespace 的
 loopback 上使用 `tc netem`。单一 loopback qdisc 无法区分两个端点方向，因此会将双向参数
 合成为保守的对称 impairment。`NamespacePair` 已有 veth/netns helper，但当前矩阵 runner
 尚未把 Core trio 接到这一端点分离网络。报告明确标为 **simulated**，不能当作真实公网
@@ -193,7 +216,8 @@ run/commit、payload digest 与逐文件 SHA。若有完整 Linux x86_64 release
 
 Linux `native-test-lab` job 会下载同一 run 的 Linux release artifact，以有界正确性、模拟 WAN、
 PCAP 与 fingerprint 对所有注册 Native Profile 测试，不重新编译 Core。环境能力问题作为
-`BLOCKED` 上传；Core/Profile `FAIL` 会令该 job 失败。普通 PR 不依赖公网 VPS。
+`BLOCKED` 上传；`BLOCKED` 和 Core/Profile `FAIL` 都会令该 job 失败。请求的 PCAP 缺失
+不能让 scenario PASS。普通 PR 不依赖公网 VPS。
 
 ### S6EPE、真实 WAN 和 Android 边界
 

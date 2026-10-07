@@ -193,7 +193,7 @@ def validate_observation(value):
         raise ValueError('invalid observed process ownership')
     if type(value['observedAt']) is not int or value['observedAt'] < 0:
         raise ValueError('invalid observation timestamp')
-    if value['readiness'] not in ('process-alive','unavailable','listener-ready','control-ready','application-ready') or value['transportReadiness'] not in ('unknown','pending','ready','unavailable') or value['applicationReadiness'] not in ('unknown','ready','unavailable'):
+    if value['readiness'] not in ('process-alive','unavailable','listener-ready','control-ready','application-ready','application-active') or value['transportReadiness'] not in ('unknown','pending','ready','unavailable') or value['applicationReadiness'] not in ('unknown','ready','unavailable'):
         raise ValueError('invalid observed readiness')
     if value['transportReadiness'] == 'ready' and not any(
             isinstance(item, dict) and item.get('transport') == 'udp' and
@@ -208,7 +208,11 @@ def validate_observation(value):
         if not isinstance(endpoints,list) or len(endpoints) > 64:
             raise ValueError('invalid observed endpoint list')
         for item in endpoints:
-            if isinstance(item,dict) and set(item) == {'host','port','remoteHost','remotePort','transport','observation'} and item['transport'] in ('tcp', 'udp') and item['observation'] == 'process-owned-control-connection':
+            if isinstance(item,dict) and set(item) == {'host','port','remoteHost','remotePort','transport','observation'} and item['transport'] in ('tcp', 'udp') and item['observation'] in ('process-owned-control-connection', 'process-owned-application-connection'):
+                if item['observation'] == 'process-owned-application-connection' and (
+                        item['transport'] != 'tcp' or not private_socket(item) or
+                        not ipaddress.ip_address(item['remoteHost']).is_loopback):
+                    raise ValueError('application flow must be a private TCP connection')
                 address(item)
                 address({'host':item['remoteHost'], 'port':item['remotePort']})
                 continue
@@ -220,7 +224,19 @@ def validate_observation(value):
                 raise ValueError('invalid socket observation')
             address(item)
     target=value['endpoint']
-    if value['readiness'] == 'application-ready':
+    if value['readiness'] == 'application-active':
+        fields = {'host','port','remoteHost','remotePort','boundary','mode','observation','owner'}
+        if (not isinstance(target, dict) or set(target) != fields or target['boundary'] != 'stream' or
+                target['mode'] != 'localhost-tcp-proxy' or target['observation'] != 'structured-ready-active-flow' or
+                value['applicationReadiness'] != 'ready'):
+            raise ValueError('invalid active application endpoint')
+        address(target); address({'host': target['remoteHost'], 'port': target['remotePort']}); process(target['owner'])
+        matching = {'host': target['host'], 'port': target['port'], 'remoteHost': target['remoteHost'],
+                    'remotePort': target['remotePort'], 'transport': 'tcp', 'observation': 'process-owned-application-connection'}
+        if (not private_socket(target) or not ipaddress.ip_address(target['remoteHost']).is_loopback or
+                target['owner'] != children[0] or matching not in value['nativeEndpoints'] or matching not in value['endpoints']):
+            raise ValueError('active application flow lacks native socket ownership')
+    elif value['readiness'] == 'application-ready':
         record = isinstance(target, dict) and target.get('observation') == 'supervisor-owned-record-adapter'
         if record:
             fields = {'path','boundary','mode','observation','owner','nativeOwner','nativeFd','nativeInode','maxRecord','attachmentState'}

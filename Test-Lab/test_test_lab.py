@@ -56,6 +56,7 @@ class FingerprintTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "fixture.pcap"
             path.write_bytes(pcap_bytes(frames))
+            path.chmod(0o600)
             result = analyze(path, run_id="fixture-1", core="test", profile="test-profile")
         self.assertEqual(result["schema"], "shadow6.wan-pcap-fingerprint.v1")
         self.assertEqual(len(result["flows"]), 1)
@@ -71,6 +72,7 @@ class FingerprintTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "fixture.pcap"
             path.write_bytes(pcap_bytes([(10, 0, frame)]))
+            path.chmod(0o600)
             report = analyze(path, forbidden_literals=[marker])
         self.assertEqual(report["leakScan"]["status"], "detected")
         self.assertEqual(report["leakScan"]["explicitForbiddenLiteralDigests"],
@@ -81,6 +83,7 @@ class FingerprintTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "broken.pcap"
             path.write_bytes(b"\xd4\xc3\xb2\xa1")
+            path.chmod(0o600)
             with self.assertRaisesRegex(ValueError, "truncated"):
                 analyze(path)
 
@@ -177,6 +180,8 @@ class ArtifactManifestTests(unittest.TestCase):
             digest = hashlib.sha256((source / "shadow6-idris").read_bytes()).hexdigest()
             (source / "SHA256SUMS").write_text(
                 f"{hashlib.sha256(b'').hexdigest()}  ./SHA256SUMS\n{digest}  ./shadow6-idris\n")
+            (source / 'SHA256SUMS').chmod(0o644)
+            (source / 'shadow6-idris').chmod(0o755)
             archive = root / "runtime.tar.gz"
             with tarfile.open(archive, "w:gz") as output:
                 output.add(source / "SHA256SUMS", arcname="./SHA256SUMS")

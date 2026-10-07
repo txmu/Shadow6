@@ -1,0 +1,71 @@
+{
+  "schema": "shadow6.strict-json-conformance.v1",
+  "scope": "portable JSON syntax and scalar bounds; consumer schema validation remains mandatory",
+  "cases": [
+    {
+      "id": "portable-object",
+      "input": "{\"x\":\"你好\",\"items\":[1,true,null],\"n\":9007199254740991}",
+      "accepted": true
+    },
+    {
+      "id": "escaped-string",
+      "input": "{\"x\":\"quote \\\" and \\\\ slash\"}",
+      "accepted": true
+    },
+    {
+      "id": "duplicate-field",
+      "input": "{\"x\":1,\"x\":2}",
+      "accepted": false
+    },
+    {
+      "id": "escaped-duplicate",
+      "input": "{\"x\":1,\"\\u0078\":2}",
+      "accepted": false
+    },
+    {
+      "id": "nested-duplicate",
+      "input": "{\"nested\":{\"x\":1,\"x\":2}}",
+      "accepted": false
+    },
+    {
+      "id": "nan",
+      "input": "{\"x\":NaN}",
+      "accepted": false
+    },
+    {
+      "id": "infinity",
+      "input": "{\"x\":Infinity}",
+      "accepted": false
+    },
+    {
+      "id": "float",
+      "input": "{\"x\":1.5}",
+      "accepted": false
+    },
+    {
+      "id": "integer-overflow",
+      "input": "{\"x\":9007199254740992}",
+      "accepted": false
+    },
+    {
+      "id": "trailing-value",
+      "input": "{} {}",
+      "accepted": false
+    },
+    {
+      "id": "unpaired-surrogate",
+      "input": "{\"x\":\"\\ud800\"}",
+      "accepted": false
+    },
+    {
+      "id": "nul-string",
+      "input": "{\"x\":\"\\u0000\"}",
+      "accepted": false
+    },
+    {
+      "id": "depth-overflow",
+      "input": "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[0]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+      "accepted": false
+    }
+  ]
+}

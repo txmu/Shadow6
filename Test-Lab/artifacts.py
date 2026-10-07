@@ -20,7 +20,9 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "Crosed"))
+sys.path.insert(0, str(ROOT / "Deployment"))
 from native_profiles import CORE_IDS, profile_digest, profiles
+from service_storage import strict_json
 
 MANIFEST = "shadow6-test-lab-artifact-manifest.json"
 IDRIS_LINUX_ARTIFACTS = ("shadow6-idris-ubuntu-latest-X64", "shadow6-idris-ubuntu-latest")
@@ -32,56 +34,75 @@ SHA = re.compile(r"[0-9a-f]{40}\Z")
 
 
 def _strict_json(data: bytes):
-    def pairs(items):
-        result = {}
-        for key, value in items:
-            if key in result:
-                raise ValueError("duplicate JSON key")
-            result[key] = value
-        return result
-
-    return json.loads(data.decode("utf-8"), object_pairs_hook=pairs,
-                      parse_float=lambda _: (_ for _ in ()).throw(ValueError("floats rejected")),
-                      parse_constant=lambda _: (_ for _ in ()).throw(ValueError("non-finite rejected")))
+    return strict_json(data, limit=8 * 1024 * 1024)
 
 
 def _safe_relative(value: str) -> Path:
-    path = Path(value)
-    if (not isinstance(value, str) or not value or path.is_absolute() or
-            any(part in ("", ".", "..") for part in path.parts) or "\\" in value):
+    if (not isinstance(value, str) or not value or value.startswith('/') or
+            any(part in ("", ".", "..") for part in value.split('/')) or
+            "\\" in value or '\0' in value):
         raise ValueError("unsafe artifact path")
-    return path
+    return Path(value)
 
 
 def _checked_file(path: Path, *, maximum=MAX_MEMBER_BYTES) -> os.stat_result:
     info = path.lstat()
-    if (not stat.S_ISREG(info.st_mode) or info.st_size > maximum or info.st_nlink < 1 or
-            info.st_mode & 0o022):
+    if (not stat.S_ISREG(info.st_mode) or info.st_size > maximum or info.st_nlink != 1 or
+            info.st_mode & 0o022 or info.st_uid not in (0, os.geteuid())):
         raise ValueError(f"artifact file is not regular, bounded, and owner-controlled: {path}")
     return info
 
 
-def sha256_file(path: Path) -> str:
-    before = _checked_file(path)
-    digest = hashlib.sha256()
-    fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0))
+def _identity(info):
+    return (info.st_dev, info.st_ino, info.st_mode, info.st_uid, info.st_gid,
+            info.st_nlink, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+
+
+def _read_file(path: Path, *, maximum=MAX_MEMBER_BYTES, digest_only=False):
+    path = Path(path).absolute()
+    # Open every directory component without following a symlink. Retain the
+    # final directory descriptor through the post-read pathname recheck.
+    parent_fd = os.open(path.anchor, os.O_RDONLY | os.O_DIRECTORY)
     try:
-        opened = os.fstat(fd)
-        if (not stat.S_ISREG(opened.st_mode) or opened.st_size != before.st_size or
-                (opened.st_dev, opened.st_ino) != (before.st_dev, before.st_ino)):
-            raise ValueError("artifact changed while opening")
-        remaining = opened.st_size
-        while remaining:
-            chunk = os.read(fd, min(65536, remaining))
-            if not chunk:
-                raise ValueError("artifact truncated while hashing")
-            remaining -= len(chunk)
-            digest.update(chunk)
-        if os.read(fd, 1) or os.fstat(fd).st_size != opened.st_size:
-            raise ValueError("artifact changed while hashing")
+        for part in path.parts[1:-1]:
+            next_fd = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                              dir_fd=parent_fd)
+            os.close(parent_fd)
+            parent_fd = next_fd
+        before = os.stat(path.name, dir_fd=parent_fd, follow_symlinks=False)
+        if (not stat.S_ISREG(before.st_mode) or before.st_size > maximum or
+                before.st_nlink != 1 or before.st_mode & 0o022 or before.st_uid not in (0, os.geteuid())):
+            raise ValueError('artifact file is not regular, bounded, and owner-controlled')
+        fd = os.open(path.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK,
+                     dir_fd=parent_fd)
+        try:
+            opened = os.fstat(fd)
+            if _identity(opened) != _identity(before):
+                raise ValueError('artifact changed while opening')
+            digest = hashlib.sha256()
+            data = bytearray()
+            remaining = opened.st_size
+            while remaining:
+                chunk = os.read(fd, min(65536, remaining))
+                if not chunk:
+                    raise ValueError('artifact truncated while reading')
+                remaining -= len(chunk)
+                digest.update(chunk)
+                if not digest_only:
+                    data.extend(chunk)
+            if (os.read(fd, 1) or _identity(os.fstat(fd)) != _identity(opened) or
+                    _identity(os.stat(path.name, dir_fd=parent_fd, follow_symlinks=False)) != _identity(opened) or
+                    _identity(path.lstat()) != _identity(opened)):
+                raise ValueError('artifact changed while reading')
+            return digest.hexdigest() if digest_only else bytes(data)
+        finally:
+            os.close(fd)
     finally:
-        os.close(fd)
-    return digest.hexdigest()
+        os.close(parent_fd)
+
+
+def sha256_file(path: Path) -> str:
+    return _read_file(path, digest_only=True)
 
 
 def expected_files():
@@ -97,7 +118,7 @@ def expected_files():
 
 def create_manifest(root: Path, *, run_id=None, run_attempt=None, commit=None,
                     workflow="multiplatform", platform="linux", architecture=None):
-    root = Path(root).resolve()
+    root = Path(root).absolute()
     files = []
     for relative, profile in expected_files().items():
         path = root / _safe_relative(relative)
@@ -167,11 +188,19 @@ def load_manifest(path: Path):
     info = _checked_file(path, maximum=1024 * 1024)
     if info.st_nlink != 1:
         raise ValueError("artifact manifest must have one link")
-    value = _strict_json(path.read_bytes())
+    value = _strict_json(_read_file(path, maximum=1024 * 1024))
     required = {"schema", "workflow", "runId", "runAttempt", "commit", "platform",
                 "architecture", "createdAt", "files"}
     if not isinstance(value, dict) or set(value) != required or value["schema"] != MANIFEST_SCHEMA:
         raise ValueError("invalid test-lab artifact manifest")
+    if (not isinstance(value['workflow'], str) or not re.fullmatch(r'[A-Za-z0-9 ._-]{1,128}', value['workflow']) or
+            not isinstance(value['platform'], str) or not re.fullmatch(r'[a-z][a-z0-9_-]{1,31}', value['platform']) or
+            not isinstance(value['architecture'], str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,32}', value['architecture'])):
+        raise ValueError('invalid artifact workflow/platform/architecture identity')
+    for field in ('runId', 'runAttempt'):
+        if value[field] is not None and (not isinstance(value[field], str) or
+                not re.fullmatch(r'[1-9][0-9]{0,19}', value[field])):
+            raise ValueError('invalid artifact Actions run identity')
     if value["commit"] is not None and (not isinstance(value["commit"], str) or not SHA.fullmatch(value["commit"])):
         raise ValueError("invalid artifact source commit")
     if type(value["createdAt"]) is not int or not isinstance(value["files"], list) or len(value["files"]) != len(expected_files()):
@@ -193,7 +222,7 @@ def load_manifest(path: Path):
                 item["nativeTransport"] != profile["nativeTransport"] or
                 item["applicationBoundary"] != profile["applicationBoundary"] or
                 type(item["size"]) is not int or not 0 < item["size"] <= MAX_MEMBER_BYTES or
-                type(item["mode"]) is not int or item["mode"] & ~0o777 or
+                type(item["mode"]) is not int or item["mode"] & ~0o777 or item['mode'] & 0o022 or item['mode'] & 0o500 != 0o500 or
                 not isinstance(item["sha256"], str) or not re.fullmatch(r"[0-9a-f]{64}", item["sha256"])):
             raise ValueError("artifact manifest entry conflicts with the current Profile contract")
     if seen != set(wanted):
@@ -202,7 +231,7 @@ def load_manifest(path: Path):
 
 
 def locate_binary(root: Path, profile: dict) -> Path | None:
-    root = Path(root).resolve()
+    root = Path(root).absolute()
     relative = _safe_relative(profile["artifact"])
     path = root / relative
     if path.is_file() and not path.is_symlink():
@@ -214,14 +243,27 @@ def locate_binary(root: Path, profile: dict) -> Path | None:
     return None
 
 
-def verify_inventory(root: Path, *, manifest_path: Path | None = None, expected_commit=None):
-    root = Path(root).resolve()
+def verify_inventory(root: Path, *, manifest_path: Path | None = None, expected_commit=None,
+                     expected_workflow=None, expected_run_id=None, expected_run_attempt=None,
+                     expected_platform=None, expected_architecture=None):
+    root = Path(root).absolute()
     manifest_path = manifest_path or find_manifest(root)
     manifest = load_manifest(manifest_path) if manifest_path else None
     if expected_commit and not SHA.fullmatch(expected_commit):
         raise ValueError("expected commit must be a full Git SHA")
     if manifest and expected_commit and manifest["commit"] != expected_commit:
         raise ValueError("artifact manifest commit does not match requested commit")
+    if manifest:
+        for field, expected in (('workflow', expected_workflow), ('runId', expected_run_id),
+                ('runAttempt', expected_run_attempt), ('platform', expected_platform),
+                ('architecture', expected_architecture)):
+            actual = manifest[field]
+            if field == 'architecture':
+                aliases = {'amd64': 'x86_64', 'AMD64': 'x86_64', 'arm64': 'aarch64', 'ARM64': 'aarch64'}
+                actual = aliases.get(actual, actual)
+                expected = aliases.get(expected, expected)
+            if expected is not None and actual != str(expected):
+                raise ValueError('artifact manifest ' + field + ' does not match requested identity')
     digest_by_path = {item["path"]: item for item in (manifest or {}).get("files", [])}
     rows = []
     for profile in profiles():
@@ -242,11 +284,27 @@ def verify_inventory(root: Path, *, manifest_path: Path | None = None, expected_
                 expected = digest_by_path.get(profile["artifact"])
                 if expected and (info.st_size != expected["size"] or actual != expected["sha256"]):
                     raise ValueError("binary size or SHA-256 differs from artifact manifest")
-                if not os.access(path, os.X_OK) and expected:
-                    os.chmod(path, expected["mode"] & 0o755)
+                mode_restored = False
+                if expected and stat.S_IMODE(info.st_mode) != expected['mode']:
+                    # Actions download-artifact normalizes files to 0644. Only
+                    # this documented transformation may restore executable bits.
+                    if stat.S_IMODE(info.st_mode) != 0o644 or expected['mode'] != 0o755:
+                        raise ValueError('binary mode differs from artifact manifest')
+                    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+                    try:
+                        if _identity(os.fstat(descriptor)) != _identity(info):
+                            raise ValueError('artifact changed before mode restoration')
+                        os.fchmod(descriptor, expected['mode'])
+                    finally:
+                        os.close(descriptor)
+                    if sha256_file(path) != actual:
+                        raise ValueError('artifact changed during mode restoration')
+                    mode_restored = True
                 row.update(available=True, sha256="sha256:" + actual,
                            integrity="manifest-verified" if expected else "computed-no-manifest",
                            path=str(path), size=info.st_size,
+                           mode=stat.S_IMODE(path.lstat().st_mode),
+                           actionsModeRestored=mode_restored,
                            executable=os.access(path, os.X_OK))
             except (OSError, ValueError) as error:
                 row["reason"] = str(error)
@@ -324,8 +382,10 @@ def _safe_extract(archive: Path, destination: Path):
         for item in members:
             relative = _safe_relative(item.filename.rstrip("/")) if item.filename.rstrip("/") else None
             mode = item.external_attr >> 16
-            if stat.S_ISLNK(mode) or stat.S_ISCHR(mode) or stat.S_ISBLK(mode) or stat.S_ISFIFO(mode):
+            if stat.S_IFMT(mode) not in (0, stat.S_IFREG, stat.S_IFDIR):
                 raise ValueError("artifact contains a link or special file")
+            if mode & 0o022:
+                raise ValueError('artifact member permits group/world writes')
             if item.file_size > MAX_MEMBER_BYTES:
                 raise ValueError("artifact member exceeds size bound")
             total += item.file_size
@@ -381,17 +441,10 @@ def _safe_extract_runtime_tar(archive_path: Path, destination: Path):
                         raise ValueError("nested runtime archive contains an oversized file")
                     total += member.size
                 normalized.append((member, relative))
-            elif member.issym():
-                target = member.linkname
-                if not target or target.startswith("/") or "\\" in target:
-                    raise ValueError("nested runtime archive contains an unsafe symbolic link")
-                resolved = PurePosixPath(os.path.normpath(str(relative.parent / target)))
-                if resolved.is_absolute() or any(part == ".." for part in resolved.parts):
-                    raise ValueError("nested runtime archive symbolic link escapes its root")
-                link_names.add(relative.as_posix())
-                normalized.append((member, relative))
             else:
-                raise ValueError("nested runtime archive contains a hard link or special file")
+                raise ValueError("nested runtime archive contains a link or special file")
+            if member.mode & 0o022:
+                raise ValueError('nested runtime archive member permits group/world writes')
             if total > MAX_ARTIFACT_BYTES:
                 raise ValueError("nested runtime archive exceeds expanded size bound")
         for _, relative in normalized:
@@ -590,7 +643,7 @@ def load_fetch_provenance(root: Path):
     """Recheck the downloaded artifact archive digests and binary file index."""
     path = Path(root) / "shadow6-test-lab-fetch-provenance.json"
     info = _checked_file(path, maximum=1024 * 1024)
-    value = _strict_json(path.read_bytes())
+    value = _strict_json(_read_file(path, maximum=1024 * 1024))
     fields = {"schema", "repository", "runId", "commit", "artifacts",
               "missingArtifacts", "binaries", "runtimeFiles"}
     if not isinstance(value, dict) or set(value) != fields or value["schema"] != "shadow6.test-lab-fetch-provenance.v1":
@@ -669,18 +722,27 @@ def fetch_artifacts(destination: Path, *, run_id=None, commit=None, tag=None):
     run_id = int(run_id)
     run = _gh_json(f"repos/{repo}/actions/runs/{run_id}")
     source_sha = run.get("head_sha")
+    if (not isinstance(source_sha, str) or not SHA.fullmatch(source_sha) or
+            run.get('path') != '.github/workflows/multiplatform.yml'):
+        raise ValueError('selected Actions run has an invalid workflow/commit identity')
     if run.get("conclusion") != "success" or run.get("status") != "completed":
         raise ValueError("selected Actions run is not completed successfully")
     if commit and source_sha != commit:
         raise ValueError("selected Actions run does not match requested commit")
     if tag and run.get("head_branch") != tag:
         raise ValueError("selected Actions run does not match requested tag")
-    artifact_response = _gh_json(f"repos/{repo}/actions/runs/{run_id}/artifacts?per_page=100")
     by_name = {}
-    for item in artifact_response.get("artifacts", []):
-        if item.get("name") in {"shadow6-linux-release", *IDRIS_LINUX_ARTIFACTS,
-                                "shadow6-s6epe-linux-runtime"} and not item.get("expired"):
-            by_name.setdefault(item["name"], []).append(item)
+    for page in range(1, 21):
+        artifact_response = _gh_json(f"repos/{repo}/actions/runs/{run_id}/artifacts?per_page=100&page={page}")
+        entries = artifact_response.get('artifacts', [])
+        for item in entries:
+            if item.get("name") in {"shadow6-linux-release", *IDRIS_LINUX_ARTIFACTS,
+                                    "shadow6-s6epe-linux-runtime"} and not item.get("expired"):
+                by_name.setdefault(item["name"], []).append(item)
+        if len(entries) < 100:
+            break
+    else:
+        raise ValueError('Actions artifact inventory exceeds bounded pagination')
     primary = by_name.get("shadow6-linux-release", [])
     if len(primary) != 1:
         raise ValueError("successful run must contain exactly one unexpired shadow6-linux-release artifact")
@@ -702,6 +764,9 @@ def fetch_artifacts(destination: Path, *, run_id=None, commit=None, tag=None):
         else:
             missing.append(name)
     for artifact in selected:
+        if not isinstance(artifact.get('digest'), str) or not re.fullmatch(
+                r'sha256:[0-9a-f]{64}', artifact['digest']):
+            raise ValueError('selected Actions artifact has no SHA-256 provenance')
         expected_sha = artifact.get("workflow_run", {}).get("head_sha")
         if expected_sha and expected_sha != source_sha:
             raise ValueError("artifact provenance SHA differs from workflow run")

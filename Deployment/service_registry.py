@@ -619,7 +619,7 @@ class ServiceRegistry:
                 result.pop('runtimeObservation', None)
                 result['state'] = 'stale'
                 item['state'] = 'stale'; self._save()
-            elif process.get('readiness') not in ('listener-ready', 'control-ready', 'application-ready') or not result.get('runtimeObservation'):
+            elif process.get('readiness') not in ('listener-ready', 'control-ready', 'application-ready', 'application-active') or not result.get('runtimeObservation'):
                 result['state'] = 'degraded'
                 result['runtimeDiagnostic'] = result.get('runtimeDiagnostic', 'RuntimeReadinessUnavailable')
                 item['state'] = 'degraded'; self._save()
@@ -709,6 +709,8 @@ class ServiceRegistry:
     @transaction
     def connect(self, name, *, core=None, role=None, adapter=None):
         item, _material = self.connection_inputs(name)
+        if item.get('runtime', {}).get('readiness') == 'application-active':
+            raise ValueError('ApplicationBoundaryBusy: the current owned stream attachment is active')
         if item.get('privacy') == 'envelope':
             fields = runtime.parse_envelope(private_read(item['spec']['envelope_config']))
             if fields.get('carrier') == 'webrtc' and (item.get('runtimeObservation') or {}).get('transportReadiness') != 'ready':

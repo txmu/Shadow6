@@ -152,9 +152,10 @@ jobs:
       - name: Run one acceptance gate without compiling native Cores
         run: |
           set -euo pipefail
+          .venv/bin/python -m unittest discover -s Test-Lab -p 'test_*.py' -v
           .venv/bin/python -m unittest -v \
             Crosed.test_native_profiles Crosed.test_limits Deployment.test_profile_realization Deployment.test_profile_availability Deployment.test_profile_binding Deployment.test_deployment Deployment.test_topology_contract Deployment.test_core_explicit \
-            Deployment.test_service_context Deployment.test_service_lifecycle Deployment.test_message_attachment \
+            Deployment.test_service_context Deployment.test_service_lifecycle Deployment.test_message_attachment Deployment.test_active_application \
             Deployment.test_installed_imports Tools.test_install_tree
           (cd /tmp && "$GITHUB_WORKSPACE/.venv/bin/python" "$GITHUB_WORKSPACE/CLI/shadow6.py" abi catalog)
           .venv/bin/python CLI/shadow6.py acceptance \
@@ -908,7 +909,7 @@ jobs:
       - name: Download same-commit Idris Linux builds
         uses: actions/download-artifact@v7
         with:
-          name: shadow6-idris-ubuntu-latest
+          name: shadow6-idris-ubuntu-latest-X64
           path: ${{ runner.temp }}/idris-artifact
       - name: Restore executable modes for downloaded core artifacts
         run: |
@@ -1351,13 +1352,17 @@ jobs:
           echo "$(brew --prefix chezscheme)/bin" >> "$GITHUB_PATH"
       - name: Run every registered Native Profile against the downloaded artifacts
         run: |
+          # The namespace runner runs as root. Preserve artifact bytes/digests
+          # while making the downloaded files owner-controlled for that runner.
+          sudo chown -R root:root -- .tmp/test-lab-artifacts .tmp/test-lab-companions
           set +e
-          sudo --preserve-env=PATH,GITHUB_SHA,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT \
+          sudo --preserve-env=PATH,GITHUB_SHA,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,GITHUB_RUN_NUMBER \
             python3 Test-Lab/shadow6_test_lab.py --all-profiles \
               --artifacts-dir .tmp/test-lab-artifacts \
               --companion-artifacts-dir .tmp/test-lab-companions \
-              --scenario clean --scenario good-wan --scenario high-jitter --scenario failure-recovery \
-              --payload-bytes 1024 --requests 2 --capture \
+              --scenario clean --scenario lan --scenario good-wan --scenario mobile --scenario long-haul \
+              --scenario lossy --scenario high-jitter --scenario constrained --scenario failure-recovery \
+              --payload-bytes 4096 --requests 2 --capture \
               --output-dir .tmp/wan-pcap/ci-${GITHUB_RUN_ID}
           set -e
           python3 - <<'PY'
@@ -1372,22 +1377,35 @@ jobs:
             raise SystemExit('Native Core denominator changed from twelve')
           if report['inventory']['available'] != 12:
             raise SystemExit(f"same-run artifact inventory is {report['inventory']['available']}/12")
-          failures = [row for row in report['results'] if row.get('status') == 'FAIL']
+          # Nonzero-loss WAN measurements can legitimately expose best-effort
+          # application loss. Keep those FAIL rows and evidence in the report;
+          # gate deterministic correctness on scenarios without packet loss.
+          loss_measurements = {'good-wan', 'mobile', 'long-haul', 'lossy', 'constrained'}
+          failures = [row for row in report['results'] if row.get('status') == 'FAIL'
+                      and row.get('scenario') not in loss_measurements]
           if failures:
-            raise SystemExit(f"Test Lab found {len(failures)} Core/Profile regression(s)")
+            raise SystemExit(f"Test Lab found {len(failures)} deterministic Core/Profile regression(s)")
+          lost_rows = [row for row in report['results'] if row.get('scenario') in loss_measurements]
+          missing_loss_evidence = [row for row in lost_rows
+              if row.get('capture', {}).get('status') != 'PASS' or
+                 row.get('capture', {}).get('analysisStatus') == 'FAIL']
+          if missing_loss_evidence:
+            raise SystemExit(f"Loss measurement lacks bounded PCAP evidence for {len(missing_loss_evidence)} row(s)")
           if coverage['executed'] != 12:
-            print(f"::warning::Native correctness environment executed {coverage['executed']}/12 primary Profiles")
+            raise SystemExit(f"Native correctness environment executed {coverage['executed']}/12 primary Profiles")
           missing_primary_capture = [row for row in report['results']
               if row.get('scenario') == 'clean' and row.get('profile') == next(
                   core['profile'] for core in coverage['cores'] if core['core'] == row.get('core'))
               and row.get('capture', {}).get('status') != 'PASS']
           if missing_primary_capture:
-            print(f"::warning::PCAP environment captured {12-len(missing_primary_capture)}/12 primary Profiles")
+            raise SystemExit(f"PCAP environment captured {12-len(missing_primary_capture)}/12 primary Profiles")
           blocked = [row for row in report['results'] if row.get('status') == 'BLOCKED']
           if blocked:
               reasons = sorted({row.get('reason', 'unspecified environment block') for row in blocked})
-              print('::warning::Test Lab environment blocked some requested rows: ' + '; '.join(reasons)[:1500])
-          print(f"Native Core coverage: {coverage['executed']}/12 executed; {coverage['counts']}")
+              raise SystemExit('Test Lab environment blocked requested rows: ' + '; '.join(reasons)[:1500])
+          observed_loss_failures = sum(row.get('status') == 'FAIL' for row in lost_rows)
+          print(f"Native Core coverage: {coverage['executed']}/12 executed; {coverage['counts']}; "
+                f"loss-conditioned FAIL rows retained: {observed_loss_failures}")
           PY
       - name: Upload all-Core WAN/PCAP Test Lab report and captures
         if: always()
@@ -1435,7 +1453,7 @@ jobs:
           path: ${{ runner.temp }}/carp-generated
       - uses: actions/download-artifact@v7
         with:
-          name: shadow6-idris-ubuntu-24.04-arm
+          name: shadow6-idris-ubuntu-24.04-arm-ARM64
           path: ${{ runner.temp }}/idris-arm64
       - name: Restore same-commit Carp sources and native Idris runtime
         run: |

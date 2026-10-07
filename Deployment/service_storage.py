@@ -1,5 +1,6 @@
 """Bounded private state used by the local service manager."""
 import json
+import math
 import os
 import stat
 import tempfile
@@ -34,7 +35,41 @@ def private_read(path, limit=LIMIT):
         os.close(fd)
 
 
-def strict_json(data):
+def strict_json(data, *, limit=LIMIT, allow_measurement_floats=False):
+    if not isinstance(data, (str, bytes, bytearray)):
+        raise ValueError('JSON input must be text or bytes')
+    if type(limit) is not int or limit < 1:
+        raise ValueError('invalid JSON input limit')
+    if type(allow_measurement_floats) is not bool:
+        raise ValueError('invalid JSON numeric policy')
+    try:
+        size = len(data.encode('utf-8')) if isinstance(data, str) else len(data)
+    except UnicodeError as exc:
+        raise ValueError('invalid bounded JSON') from exc
+    if size > limit:
+        raise ValueError('JSON input size limit')
+    try:
+        text = data if isinstance(data, str) else bytes(data).decode('utf-8', 'strict')
+    except UnicodeError as exc:
+        raise ValueError('JSON must be UTF-8') from exc
+    # Bound container depth before json.loads allocates nested containers.
+    depth, quoted, escaped = 0, False, False
+    for character in text:
+        if quoted:
+            if escaped:
+                escaped = False
+            elif character == '\\':
+                escaped = True
+            elif character == '"':
+                quoted = False
+        elif character == '"':
+            quoted = True
+        elif character in '[{':
+            depth += 1
+            if depth > 25:
+                raise ValueError('JSON nesting limit')
+        elif character in ']}':
+            depth -= 1
     def pairs(items):
         result = {}
         for key, value in items:
@@ -44,8 +79,14 @@ def strict_json(data):
         return result
     def reject(_):
         raise ValueError('noninteger JSON number')
+    def measurement(raw):
+        value = float(raw)
+        if not math.isfinite(value):
+            raise ValueError('nonfinite JSON measurement')
+        return value
     try:
-        value = json.loads(data, object_pairs_hook=pairs, parse_float=reject, parse_constant=reject)
+        value = json.loads(text, object_pairs_hook=pairs,
+            parse_float=measurement if allow_measurement_floats else reject, parse_constant=reject)
         def bounded(v, depth=0):
             if depth > 24:
                 raise ValueError('JSON nesting limit')

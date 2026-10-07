@@ -18,7 +18,7 @@ except ImportError:
     from runtime_observation import sockets, private_socket, ready, validate_observation, endpoint_matches, control_connections
 
 
-def native_observed_endpoints(pid, native):
+def native_observed_endpoints(pid, native, application=None):
     result = sockets(pid)
     # Datagram native-file contracts can connect their transport socket before
     # admission. Require the exact configured local and peer tuple and actual
@@ -41,6 +41,14 @@ def native_observed_endpoints(pid, native):
             if parsed.hostname and parsed.port: targets.append((parsed.hostname, parsed.port))
         result = [item for item in control_connections(pid)
                   if (item['remoteHost'], item['remotePort']) in targets]
+    if (isinstance(application, dict) and application.get('boundary') == 'stream' and
+            application.get('mode') == 'localhost-tcp-proxy' and private_socket(application) and
+            not any(item.get('transport') == 'tcp' and item.get('host') == application.get('host') and
+                    item.get('port') == application.get('port') and item.get('observation') == 'process-owned-socket'
+                    for item in result)):
+        for item in control_connections(pid):
+            if (item['host'], item['port']) == (application.get('host'), application.get('port')):
+                result.append({**item, 'observation': 'process-owned-application-connection'})
     return result
 
 
@@ -562,7 +570,7 @@ def supervise(plan_path, ack):
                 if attachment is not None:
                     if ready_state and not attachment.ready: attachment.acknowledge(ready_state, native_owner)
                     attachment.pump()
-                native = native_observed_endpoints(children[0].pid, native_config)
+                native = native_observed_endpoints(children[0].pid, native_config, ready_state.get('endpoint'))
                 webtransport='unknown'
                 if envelope_fields and envelope_fields.get('carrier')=='webrtc':
                     try:
@@ -610,11 +618,19 @@ def supervise(plan_path, ack):
                 candidate = ready_state.get('endpoint',{})
                 if (ready_state and candidate.get('boundary') == profile['attachment']['kind']
                         and candidate.get('mode') == profile['attachment']['mode']
-                        and any(e.get('host') == candidate.get('host') and e.get('port') == candidate.get('port')
+                        and any(e.get('observation') == 'process-owned-socket' and
+                                e.get('host') == candidate.get('host') and e.get('port') == candidate.get('port')
                                 and e['transport'] == profile['attachment']['transport'] for e in native)):
                     result.update(ready_state)
                     result['endpoint']['owner']={'pid':children[0].pid,'processIdentity':identity(children[0].pid)}
                     result['applicationReadiness'] = 'ready'
+                elif candidate.get('boundary') == 'stream' and candidate.get('mode') == 'localhost-tcp-proxy':
+                    active = [e for e in native if e.get('observation') == 'process-owned-application-connection']
+                    if len(active) == 1:
+                        result.update(readiness='application-active', applicationReadiness='ready',
+                            endpoint={**candidate, 'observation': 'structured-ready-active-flow',
+                                'remoteHost': active[0]['remoteHost'], 'remotePort': active[0]['remotePort'],
+                                'owner': {'pid': children[0].pid, 'processIdentity': identity(children[0].pid)}})
                 if attachment is not None and attachment.ready:
                     result.update(endpoint=attachment.endpoint({'pid':os.getpid(),'processIdentity':identity(os.getpid())},native_owner),
                                   readiness='application-ready', applicationReadiness='ready')
@@ -904,9 +920,10 @@ def observe(item, plan_path):
                 actual = next((line.split()[-3:-1] for line in handle if line.startswith('Max open files')), None)
             if actual != [str(resolution['effective_limits']['process_fds'])] * 2:
                 raise ValueError('RuntimeLimitsEnforcementDrift')
-    native=native_observed_endpoints(children[0]['pid'], strict_json(private_read(plan['config'])))
+    native=native_observed_endpoints(children[0]['pid'], strict_json(private_read(plan['config'])),
+        value['endpoint'] if value['readiness'] == 'application-active' else None)
     record_attachment = isinstance(value.get('endpoint'),dict) and value['endpoint'].get('observation') == 'supervisor-owned-record-adapter'
-    if process['privacy'] == 'envelope' and value['readiness'] == 'application-ready' and not record_attachment:
+    if process['privacy'] == 'envelope' and value['readiness'] in ('application-ready', 'application-active') and not record_attachment:
         raise ValueError('envelope public endpoint must denote the admission listener')
     if process['privacy'] == 'envelope' and len(children) < 2:
         raise ValueError('envelope observation requires its critical admission process')
@@ -925,10 +942,14 @@ def observe(item, plan_path):
                   target['maxRecord'] == profile['limits']['max_record'] and
                   any(e.get('transport') == 'unix-seqpacket' and e.get('path') == target['path'] for e in sockets(process['pid'])) and
                   owned_seqpacket(children[0]['pid'], target['nativeFd'], target['nativeInode']))
-    elif target is not None and value['readiness'] == 'application-ready':
+    elif target is not None and value['readiness'] in ('application-ready', 'application-active'):
         actual = actual and target.get('boundary') == profile['attachment']['kind'] and target.get('mode') == profile['attachment']['mode']
         actual = actual and any(e.get('host')==target['host'] and e.get('port')==target['port']
-                                and e['transport'] == profile['attachment']['transport'] for e in native)
+                                and e['transport'] == profile['attachment']['transport']
+                                and (value['readiness'] != 'application-active' or
+                                     e.get('observation') == 'process-owned-application-connection' and
+                                     e.get('remoteHost') == target['remoteHost'] and e.get('remotePort') == target['remotePort'])
+                                for e in native)
     if not actual:
         process['endpoint']=None;process['readiness']='unavailable';return
     process['endpoint'] = value['endpoint']
