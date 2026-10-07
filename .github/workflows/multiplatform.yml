@@ -119,6 +119,7 @@ jobs:
           eval "$(opam env --switch=envelope)"
           dune build --root OCaml/privacy_envelope
           dune exec --root OCaml/privacy_envelope shadow6-privacy-envelope -- --feature-report
+          dune exec --root OCaml/privacy_envelope src/lab_webrtc_peer.exe -- --feature-report
           dune runtest --root OCaml/privacy_envelope
           S6EPE_BINARY="$PWD/OCaml/privacy_envelope/_build/default/src/main.exe" \
             python3 -m unittest discover -s OCaml/privacy_envelope/test -p 'test_*.py' -v
@@ -131,8 +132,16 @@ jobs:
           artifact_dir="$RUNNER_TEMP/shadow6-envelope-runtime"
           mkdir -p "$artifact_dir/lib"
           install -m 0755 OCaml/privacy_envelope/_build/default/src/main.exe "$artifact_dir/shadow6-privacy-envelope"
+          install -m 0755 OCaml/privacy_envelope/_build/default/src/lab_webrtc_peer.exe "$artifact_dir/shadow6-lab-webrtc-peer"
           install -m 0755 "$LD_LIBRARY_PATH/libdatachannel.so.0.23" "$artifact_dir/lib/libdatachannel.so.0.23"
           "$artifact_dir/shadow6-privacy-envelope" --feature-report > "$artifact_dir/feature-report.json"
+          S6EPE_ARTIFACT_DIR="$artifact_dir" python3 - <<'PY'
+          import os, platform, sys
+          sys.path.insert(0, 'Test-Lab')
+          from artifacts import write_s6epe_manifest
+          write_s6epe_manifest(os.environ['S6EPE_ARTIFACT_DIR'], commit=os.environ['GITHUB_SHA'],
+              run_id=os.environ['GITHUB_RUN_ID'], run_attempt=os.environ['GITHUB_RUN_ATTEMPT'], architecture=platform.machine())
+          PY
           python3 -c 'import json,sys; r=json.load(open(sys.argv[1])); assert r["wire_version"] == 3 and r["payload_encryption"] and "sctp" in r["carriers"]["message_adapters"] and "webrtc" in r["carriers"]["message_adapters"]' "$artifact_dir/feature-report.json"
       - uses: actions/upload-artifact@v6
         with:
@@ -153,6 +162,7 @@ jobs:
         run: |
           set -euo pipefail
           .venv/bin/python -m unittest discover -s Test-Lab -p 'test_*.py' -v
+          sudo .venv/bin/python -m unittest discover -s Test-Lab -p 'test_s6epe_runner.py' -v
           .venv/bin/python -m unittest -v \
             Crosed.test_native_profiles Crosed.test_limits Deployment.test_profile_realization Deployment.test_profile_availability Deployment.test_profile_binding Deployment.test_deployment Deployment.test_topology_contract Deployment.test_core_explicit \
             Deployment.test_service_context Deployment.test_service_lifecycle Deployment.test_message_attachment Deployment.test_active_application \
@@ -1011,7 +1021,7 @@ jobs:
       - name: Admit preserved S6EPE runtime before install and packaging
         run: |
           set -euo pipefail
-          chmod 0755 OCaml/privacy_envelope/shadow6-privacy-envelope OCaml/privacy_envelope/lib/libdatachannel.so.0.23
+          chmod 0755 OCaml/privacy_envelope/shadow6-privacy-envelope OCaml/privacy_envelope/shadow6-lab-webrtc-peer OCaml/privacy_envelope/lib/libdatachannel.so.0.23
           LD_LIBRARY_PATH="$PWD/OCaml/privacy_envelope/lib" OCaml/privacy_envelope/shadow6-privacy-envelope --feature-report > "$RUNNER_TEMP/s6epe-features.json"
           python3 -c 'import json,sys; r=json.load(open(sys.argv[1])); assert r["wire_version"] == 3 and r["payload_encryption"] and "sctp" in r["carriers"]["message_adapters"] and "webrtc" in r["carriers"]["message_adapters"]' "$RUNNER_TEMP/s6epe-features.json"
       - name: Build every Linux core and component
@@ -1321,11 +1331,15 @@ jobs:
     needs: [linux, idris, privacy-envelope-contract]
     if: always() && needs.linux.result == 'success'
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
         with: {python-version: '3.12'}
+      - name: Prepare the Named Service and TLS fixture Python runtime
+        run: |
+          python3 -m pip install --disable-pip-version-check 'cryptography==50.0.1'
+          python3 -c 'from Deployment.service_registry import ServiceRegistry; from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey'
       - name: Download same-run Linux Core artifacts and provenance manifest
         uses: actions/download-artifact@v7
         with:
@@ -1391,6 +1405,8 @@ jobs:
                  row.get('capture', {}).get('analysisStatus') == 'FAIL']
           if missing_loss_evidence:
             raise SystemExit(f"Loss measurement lacks bounded PCAP evidence for {len(missing_loss_evidence)} row(s)")
+          if any(row.get('noBypass', {}).get('status') != 'PASS' for row in report['results']):
+              raise SystemExit('Native NamespacePair application flow ownership evidence incomplete')
           if coverage['executed'] != 12:
             raise SystemExit(f"Native correctness environment executed {coverage['executed']}/12 primary Profiles")
           missing_primary_capture = [row for row in report['results']
@@ -1403,6 +1419,22 @@ jobs:
           if blocked:
               reasons = sorted({row.get('reason', 'unspecified environment block') for row in blocked})
               raise SystemExit('Test Lab environment blocked requested rows: ' + '; '.join(reasons)[:1500])
+          matrix = report['s6epeCompatibility']
+          if len(matrix) != 16 or len({(r['core'], r['profile'], r['carrier']) for r in matrix}) != 16:
+              raise SystemExit('S6EPE matrix must contain sixteen unique authority-derived bindings')
+          for binding in matrix:
+              if binding['status'] in {'BLOCKED', 'SKIP'}:
+                  raise SystemExit('S6EPE binding not executed: ' + binding.get('reason', str(binding['core'])))
+              if len(binding['results']) != 9:
+                  raise SystemExit('S6EPE binding did not execute all nine directional WAN scenarios')
+              for result in binding['results']:
+                  if result['status'] != 'PASS' and result['scenario'] not in loss_measurements:
+                      raise SystemExit('S6EPE deterministic application regression: ' + str(result.get('reason')))
+                  if result['status'] in {'BLOCKED', 'SKIP'} or result['stages']['PCAP']['status'] != 'PASS' or \
+                          result.get('noBypass', {}).get('status') != 'PASS' or \
+                          result['stages']['leakScan']['status'] != 'PASS' or \
+                          result['stages']['wireClassification']['status'] != 'PASS':
+                      raise SystemExit('S6EPE endpoint ownership/PCAP/privacy evidence incomplete')
           observed_loss_failures = sum(row.get('status') == 'FAIL' for row in lost_rows)
           print(f"Native Core coverage: {coverage['executed']}/12 executed; {coverage['counts']}; "
                 f"loss-conditioned FAIL rows retained: {observed_loss_failures}")

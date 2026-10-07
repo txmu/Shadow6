@@ -33,7 +33,7 @@ from artifacts import (MANIFEST, create_manifest, fetch_artifacts, find_manifest
 from fingerprint import analyze
 from network import Namespace, SCENARIOS, capabilities as network_capabilities, symmetric_loopback_settings
 
-SCHEMA = "shadow6.wan-pcap-test-report.v1"
+SCHEMA = "shadow6.wan-pcap-test-report.v2"
 DEFAULT_SCENARIOS = ("clean", "good-wan", "high-jitter", "failure-recovery")
 MAX_REPORT_BYTES = 8 * 1024 * 1024
 
@@ -106,14 +106,22 @@ def _check_os_requirement(profile, artifact_root: Path):
 
 
 class Capture:
-    def __init__(self, output: Path, *, namespace: Namespace | None):
+    def __init__(self, output: Path, *, namespace: Namespace | None, interface='lo', snaplen=1600):
+        if interface not in {'lo', 's6tl-a', 's6tl-b'} or type(snaplen) is not int or not 1600 <= snaplen <= 8192:
+            raise ValueError('capture interface/snaplen outside owned Lab bounds')
+        if namespace is None:
+            raise ValueError('capture requires an owned namespace')
         self.output = output
+        self.interface, self.snaplen = interface, snaplen
         self.namespace = namespace
         self.process = None
         self.stderr = None
         self.started_at = None
         self.ended_at = None
         self.reason = None
+        self.process_identity = None
+        self.namespace_identity = None
+        self.capture_pid = None
 
     def start(self):
         import pwd
@@ -124,21 +132,34 @@ class Capture:
         self.output.parent.mkdir(parents=True, exist_ok=True)
         self.stderr = tempfile.TemporaryFile()
         argv = [tcpdump, '-Z', pwd.getpwuid(os.geteuid()).pw_name,
-                "-i", "lo", "-nn", "-s", "1600", "-C", "4", "-W", "1",
+                '--immediate-mode', '-U', "-i", self.interface, "-nn", "-s", str(self.snaplen), "-C", "4", "-W", "1",
                 "-w", str(self.output), "tcp or udp or sctp"]
         if self.namespace is not None:
             argv = self.namespace.exec(argv)
         try:
             self.process = subprocess.Popen(argv, stdin=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL, stderr=self.stderr, close_fds=True,
-                start_new_session=(os.name == "posix"))
-            time.sleep(0.15)
-            if self.process.poll() is not None:
-                self.reason = self._error_text() or "tcpdump exited during startup"
-                self.process = None
-                return False
-            self.started_at = time.time()
-            return True
+                start_new_session=(os.name == "posix"), umask=0o077)
+            deadline = time.monotonic() + 3
+            while time.monotonic() < deadline:
+                if self.process.poll() is not None:
+                    self.reason = self._error_text() or 'tcpdump exited during startup'
+                    self.process = None
+                    return False
+                if 'listening on ' + self.interface in self._error_text():
+                    from service_runtime import identity
+                    self.capture_pid = self.process.pid
+                    self.process_identity = identity(self.process.pid)
+                    self.namespace_identity = os.readlink(f'/proc/{self.process.pid}/ns/net')
+                    if not self.process_identity: raise ValueError('capture process identity unavailable')
+                    expected_namespace = f'net:[{Path("/run/netns", self.namespace.name).stat().st_ino}]'
+                    if self.namespace_identity != expected_namespace: raise ValueError('capture namespace ownership mismatch')
+                    self.started_at = time.time()
+                    return True
+                time.sleep(.05)
+            self.reason = 'tcpdump structured listening notification deadline'
+            self.stop()
+            return False
         except OSError as error:
             self.reason = f"{type(error).__name__}: {error}"
             return False
@@ -176,10 +197,14 @@ class Capture:
 
 
 def _worker(profile: dict, binary: Path, *, payload_bytes: int, requests: int,
-            namespace: Namespace | None, timeout: int = 90, rtt_ms: int = 0, on_ready=None):
+            namespace: Namespace | None, timeout: int = 90, rtt_ms: int = 0, on_ready=None, target_port=None):
     argv = [sys.executable, str(HERE / "worker.py"), "--core", profile["core"],
             "--profile", profile["id"], "--binary", str(binary),
             "--payload-bytes", str(payload_bytes), "--requests", str(requests), "--rtt-ms", str(rtt_ms)]
+    if target_port is not None:
+        if type(target_port) is not int or not 1 <= target_port <= 65535:
+            raise ValueError('invalid owned carrier attachment port')
+        argv.extend(['--target-port', str(target_port)])
     if namespace is not None:
         source_owner = ROOT.stat()
         if os.geteuid() == 0 and source_owner.st_uid != 0:
@@ -221,8 +246,9 @@ def _worker(profile: dict, binary: Path, *, payload_bytes: int, requests: int,
                 except subprocess.TimeoutExpired:
                     os.killpg(process.pid, signal.SIGKILL); process.wait(timeout=3)
             process.stdout.close()
-        errors.seek(0)
-        stderr = errors.read(2048).decode('utf-8', 'replace')
+        errors.seek(0, os.SEEK_END)
+        errors.seek(max(0, errors.tell() - 4096))
+        stderr = errors.read(4096).decode('utf-8', 'replace')
     stdout = output.decode("utf-8", "replace")
     last = next((line for line in reversed(stdout.splitlines()) if line.startswith("{")), None)
     if last is None:
@@ -343,7 +369,7 @@ def _scenario_case(profile, binary, scenario, output_dir, run_id, *, capture_ena
         applied = {item["stage"] for item in effective_impairments}
         complete = {"baseline", "degraded", "restored"}.issubset(applied) and not phase_errors
         row["failureInjection"] = {"status": "applied" if complete else "incomplete",
-            "requestedPhases": ["baseline impairment", "bounded high loss/delay", "restored baseline"],
+            "requestedPhases": ["baseline impairment", "bounded increased delay", "restored baseline"],
             "appliedPhaseCount": len(effective_impairments),
             "phaseErrors": phase_errors,
             "reconnectClaim": "not inferred; each scenario creates a fresh ephemeral trio"}
@@ -427,13 +453,13 @@ def _s6epe_matrix(availability=()):
                 'nativeTransport': profile['nativeTransport'],
                 'applicationBoundary': profile['applicationBoundary'],
                 "mode": mapping["mode"], "carrier": carrier,
-                "legal": True, "status": "NOT-RUN",
+                "legal": True, "status": "source-legal",
                 'stages': {'sourceLegal': {'status': 'source-legal', 'authority': 'Control-Center/privacy_envelope.py'},
                     'nativeArtifact': {'status': artifact.get('availability', 'ARTIFACT-UNBOUND'),
                         'sha256': artifact.get('artifactSha256'), 'reason': artifact.get('reason')},
-                    **{stage: {'status': 'NOT-RUN', 'reason': 'carrier endpoint runner has not executed'}
+                    **{stage: {'status': 'BLOCKED', 'reason': 'source mapping contains no runtime evidence'}
                        for stage in ('carrierArtifact', 'runtimeReady', 'correctness', 'WAN', 'PCAP', 'wireClassification', 'leakScan')}},
-                "evidence": mapping["evidence"], "reason": "S6EPE PCAP endpoint runner is not yet wired into Test Lab"})
+                "evidence": mapping["evidence"], "reason": "source-only compatibility query; execute the endpoint matrix for runtime evidence"})
     return result
 
 
@@ -500,9 +526,17 @@ def _render_markdown(report):
     lines += ["", "## Scenario rows", "", "| Core/Profile | Scenario | Network kind | Result | PCAP | Detail |", "|---|---|---|---|---|---|"]
     for row in report["results"]:
         lines.append(f"| {row.get('core')}/{row.get('profile')} | {row.get('scenario')} | {row.get('networkKind')} | {row.get('status')} | {row.get('capture',{}).get('status')} | {(row.get('reason') or '')[:220]} |")
-    lines += ["", "## S6EPE source-compatibility matrix", "", "Compatibility is derived from the existing Control Center source mapping. `NOT-RUN` means no carrier PCAP execution was performed.", "", "| Core/Profile | Mode | Legal carrier | Status |", "|---|---|---|---|"]
+    lines += ["", "## S6EPE endpoint matrix", "", "Legal combinations come from Control Center; runtime status requires actual endpoints, application correctness and dual carrier PCAP. Placement is after the real Native Agent application target; native Core control/data sockets remain private in A.", "", "| Core/Profile | Mode | Legal carrier | Status |", "|---|---|---|---|"]
     for row in report["s6epeCompatibility"]:
         lines.append(f"| {row['core']}/{row['profile']} | {row['mode']} | {row['carrier']} | {row['status']} |")
+    lines += ['', '| Core/Profile/Carrier | Scenario | Runtime | Correctness | WAN | PCAP | Wire | Leak scan | Result |',
+              '|---|---|---|---|---|---|---|---|---|']
+    for row in report['s6epeCompatibility']:
+        for result in row.get('results', []):
+            stages = result['stages']
+            lines.append('| ' + '/'.join((row['core'], row['profile'], row['carrier'])) + ' | ' + result['scenario'] + ' | ' +
+                ' | '.join(stages[stage]['status'] for stage in ('runtimeReady', 'correctness', 'WAN', 'PCAP', 'wireClassification', 'leakScan')) +
+                ' | ' + result['status'] + ' |')
     lines += ["", "Runtime observations come from the locked Named Service lifecycle. Process liveness is not treated as application readiness.", ""]
     if report.get('limitations'):
         lines += ['## Limitations', ''] + ['- ' + item for item in report['limitations']] + ['']
@@ -573,6 +607,7 @@ def run(args):
                     row["integrity"] = "github-artifact-and-file-digest-verified"
     feature_rows = []
     by_profile = {}
+    admitted_cores = {row['core']: row for row in inventory['cores']}
     for profile in profiles():
         binary = locate_binary(artifact_root, profile)
         if binary is None:
@@ -583,6 +618,8 @@ def run(args):
                     "availability": "BLOCKED", "reason": "artifact unavailable"}
         else:
             item = _current_feature_report(profile, binary)
+            if not admitted_cores[profile['core']]['available']:
+                item.update(availability='BLOCKED', reason='release artifact inventory integrity admission failed')
             requirements = _check_os_requirement(profile, artifact_root) if item["availability"] == "AVAILABLE" else []
             if requirements:
                 item["availability"] = "BLOCKED"
@@ -590,13 +627,18 @@ def run(args):
         feature_rows.append(item)
         by_profile[(profile["core"], profile["id"])] = (binary, item)
     if args.check:
+        from s6epe import matrix
+        carrier_preflight = matrix(feature_rows, by_profile, artifact_root, args.scenario or ['clean'],
+            Path('.'), args.run_id or 'check', payload_bytes=args.payload_bytes, requests=args.requests, execute=False)
         caps = network_capabilities()
         requested_scenarios = args.scenario or ['clean']
         environment_requirements = []
-        if any(name != 'clean' for name in requested_scenarios) and not caps['netnsNetem']:
+        if not caps['netnsNetem']:
             environment_requirements.append(caps['reason'])
-        if args.capture and not caps['namespaceCapture']:
+        if not caps['namespaceCapture']:
             environment_requirements.append('namespace capture requires ip/tc, CAP_NET_ADMIN, CAP_SYS_ADMIN, CAP_NET_RAW and tcpdump')
+        environment_requirements.extend(row['core'] + '/' + row['profile'] + '/' + row['carrier'] + ': ' + row.get('reason', '')
+            for row in carrier_preflight if row['status'] == 'BLOCKED')
         return {"schema": SCHEMA, "runId": args.run_id or "check-" + uuid.uuid4().hex[:12],
             "environment": {"sourceCommit": _git_commit(), "artifact": artifact_provenance,
                 "platform": platform.platform(), "machine": platform.machine(),
@@ -604,16 +646,16 @@ def run(args):
                 "captureTools": {name: shutil.which(name) for name in ("tcpdump", "dumpcap", "tshark", "zeek", "ndpiReader")}},
             'preflight': {'status': 'BLOCKED' if environment_requirements else 'READY',
                 'reasons': environment_requirements, 'scenarios': requested_scenarios,
-                'captureRequested': args.capture, 'runtimeExecutionVerified': False},
+                'captureRequested': True, 'runtimeExecutionVerified': False},
             "inventory": inventory, "profileAvailability": feature_rows,
             "nativeCoreCoverage": _core_coverage(selected, [], inventory),
-            "results": [], "s6epeCompatibility": _s6epe_matrix(feature_rows),
+            "results": [], "s6epeCompatibility": carrier_preflight,
             "notes": ["--check does not start Core processes or alter networking."]}
     scenarios = args.scenario or ["clean"]
     output_dir = args.output_dir or ROOT / ".tmp" / "wan-pcap" / (args.run_id or uuid.uuid4().hex[:16])
     run_id = args.run_id or uuid.uuid4().hex
     results = []
-    for profile in selected:
+    for profile in ([] if args.s6epe_only else selected):
         binary, availability = by_profile[(profile["core"], profile["id"])]
         for scenario in scenarios:
             if availability["availability"] != "AVAILABLE" or binary is None:
@@ -624,23 +666,31 @@ def run(args):
                     "status": "BLOCKED", "reason": availability.get("reason") or "artifact or runtime dependency unavailable",
                     "capture": {"status": "SKIP", "reason": "native binary cannot be executed", "pcap": None}})
                 continue
-            results.append(_scenario_case(profile, binary, scenario, output_dir, run_id,
+            from native_pair import case as native_pair_case
+            results.append(native_pair_case(profile, binary, scenario, output_dir, run_id,
                 capture_enabled=args.capture, payload_bytes=args.payload_bytes,
                 requests=args.requests))
+    from s6epe import matrix
+    carrier_rows = matrix(feature_rows, by_profile, artifact_root, args.s6epe_scenario or scenarios,
+        output_dir, run_id, payload_bytes=args.payload_bytes, requests=args.requests,
+        selected={(p['core'], p['id']) for p in selected} if args.core or args.profile else None)
     report = {"schema": SCHEMA, "runId": run_id,
         "environment": {"sourceCommit": _git_commit(), "artifact": artifact_provenance,
             "platform": platform.platform(), "machine": platform.machine(),
-            "networkMode": "simulated netns/netem" if any(SCENARIOS[name]["kind"].startswith("simulated") for name in scenarios) else "local loopback",
+            "networkMode": "simulated directional NamespacePair/veth",
             "networkTools": network_capabilities(),
             "captureTools": {name: shutil.which(name) for name in ("tcpdump", "dumpcap", "tshark", "zeek", "ndpiReader")},
-            "scenarios": scenarios, "endpointLabels": {"A": "local Native Core trio", "B": "bounded loopback echo target"}},
+            "scenarios": scenarios, "endpointLabels": {"A": "complete private Native Core trio and Agent-target attachment", "B": "owned WAN application target / S6EPE endpoint"}},
         "inventory": inventory, "profileAvailability": feature_rows,
         "nativeCoreCoverage": _core_coverage(selected, results, inventory),
-        "results": results, "s6epeCompatibility": _s6epe_matrix(feature_rows),
+        "results": results, "s6epeCompatibility": carrier_rows,
+        "s6epeCoverage": {"denominator": len(carrier_rows), "counts": {
+            status: sum(row['status'] == status for row in carrier_rows) for status in ('PASS', 'FAIL', 'BLOCKED', 'SKIP')}},
             "limitations": ["This runner uses ephemeral Named Services and the existing locked supervisor and Profile application attachment APIs.",
-            "WAN impairment is Linux netns/netem on isolated loopback; asymmetric presets use a conservative symmetric qdisc bound, and NamespacePair is available for future endpoint-separated runs. It is simulated, not an Internet path.",
+            "Native and S6EPE executions use directional NamespacePair/veth impairment. Native trio sockets remain private in A; the WAN hop is the Agent application target. Core wire fingerprint is taken from inner-A, not the application WAN hop.",
             "Failure/recovery phases change qdisc while each scenario uses a fresh trio; native reconnect/migration is not inferred.",
-            "S6EPE carrier compatibility is source-derived; raw/TLS/SCTP/WebRTC PCAP e2e is not wired into this runner yet.",
+            "S6EPE runs after the real Native Agent application target using explicit bounded Lab attachments. This verifies business traffic through the carrier, not native Core wire camouflage or production adapter availability.",
+            "S6EPE veth WAN is directional and simulated. Physical cross-host/Internet WAN requires remote endpoint execution.",
             "Remote SSH endpoints, Android device orchestration and remote PCAP remain unavailable."]}
     output_dir.mkdir(parents=True, exist_ok=True)
     _write_json(output_dir / "report.json", report)
@@ -661,6 +711,8 @@ def _parser():
     parser.add_argument("--scenario", action="append", choices=tuple(SCENARIOS))
     parser.add_argument("--check", action="store_true")
     parser.add_argument("--capture", action="store_true")
+    parser.add_argument("--s6epe-only", action="store_true", help="execute all sixteen carrier combinations without the separate native baseline matrix")
+    parser.add_argument("--s6epe-scenario", action="append", choices=tuple(SCENARIOS), help="explicit carrier scenarios; defaults to the requested native scenarios")
     parser.add_argument("--fetch-artifacts", action="store_true")
     parser.add_argument("--artifacts-dir", type=Path)
     parser.add_argument("--companion-artifacts-dir", type=Path,
@@ -718,8 +770,8 @@ def main(argv=None):
             row["availability"] == "AVAILABLE" for row in result["profileAvailability"] if row.get("core") in CORE_IDS) else 1
     print(_render_markdown(result))
     print(f"JSON: {args.output_dir or ROOT / '.tmp' / 'wan-pcap' / result['runId']}/report.json")
-    return 0 if not any(row.get("status") == "FAIL" for row in result["results"]) and not any(
-        row.get("status") == "BLOCKED" for row in result["results"]) else 1
+    return 0 if not any(row.get('status') in {'FAIL', 'BLOCKED'} for row in
+        result['results'] + result['s6epeCompatibility']) else 1
 
 
 if __name__ == "__main__":

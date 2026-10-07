@@ -2,6 +2,7 @@
 
 const translations = {
   en: {
+    lockedLimits: "Locked limits",
     skip: "Skip to content", subtitle: "Control Center", localOnly: "Loopback only", workspace: "LOCAL WORKSPACE",
     title: "Your Shadow6 systems, at a glance.", intro: "Review observed status, installed Native Profiles, and Named Services from this device.",
     tokenLabel: "Local bearer token", tokenHint: "The token stays in memory and is sent only to this loopback API.", connect: "View local status",
@@ -18,6 +19,7 @@ const translations = {
     profileUnavailable: "Prerequisites unavailable", idle: "No running services", unknown: "Unknown",
   },
   zh: {
+    lockedLimits: "锁定限额",
     skip: "跳到正文", subtitle: "控制中心", localOnly: "仅限回环地址", workspace: "本机工作区",
     title: "Shadow6 状态，一览即知。", intro: "在本机查看运行状态、已安装的 Native Profile 与命名服务。",
     tokenLabel: "本机 Bearer Token", tokenHint: "Token 只保存在内存中，并且只发送到本机回环 API。", connect: "查看本机状态",
@@ -94,8 +96,20 @@ function renderServices(page) {
     const name = document.createElement("td"); name.className = "service-name"; name.textContent = item.name || "";
     const core = document.createElement("td"); core.textContent = item.core || "—";
     const profile = document.createElement("td"); profile.textContent = item.profile || "—";
+    if (item.nativeTransport && item.applicationBoundary) profile.title = `${item.nativeTransport} · ${item.applicationBoundary.kind}/${item.applicationBoundary.mode}`;
     const stateCell = document.createElement("td"); const pill = document.createElement("span");
     pill.className = "pill"; pill.dataset.state = item.state || "unknown"; pill.textContent = `${item.state || translate("unknown")} · ${item.readiness || translate("unknown")}`; stateCell.append(pill);
+    const evidence = item.readinessEvidence;
+    if (evidence) {
+      pill.setAttribute("aria-label", `${pill.textContent}; runtimeReady=${evidence.runtimeReady}; applicationReady=${evidence.applicationReady}; newAttachmentAvailable=${evidence.newAttachmentAvailable}`);
+      pill.title = evidence.reason || "";
+    }
+    if (item.effectiveLimits) {
+      const limits = document.createElement("small");
+      limits.className = "muted";
+      limits.textContent = `${translate("lockedLimits")} ${item.limitMode || ""} · ${Object.entries(item.effectiveLimits).map(([dimension, value]) => `${dimension}=${value}`).join(" · ")}`;
+      stateCell.append(document.createElement("br"), limits);
+    }
     const endpoint = document.createElement("td"); endpoint.textContent = typeof item.endpoint === "string" ? item.endpoint : item.endpoint ? JSON.stringify(item.endpoint) : "—";
     row.append(name, core, profile, stateCell, endpoint); body.append(row);
   }

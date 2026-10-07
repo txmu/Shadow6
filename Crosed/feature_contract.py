@@ -24,6 +24,8 @@ def runtime_environment(root, relative):
             root / "Core-Idris" / "shadow6-idris-crosed_app",
             root / "Core-Idris" / "ffi",
         ]
+    elif Path(relative).name in {'shadow6-privacy-envelope', 'shadow6-lab-webrtc-peer'}:
+        directories = [(root / relative).parent / 'lib']
     elif relative.startswith("Core-Nim/"):
         directories = [root / "Core-Nim"]
     elif relative.startswith('OCaml/privacy_envelope/'):

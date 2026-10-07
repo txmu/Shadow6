@@ -6,13 +6,30 @@ import tempfile
 from pathlib import Path
 import unittest
 from unittest.mock import patch
-from Deployment.runtime_observation import validate_observation
+from Deployment.runtime_observation import validate_observation, readiness_evidence
 from Deployment.service_runtime import native_observed_endpoints
 from Deployment.service_registry import ServiceRegistry
 from Deployment.core_catalog import CoreCatalog
 
 
 class ActiveApplicationTests(unittest.TestCase):
+    def test_daily_readiness_view_never_promotes_process_alive_or_stale_evidence(self):
+        boot = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa:123'
+        child = {'pid': 43, 'processIdentity': boot}
+        observation = {'observedAt': 1000, 'pid': 42, 'processIdentity': boot, 'processes': [child],
+            'nativeEndpoints': [], 'endpoints': [], 'endpoint': None,
+            'readiness': 'process-alive', 'transportReadiness': 'unknown', 'applicationReadiness': 'unknown'}
+        self.assertFalse(readiness_evidence(observation, 'running', now=1000)['runtimeReady'])
+        socket = {'host': '127.0.0.1', 'port': 12345, 'transport': 'tcp', 'observation': 'process-owned-socket'}
+        observation.update(nativeEndpoints=[socket], endpoints=[socket], readiness='application-ready', applicationReadiness='ready',
+            endpoint={'host': '127.0.0.1', 'port': 12345, 'boundary': 'stream', 'mode': 'localhost-tcp-proxy',
+                      'observation': 'structured-ready-event', 'owner': child})
+        view = readiness_evidence(observation, 'running', now=1000)
+        self.assertTrue(view['applicationReady']); self.assertTrue(view['newAttachmentAvailable'])
+        self.assertFalse(view['admissionGrant'])
+        self.assertFalse(readiness_evidence(observation, 'running', now=1006)['applicationReady'])
+        self.assertFalse(readiness_evidence(observation, 'stopped', now=1000)['applicationReady'])
+
     def test_real_owned_connection_survives_listener_close_and_expires_on_socket_close(self):
         with socket.socket() as listener:
             listener.bind(('127.0.0.1', 0)); listener.listen(1)

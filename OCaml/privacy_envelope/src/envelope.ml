@@ -1,4 +1,10 @@
 let close fd = try Unix.close fd with _ -> ()
+let listener_ready config transport =
+  match config.Config.listen with
+  | Unix.ADDR_INET (ip, port) ->
+    Printf.printf "{\"event\":\"shadow6.envelope-listener-ready.v1\",\"pid\":%d,\"carrier\":%S,\"mode\":%S,\"role\":%S,\"transport\":%S,\"host\":%S,\"port\":%d}\n%!"
+      (Unix.getpid ()) config.carrier config.mode config.role transport (Unix.string_of_inet_addr ip) port
+  | Unix.ADDR_UNIX _ -> ()
 let reject metrics error = Metrics.update metrics (fun m -> match error with
   | Forward.Replay -> m.replay <- Metrics.add m.replay 1
   | Forward.Resource_limit -> m.resource <- Metrics.add m.resource 1
@@ -11,6 +17,7 @@ let stream config metrics =
   let listener = Unix.socket ~cloexec:true (Config.socket_domain config.Config.listen) Unix.SOCK_STREAM 0 in
   Unix.setsockopt listener Unix.SO_REUSEADDR true; Unix.bind listener config.Config.listen;
   Unix.listen listener config.max_sessions;
+  listener_ready config "tcp";
   let lock = Mutex.create () and active = ref 0 and preauth = ref 0 in
   let change f = Mutex.lock lock; Fun.protect ~finally:(fun () -> Mutex.unlock lock) f in
   let rec loop () =
@@ -69,6 +76,7 @@ let sctp config metrics =
   let listener=Unix.socket ~cloexec:true (Config.socket_domain config.Config.listen) Unix.SOCK_STREAM 132 in
   Carrier_sctp.prepare listener ~streams:config.sctp_streams;
   Unix.setsockopt listener Unix.SO_REUSEADDR true;Unix.bind listener config.listen;Unix.listen listener config.max_sessions;
+  listener_ready config "sctp";
   let lock=Mutex.create () and active=ref 0 and preauth=ref 0 in
   let change f=Mutex.lock lock;Fun.protect ~finally:(fun () -> Mutex.unlock lock) f in
   let rec loop () =
@@ -118,6 +126,7 @@ type peer = { socket:Unix.file_descr; address:Unix.sockaddr; created:float; muta
 let datagram config metrics =
   let listener = Unix.socket ~cloexec:true (Config.socket_domain config.Config.listen) Unix.SOCK_DGRAM 0 in
   Unix.bind listener config.Config.listen; Unix.set_nonblock listener;
+  listener_ready config "udp";
   let peers = Hashtbl.create config.max_sessions and replay = Hashtbl.create 4096 in
   let store = Replay_store.initialize config.replay_path config.key_epoch replay in
   Replay_store.commit store replay;
@@ -199,7 +208,8 @@ let webrtc config metrics =
           ~handshake_timeout:config.handshake_timeout ~idle_timeout:config.idle_timeout ~session_timeout:config.session_timeout
           ~signal:(Webrtc_signaling.exchange ~path ~id ~timeout:config.handshake_timeout)
           ~authenticated:(fun () -> Mutex.lock lock;decr preauth;pending:=false;retry_delay:=0.1;next_start:=0.;Mutex.unlock lock;
-            Metrics.update metrics (fun m -> m.authenticated<-Metrics.add m.authenticated 1;m.active_sessions<-Metrics.add m.active_sessions 1))
+            Metrics.update metrics (fun m -> m.authenticated<-Metrics.add m.authenticated 1;m.active_sessions<-Metrics.add m.active_sessions 1);
+            Printf.printf "{\"event\":\"shadow6.envelope-session-ready.v1\",\"pid\":%d,\"carrier\":\"webrtc\",\"sessionId\":%S,\"authenticated\":true,\"dataChannelReady\":true}\n%!" (Unix.getpid ()) id)
           ~session_closed:(fun () -> Metrics.update metrics (fun m -> m.active_sessions<-max 0 (m.active_sessions-1)))
           ~traffic:(traffic metrics) ~abandoned:(fun n -> Metrics.update metrics (fun m -> m.abandoned<-Metrics.add m.abandoned n));
         ()

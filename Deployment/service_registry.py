@@ -632,6 +632,15 @@ class ServiceRegistry:
             sys.path.insert(0, str(self.catalog.root / 'Control-Center'))
             from privacy_envelope import read_metrics
         result['privacyTelemetry'] = read_metrics(item['spec'].get('metrics_path'))
+        try: from .runtime_observation import readiness_evidence
+        except ImportError: from runtime_observation import readiness_evidence
+        result['readinessEvidence'] = readiness_evidence(result.get('runtimeObservation'), result['state'])
+        try:
+            selected = validate_profile_binding(result.get('profileBinding'), core=(result.get('coreBinding') or {}).get('core'))
+            result['nativeTransport'] = selected['nativeTransport']
+            result['applicationBoundary'] = selected['applicationBoundary']
+        except ValueError:
+            result['nativeTransport'] = None; result['applicationBoundary'] = None
         return result
 
     @transaction
@@ -867,6 +876,12 @@ class ServiceRegistry:
         except (ValueError, OSError, KeyError, TypeError):
             findings.append('InstalledProfileFeatureReportUnavailableOrMismatch')
         current = self.status(name)
+        availability = None
+        if feature_valid and selected:
+            try: from .profile_availability import inspect_profile
+            except ImportError: from profile_availability import inspect_profile
+            availability = inspect_profile(self.catalog, binding['core'], selected['id'], report=report)
+            if not availability['available']: findings.append('InstalledProfileRuntimeRequirementUnavailable')
         if current.get('state') == 'degraded' and runtime.alive(current.get('runtime', {})):
             # A busy host can briefly miss the supervisor's 200ms observation
             # cadence. Retry a live process for one bounded window so doctor
@@ -891,6 +906,7 @@ class ServiceRegistry:
             hint = 'Run shadow6 status ' + name + '; inspect peer endpoints, authenticated readiness and runtime diagnostics before retrying. Do not infer readiness from process-alive or cumulative session counters.'
         return {'schema':'shadow6.named-service-doctor.v1', 'service':name,
                 'limitResolution':(lock or {}).get('limitResolution'),
+                'componentLimits':(lock or {}).get('componentLimits'),
                 'currentHostBudget':HostBudget.capture().to_dict(),
                 'core':(item.get('coreBinding') or {}).get('core'),
                 'profileBinding':item.get('profileBinding'), 'state':current['state'],
@@ -898,4 +914,13 @@ class ServiceRegistry:
                 'featureReportValid':feature_valid, 'findings':sorted(set(findings)),
                 'healthy':not findings, 'runtime':current.get('runtime'),
                 'runtimeObservation':current.get('runtimeObservation'),
+                'nativeTransport':current.get('nativeTransport'), 'applicationBoundary':current.get('applicationBoundary'),
+                'readinessEvidence':current.get('readinessEvidence'),
+                'capabilityEvidence': {'sourceLegal':selected is not None,
+                    'artifactAvailable':bool(feature_valid and valid_lock),
+                    'installedRuntimeAvailable':bool(valid_lock and availability and availability['available']),
+                    **(current.get('readinessEvidence') or {})},
+                'profileAvailability':availability,
+                'diagnostics': ([{'code':finding, 'message':finding, 'action':hint} for finding in sorted(set(findings))]
+                    + (availability['diagnostics'] if availability else [])),
                 'hint':hint}

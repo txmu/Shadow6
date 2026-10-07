@@ -66,6 +66,10 @@ below and the [Carrier/Adapter Contract](privacy-envelope-carrier-contract.md).
 Named Service creates and owns the bounded, owner-only S6SG1 signalling broker
 and cleans up its socket and session state when the service ends. It exposes
 the lock-bound client endpoint for explicit offer/poll/answer operations.
+Each session's E/N legs have separate SDP state. Offer/answer replacement with
+different material is rejected. Concurrent waits are reserved from the resolved
+session limit; a client read deadline prevents incomplete requests from retaining
+the reservation indefinitely.
 The [Carrier/Adapter Contract](privacy-envelope-carrier-contract.md) separates
 the stream security engine from transport I/O. Its default raw provider remains
 identifiable; the TLS 1.3 provider encapsulates the hello in a real encrypted

@@ -6,6 +6,8 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import threading
+import time
 import uuid
 
 SCENARIOS = {
@@ -243,6 +245,10 @@ class NamespacePair:
                 self._run([self.ip, "-n", namespace, "link", "set", "lo", "up"])
                 self._run([self.ip, "-n", namespace, "addr", "add", address, "dev", iface])
                 self._run([self.ip, "-n", namespace, "link", "set", iface, "up"])
+                self._run([self.ip, '-n', namespace, 'link', 'add', 's6tl-local', 'type', 'dummy'])
+                self._run([self.ip, '-n', namespace, 'addr', 'add', '198.18.7.1/32', 'dev', 's6tl-local'])
+                self._run([self.ip, '-n', namespace, 'link', 'set', 's6tl-local', 'up'])
+                self._run([self.ip, '-n', namespace, 'route', 'add', 'default', 'dev', 's6tl-local'])
             return self
         except BaseException:
             self.close()
@@ -257,8 +263,22 @@ class NamespacePair:
         tc = system_tool("tc")
         if not tc:
             raise PermissionError("tc not installed")
-        self._run(self.exec(self.a, [tc, *netem_veth_argv("s6tl-a", a_to_b)[1:]]))
-        self._run(self.exec(self.b, [tc, *netem_veth_argv("s6tl-b", b_to_a)[1:]]))
+        self._run(self.exec(self.a, [tc, *netem_veth_argv("s6tl-a", a_to_b or {'queue_limit': 1000})[1:]]))
+        self._run(self.exec(self.b, [tc, *netem_veth_argv("s6tl-b", b_to_a or {'queue_limit': 1000})[1:]]))
+
+    def observe(self):
+        try: from service_storage import strict_json
+        except ImportError: from Deployment.service_storage import strict_json
+        tc = system_tool('tc')
+        if not tc: raise PermissionError('tc not installed')
+        result = {}
+        for direction, namespace, interface in (('aToB', self.a, 's6tl-a'), ('bToA', self.b, 's6tl-b')):
+            output = self._run(self.exec(namespace, [tc, '-j', 'qdisc', 'show', 'dev', interface])).stdout
+            value = strict_json(output, limit=16384, allow_measurement_floats=True, uint64_measurements_as_strings=True)
+            if not isinstance(value, list) or not any(row.get('kind') == 'netem' for row in value):
+                raise ValueError('owned carrier link has no observed netem qdisc')
+            result[direction] = value
+        return result
 
     def close(self):
         if not self.ip:
@@ -272,3 +292,46 @@ class NamespacePair:
 
     def __exit__(self, *_):
         self.close()
+
+
+class DirectionalImpairment:
+    """One scenario authority for Native and S6EPE owned veth executions."""
+    def __init__(self, pair, scenario):
+        if scenario not in SCENARIOS: raise ValueError('unknown WAN scenario')
+        self.pair, self.scenario, self.settings = pair, scenario, SCENARIOS[scenario]
+        self.phases = []; self.errors = []; self.threads = []; self.ready_at = None
+    def apply(self, stage, settings):
+        self.pair.apply(settings.get('a_to_b', {}), settings.get('b_to_a', {}))
+        self.phases.append({'stage': stage, 'aToB': settings.get('a_to_b', {}),
+            'bToA': settings.get('b_to_a', {}), 'observedAtUnix': int(time.time()),
+            'kernelQdiscObservation': self.pair.observe(),
+            'elapsedSinceWorkloadReadySeconds': None if self.ready_at is None else round(time.monotonic() - self.ready_at, 6)})
+    def start(self):
+        self.apply('baseline' if self.scenario == 'failure-recovery' else 'steady',
+            self.settings['phases'][0] if self.scenario == 'failure-recovery' else self.settings)
+        return self
+    def workload_ready(self):
+        if self.ready_at is not None: raise ValueError('duplicate impairment workload readiness')
+        self.ready_at = time.monotonic()
+        if self.scenario != 'failure-recovery': return
+        def change(delay, stage, phase):
+            time.sleep(delay)
+            try: self.apply(stage, phase)
+            except Exception as error: self.errors.append(type(error).__name__)
+        phases = self.settings['phases']
+        for delay, stage, phase in ((phases[0]['seconds'], 'degraded', phases[1]),
+                (phases[0]['seconds'] + phases[1]['seconds'], 'restored', phases[2])):
+            thread = threading.Thread(target=change, args=(delay, stage, phase), daemon=True)
+            thread.start(); self.threads.append(thread)
+    def close(self):
+        for thread in self.threads:
+            thread.join(timeout=10)
+            if thread.is_alive(): self.errors.append('ImpairmentThreadDeadline')
+    def evidence(self):
+        required = {'baseline', 'degraded', 'restored'} if self.scenario == 'failure-recovery' else {'steady'}
+        complete = {phase['stage'] for phase in self.phases} == required and not self.errors
+        return {'status': 'PASS' if complete else 'FAIL', 'kind': 'simulated-directional-veth',
+            'phases': self.phases, 'phaseErrors': self.errors, 'reconnectClaim': 'not inferred',
+            'realInternetPath': False,
+            'requestedPhases': ['baseline impairment', 'bounded increased delay', 'restored baseline']
+                if self.scenario == 'failure-recovery' else ['steady directional impairment']}

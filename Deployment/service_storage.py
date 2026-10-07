@@ -35,13 +35,15 @@ def private_read(path, limit=LIMIT):
         os.close(fd)
 
 
-def strict_json(data, *, limit=LIMIT, allow_measurement_floats=False):
+def strict_json(data, *, limit=LIMIT, allow_measurement_floats=False, uint64_measurements_as_strings=False):
     if not isinstance(data, (str, bytes, bytearray)):
         raise ValueError('JSON input must be text or bytes')
     if type(limit) is not int or limit < 1:
         raise ValueError('invalid JSON input limit')
     if type(allow_measurement_floats) is not bool:
         raise ValueError('invalid JSON numeric policy')
+    if type(uint64_measurements_as_strings) is not bool or (uint64_measurements_as_strings and not allow_measurement_floats):
+        raise ValueError('uint64 string conversion requires explicit measurement policy')
     try:
         size = len(data.encode('utf-8')) if isinstance(data, str) else len(data)
     except UnicodeError as exc:
@@ -84,9 +86,15 @@ def strict_json(data, *, limit=LIMIT, allow_measurement_floats=False):
         if not math.isfinite(value):
             raise ValueError('nonfinite JSON measurement')
         return value
+    def measurement_integer(raw):
+        value = int(raw)
+        if 2**53 <= value <= 2**64-1:
+            return str(value)
+        return value
     try:
         value = json.loads(text, object_pairs_hook=pairs,
-            parse_float=measurement if allow_measurement_floats else reject, parse_constant=reject)
+            parse_float=measurement if allow_measurement_floats else reject, parse_constant=reject,
+            parse_int=measurement_integer if uint64_measurements_as_strings else int)
         def bounded(v, depth=0):
             if depth > 24:
                 raise ValueError('JSON nesting limit')

@@ -1500,7 +1500,11 @@ def http_app(token: str, allow_mutations: bool = False):
                 items.append({"name": name, "state": record.get("state", "unknown"),
                     "core": (record.get("coreBinding") or {}).get("core"),
                     "profile": binding.get("profile"), "privacy": record.get("privacy"),
-                    "endpoint": runtime_info.get("endpoint"), "readiness": runtime_info.get("readiness")})
+                    "endpoint": runtime_info.get("endpoint"), "readiness": runtime_info.get("readiness"),
+                    "nativeTransport":record.get('nativeTransport'), "applicationBoundary":record.get('applicationBoundary'),
+                    "readinessEvidence":record.get('readinessEvidence'),
+                    "effectiveLimits":((record.get('deploymentLock') or {}).get('limitResolution') or {}).get('effective_limits'),
+                    "limitMode":((record.get('deploymentLock') or {}).get('limitResolution') or {}).get('mode')})
             return {"schema": "shadow6.named-service-page.v1", "items": items,
                     "total": len(names), "limit": limit, "offset": offset}
 

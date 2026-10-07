@@ -244,8 +244,9 @@ class RegistryCoverageTests(unittest.TestCase):
         self.assertEqual(len({profile["id"] for profile in profiles()}), 13)
         self.assertEqual(len(_s6epe_matrix()), 16)
 
-    def test_android_and_six_epe_statuses_remain_explicitly_not_run(self):
-        self.assertTrue(all(row["status"] == "NOT-RUN" for row in _s6epe_matrix()))
+    def test_source_matrix_does_not_claim_runtime_pass(self):
+        self.assertTrue(all(row["status"] == "source-legal" for row in _s6epe_matrix()))
+        self.assertTrue(all(row['stages']['runtimeReady']['status'] == 'BLOCKED' for row in _s6epe_matrix()))
 
 
 if __name__ == "__main__":

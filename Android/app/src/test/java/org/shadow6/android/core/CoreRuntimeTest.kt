@@ -91,7 +91,7 @@ class CoreRuntimeTest {
         ).toJson()
         assertEquals(setOf("observedAt", "pid", "processIdentity", "processes", "nativeEndpoints",
             "endpoints", "endpoint", "readiness", "transportReadiness", "applicationReadiness"),
-            observation.keySet())
+            observation.keys().asSequence().toSet())
         assertEquals("application-ready", observation.getString("readiness"))
         assertEquals("structured-ready-event", observation.getJSONObject("endpoint").getString("observation"))
         assertEquals(124L, observation.getJSONObject("endpoint").getJSONObject("owner").getLong("pid"))

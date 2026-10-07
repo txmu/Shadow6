@@ -27,6 +27,8 @@ from service_storage import strict_json
 MANIFEST = "shadow6-test-lab-artifact-manifest.json"
 IDRIS_LINUX_ARTIFACTS = ("shadow6-idris-ubuntu-latest-X64", "shadow6-idris-ubuntu-latest")
 MANIFEST_SCHEMA = "shadow6.test-lab-artifacts.v1"
+S6EPE_MANIFEST = 'shadow6-s6epe-artifact-manifest.json'
+S6EPE_RUNTIME_FILES = ('shadow6-privacy-envelope', 'shadow6-lab-webrtc-peer', 'lib/libdatachannel.so.0.23')
 MAX_ARTIFACT_BYTES = 2 * 1024**3
 MAX_MEMBER_BYTES = 512 * 1024**2
 MAX_MEMBERS = 20000
@@ -35,6 +37,77 @@ SHA = re.compile(r"[0-9a-f]{40}\Z")
 
 def _strict_json(data: bytes):
     return strict_json(data, limit=8 * 1024 * 1024)
+
+
+def write_s6epe_manifest(root, *, commit, run_id, run_attempt, architecture):
+    root = Path(root)
+    value = {'schema': 'shadow6.s6epe-runtime-artifact.v1', 'workflow': 'multiplatform',
+        'commit': commit, 'runId': str(run_id), 'runAttempt': str(run_attempt),
+        'platform': 'linux', 'architecture': architecture, 'files': []}
+    for relative in S6EPE_RUNTIME_FILES:
+        path = root / relative; info = _checked_file(path)
+        value['files'].append({'path': relative, 'size': info.st_size, 'mode': stat.S_IMODE(info.st_mode), 'sha256': sha256_file(path)})
+    (root / S6EPE_MANIFEST).write_text(json.dumps(value, sort_keys=True, allow_nan=False) + '\n')
+    (root / S6EPE_MANIFEST).chmod(0o644)
+    return value
+
+
+def admit_s6epe_runtime(runtime, core_root):
+    """Same-run passport and only the Actions 0644-to-0755 restoration."""
+    runtime, core_root = Path(runtime), Path(core_root)
+    value = _strict_json(_read_file(runtime / S6EPE_MANIFEST, maximum=65536))
+    fields = {'schema','workflow','commit','runId','runAttempt','platform','architecture','files'}
+    if not isinstance(value, dict) or set(value) != fields or value['schema'] != 'shadow6.s6epe-runtime-artifact.v1':
+        raise ValueError('invalid S6EPE artifact passport')
+    if value['workflow'] != 'multiplatform' or value['platform'] != 'linux' or not isinstance(value['commit'], str) or not SHA.fullmatch(value['commit']):
+        raise ValueError('S6EPE workflow/platform/commit mismatch')
+    for key in ('runId', 'runAttempt'):
+        if not isinstance(value[key], str) or not value[key].isascii() or not value[key].isdecimal() or not 0 < int(value[key]) < 2**53:
+            raise ValueError('invalid S6EPE run identity')
+    core_manifest = find_manifest(core_root)
+    reference = load_manifest(core_manifest) if core_manifest else load_fetch_provenance(core_root)
+    if not reference or not reference.get('commit') or not reference.get('runId'):
+        raise ValueError('S6EPE requires release Core provenance from the same Actions run')
+    if value['commit'] != reference['commit'] or value['runId'] != str(reference['runId']):
+        raise ValueError('S6EPE and Native Core artifacts come from different Actions runs/commits')
+    if reference.get('runAttempt') is not None and value['runAttempt'] != str(reference['runAttempt']):
+        raise ValueError('S6EPE run attempt drift')
+    if not isinstance(value['architecture'], str) or value['architecture'].lower() not in {'x86_64','x64','amd64','aarch64','arm64'}:
+        raise ValueError('invalid S6EPE architecture')
+    if sys.platform != 'linux' or not hasattr(os, 'uname'):
+        raise ValueError('S6EPE Linux runtime unavailable on this platform')
+    aliases = {'x64':'x86_64','amd64':'x86_64','arm64':'aarch64'}
+    architecture = lambda text: aliases.get(text.lower(), text.lower())
+    if architecture(value['architecture']) != architecture(os.uname().machine) or (
+            reference.get('architecture') and architecture(value['architecture']) != architecture(reference['architecture'])):
+        raise ValueError('S6EPE platform architecture drift')
+    if not isinstance(value['files'], list) or len(value['files']) != len(S6EPE_RUNTIME_FILES):
+        raise ValueError('S6EPE runtime file completeness mismatch')
+    seen = set()
+    for entry in value['files']:
+        if not isinstance(entry, dict) or set(entry) != {'path','size','mode','sha256'} or entry['path'] not in S6EPE_RUNTIME_FILES or entry['path'] in seen:
+            raise ValueError('unknown/duplicate S6EPE runtime file')
+        seen.add(entry['path']); path = runtime / _safe_relative(entry['path']); before = _checked_file(path)
+        if type(entry['size']) is not int or not 0 < entry['size'] <= MAX_MEMBER_BYTES or before.st_size != entry['size']:
+            raise ValueError('S6EPE runtime size mismatch')
+        if type(entry['mode']) is not int or entry['mode'] != 0o755 or not isinstance(entry['sha256'], str) or not re.fullmatch('[0-9a-f]{64}', entry['sha256']):
+            raise ValueError('invalid S6EPE runtime mode/digest')
+        if sha256_file(path) != entry['sha256']: raise ValueError('S6EPE runtime digest mismatch')
+        actual = stat.S_IMODE(before.st_mode)
+        if actual == 0o644:
+            fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+            try:
+                opened = os.fstat(fd)
+                if (before.st_dev,before.st_ino,before.st_size,before.st_mtime_ns,before.st_ctime_ns) != (
+                        opened.st_dev,opened.st_ino,opened.st_size,opened.st_mtime_ns,opened.st_ctime_ns):
+                    raise ValueError('S6EPE file changed before Actions mode restoration')
+                os.fchmod(fd, 0o755)
+                if (path.stat().st_dev,path.stat().st_ino) != (opened.st_dev,opened.st_ino):
+                    raise ValueError('S6EPE file replaced during Actions mode restoration')
+            finally: os.close(fd)
+        elif actual != 0o755: raise ValueError('S6EPE runtime mode drift')
+        if sha256_file(path) != entry['sha256']: raise ValueError('S6EPE file changed during mode restoration')
+    return value
 
 
 def _safe_relative(value: str) -> Path:
@@ -588,12 +661,45 @@ def merge_runtime_companions(root: Path, *, idris_artifact: Path | None,
         nested = idris_artifact / "core-idris-runtime.tar.gz"
         if not nested.is_file() or nested.is_symlink():
             missing.append(f"Idris runtime tarball missing from {idris_artifact.name}")
-        elif not (root / "Core-Idris" / "shadow6-idris").is_file():
-            idris_root = root / "Core-Idris"
-            if idris_root.exists():
-                raise ValueError("refusing to merge Idris runtime over existing Core-Idris files")
-            _safe_extract_runtime_tar(nested, idris_root)
-            _verify_idris_checksums(idris_root)
+        else:
+            idris_root = root / 'Core-Idris'
+            if not idris_root.exists():
+                _safe_extract_runtime_tar(nested, idris_root)
+                _verify_idris_checksums(idris_root)
+            else:
+                # Actions restores every uploaded regular file as 0644, even
+                # Chez's executable .so image. Reconcile the same-run runtime
+                # tar without replacing an existing byte or guessing identity.
+                with tempfile.TemporaryDirectory(prefix='shadow6-idris-reconcile-', dir=root.parent) as temporary:
+                    staged = Path(temporary) / 'runtime'
+                    _safe_extract_runtime_tar(nested, staged)
+                    _verify_idris_checksums(staged)
+                    for source in sorted(staged.rglob('*')):
+                        if source.is_dir(): continue
+                        relative = source.relative_to(staged); destination = idris_root / relative
+                        expected = _checked_file(source); expected_digest = sha256_file(source)
+                        destination.parent.mkdir(parents=True, exist_ok=True)
+                        if not destination.exists() and not destination.is_symlink():
+                            data = _read_file(source)
+                            fd = os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+                            with os.fdopen(fd, 'wb') as output: output.write(data)
+                            destination.chmod(stat.S_IMODE(expected.st_mode))
+                            continue
+                        before = _checked_file(destination)
+                        if before.st_size != expected.st_size or sha256_file(destination) != expected_digest:
+                            raise ValueError('same-run Idris runtime differs from existing release bytes')
+                        actual, desired = stat.S_IMODE(before.st_mode), stat.S_IMODE(expected.st_mode)
+                        if actual == desired: continue
+                        if (actual, desired) != (0o644, 0o755): raise ValueError('Idris runtime mode drift')
+                        fd = os.open(destination, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+                        try:
+                            opened = os.fstat(fd)
+                            if (before.st_dev,before.st_ino,before.st_size,before.st_mtime_ns,before.st_ctime_ns) != (
+                                    opened.st_dev,opened.st_ino,opened.st_size,opened.st_mtime_ns,opened.st_ctime_ns):
+                                raise ValueError('Idris runtime changed before mode restoration')
+                            os.fchmod(fd, desired)
+                        finally: os.close(fd)
+                        if sha256_file(destination) != expected_digest: raise ValueError('Idris runtime changed during mode restoration')
     nim_binary = root / "Core-Nim" / "shadow6-nim"
     nim_provider = root / "Core-Nim" / "libdatachannel.so.0.23"
     release_archive = root / "ci-artifacts" / "linux" / "Shadow6.tar.gz"
@@ -810,7 +916,8 @@ def fetch_artifacts(destination: Path, *, run_id=None, commit=None, tag=None):
                                  "sha256": sha256_file(binary)})
         for relative in ("Core-Nim/libdatachannel.so.0.23", "Core-Idris/libsodium_ffi.so",
                          "runtime-artifacts/shadow6-s6epe-linux-runtime/lib/libdatachannel.so.0.23",
-                         "runtime-artifacts/shadow6-s6epe-linux-runtime/shadow6-privacy-envelope"):
+                         "runtime-artifacts/shadow6-s6epe-linux-runtime/shadow6-privacy-envelope",
+                         "runtime-artifacts/shadow6-s6epe-linux-runtime/shadow6-lab-webrtc-peer"):
             runtime = extracted / relative
             if runtime.is_file() and not runtime.is_symlink():
                 file_info = _checked_file(runtime)

@@ -14,3 +14,8 @@
  (public_name shadow6-privacy-envelope)
  (modules main)
  (libraries s6epe_core))
+
+(executable
+ (name lab_webrtc_peer)
+ (modules lab_webrtc_peer)
+ (libraries s6epe_core))

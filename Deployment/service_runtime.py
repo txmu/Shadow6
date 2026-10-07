@@ -519,7 +519,9 @@ def supervise(plan_path, ack):
                         from .webrtc_broker import SignallingBroker
                     except ImportError:
                         from webrtc_broker import SignallingBroker
-                    signalling_broker = SignallingBroker(envelope_fields['signal_path'], envelope_fields['signal_id'], max_sessions=int(envelope_fields.get('max_sessions','32'))).start()
+                    capacity = plan['componentLimits']['components']['envelope']
+                    signalling_broker = SignallingBroker(envelope_fields['signal_path'], envelope_fields['signal_id'],
+                        max_sessions=capacity['max_sessions'], max_clients=capacity['signalling_client_limit']).start()
                 commands.append([executable(plan['envelopeBinary']), '--config', plan['envelopeConfig']])
             gate_value = strict_json(private_read(plan['gateConfig'])) if plan.get('gateConfig') else None
             for component in ('gate','guard'):

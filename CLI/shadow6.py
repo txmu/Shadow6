@@ -190,6 +190,8 @@ def load_service_config(path):
 def recovery_hint(error, name="NAME"):
  """Offer fixed operator steps without executing or guessing a Core."""
  text=str(error)
+ if "ApplicationBoundaryBusy" in text:
+  return f"Inspect shadow6 status {name}; close or drain the active application session before requesting a new attachment."
  if "CoreSelectionRequired" in text:
   return "Choose explicitly: shadow6 core profiles --installed; then shadow6 setup NAME --core CORE --profile PROFILE --config /absolute/path/binding.json --run"
  if "0600" in text or "owner" in text or "symlink" in text:
@@ -225,6 +227,19 @@ def lifecycle_output(result, *, human=False, stage=None, name=None, error=False)
   observation=result.get("runtimeObservation") or result.get("runtime") or {}
   for key in ("readiness","applicationReadiness","transportReadiness","endpoint"):
    if key in observation: print(f"{key}: {json.dumps(observation[key],ensure_ascii=False)}",file=stream)
+  evidence=result.get('capabilityEvidence') or result.get('readinessEvidence')
+  if evidence:
+   for key in ('sourceLegal','artifactAvailable','installedRuntimeAvailable','runtimeReady','applicationReady','newAttachmentAvailable'):
+    if key in evidence: print(f"{key}: {evidence[key]}",file=stream)
+  resolution=result.get('limitResolution') or (result.get('deploymentLock') or {}).get('limitResolution')
+  if resolution:
+   print('Limits: locked '+str(resolution.get('mode'))+' policy',file=stream)
+   for dimension,row in sorted(resolution.get('dimensions',{}).items()):
+    print(f"  {dimension}: effective={row.get('effective')} hard={row.get('hard_protocol_limit')} host={row.get('host_derived_ceiling')} recommended={row.get('recommended')} operator={row.get('operator_request')} enforced_by={row.get('enforced_by')}",file=stream)
+  components=result.get('componentLimits') or (result.get('deploymentLock') or {}).get('componentLimits')
+  if components:
+   for component,row in sorted(components.get('components',{}).items()):
+    print(f"Component limits {component}: "+json.dumps(row,sort_keys=True,ensure_ascii=False),file=stream)
   if result.get("privacyTelemetry"):
    privacy=result["privacyTelemetry"]
    print(f"S6EPE Carrier: {privacy.get('carrier','raw/unknown')} · observation: {privacy.get('observation','unknown')}",file=stream)

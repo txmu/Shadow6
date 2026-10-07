@@ -12,6 +12,8 @@ from pathlib import Path
 import sys
 
 MAX_INTEGER = 2**53 - 1
+S6SG1_PROTOCOL_LIMITS = {'sdp_bytes': 32768, 'session_id_bytes': 64, 'waiters_per_session': 4}
+ENVELOPE_SAFE_DEFAULTS = {'max_sessions': 32, 'max_preauth': 16, 'max_frame': 16384, 'idle_timeout': 30}
 
 
 def canonical(value):
@@ -209,17 +211,23 @@ class LimitResolver:
                 value = int(raw)
                 if not low <= value <= high: raise ValueError('InvalidComponentLimit: ' + name)
                 return value
-            sessions = number('max_sessions', 32, 1, 128)
-            preauth = number('max_preauth', 16, 1, 128)
-            frame = number('max_frame', 16384, 256, 65507)
-            idle = number('idle_timeout', 30, 1, 300)
+            sessions = number('max_sessions', ENVELOPE_SAFE_DEFAULTS['max_sessions'], 1, 128)
+            preauth = number('max_preauth', ENVELOPE_SAFE_DEFAULTS['max_preauth'], 1, 128)
+            frame = number('max_frame', ENVELOPE_SAFE_DEFAULTS['max_frame'], 256, 65507)
+            idle = number('idle_timeout', ENVELOPE_SAFE_DEFAULTS['idle_timeout'], 1, 300)
             if preauth > sessions: raise ValueError('EnvelopePreauthExceedsSessions')
             fds = 16 + 2 * sessions
             memory = 2 * sessions * frame
+            signalling = S6SG1_PROTOCOL_LIMITS['waiters_per_session'] * sessions if envelope.get('carrier') == 'webrtc' else 0
+            if signalling:
+                fds += 1 + signalling
+                memory += signalling * S6SG1_PROTOCOL_LIMITS['sdp_bytes']
             output['envelope'] = dict(max_sessions=sessions, max_preauth=preauth,
                 max_frame=frame, idle_timeout=idle, estimated_fds=fds,
                 estimated_memory_bytes=memory,
-                enforced_by='S6EPE.config.max_sessions/max_preauth/max_frame')
+                signalling_client_limit=signalling,
+                enforced_by='S6EPE.config.max_sessions/max_preauth/max_frame' +
+                    ('; S6SG1 bounded semaphore from resolved session limit' if signalling else ''))
         guard = inputs.get('guard')
         if guard is not None:
             guard_fields = {'role','target_backend','spa_config','lpd_limiter','anti_probe',

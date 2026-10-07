@@ -1,9 +1,21 @@
 import copy
 import unittest
-from limits import HostBudget, LimitResolver, validate_policy
+from limits import HostBudget, LimitResolver, validate_policy, S6SG1_PROTOCOL_LIMITS
 from native_profiles import profiles
 
 class LimitsTests(unittest.TestCase):
+    def test_webrtc_signalling_capacity_uses_operator_sessions_and_host_fd_budget(self):
+        config = {'envelope': {'carrier': 'webrtc', 'max_sessions': '7', 'max_preauth': '2',
+                               'max_frame': '4096', 'idle_timeout': '30'}}
+        result = self.resolver.resolve_components(config, host=self.host, process_fds=512)
+        envelope = result['components']['envelope']
+        self.assertEqual(envelope['signalling_client_limit'], 28)
+        self.assertEqual(envelope['estimated_fds'], 16 + 14 + 1 + 28)
+        self.assertEqual(envelope['estimated_memory_bytes'], 2 * 7 * 4096 + 28 * S6SG1_PROTOCOL_LIMITS['sdp_bytes'])
+        self.assertIn('S6SG1 bounded semaphore', envelope['enforced_by'])
+        with self.assertRaisesRegex(ValueError, 'ComponentLimitExceedsProcessFds'):
+            self.resolver.resolve_components(config, host=self.host, process_fds=32)
+
     def setUp(self):
         self.host = HostBudget(512 * 1024 * 1024, 4096, 2, 'linux')
         self.resolver = LimitResolver()

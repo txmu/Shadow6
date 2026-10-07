@@ -323,6 +323,12 @@ and the same-run platform/architecture release bundle, see the bilingual
 [WAN / PCAP Test Lab guide](docs/wan-pcap-test-lab.md) and
 [project history](docs/project-history.en.md).
 
+The Native 13×9 and S6EPE sixteen-binding runners use owned A/B namespaces,
+independent directional veth qdiscs, private Native trios and actual remote
+Agent-target probes. Reports distinguish inner Native wire from outer application
+or carrier traffic, and keep artifact, readiness, correctness, capture and leak
+evidence separate. Physical Internet WAN execution remains unavailable.
+
 ## Configuration
 
 Use the core binaries' `--gen-key`, `--init-config`, and `--check-config`

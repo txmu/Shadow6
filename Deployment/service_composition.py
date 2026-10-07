@@ -11,6 +11,26 @@ def same_endpoint(left, right):
     return (a.hostname,a.port)==(b.hostname,b.port)
 
 
+def validate_envelope_pair(client, server):
+    """Validate explicit client/private and server/private ends of one carrier.
+
+    Source Core compatibility remains Control-Center/privacy_envelope.py's
+    responsibility. This validates topology, never runtime capability.
+    """
+    if client.get('role') != 'client' or server.get('role', 'server') != 'server':
+        raise ValueError('explicit envelope client/server roles required')
+    if (client.get('mode', 'stream'), client.get('carrier', 'raw')) != (
+            server.get('mode', 'stream'), server.get('carrier', 'raw')):
+        raise ValueError('envelope pair mode/carrier mismatch')
+    if not private_endpoint(client['listen']) or not private_endpoint(server['upstream']):
+        raise ValueError('envelope pair native sides must be private')
+    if not same_endpoint(client['upstream'], server['listen']):
+        raise ValueError('envelope pair outer endpoints mismatch')
+    return {'schema': 'shadow6.envelope-pair-composition.v1',
+        'mode': server.get('mode', 'stream'), 'carrier': server.get('carrier', 'raw'),
+        'sourceCompatibilityClaim': False, 'runtimeCapabilityClaim': False}
+
+
 def validate_composition(*, privacy, envelope=None, gate=None, guard=None):
     layers=['Core']
     if gate is not None:

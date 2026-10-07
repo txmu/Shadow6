@@ -5,6 +5,7 @@ import argparse
 import asyncio
 import hashlib
 import json
+import os
 from pathlib import Path
 import socket
 import signal
@@ -25,7 +26,7 @@ from protocol_context import minimal_context
 from connection_plan import open_local_session
 
 
-def named_workload(profile, binary, payload_bytes, requests, rtt_ms):
+def named_workload(profile, binary, payload_bytes, requests, rtt_ms, target_port=None):
     """Use the same locked supervisor and attachment path as deployed services."""
     import stack_test
     from native_configs import generate_commands
@@ -34,6 +35,13 @@ def named_workload(profile, binary, payload_bytes, requests, rtt_ms):
     family = socket.AF_INET6 if profile['core'] == 'hare' else socket.AF_INET
     message = profile['applicationBoundary']['kind'] == 'message'
     target = stack_test.DatagramEchoTarget(family) if message else stack_test.EchoTarget()
+    if target_port is not None:
+        if type(target_port) is not int or not 1 <= target_port <= 65535:
+            raise ValueError('invalid owned carrier attachment port')
+        class OwnedCarrierTarget:
+            def start(self): return target_port
+            def close(self): pass
+        target = OwnedCarrierTarget()
     payload = bytes(index % 251 for index in range(payload_bytes))
     with tempfile.TemporaryDirectory(prefix='shadow6-lab-named-') as directory:
         directory = Path(directory)
@@ -79,7 +87,13 @@ def named_workload(profile, binary, payload_bytes, requests, rtt_ms):
                     raise ValueError('Named Core Profile binding or RuntimeObservation unavailable')
                 evidence[role] = {'profileBinding': item['profileBinding'],
                     'deploymentLockDigest': item['deploymentLock']['digest'],
-                    'runtimeObservation': item['runtimeObservation']}
+                    'runtimeObservation': item['runtimeObservation'],
+                    'processNamespaces': [{'pid': child['pid'], 'processIdentity': child['processIdentity'],
+                        'namespaceIdentity': os.readlink(f"/proc/{child['pid']}/ns/net")}
+                        for child in item['runtimeObservation']['processes']]}
+                if any(child['namespaceIdentity'] != os.readlink('/proc/self/ns/net')
+                        for child in evidence[role]['processNamespaces']):
+                    raise ValueError('Native Core child escaped its owned workload namespace')
             print(json.dumps({'event': 'shadow6.test-lab-workload-ready.v1',
                 'core': profile['core'], 'profile': profile['id']}, allow_nan=False), flush=True)
             latencies = []
@@ -143,7 +157,8 @@ def named_workload(profile, binary, payload_bytes, requests, rtt_ms):
                     'received_sha256': received_digest, 'byte_for_byte': True,
                     'verified_requests': len(latencies), 'record_bytes': record_bytes},
                 runtime_observation={'status': 'observed', 'scope': 'during-application-probe',
-                    'retainedLiveCapability': False, 'roles': evidence},
+                    'retainedLiveCapability': False, 'roles': evidence,
+                    'namespaceIdentity': os.readlink('/proc/self/ns/net')},
                 pacing_ms=rtt_ms)
             return result
         finally:
@@ -155,7 +170,7 @@ def named_workload(profile, binary, payload_bytes, requests, rtt_ms):
             if errors: raise RuntimeError('Named Core cleanup failed: ' + ','.join(errors))
 
 
-def run(core: str, profile_id: str, binary: Path, payload_bytes: int, requests: int, rtt_ms: int):
+def run(core: str, profile_id: str, binary: Path, payload_bytes: int, requests: int, rtt_ms: int, target_port=None):
     profile = select_profile(core, profile_id)
     if type(payload_bytes) is not int or not 1 <= payload_bytes <= 65536:
         raise ValueError("payload-bytes must be 1..65536")
@@ -165,7 +180,7 @@ def run(core: str, profile_id: str, binary: Path, payload_bytes: int, requests: 
         raise FileNotFoundError("registered Core artifact is not a regular file")
     if type(rtt_ms) is not int or not 0 <= rtt_ms <= 250:
         raise ValueError("rtt-ms must be 0..250")
-    result = named_workload(profile, binary.absolute(), payload_bytes, requests, rtt_ms)
+    result = named_workload(profile, binary.absolute(), payload_bytes, requests, rtt_ms, target_port)
     exact = result.get('exact_echo', {}) if isinstance(result, dict) else {}
     if (not isinstance(result, dict) or result.get("success_rate") != 1.0 or
             result.get("bytes_received") != payload_bytes * requests or
@@ -207,9 +222,10 @@ def main():
     parser.add_argument("--payload-bytes", type=int, default=4096)
     parser.add_argument("--requests", type=int, default=4)
     parser.add_argument("--rtt-ms", type=int, default=0)
+    parser.add_argument("--target-port", type=int)
     args = parser.parse_args()
     try:
-        result = run(args.core, args.profile, args.binary, args.payload_bytes, args.requests, args.rtt_ms)
+        result = run(args.core, args.profile, args.binary, args.payload_bytes, args.requests, args.rtt_ms, args.target_port)
     except PermissionError as error:
         result = {"status": "BLOCKED", "core": args.core, "profile": args.profile,
                   "reason": f"test host denied the requested socket/process capability: {error}"}

@@ -6,6 +6,7 @@ import re
 import os
 import socket
 import sys
+import time
 from pathlib import Path
 try:
     from .service_storage import strict_json
@@ -28,6 +29,25 @@ def proc_address(encoded, *, ipv6=False, byteorder=None):
 MAX_FDS = 4096
 MAX_ROWS = 65536
 MAX_SOCKETS = 64
+
+
+def readiness_evidence(value, state, *, now=None):
+    """Display view of validated status; never an admission or connect grant."""
+    current = False
+    if isinstance(value, dict):
+        try:
+            validate_observation(value)
+            age = (int(time.time()) if now is None else now) - value['observedAt']
+            current = state == 'running' and 0 <= age <= 5
+        except (ValueError, KeyError, TypeError): pass
+    readiness = value.get('readiness') if isinstance(value, dict) else 'unavailable'
+    runtime_ready = current and readiness in {'listener-ready', 'control-ready', 'application-ready', 'application-active'}
+    application_ready = current and readiness in {'application-ready', 'application-active'} and value['applicationReadiness'] == 'ready'
+    return {'schema': 'shadow6.readiness-evidence.v1', 'runtimeReady': bool(runtime_ready),
+        'applicationReady': bool(application_ready), 'newAttachmentAvailable': bool(application_ready and readiness == 'application-ready'),
+        'observation': readiness if current else 'unavailable',
+        'reason': 'verified-current-observation' if current else 'runtime-observation-unavailable-or-stale',
+        'admissionGrant': False}
 
 
 def proc_rows(stream):

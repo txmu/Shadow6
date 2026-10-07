@@ -11,6 +11,22 @@ WebRTC provider is included when present. See the
 [envelope guide](../docs/privacy-envelope.md) and
 [Named Service lifecycle](../docs/named-services.md) for provider/platform limits.
 
+S6SG1 binds each SDP state to both session ID and E/N leg; outer and native
+offers/answers cannot overwrite each other. Its waiting clients and read deadlines
+are bounded. The [Test Lab](../docs/wan-pcap-test-lab.md) exercises release S6EPE
+endpoints across directional namespace/veth links at the Native Agent application
+target, with explicit workload attachments and dual outer/inner capture evidence.
+
+CLI `status`/`doctor` and the read-only Control Center service page share the
+validated readiness evidence view. Runtime/application readiness and availability
+of a new attachment remain distinct, including an already active one-flow session.
+Doctor exposes the existing locked LimitResolution and component capacity model;
+human CLI output shows protocol/host ceilings, recommendations, operator requests,
+effective values and enforcers. Web UI limit values come from the locked resolution.
+S6SG1 waiter capacity is derived from resolved sessions and included in host
+descriptor/memory admission; Lab probe/capture fixture limits do not become daily
+service ceilings. Drift still requires explicit stop, review and relock.
+
 `shadow6.deployment.v1` is a strict, Core-neutral intent document. It names
 logical Broker endpoint sets, node identities, loopback services, policies and
 application requirements. It never contains private keys or native Core
