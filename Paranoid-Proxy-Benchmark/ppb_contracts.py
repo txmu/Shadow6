@@ -41,7 +41,7 @@ FILES = [f'{directory}/{name}' for directory, name in SUITES.values()] + [
     'Network-Adapter/shadow6_network.py', 'Network-Adapter/shadow6_network.mjs',
     'Application-Layer/shadow_protocols.py', 'Public6/shadow6_public.py',
     'Crosed/feature_contract.py', 'Crosed/native_profiles.py', 'Crosed/limits.py', 'Crosed/install_layout.py',
-    'CLI/native_config.py', 'Tools/python_runtime.py',
+    'CLI/native_config.py', 'Tools/python_runtime.py', 'Deployment/service_storage.py',
     'Plugin-System/shadow6_plugins.py', 'Plugin-System/trusted_signers.json',
     'Slot-System/shadow6_slots.py', 'Extension-System/shadow6_extensions.py',
     'Crosed/crosedctl.py',

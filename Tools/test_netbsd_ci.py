@@ -1,6 +1,7 @@
 import copy
 import hashlib
 import io
+import json
 import os
 from pathlib import Path
 import shutil
@@ -9,8 +10,10 @@ import sys
 import tarfile
 import tempfile
 import unittest
+from unittest.mock import patch
 
-from prepare_netbsd_go import MAX_ARCHIVE, save_archive, select_archive
+import prepare_netbsd_go
+from prepare_netbsd_go import MAX_ARCHIVE, MAX_METADATA, save_archive, select_archive
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -40,6 +43,26 @@ class NetBSDToolchainTests(unittest.TestCase):
         self.metadata[0]["files"].append(dict(self.item))
         with self.assertRaises(ValueError):
             select_archive(self.metadata, "go1.25.0")
+
+    def test_large_bounded_metadata_downloads_verified_archive(self):
+        metadata = json.dumps(self.metadata).encode() + b' ' * (1024 * 1024)
+        with tempfile.TemporaryDirectory() as directory:
+            with patch.object(sys, 'argv', ['prepare_netbsd_go.py', 'go1.25.0', directory]), \
+                    patch.object(prepare_netbsd_go.urllib.request, 'urlopen',
+                                 side_effect=[io.BytesIO(metadata), io.BytesIO(self.payload)]) as request:
+                prepare_netbsd_go.main()
+            self.assertEqual((Path(directory) / 'go.tar.gz').read_bytes(), self.payload)
+            self.assertEqual(request.call_count, 2)
+
+    def test_oversized_metadata_stops_before_archive_download(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with patch.object(sys, 'argv', ['prepare_netbsd_go.py', 'go1.25.0', directory]), \
+                    patch.object(prepare_netbsd_go.urllib.request, 'urlopen',
+                                 return_value=io.BytesIO(b' ' * (MAX_METADATA + 1))) as request:
+                with self.assertRaisesRegex(ValueError, 'metadata exceeds limit'):
+                    prepare_netbsd_go.main()
+            self.assertEqual(request.call_count, 1)
+            self.assertEqual(list(Path(directory).iterdir()), [])
 
     def test_only_verified_download_is_published(self):
         with tempfile.TemporaryDirectory() as directory:

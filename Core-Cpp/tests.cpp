@@ -58,7 +58,12 @@ static int unit_tests() {
   for (auto bad : {"", "{,}", "{\"x\":1,}", "{\"x\":1 \"y\":2}", "[1,]", "01", "1.0", "1e3", "9007199254740992", "{\"x\":1,\"x\":2}", "{\"x\":1,\"\\u0078\":2}", "\"\\ud800\"", "\"\\udfff\"", "{} {}"}) require(!JsonParser{}.parse(bad, j), "strict JSON rejection");
   require(!JsonParser{}.parse(std::string("\"\xff\"", 3), j), "invalid UTF-8");
   require(!JsonParser{}.parse(std::string(17, '[') + "0" + std::string(17, ']'), j), "depth limit");
-  require(!JsonParser{}.parse("\"" + std::string(16385, 'x') + "\"", j), "string bound");
+  require(JsonParser{}.parse("\"" + std::string(65536, 'x') + "\"", j), "string at portable byte bound");
+  require(!JsonParser{}.parse("\"" + std::string(65537, 'x') + "\"", j), "string bound");
+  std::string escaped_unicode = "\"";
+  for (unsigned i = 0; i < 32768; ++i) escaped_unicode += "\\u00e9";
+  require(JsonParser{}.parse(escaped_unicode + "\"", j), "escaped UTF-8 at byte bound");
+  require(!JsonParser{}.parse(escaped_unicode + "\\u00e9\"", j), "escaped UTF-8 byte bound");
   require(!JsonParser{}.parse(std::string(1048577, ' '), j), "document bound");
   require(JsonParser{}.parse("{\"hello\":\"\\ud83d\\ude00\",\"number\":9007199254740991}", j), "valid Unicode");
   Json again; require(JsonParser{}.parse(encode(j), again) && encode(j) == encode(again), "canonical roundtrip");

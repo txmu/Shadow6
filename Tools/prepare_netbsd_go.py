@@ -76,7 +76,7 @@ def main():
         metadata = response.read(MAX_METADATA + 1)
     if len(metadata) > MAX_METADATA:
         raise ValueError("Go download metadata exceeds limit")
-    item = select_archive(portable_json(metadata, limit=1048576), args.version)
+    item = select_archive(portable_json(metadata, limit=MAX_METADATA), args.version)
     # Construct the URL from the validated version, never from a metadata URL.
     url = "https://dl.google.com/go/" + args.version + ".netbsd-amd64.tar.gz"
     with urllib.request.urlopen(url, timeout=30) as response:

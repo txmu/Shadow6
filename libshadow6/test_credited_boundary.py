@@ -5,15 +5,31 @@ import socket
 import sys
 import tempfile
 import threading
+from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 from libshadow6 import Shadow6, CreditedPool
-from libshadow6.credited_boundary import CreditedBoundary
+from libshadow6.credited_boundary import CreditedBoundary, record_pair
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'Network-Adapter'))
 from shadow6_network import DatagramEndpoint, Limits
 
 
 class CreditedBoundaryTests(unittest.TestCase):
+    def test_record_pair_without_unix_family_preserves_records(self):
+        # Windows exposes SOCK_SEQPACKET on some builds without AF_UNIX.
+        compatible_socket = SimpleNamespace(**{key: value for key, value in vars(socket).items() if key != 'AF_UNIX'})
+        with patch('libshadow6.credited_boundary.socket', compatible_socket):
+            left, right, mode = record_pair()
+        with left, right:
+            self.assertEqual(mode, 'datagram')
+            left.settimeout(1); right.settimeout(1)
+            left.send(b'first'); left.send(b'second-record')
+            self.assertEqual(right.recv(32), b'first')
+            self.assertEqual(right.recv(32), b'second-record')
+            right.send(b'reply')
+            self.assertEqual(left.recv(32), b'reply')
+
     def test_stream_and_record_payload_credit_ownership_and_worker_cleanup(self):
         for kind in ('stream','message'):
             with self.subTest(kind=kind):

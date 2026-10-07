@@ -13,7 +13,7 @@ _WORKERS = BoundedSemaphore(64)
 
 
 def record_pair():
-    if hasattr(socket,'SOCK_SEQPACKET'):
+    if hasattr(socket,'AF_UNIX') and hasattr(socket,'SOCK_SEQPACKET'):
         try: return (*socket.socketpair(socket.AF_UNIX,socket.SOCK_SEQPACKET),'seqpacket')
         except OSError: pass
     # Windows/macOS: connected loopback UDP preserves records without a new

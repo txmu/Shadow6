@@ -2220,6 +2220,7 @@ jobs:
       # error handling.
       # https://github.com/cross-platform-actions/action/issues/158
       - name: Boot and test NetBSD
+        id: netbsd-vm
         uses: cross-platform-actions/action@e0b9770014ba65d5e0815f15b74031c3a635f641 # v1.6.0
         timeout-minutes: 20
         with:
@@ -2291,7 +2292,7 @@ jobs:
           # have no compatible NetBSD wheels and are not used by this check.
           .venv/bin/python Benchmark/benchmark.py --core go --role network-chain --repeats 3 --require-network --output benchmark-netbsd-${{ matrix.arch }}
       - name: Recover NetBSD reports after failure
-        if: failure()
+        if: failure() && steps.netbsd-vm.outcome == 'success'
         run: cpa.sh --sync-files vm-to-runner
       - name: Upload NetBSD network reports
         if: always()
