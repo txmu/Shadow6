@@ -1,6 +1,6 @@
 //! Bounded JSON parsing that rejects duplicate map keys before deserialization.
 use serde::de::{self, DeserializeOwned, DeserializeSeed, MapAccess, SeqAccess, Visitor};
-use serde_json::{Map, Number, Value};
+use serde_json::{Map, Value};
 use std::fmt;
 
 struct CheckedValue(usize);
@@ -9,8 +9,8 @@ impl<'de> DeserializeSeed<'de> for CheckedValue {
     type Value = Value;
 
     fn deserialize<D: de::Deserializer<'de>>(self, decoder: D) -> Result<Value, D::Error> {
-        if self.0 > 64 {
-            return Err(de::Error::custom("JSON nesting exceeds 64 levels"));
+        if self.0 > 16 {
+            return Err(de::Error::custom("JSON nesting exceeds 16 levels"));
         }
         decoder.deserialize_any(self)
     }
@@ -26,20 +26,30 @@ impl<'de> Visitor<'de> for CheckedValue {
         Ok(Value::Bool(value))
     }
     fn visit_i64<E: de::Error>(self, value: i64) -> Result<Value, E> {
+        if !(-9_007_199_254_740_991..=9_007_199_254_740_991).contains(&value) {
+            return Err(E::custom("nonportable JSON integer"));
+        }
         Ok(Value::Number(value.into()))
     }
     fn visit_u64<E: de::Error>(self, value: u64) -> Result<Value, E> {
+        if value > 9_007_199_254_740_991 {
+            return Err(E::custom("nonportable JSON integer"));
+        }
         Ok(Value::Number(value.into()))
     }
-    fn visit_f64<E: de::Error>(self, value: f64) -> Result<Value, E> {
-        Number::from_f64(value)
-            .map(Value::Number)
-            .ok_or_else(|| E::custom("nonfinite JSON number"))
+    fn visit_f64<E: de::Error>(self, _value: f64) -> Result<Value, E> {
+        Err(E::custom("floating point JSON number forbidden"))
     }
     fn visit_str<E: de::Error>(self, value: &str) -> Result<Value, E> {
+        if value.len() > 65536 || value.contains('\0') || !crate::unicode_nfc::is_nfc(value) {
+            return Err(E::custom("invalid bounded NFC string"));
+        }
         Ok(Value::String(value.into()))
     }
     fn visit_string<E: de::Error>(self, value: String) -> Result<Value, E> {
+        if value.len() > 65536 || value.contains('\0') || !crate::unicode_nfc::is_nfc(&value) {
+            return Err(E::custom("invalid bounded NFC string"));
+        }
         Ok(Value::String(value))
     }
     fn visit_unit<E: de::Error>(self) -> Result<Value, E> {
@@ -58,6 +68,9 @@ impl<'de> Visitor<'de> for CheckedValue {
     fn visit_map<A: MapAccess<'de>>(self, mut object: A) -> Result<Value, A::Error> {
         let mut values = Map::new();
         while let Some(key) = object.next_key::<String>()? {
+            if key.len() > 65536 || key.contains('\0') || !crate::unicode_nfc::is_nfc(&key) {
+                return Err(de::Error::custom("invalid bounded NFC member"));
+            }
             if values.contains_key(&key) {
                 return Err(de::Error::custom("duplicate JSON field"));
             }

@@ -5,6 +5,7 @@
 #include <string>
 #include <string_view>
 #include <vector>
+#include "unicode_nfc.hpp"
 
 namespace shadow6 {
 // Deliberately small configuration/control JSON vocabulary. No floating point,
@@ -64,9 +65,9 @@ class JsonParser {
   }
   bool string(std::string &s) {
     if (!take('"')) return false;
-    while (pos_ < input_.size() && s.size() <= 16384) {
+    while (pos_ < input_.size() && s.size() <= 65536) {
       char c = input_[pos_++];
-      if (c == '"') return s.size() <= 16384;
+      if (c == '"') return s.size() <= 65536 && s.find('\0') == std::string::npos && utf8(s) && unicode_nfc(s);
       if (static_cast<unsigned char>(c) < 32) return false;
       if (c != '\\') { s += c; continue; }
       if (pos_ == input_.size()) return false;

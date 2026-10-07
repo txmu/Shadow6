@@ -26,6 +26,8 @@ from service_storage import atomic_write
 from protocol_context import minimal_context
 from libshadow6 import Shadow6, RegistryControl
 from application_game import game_workload
+from application_abi import application_gateway
+from contextlib import ExitStack
 
 
 def named_workload(profile, binary, payload_bytes, requests, rtt_ms, target_port=None):
@@ -103,7 +105,18 @@ def named_workload(profile, binary, payload_bytes, requests, rtt_ms, target_port
             received_digest = None
             record_bytes = min(payload_bytes, profile['applicationBoundary'].get('max_record', payload_bytes), 512) if message else payload_bytes
             started = time.monotonic()
-            with Shadow6(control=RegistryControl(registry)) as facade, facade.connect_handle(names['client']) as session:
+            with ExitStack() as attachments:
+                abi=attachments.enter_context(application_gateway(registry,directory))
+                facade=attachments.enter_context(Shadow6(control=RegistryControl(registry)))
+                peer=attachments.enter_context(facade.peer(names['client']))
+                session=peer.connect(timeout=15)
+                abi['cloexec']=not os.get_inheritable(session.fileno())
+                if not abi['cloexec']:raise ValueError('ApplicationFDInheritanceRejected')
+                duplicate=session.dup_fd()
+                os.close(duplicate)
+                abi['duplicateOwnership']='verified-and-closed'
+                abi['peerState']=peer.state
+                abi['migrationSupported']=False
                 session.socket.settimeout(10)
                 for _ in range(requests):
                     request_started = time.monotonic()
@@ -168,7 +181,7 @@ def named_workload(profile, binary, payload_bytes, requests, rtt_ms, target_port
                 runtime_observation={'status': 'observed', 'scope': 'during-application-probe',
                     'retainedLiveCapability': False, 'roles': evidence,
                     'namespaceIdentity': os.readlink('/proc/self/ns/net')},
-                pacing_ms=rtt_ms, application_game=game)
+                pacing_ms=rtt_ms, application_game=game, application_abi={**abi,"status":"PASS","gatewayCleanup":"PASS"})
             return result
         finally:
             errors = []
@@ -214,6 +227,7 @@ def run(core: str, profile_id: str, binary: Path, payload_bytes: int, requests: 
                 "rttP95Seconds": result["latency_p95_seconds"],
                 "rttAverageSeconds": result["latency_avg_seconds"],
                 'testPacingMs': result['pacing_ms'],
+                'applicationABI':result['application_abi'],
                 "cpuSeconds": None, "peakRssBytes": None,
                 "unavailableMetrics": ["native process CPU/RSS counters", "Core-internal transport counters"]},
             "runtimeObservation": result['runtime_observation'],

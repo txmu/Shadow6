@@ -1,6 +1,21 @@
 #!/usr/bin/env python3
 """Authenticated, bounded chunking/reassembly shared by all Shadow6 cores."""
 from __future__ import annotations
+
+try:
+    from Deployment.service_storage import strict_json as portable_json
+except ImportError:
+    import sys
+    from pathlib import Path
+    for _json_parent in Path(__file__).resolve().parents:
+        for _json_path in (_json_parent / 'Deployment', _json_parent / 'deployment',
+                           _json_parent / 'share/shadow6/deployment'):
+            if (_json_path / 'service_storage.py').is_file():
+                sys.path.insert(0,str(_json_path)); break
+        else: continue
+        break
+    from service_storage import strict_json as portable_json
+
 import argparse, base64, collections, hashlib, hmac, ipaddress, json, os, socket, stat, struct, subprocess, time
 from functools import wraps
 from threading import RLock
@@ -66,7 +81,7 @@ def _bounded_owned_text(path:Path,maximum:int)->str:
 
 def load_limits(path:Path|None=None)->Limits:
     if path is None: return Limits()
-    try: value=json.loads(_bounded_owned_text(path,16384),object_pairs_hook=_unique_pairs,parse_float=_reject_float,parse_constant=_reject_float)
+    try: value=portable_json(_bounded_owned_text(path,16384), limit=65536)
     except (UnicodeDecodeError,json.JSONDecodeError) as exc: raise ValueError("invalid S6NA limits JSON") from exc
     if type(value) is not dict or set(value)!={"schema","limits"} or value["schema"]!="shadow6.s6na-limits.v1":
         raise ValueError("unknown S6NA limits schema or field")
@@ -331,7 +346,7 @@ class ReliableAdapter:
                     if name in result: raise ValueError("duplicate extension field")
                     result[name]=item
                 return result
-            value=json.loads(payload,object_pairs_hook=pairs,parse_float=lambda _:(_ for _ in ()).throw(ValueError("floats forbidden")),parse_constant=lambda _:(_ for _ in ()).throw(ValueError("constant forbidden")))
+            value=portable_json(payload, limit=65536)
             if _portable(value)!=payload or not isinstance(value,dict) or set(value)!={"name","value"} or value["name"] not in self.extensions:
                 raise PermissionError("received extension is not enabled")
             self._remember(key)

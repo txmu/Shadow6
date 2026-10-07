@@ -54,3 +54,36 @@ yet run on this revision, and remote WAN orchestration remains outstanding.
 For the detailed bilingual operator guide, see
 [`wan-pcap-test-lab.md`](wan-pcap-test-lab.md). The longer historical account
 is currently maintained in Chinese at [`project-history.zh-CN.md`](project-history.zh-CN.md).
+
+## 2026-10-07: canonical configuration and application handle lifecycle
+
+This change extends the existing Control Center/Deployment/Named Service
+authority: typed native forms, recursive secret-safe review/diff, managed
+content-addressed materials, reviewed plan/apply/relock and explicit removal/
+reclamation. It adds no arbitrary file editor, shell or parallel deployment
+architecture. SCM_RIGHTS FD handoff, Python fallback, bounded cancellation/
+timeout cleanup, credited S6NA sockets and explicit same-policy PeerConnection
+fallback/reconnect are integrated. macOS has a Unix stream transfer backend;
+Windows uses actual WSADuplicateSocket with same-user token, credential, nonce
+and expiry checks. Linux pidfd supervision is still platform-specific.
+
+Portable JSON ingestion now delegates to the existing bounded parser, with
+native/Node reader hardening and dependency-free NFC tables generated from
+one Unicode database. Latest Actions run 37596070786 supplied successful native
+producer artifacts. Its peer.py install omission, sudo Python dependency,
+capture ownership and application-sdk bundle mapping failures were fixed.
+
+Local verification includes Deployment 150, SDK/FD/Peer/config 43, Control
+Center 67, Security 24, Infrastructure 3 and native Unicode/parser 3 checks,
+plus the related component/CLI/Detector/Tools/Node suites. Real Go/KCP Web HTTP
+configuration lifecycle and Python/C transfer passed; the real Test Lab worker
+verified C-ABI/SCM_RIGHTS, exact echo, 60Hz updates/control records and cleanup.
+Offline source audit: 7 passed, 0 failed, 1 explicitly skipped binary stage;
+shellcheck passed. No twelve-Core local rebuild or new release archives ran.
+Earlier failed attempts are retained separately and are not counted as PASS.
+
+CI now requires Chromium typed-form/save/apply execution, three-platform kernel
+handle tests and the same-run application SDK in all native/legal S6EPE worker
+paths. Chromium, non-Linux kernels and the full WAN/netns/PCAP matrix remain
+unverified locally; this commit requires a new CI run before claiming those
+stages passed. No seamless migration, SDK ICE or portable supervisor is claimed.

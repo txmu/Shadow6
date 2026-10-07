@@ -70,10 +70,15 @@ def validate_attachment(path, *, root, expected_core=None):
         raise ValueError("S6NA runtime module is unavailable")
     if str(adapter) not in sys.path:
         sys.path.insert(0, str(adapter))
-    from shadow6_network import Limits
+    from shadow6_network import Limits, PROFILES
     if set(limits) - set(Limits.__dataclass_fields__):
         raise ValueError("invalid S6NA limits")
     resolved_limits = Limits(**limits)
+    if core not in PROFILES: raise ValueError('InvalidCreditedProfile')
+    policy = PROFILES[core]
+    payload = resolved_limits.payload_bytes or policy.payload
+    window = min(resolved_limits.window_frames or policy.window,resolved_limits.max_window)
+    boundary_maximum = min(65536,resolved_limits.max_message,payload*window)
     side = value.get("side", 0)
     stream = value.get("stream", 0)
     if type(side) is not int or side not in (0, 1):
@@ -86,4 +91,5 @@ def validate_attachment(path, *, root, expected_core=None):
         "keyPath": key_path,
         "keyDigest": "sha256:" + hashlib.sha256(key_bytes).hexdigest(),
         "core": core,
+        "boundaryMaximum": boundary_maximum,
     }

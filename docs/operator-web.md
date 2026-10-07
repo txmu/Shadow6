@@ -47,10 +47,37 @@ The backend still binds only loopback. Prefer deployment through an explicitly
 configured Shadow6 service when remote access is needed; `web expose` automation
 is not implemented.
 
-This Operator surface is an incremental implementation. Typed config-store
-forms/create wizard, semantic configuration diffs, configuration save/relock,
-activity history, Test Lab report ingestion and evidence drilldowns are not yet
-implemented. The Lab page says when no verified report is attached rather than
-inventing PASS counts. Services configuration remains on the canonical CLI.
-Mobile service tables become stacked cards; visual browser/assistive-technology
-verification is still required in addition to HTTP and JavaScript checks.
+The configuration workspace obtains typed/native templates and write-only secret
+field metadata from `core.config_form`. The operator selects Core, Profile and
+role. The advanced JSON view edits the same managed configuration document; it
+cannot select a host file or run a command. Canonical native validators reject
+unknown/invalid fields and command-bearing settings. Review and semantic diff
+redact secrets at every nesting level, including arrays and retyped/removed
+containers. Unchanged secrets use explicit placeholders; replacement requires
+confirmation. Saving neither applies nor restarts.
+
+The ConfigStore writes owner-only drafts and content-addressed immutable material
+snapshots. Save verifies both the old draft digest and complete review digest.
+Plan reads a hash-verified snapshot through the existing deployment authority;
+apply checks the plan, material and prior lock again, requires a stopped service,
+and only runs when the operator explicitly chooses it. Relock reviews currently
+bound material with `source=locked`, independently of a newer draft. ConfigStore
+never replaces another service's material snapshot.
+
+Reclaim removes only hash-verified unreferenced snapshots. After service removal,
+the separate typed-name confirmation can discard its draft and unused snapshots;
+materials referenced by any other Named Service remain protected. Remove itself
+closes service sessions and runtime/observation state. It does not silently discard
+a configuration draft or remove installed Core binaries.
+
+The System page consumes the existing secret-safe activity journal. Lab consumes
+a verified report supplied by the operator via `--lab-report`, distinguishes
+measured failures from PASS, and does not invent absent evidence. Mobile service
+tables become stacked cards. HTTP and JavaScript checks do not constitute a
+visual browser or assistive-technology certification.
+
+All Python control/config/envelope ingestion delegates to the existing bounded
+portable parser: UTF-8/NFC, 16-level depth, duplicate/trailing/NUL/non-finite
+rejection and portable integer bounds. Signed/control JSON rejects floats;
+explicit measurement consumers accept finite floats. Consumer schema validation
+and native platform contracts still apply.

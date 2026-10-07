@@ -7,7 +7,7 @@ from pathlib import Path
 
 
 HERE = Path(__file__).resolve().parent
-ROOT = HERE.parent
+ROOT = Path(os.environ.get('SHADOW6_TEST_RUNTIME_ROOT',HERE.parent)).resolve()
 sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(ROOT / "Security-Assistants"))
 from shadow6_security import SecurityError, atomic_write, generate_ledger_key  # noqa: E402

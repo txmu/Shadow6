@@ -2,6 +2,21 @@
 """Install or stage one platform folder from a verified CI artifact bundle."""
 from __future__ import annotations
 
+try:
+    from Deployment.service_storage import strict_json as portable_json
+except ImportError:
+    import sys
+    from pathlib import Path
+    for _json_parent in Path(__file__).resolve().parents:
+        for _json_path in (_json_parent / 'Deployment', _json_parent / 'deployment',
+                           _json_parent / 'share/shadow6/deployment'):
+            if (_json_path / 'service_storage.py').is_file():
+                sys.path.insert(0,str(_json_path)); break
+        else: continue
+        break
+    from service_storage import strict_json as portable_json
+
+
 import argparse
 import hashlib
 import json
@@ -85,15 +100,7 @@ def _verify_payload(base, payload, platform_name, arch, commit):
     if manifest_path.is_symlink() or not manifest_path.is_file() or manifest_path.stat().st_size > 16 * 1024**2:
         raise ValueError("platform folder manifest is missing or exceeds its bound")
 
-    def reject_duplicate_keys(pairs):
-        result = {}
-        for key, value in pairs:
-            if key in result:
-                raise ValueError("platform folder manifest contains a duplicate field")
-            result[key] = value
-        return result
-
-    value = json.loads(manifest_path.read_text(encoding="utf-8"), object_pairs_hook=reject_duplicate_keys)
+    value = portable_json(manifest_path.read_bytes(), limit=16*1024**2)
     if (not isinstance(value, dict) or value.get("schema") != "shadow6.ci-artifact-group.v1" or
             value.get("commit") != commit or value.get("platform") != platform_name or
             value.get("architecture") != arch):

@@ -23,16 +23,28 @@ class CrosedMatrixTests(unittest.TestCase):
         cls.directory = tempfile.TemporaryDirectory(prefix="shadow6-crosed-matrix-")
         cls.temp = Path(cls.directory.name)
         cls.go_core = cls.temp / "shadow6-go"
-        subprocess.run(
-            ["go", "build", "-buildvcs=false", "-tags", "crosed,crosed_l5,app_transport,qubes_isolation", "-o", str(cls.go_core), "."],
-            cwd=ROOT / "Core-Go", check=True, timeout=120,
-        )
-        subprocess.run(
-            ["cargo", "build", "--locked", "--features", "crosed-level-5,app-transport,qubes-isolation"],
-            cwd=ROOT / "Core-Rust", check=True, timeout=180,
-        )
-        cls.rust_core = cls.temp / "shadow6-rust"
-        shutil.copy2(ROOT / "Core-Rust" / "target" / "debug" / "shadow6-rust", cls.rust_core)
+        artifact_root=os.environ.get('SHADOW6_CROSED_TEST_ARTIFACT_ROOT')
+        if artifact_root:
+            # Explicit existing same-family Public6 artifacts include the
+            # isolation-on L5 contract. Never substitute a default L0 binary.
+            source=Path(artifact_root)
+            from crosedctl import secure_read
+            cls.rust_core=cls.temp/'shadow6-rust'
+            for family,target in (('Go',cls.go_core),('Rust',cls.rust_core)):
+                binary=source/('Core-'+family)/('shadow6-'+family.lower()+'-public6')
+                data=secure_read(binary,256*1024*1024)
+                target.write_bytes(data)
+        else:
+            subprocess.run(
+                ["go", "build", "-buildvcs=false", "-tags", "crosed,crosed_l5,app_transport,qubes_isolation", "-o", str(cls.go_core), "."],
+                cwd=ROOT / "Core-Go", check=True, timeout=120,
+            )
+            subprocess.run(
+                ["cargo", "build", "--locked", "--features", "crosed-level-5,app-transport,qubes-isolation"],
+                cwd=ROOT / "Core-Rust", check=True, timeout=180,
+            )
+            cls.rust_core = cls.temp / "shadow6-rust"
+            shutil.copy2(ROOT / "Core-Rust" / "target" / "debug" / "shadow6-rust", cls.rust_core)
         os.chmod(cls.go_core, 0o755)
         os.chmod(cls.rust_core, 0o755)
 

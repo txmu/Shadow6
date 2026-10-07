@@ -48,3 +48,15 @@ class ConfigStoreTests(unittest.TestCase):
                          '{"role":"client","x":1.5}',
                          '{"role":"client","client":{"transport":"quic"}}'):
             with self.assertRaises(ValueError): self.store.review('home/game',**{**self.params,'document':document})
+
+    def test_nested_arrays_and_retyped_containers_never_echo_credentials(self):
+        from Deployment.config_store import view, merge_secrets
+        old={'nested':[[{'api_key':'PRIVATE','private_key_path':'PRIVATE'}]],
+             'changed':{'password':'PRIVATE'},'credentials':['PRIVATE']}
+        new={'nested':[[{'api_key':{'unchanged':True},'private_key_path':{'unchanged':True}}]],
+             'changed':'new-type','credentials':['REPLACEMENT']}
+        merged=merge_secrets(new,old)
+        self.assertEqual(merged['nested'][0][0]['api_key'],'PRIVATE')
+        redacted,delta=view(merged,old)
+        serialized=json.dumps([redacted,delta])
+        self.assertNotIn('PRIVATE',serialized);self.assertNotIn('REPLACEMENT',serialized)

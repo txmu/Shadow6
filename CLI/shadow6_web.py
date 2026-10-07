@@ -51,6 +51,7 @@ async def serve(args):
     gateway = source/'web_gateway.py' if source.is_dir() else HERE/'shadow6-web-gateway'
     backend_args = [sys.executable,str(control),'serve','--host','127.0.0.1','--port',str(args.backend_port),
         '--token-file',str(state/'backend-token'),'--allow-mutations']
+    if os.name=='posix':backend_args.extend(['--unix-socket',str(state/'application.sock')])
     gateway_args = [sys.executable,str(gateway),'--host',args.host,'--port',str(args.port),
         '--backend-port',str(args.backend_port),'--token-file',str(state/'backend-token'),
         '--pairing-file',str(state/'operator-pairing')]
@@ -75,6 +76,8 @@ async def serve(args):
         scheme = 'https' if args.tls_cert and args.tls_key else 'http'
         url = f'{scheme}://{args.host}:{args.port}/'
         print(f'Open: {url}\nPairing code (one use, expires in 10 minutes):\n'+secure_read(state/'operator-pairing',4096,secret=True).decode().strip(),flush=True)
+        if os.name=='posix':
+            print('Application FD Gateway: '+str(state/'application.sock')+'\nSDK credential file: '+str(state/'backend-token'),flush=True)
         if args.open_browser: webbrowser.open(url)
         tasks = [asyncio.create_task(child.wait()) for child in children]
         tasks.append(asyncio.create_task(stop.wait()))

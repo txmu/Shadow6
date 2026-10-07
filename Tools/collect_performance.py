@@ -1,5 +1,20 @@
 #!/usr/bin/env python3
 """Bundle same-run performance artifacts without merging incompatible metrics."""
+
+try:
+    from Deployment.service_storage import strict_json as portable_json
+except ImportError:
+    import sys
+    from pathlib import Path
+    for _json_parent in Path(__file__).resolve().parents:
+        for _json_path in (_json_parent / 'Deployment', _json_parent / 'deployment',
+                           _json_parent / 'share/shadow6/deployment'):
+            if (_json_path / 'service_storage.py').is_file():
+                sys.path.insert(0,str(_json_path)); break
+        else: continue
+        break
+    from service_storage import strict_json as portable_json
+
 import argparse
 import hashlib
 import json
@@ -22,7 +37,7 @@ def measurements(path, relative):
     if path.suffix != ".json":
         return []
     try:
-        report = json.loads(path.read_text(encoding="utf-8"))
+        report = portable_json(path.read_text(encoding="utf-8"), limit=16*1024*1024, allow_measurement_floats=True)
     except (ValueError, UnicodeError):
         return []  # Incomplete raw diagnostics are still included and hashed.
     if not isinstance(report, dict) or report.get("schema") not in REPORT_SCHEMAS:
@@ -181,5 +196,5 @@ if __name__ == "__main__":
     parser.add_argument("--input", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
-    collect(args.input, args.output, json.loads(os.environ.get("PERFORMANCE_NEEDS", "{}")),
+    collect(args.input, args.output, portable_json(os.environ.get("PERFORMANCE_NEEDS", "{}"), limit=16*1024*1024),
             os.environ.get("GITHUB_STEP_SUMMARY"))

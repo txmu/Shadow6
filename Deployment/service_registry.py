@@ -735,7 +735,7 @@ class ServiceRegistry:
                 except ValueError as error: raise ValueError('capability unavailable: named deployment role cannot be verified') from error
                 if not isinstance(native,dict) or native.get('role') != role:
                     raise ValueError('requested role differs from locked native realization')
-            raise ValueError('service runtime readiness is unavailable; connect requires an observed listener or native ready event')
+            raise ValueError('ApplicationReadinessUnavailable: service runtime readiness is unavailable; connect requires an observed listener or native ready event')
         return resolve_connection(service=name, registry=self, catalog=self.catalog,
                                   core=core, role=role, adapter=adapter)
 
@@ -775,22 +775,33 @@ class ServiceRegistry:
         return ConfigStore(self).save(name, **params)
 
     @transaction
-    def config_plan(self, name, *, core, profile, privacy=None, spec=None, context=None, _include_arguments=False):
+    def config_plan(self, name, *, core, profile, privacy=None, spec=None, context=None, source="draft", _include_arguments=False):
         try: from .config_store import ConfigStore
         except ImportError: from config_store import ConfigStore
-        store = ConfigStore(self)
-        draft_path = store.path(name)
-        raw = private_read(draft_path,limit=65536)
-        material_path = draft_path.parent/('material-'+hashlib.sha256(raw).hexdigest()+'.json')
-        if private_read(material_path,limit=65536) != raw:
-            raise ValueError('ManagedConfigurationMaterialChanged')
         existing = self.services.get(name)
+        if source=='locked':
+            if not existing or existing['coreBinding']['core']!=core or existing['profileBinding']['profile']!=profile:
+                raise ValueError('ConfigurationBindingMismatch')
+            material_path=Path(existing['coreBinding']['config']['config_path'])
+            raw=private_read(material_path,limit=65536)
+            match=re.fullmatch(r'material-([0-9a-f]{64})\.json',material_path.name)
+            if match and hashlib.sha256(raw).hexdigest()!=match[1]:
+                raise ValueError('ManagedConfigurationMaterialChanged')
+        elif source=='draft':
+            store = ConfigStore(self)
+            draft_path = store.path(name)
+            raw = private_read(draft_path,limit=65536)
+            material_path = draft_path.parent/('material-'+hashlib.sha256(raw).hexdigest()+'.json')
+            if private_read(material_path,limit=65536) != raw:
+                raise ValueError('ManagedConfigurationMaterialChanged')
+        else: raise ValueError('InvalidConfigurationPlanSource')
         arguments = {'core':core,'profile':profile,'config':{'config_path':str(material_path)},
             'privacy':privacy if privacy is not None else existing['privacy'] if existing else 'native',
             'spec':spec if spec is not None else existing['spec'] if existing else None,
             'context':context if context is not None else existing['protocolContext'] if existing else None}
         plan = self.preview_setup(name, **arguments, _allow_reconfigure=True)
         result = {**plan,'schema':'shadow6.managed-config-plan.v1',
+            'source':source,
             'expected_lock_digest':(existing.get('deploymentLock') or {}).get('digest','') if existing else '',
             'requiresStop':bool(existing and runtime.alive(existing.get('runtime',{})))}
         result['expected_plan_digest'] = digest(encoded(result))
@@ -840,12 +851,12 @@ class ServiceRegistry:
         readiness = observed.get('runtime', {}).get('readiness')
         result['sessionState'] = 'transport-ready' if readiness == 'listener-ready' else 'application-ready'
         launch = (plan.get('capability') or {}).get('sessionLaunch')
-        if readiness == 'application-ready' and launch in {'local-application-stream', 'local-application-message'}:
+        if readiness == 'application-ready' and launch in {'local-application-stream', 'local-application-message','s6na-transparent-profile'}:
             try:
                 from .session_handles import sessions
             except ImportError:
                 from session_handles import sessions
-            result['session'] = sessions.open(name, expected_lock_digest, expected_plan_digest, plan)
+            result['session'] = sessions.open(name, expected_lock_digest, expected_plan_digest, plan, registry=self)
             result['sessionState'] = 'connected'
         return result
 

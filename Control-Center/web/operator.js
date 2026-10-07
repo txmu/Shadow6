@@ -213,6 +213,18 @@
       await reviewStatus(); result.textContent = `${action}: completed`;
     });
   }
+  button("Relock reviewed material", "service.relock", async () => {
+    const current = await reviewStatus();
+    const name = service.value;
+    const lock = current.deploymentLock?.digest;
+    if (!lock) throw new Error("A reviewed DeploymentLock is required.");
+    const plan = await rpc("service.config_plan", {name,core:current.coreBinding.core,profile:current.profileBinding.profile,source:"locked"});
+    if (!plan.valid || plan.requiresStop) throw new Error("Stop the service and resolve material diagnostics before relocking.");
+    configEvidence.textContent = JSON.stringify({plan:plan.expected_plan_digest,material:plan.materialDigest,lock},null,2);
+    if (!await confirmOperation(`Relock ${name}? Review the currently bound material digest.\n${plan.materialDigest}`)) return;
+    await rpc("service.relock", {name,confirmed:true,expected_lock_digest:lock,expected_material_digest:plan.materialDigest});
+    await reviewStatus(); result.textContent = "Reviewed material relocked.";
+  });
   // Core selection is operator-explicit; form structure comes from the
   // canonical native realization provider, never a frontend Core switch.
   const configuration = document.createElement("section");
@@ -246,10 +258,11 @@
   let draftDigest = null;
   let loadedName = null;
   let editGeneration = 0;
+  let activeInputSchema = null;
   function secretField(key,value) {
-    return Boolean(value?.secret || value?.unchanged) || /(?:private_key|key_material|auth_key|password|shared_secret|psk|secret|token)$/i.test(key);
+    return Boolean(value?.secret || value?.unchanged) || /(?:private|secret|password|token|credential)|^(?:key|key_material|auth_key|psk|api_key|signing_key|bearer)$/i.test(key);
   }
-  function editor(value, fieldPath = "") {
+  function editor(value, fieldPath = "", schema = activeInputSchema) {
     const reads = [];
     for (const [key,initial] of Object.entries(value)) {
       const path = fieldPath ? fieldPath+" / "+key : key;
@@ -257,31 +270,55 @@
         const group = document.createElement("fieldset"); const legend = document.createElement("legend"); legend.textContent = path; group.append(legend); nativeFields.append(group);
         // Nested fields remain typed; no native material is reflected as HTML.
         const child = document.createElement("div"); group.append(child);
-        const read = objectEditor(initial,child,path); reads.push([key,read]);
-      } else reads.push([key,fieldEditor(initial,key,path,nativeFields)]);
+        const read = objectEditor(initial,child,path,schema?.properties?.[key]); reads.push([key,read]);
+      } else reads.push([key,fieldEditor(initial,key,path,nativeFields,schema?.properties?.[key])]);
     }
     return () => Object.fromEntries(reads.map(([key,read]) => [key,read()]));
   }
-  function objectEditor(value,root,prefix) {
+  function objectEditor(value,root,prefix,schema) {
     const reads = Object.entries(value).map(([key,item]) => {
       if (item && typeof item === "object" && !Array.isArray(item) && !secretField(key,item)) {
         const group = document.createElement("fieldset"); const title = document.createElement("legend"); title.textContent = key; group.append(title); root.append(group);
-        return [key,objectEditor(item,group,prefix+" / "+key)];
+        return [key,objectEditor(item,group,prefix+" / "+key,schema?.properties?.[key])];
       }
-      return [key,fieldEditor(item,key,prefix+" / "+key,root)];
+      return [key,fieldEditor(item,key,prefix+" / "+key,root,schema?.properties?.[key])];
     });
     return () => Object.fromEntries(reads.map(([key,read]) => [key,read()]));
   }
   let fieldIndex = 0;
-  function fieldEditor(initial,key,path,root) {
-    const secret = secretField(key,initial);
-    const input = Array.isArray(initial) ? document.createElement("textarea") : document.createElement("input");
+  function fieldEditor(initial,key,path,root,schema) {
+    const secret = schema?.writeOnly === true || secretField(key,initial);
+    if (Array.isArray(initial) && !secret) {
+      const group=document.createElement("fieldset"); const legend=document.createElement("legend"); legend.textContent=path; group.append(legend); root.append(group);
+      const rows=[]; const add=document.createElement("button"); add.type="button"; add.textContent="Add item";
+      const maximum=Math.min(schema?.maxItems || 256,256);
+      function append(value) {
+        const row=document.createElement("div"); group.insertBefore(row,add);
+        const index=rows.length;
+        const read=value && typeof value==="object" && !Array.isArray(value) ? objectEditor(value,row,path+" / "+index,schema?.items) : fieldEditor(value,String(index),path+" / "+index,row,schema?.items);
+        const entry={row,read};rows.push(entry);
+        const remove=document.createElement("button"); remove.type="button"; remove.textContent="Remove item";
+        remove.onclick=()=>{rows.splice(rows.indexOf(entry),1);row.remove();add.disabled=rows.length>=maximum;}; row.append(remove);
+        add.disabled=rows.length>=maximum;
+      }
+      function blank(value,key="") {
+        if (secretField(key,value)) return "";
+        if (Array.isArray(value)) return [];
+        if (value && typeof value==="object") return Object.fromEntries(Object.entries(value).map(([name,item])=>[name,blank(item,name)]));
+        return typeof value==="boolean" ? false : typeof value==="number" ? 0 : "";
+      }
+      add.onclick=()=>{if(rows.length<maximum)append(blank(initial[0]));}; group.append(add);
+      for (const value of initial) append(value);
+      return ()=>rows.map(entry=>entry.read());
+    }
+    const input = document.createElement("input");
     input.id = `native-field-${++fieldIndex}`;
     const label = document.createElement("label"); label.htmlFor = input.id; label.textContent = path;
     if (secret) { input.type = "password"; input.autocomplete = "new-password"; input.placeholder = initial?.secret ? "unchanged — enter replacement" : "required secret material"; }
     else if (typeof initial === "boolean") { input.type = "checkbox"; input.checked = initial; }
-    else if (typeof initial === "number") { input.type = "number"; input.step = "1"; input.value = String(initial); }
+    else if (typeof initial === "number") { input.type = "number"; input.step = "1"; input.value = String(initial); if (schema?.minimum !== undefined) input.min = String(schema.minimum); if (schema?.maximum !== undefined) input.max = String(schema.maximum); }
     else { input.type = "text"; input.value = Array.isArray(initial) ? JSON.stringify(initial) : initial === null ? "null" : String(initial); }
+    if (schema?.maxLength !== undefined) input.maxLength = schema.maxLength;
     root.append(label,input);
     let confirmation = null;
     let replacing = !(initial?.secret || initial?.unchanged);
@@ -304,10 +341,10 @@
         if (!replacing && (initial?.secret || initial?.unchanged)) return {unchanged:true};
         return input.value;
       }
-      if (Array.isArray(initial)) return JSON.parse(input.value);
+
       if (typeof initial === "boolean") return input.checked;
       if (typeof initial === "number") {
-        const value = Number(input.value); if (!Number.isSafeInteger(value)) throw new Error("Expected bounded integer: "+path); return value;
+        const value = Number(input.value); if (input.value.trim() === "" || !Number.isSafeInteger(value) || (schema?.minimum !== undefined && value < schema.minimum) || (schema?.maximum !== undefined && value > schema.maximum)) throw new Error("Expected bounded integer: "+path); return value;
       }
       return initial === null && input.value === "null" ? null : input.value;
     };
@@ -320,6 +357,7 @@
     const stored = name ? await rpc("service.config_inspect",{name}) : null;
     if (generation !== editGeneration) return;
     loadedName = name; draftDigest = stored?.digest || null;
+    activeInputSchema = metadata.inputSchema;
     const value = stored?.document || metadata.template;
     nativeFields.replaceChildren(); readNativeForm = editor(value);
     configJSON.hidden = true; jsonLabel.hidden = true; nativeFields.hidden = false;
@@ -388,7 +426,20 @@
     } catch (error) { configEvidence.textContent = error.message; }
     finally { reclaimConfig.disabled = false; }
   };
-  configForm.append(configMode,nativeFields,jsonLabel,configJSON,specLabel,specInput,reviewConfig,runAfterApply,runLabel,applyConfig,reclaimConfig,configEvidence);
+  const discardDraft = document.createElement("button"); discardDraft.type = "button"; discardDraft.textContent = "Discard removed service draft";
+  discardDraft.onclick = async () => {
+    discardDraft.disabled = true;
+    try {
+      const name=service.value;
+      const inspected=await rpc("service.config_inspect",{name});
+      if (!await confirmOperation(`Discard the removed service's draft and unused snapshots for ${name}? Active materials referenced by other services are preserved.`,name)) return;
+      await rpc("service.config_reclaim",{name,confirmed:true,expected_digest:inspected.digest,discard_draft:true});
+      draftDigest=null;applyConfig.disabled=true;nativeFields.replaceChildren();configJSON.value="";
+      configEvidence.textContent="Removed service draft discarded; referenced materials preserved.";
+    } catch (error) { configEvidence.textContent=error.message; }
+    finally { discardDraft.disabled=false; }
+  };
+  configForm.append(configMode,nativeFields,jsonLabel,configJSON,specLabel,specInput,reviewConfig,runAfterApply,runLabel,applyConfig,reclaimConfig,discardDraft,configEvidence);
   configuration.append(configHeading,configForm); workspace.append(configuration);
   function updateBudget(meta) {
     budget.textContent = `${meta.boundary} · ${Math.ceil(meta.lifetimeRemainingMs / 1000)}s remaining · ${meta.bytesRemaining} bytes remaining${meta.recordPreserving ? " · One Send = One Application Record" : " · Byte stream"}`;

@@ -296,3 +296,19 @@ Agent target 配置为受控 echo service。复制的 Android Test Lab JSON 会�
 boundary、readiness 与能力限制，不包含配置秘密。设备侧 PCAP、桌面 supervisor、S6EPE、S6SG1
 和桌面 LLM Lifecycle 明确为 `unavailable`；Android 不增加统一平台 ABI，也不内嵌 Python
 Control Center。
+
+### Application ABI 与控制生命周期证据
+
+Native 与全部合法 S6EPE worker 通过现有 FD Gateway 和 `ServiceRegistry` 做 review、
+material/plan/lock 校验与 `connect_execute`；随后 C Application ABI 使用 SCM_RIGHTS
+交付应用 socket，PeerConnection 消费同一 Named Service。结果的
+`metrics.applicationABI` 记录 backend、CLOEXEC、duplicate ownership 和 cleanup，
+60Hz workload、exact echo、WAN/netns、PCAP 与业务 flow ownership 保持独立证据。
+CI 从同次 run 下载并校验小型 application-sdk artifact，不为此重新编译十二 Core。
+
+`integration/test_application_lifecycle.py` 使用真实 Go/KCP artifact 和三角色进程，
+通过配对后的 Web HTTP/RPC 执行 typed form、secret-safe review、save、plan、apply/run、
+restart/reconnect、Python/C FD handoff、材料 TOCTOU 拒绝、remove 与 draft/snapshot reclaim。
+SDK 单元/内核测试另覆盖错误路径、取消竞争、重放、ownership 和 S6NA credited socket。
+Windows CI 运行真实进程间 WSADuplicateSocket transfer；macOS CI 编译 POSIX ABI 并
+检查 Unix stream SCM_RIGHTS。这些平台 backend 证据不宣称 Linux pidfd supervisor 已移植。

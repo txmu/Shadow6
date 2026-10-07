@@ -2,6 +2,17 @@
 """Bounded one-address-per-port logical E-class Gate maps."""
 import argparse,ipaddress,json
 from pathlib import Path
+try:
+    from Deployment.service_storage import strict_json as portable_json
+except ImportError:
+    import sys
+    from pathlib import Path
+    for _json_path in (Path(__file__).resolve().parents[1] / 'Deployment',
+                       Path(__file__).resolve().parents[1] / 'deployment'):
+        if (_json_path / 'service_storage.py').is_file():
+            sys.path.insert(0, str(_json_path)); break
+    from service_storage import strict_json as portable_json
+
 MAX=4096;NETWORK=ipaddress.IPv4Network("240.0.0.0/4")
 def generate(ports,start="240.0.0.1"):
  if not ports or len(ports)>MAX or len(set(ports))!=len(ports) or any(isinstance(p,bool) or not 1<=p<=65535 for p in ports):raise ValueError("ports must be 1-4096 unique integers")
@@ -18,7 +29,7 @@ def validate(doc):
  return doc
 def main():
  p=argparse.ArgumentParser();s=p.add_subparsers(dest="command",required=True);g=s.add_parser("generate");g.add_argument("--port",type=int,action="append",required=True);g.add_argument("--start",default="240.0.0.1");g.add_argument("--output",type=Path);v=s.add_parser("validate");v.add_argument("path",type=Path);r=s.add_parser("resolve");r.add_argument("path",type=Path);r.add_argument("value")
- a=p.parse_args();doc=generate(a.port,a.start) if a.command=="generate" else validate(json.loads(a.path.read_text()))
+ a=p.parse_args();doc=generate(a.port,a.start) if a.command=="generate" else validate(portable_json(a.path.read_bytes(), limit=1048576))
  if a.command=="resolve":
   found=[x for x in doc["entries"] if str(x["port"])==a.value or x["address"]==a.value]
   if len(found)!=1:raise ValueError("mapping not found")

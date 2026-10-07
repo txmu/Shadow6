@@ -3,6 +3,21 @@
 
 from __future__ import annotations
 
+try:
+    from Deployment.service_storage import strict_json as portable_json
+except ImportError:
+    import sys
+    from pathlib import Path
+    for _json_parent in Path(__file__).resolve().parents:
+        for _json_path in (_json_parent / 'Deployment', _json_parent / 'deployment',
+                           _json_parent / 'share/shadow6/deployment'):
+            if (_json_path / 'service_storage.py').is_file():
+                sys.path.insert(0,str(_json_path)); break
+        else: continue
+        break
+    from service_storage import strict_json as portable_json
+
+
 import argparse
 import json
 import os
@@ -130,7 +145,7 @@ def verify_core_reports(dry_run: bool) -> None:
         if completed.returncode != 0:
             raise EasyBuildError(f"feature report failed for {name}: {completed.stderr.strip()}")
         try:
-            report = json.loads(completed.stdout)
+            report = portable_json(completed.stdout, limit=1048576)
         except json.JSONDecodeError as exc:
             raise EasyBuildError(f"feature report for {name} is not JSON") from exc
         if set(report) != CORE_REPORT_KEYS:
@@ -198,7 +213,7 @@ def verify_package_trust(private_key: Path, trust: Path) -> None:
         key = serialization.load_pem_private_key(private_key.read_bytes(), password=None)
         if not isinstance(key, Ed25519PrivateKey):
             raise ValueError("private key is not Ed25519")
-        trust_document = json.loads(trust.read_text(encoding="utf-8"))
+        trust_document = portable_json(trust.read_text(encoding="utf-8"), limit=1048576)
         signers = trust_document.get("signers")
         if trust_document.get("schema_version") != 1 or not isinstance(signers, dict) or not signers:
             raise ValueError("trust store schema is invalid")

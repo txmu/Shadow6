@@ -126,6 +126,27 @@ def resolve_connection(*, catalog, service=None, registry=None, context=None, co
         runtime=runtime, source=source, adapter=adapter, role=role,
         profile_binding=profile_binding)
     if service is not None:
+        import json
+        # Policy identity excludes endpoint addresses but includes authority-
+        # admitted credentials, peer keys and component policy/material.
+        try:
+            from .config_store import secret_key
+            from .service_storage import private_read, strict_json
+        except ImportError:
+            from config_store import secret_key
+            from service_storage import private_read, strict_json
+        native = strict_json(private_read(binding['config']['config_path']))
+        def security(value):
+            if isinstance(value,dict):
+                return {k:v if secret_key(k) or any(word in k.lower() for word in ('pubkey','public_key','allowed','verify','certificate','tls')) else security(v)
+                        for k,v in value.items() if secret_key(k) or any(word in k.lower() for word in ('pubkey','public_key','allowed','verify','certificate','tls')) or isinstance(v,(dict,list))}
+            if isinstance(value,list): return [security(v) for v in value if isinstance(v,(dict,list))]
+            return None
+        policy = {'privacy':item['privacy'],'limits':item['spec'].get('limits'),
+                  'context':context_digest(context),'credentials':security(native),
+                  'materials':{k:material.get(k) for k in ('nativeMaterialDigests','componentMaterialDigests','envelopeTlsDigests')},
+                  'creditedKey':(material.get('creditedAttachment') or {}).get('keyDigest')}
+        result['securityPolicyDigest'] = 'sha256:'+hashlib.sha256(json.dumps(policy,sort_keys=True,separators=(',',':'),ensure_ascii=True).encode()).hexdigest()
         result['readinessEvidence'] = item.get('readinessEvidence', {})
         result['transportReadiness'] = (item.get('runtimeObservation') or {}).get('transportReadiness', 'unavailable')
         result['effectiveLimits'] = (item.get('runtimeObservation') or {}).get('effectiveLimits', {})
@@ -134,8 +155,9 @@ def resolve_connection(*, catalog, service=None, registry=None, context=None, co
         result['applicationAdapter'] = application_adapter(profile,
             's6na' if attachment else 'native')
         if attachment:
+            result['creditedBoundaryMaximum'] = attachment['boundaryMaximum']
             result['capability']['sessionLaunch'] = 's6na-transparent-profile'
-            result['capability']['reason'] = 'The locked S6NA endpoint is selected automatically from the Named Service Profile; use connect_native for its local Core endpoint'
+            result['capability']['reason'] = 'The locked S6NA endpoint supplies a bounded credited socket boundary; no native adapter bypass'
     return result
 
 

@@ -1,5 +1,20 @@
 #!/usr/bin/env python3
 """Explicit CI provisioning: download a bounded, SHA-256-verified Go archive."""
+
+try:
+    from Deployment.service_storage import strict_json as portable_json
+except ImportError:
+    import sys
+    from pathlib import Path
+    for _json_parent in Path(__file__).resolve().parents:
+        for _json_path in (_json_parent / 'Deployment', _json_parent / 'deployment',
+                           _json_parent / 'share/shadow6/deployment'):
+            if (_json_path / 'service_storage.py').is_file():
+                sys.path.insert(0,str(_json_path)); break
+        else: continue
+        break
+    from service_storage import strict_json as portable_json
+
 import argparse
 import hashlib
 import json
@@ -61,7 +76,7 @@ def main():
         metadata = response.read(MAX_METADATA + 1)
     if len(metadata) > MAX_METADATA:
         raise ValueError("Go download metadata exceeds limit")
-    item = select_archive(json.loads(metadata), args.version)
+    item = select_archive(portable_json(metadata, limit=1048576), args.version)
     # Construct the URL from the validated version, never from a metadata URL.
     url = "https://dl.google.com/go/" + args.version + ".netbsd-amd64.tar.gz"
     with urllib.request.urlopen(url, timeout=30) as response:

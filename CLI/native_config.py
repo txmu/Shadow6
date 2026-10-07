@@ -13,6 +13,17 @@ import subprocess
 import tempfile
 import sys
 
+try:
+    from Deployment.service_storage import strict_json as portable_json
+except ImportError:
+    import sys
+    from pathlib import Path
+    for _json_path in (Path(__file__).resolve().parents[1] / 'Deployment',
+                       Path(__file__).resolve().parents[1] / 'deployment'):
+        if (_json_path / 'service_storage.py').is_file():
+            sys.path.insert(0, str(_json_path)); break
+    from service_storage import strict_json as portable_json
+
 for _modules in (Path(__file__).resolve().parent, Path(__file__).resolve().parents[1] / 'Crosed',
                  Path(__file__).resolve().parents[1] / 'modules'):
     if (_modules / 'native_profiles.py').is_file():
@@ -22,17 +33,6 @@ from native_profiles import profiles
 
 CORES = tuple(p['core'] for p in profiles() if p['applicationBoundary']['mode'] == 'seqpacket-fd')
 ROLES = ('broker', 'agent', 'client')
-
-def _pairs(items):
-    result = {}
-    for key, value in items:
-        if key in result:
-            raise ValueError('duplicate field')
-        result[key] = value
-    return result
-
-def _reject(value):
-    raise ValueError('noninteger JSON number')
 
 def secure_read(path, limit=16384):
     path = Path(path)
@@ -108,7 +108,7 @@ def validate(config):
     return config
 
 def load(path):
-    return validate(json.loads(secure_read(path), object_pairs_hook=_pairs, parse_float=_reject, parse_constant=_reject))
+    return validate(portable_json(secure_read(path), limit=16384))
 
 def prepare(config, binary, directory):
     """Return argv, creating only private native input files in directory."""

@@ -34,6 +34,21 @@ Graduated tiers, lowest to highest:
 
 from __future__ import annotations
 
+try:
+    from Deployment.service_storage import strict_json as portable_json
+except ImportError:
+    import sys
+    from pathlib import Path
+    for _json_parent in Path(__file__).resolve().parents:
+        for _json_path in (_json_parent / 'Deployment', _json_parent / 'deployment',
+                           _json_parent / 'share/shadow6/deployment'):
+            if (_json_path / 'service_storage.py').is_file():
+                sys.path.insert(0,str(_json_path)); break
+        else: continue
+        break
+    from service_storage import strict_json as portable_json
+
+
 import asyncio
 import ipaddress
 import json
@@ -72,17 +87,8 @@ class CounterstrikeError(ValueError):
 # Policy parsing (strict, fail-closed, no floats, unknown-field rejection)
 # --------------------------------------------------------------------------- #
 
-def _reject_float(_: Any) -> None:
-    raise CounterstrikeError("floats are forbidden in counterstrike policy")
 
 
-def _object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
-    result: dict[str, Any] = {}
-    for key, value in pairs:
-        if key in result:
-            raise CounterstrikeError(f"duplicate field: {key}")
-        result[key] = value
-    return result
 
 
 def _strict_loads(raw: bytes) -> Any:
@@ -91,7 +97,7 @@ def _strict_loads(raw: bytes) -> Any:
     except UnicodeDecodeError as exc:
         raise CounterstrikeError("policy is not valid UTF-8") from exc
     try:
-        return json.loads(text, parse_float=_reject_float, object_pairs_hook=_object)
+        return portable_json(text, limit=1048576)
     except json.JSONDecodeError as exc:
         raise CounterstrikeError(f"policy is not valid JSON: {exc}") from exc
 
@@ -721,7 +727,7 @@ def parse_threat_event(line: str) -> tuple[str, int] | None:
     if marker not in line:
         return None
     try:
-        event = json.loads(line.split(marker, 1)[1], object_pairs_hook=_object)
+        event = portable_json(line.split(marker, 1)[1], limit=1048576)
         if not isinstance(event, dict) or set(event) != {"version", "source", "port"}:
             return None
         if type(event["version"]) is not int or event["version"] != 1:

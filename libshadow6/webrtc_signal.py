@@ -62,7 +62,18 @@ class WebrtcClientReflector:
         connection = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         connection.settimeout(self.timeout)
         try:
-            connection.connect(self.path)
+            import time
+            deadline=time.monotonic()+self.timeout
+            while True:
+                try:
+                    connection.connect(self.path)
+                    break
+                except BlockingIOError:
+                    # AF_UNIX reports EAGAIN when its finite accept queue is
+                    # full, even for a socket with a Python timeout.
+                    if time.monotonic()>=deadline: raise TimeoutError('SignallingConnectTimeout') from None
+                    time.sleep(min(.01,max(0,deadline-time.monotonic())))
+            connection.settimeout(max(.001,deadline-time.monotonic()))
             if hasattr(socket, "SO_PEERCRED"):
                 _, uid, _ = struct.unpack("3i", connection.getsockopt(
                     socket.SOL_SOCKET, socket.SO_PEERCRED, struct.calcsize("3i")))

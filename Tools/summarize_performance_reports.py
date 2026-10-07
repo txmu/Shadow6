@@ -1,6 +1,21 @@
 #!/usr/bin/env python3
 """Summarize every performance report.json in the CI artifact."""
 from __future__ import annotations
+
+try:
+    from Deployment.service_storage import strict_json as portable_json
+except ImportError:
+    import sys
+    from pathlib import Path
+    for _json_parent in Path(__file__).resolve().parents:
+        for _json_path in (_json_parent / 'Deployment', _json_parent / 'deployment',
+                           _json_parent / 'share/shadow6/deployment'):
+            if (_json_path / 'service_storage.py').is_file():
+                sys.path.insert(0,str(_json_path)); break
+        else: continue
+        break
+    from service_storage import strict_json as portable_json
+
 import json, re, sys
 from pathlib import Path
 
@@ -11,7 +26,7 @@ def main(root: Path, out: Path) -> None:
     lines = ["# Shadow6 performance-all | source: GitHub Actions artifact | fmt: Core Proto Dir(F/R) Base? Gbps Loss/Retrans CPU(s) Mem(MB) Errors"]
     reports = sorted(root.rglob("shadow6-linux-iperf-chain/report.json"))
     for path in reports:
-        data = json.loads(path.read_text())
+        data = portable_json(path.read_text(), limit=16*1024*1024, allow_measurement_floats=True)
         env = data.get("environment", {})
         platform = env.get("platform", data.get("platform", "unknown"))
         arch = env.get("machine", "unknown")

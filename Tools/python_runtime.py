@@ -1,6 +1,21 @@
 #!/usr/bin/env python3
 """Probe installed Python runtimes; never install dependencies or force GIL off."""
 from __future__ import annotations
+
+try:
+    from Deployment.service_storage import strict_json as portable_json
+except ImportError:
+    import sys
+    from pathlib import Path
+    for _json_parent in Path(__file__).resolve().parents:
+        for _json_path in (_json_parent / 'Deployment', _json_parent / 'deployment',
+                           _json_parent / 'share/shadow6/deployment'):
+            if (_json_path / 'service_storage.py').is_file():
+                sys.path.insert(0,str(_json_path)); break
+        else: continue
+        break
+    from service_storage import strict_json as portable_json
+
 import argparse
 import importlib
 import json
@@ -35,7 +50,7 @@ def probe(executable,profile):
         result=subprocess.run([str(executable),str(Path(__file__).absolute()),"probe","--profile",profile],
                               capture_output=True,text=True,timeout=15,check=False)
         if result.returncode or len(result.stdout)>32768: raise ValueError(result.stderr[-1024:] or "probe failed")
-        report=json.loads(result.stdout)
+        report=portable_json(result.stdout, limit=1048576)
         if report.get("schema")!="shadow6.python-runtime.v1": raise ValueError("invalid runtime report")
         return report
     except (OSError,ValueError,subprocess.TimeoutExpired) as exc:

@@ -2,6 +2,17 @@
 """Portable 40-character Virtual Broker invitation codes and trusted profiles."""
 from __future__ import annotations
 
+try:
+    from Deployment.service_storage import strict_json as portable_json
+except ImportError:
+    import sys
+    from pathlib import Path
+    for _json_path in (Path(__file__).resolve().parents[1] / 'Deployment',
+                       Path(__file__).resolve().parents[1] / 'deployment'):
+        if (_json_path / 'service_storage.py').is_file():
+            sys.path.insert(0, str(_json_path)); break
+    from service_storage import strict_json as portable_json
+
 import argparse
 import base64
 import hashlib
@@ -47,20 +58,12 @@ PASSPORT_SCHEMA = "shadow6.passport.v1"
 VISA_SCHEMA = "shadow6.visa.v1"
 MAX_CREDENTIAL_BYTES = 32768
 
-def _reject_protocol_float(value, depth=0):
-    if depth > 32 or isinstance(value, float):
-        raise ValueError("floating-point values/excessive nesting are not permitted in S6P1")
-    if isinstance(value, dict):
-        for key,item in value.items():
-            if not isinstance(key,str) or len(key)>128: raise ValueError('invalid S6P1 key')
-            _reject_protocol_float(item,depth+1)
-    elif isinstance(value, list):
-        if len(value)>256: raise ValueError('S6P1 list limit')
-        for item in value: _reject_protocol_float(item,depth+1)
-    elif isinstance(value,str):
-        if len(value)>65536 or '\x00' in value: raise ValueError('S6P1 string limit')
-    elif type(value) is int and abs(value)>2**53-1:
-        raise ValueError('S6P1 integer range')
+def _token_bytes(token,prefix):
+    payload=token[len(prefix):]
+    if not payload or not re.fullmatch(r'[A-Za-z0-9_-]+',payload):raise ValueError('invalid token alphabet')
+    raw=base64.b64decode(payload+'='*(-len(payload)%4),altchars=b'-_',validate=True)
+    if base64.urlsafe_b64encode(raw).decode().rstrip('=')!=payload:raise ValueError('noncanonical token encoding')
+    return raw
 
 
 def pack_protocol(envelope: dict) -> str:
@@ -85,8 +88,8 @@ def pack_protocol(envelope: dict) -> str:
         raise ValueError("invalid envelope role")
     if not isinstance(envelope["identity"], dict) or not isinstance(envelope["routes"], list) or not isinstance(envelope["components"], dict) or not isinstance(envelope["credentials"], dict):
         raise ValueError("invalid envelope sections")
-    _reject_protocol_float(envelope)
     raw = json.dumps(envelope, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False).encode()
+    portable_json(raw, limit=PROTOCOL_MAX_BYTES)
     token = PROTOCOL_PREFIX + base64.urlsafe_b64encode(raw).decode().rstrip("=")
     if len(token) > PROTOCOL_MAX_BYTES: raise ValueError("protocol envelope is oversized")
     return token
@@ -95,8 +98,8 @@ def unpack_protocol(token: str) -> dict:
     if type(token) is not str or not token.startswith(PROTOCOL_PREFIX) or len(token) > PROTOCOL_MAX_BYTES:
         raise ValueError("invalid Shadow6 protocol envelope")
     try:
-        raw = base64.urlsafe_b64decode(token[len(PROTOCOL_PREFIX):] + "===")
-        value = json.loads(raw, object_pairs_hook=_pairs, parse_float=_reject_float, parse_constant=_reject_float)
+        raw = _token_bytes(token,PROTOCOL_PREFIX)
+        value = portable_json(raw, limit=PROTOCOL_MAX_BYTES)
     except Exception as exc:
         raise ValueError("invalid Shadow6 protocol envelope encoding") from exc
     pack_protocol(value)
@@ -195,7 +198,7 @@ def verify_credential(token: str, prefix: str, *, now: int | None = None,
                       require_signature: bool = False) -> dict:
     if type(token) is not str or not token.startswith(prefix) or len(token) > MAX_CREDENTIAL_BYTES:
         raise ValueError("invalid credential")
-    try: value = json.loads(base64.urlsafe_b64decode(token[len(prefix):] + "==="), object_pairs_hook=_pairs, parse_float=_reject_float, parse_constant=_reject_float)
+    try: value = portable_json(_token_bytes(token,prefix), limit=MAX_CREDENTIAL_BYTES)
     except Exception as exc: raise ValueError("invalid credential encoding") from exc
     schema = PASSPORT_SCHEMA if prefix == PASSPORT_PREFIX else VISA_SCHEMA if prefix == VISA_PREFIX else None
     if schema is None or not isinstance(value, dict) or value.get("schema") != schema:
@@ -299,8 +302,8 @@ def unpack_invitation(token: str) -> dict:
     if type(token) is not str or not token.startswith(INVITATION_PREFIX) or len(token) > 16384:
         raise ValueError("invalid long invitation")
     try:
-        raw = base64.urlsafe_b64decode(token[len(INVITATION_PREFIX):] + "===")
-        value = json.loads(raw, object_pairs_hook=_pairs)
+        raw = _token_bytes(token,INVITATION_PREFIX)
+        value = portable_json(raw, limit=262144)
     except Exception as exc:
         raise ValueError("invalid long invitation encoding") from exc
     if type(value) is not dict or set(value) != {"schema", "code", "gate_public_key", "profile"} or value["schema"] != "shadow6.invitation.v1":
@@ -375,24 +378,14 @@ def _private_file(path: Path, limit: int) -> bytes:
         os.close(descriptor)
 
 
-def _pairs(items):
-    result = {}
-    for key, value in items:
-        if key in result:
-            raise ValueError("duplicate profile field")
-        result[key] = value
-    return result
 
 
-def _reject_float(_):
-    raise ValueError("floats are forbidden in profiles")
 
 
 def validate_profile(data: bytes, code: str) -> dict:
     if not 1 <= len(data) <= 65536:
         raise ValueError("profile is empty or oversized")
-    value = json.loads(data.decode("utf-8"), object_pairs_hook=_pairs,
-                       parse_float=_reject_float, parse_constant=_reject_float)
+    value = portable_json(data.decode("utf-8"), limit=262144)
     if type(value) is not dict or set(value) != {"schema", "lookup_id", "tenant", "admission_public_key", "routes"} or value["schema"] != PROFILE_SCHEMA or value["lookup_id"] != decode(code)["lookup_id"]:
         raise ValueError("profile does not match join code")
     if value["admission_public_key"] != peer_public(code, "admission"):
@@ -472,8 +465,7 @@ def resolve(code: str, directory: str | None = None, manual_profile: Path | None
 
 
 def _json_file(path: Path, limit: int) -> dict:
-    value = json.loads(_private_file(path, limit).decode("utf-8"), object_pairs_hook=_pairs,
-                       parse_float=_reject_float, parse_constant=_reject_float)
+    value = portable_json(_private_file(path, limit).decode("utf-8"), limit=262144)
     if type(value) is not dict:
         raise ValueError("configuration must be an object")
     return value

@@ -87,3 +87,12 @@ protocol negotiation.
 ## Named Service connections
 
 `Shadow6.connection_plan("home/nas")` returns the same structured plan as `shadow6 connect home/nas --json`. `with Shadow6().connect("home/nas") as session:` actually attaches to the Profile's process-owned, observed stream or message boundary. Use `session.send(bytes)` and `session.receive()`; unsupported boundaries raise a capability error. This session is bounded to 300s/16MiB and 30s socket inactivity. S6P1 owns intent, S6AR1 control transport, S6ABI application boundaries; local PID/config/digests stay outside S6P1. See [service connections](../docs/service-connections.md).
+
+## Versioned handles and peers
+
+`connect_handle` now exposes the locked native or credited S6NA socket through
+the same versioned handle. `peer(name, fallback_services=[...])` supplies explicit
+same-policy fallback, cancellation and reconnect; it does not implement seamless
+migration or SDK ICE. The POSIX C ABI prefers SCM_RIGHTS FD Gateway handoff and
+retains Python fallback. Windows uses the explicit native socket.share/fromshare
+backend instead of fd integers. See [ownership, bounds and platform assumptions](../docs/application-sdk.md).

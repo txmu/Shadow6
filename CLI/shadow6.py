@@ -1,6 +1,21 @@
 #!/usr/bin/env python3
 """Portable unified Shadow6 command router; invokes only fixed components."""
 from __future__ import annotations
+
+try:
+    from Deployment.service_storage import strict_json as portable_json, private_read as read_private_config
+except ImportError:
+    import sys
+    from pathlib import Path
+    for _json_parent in Path(__file__).resolve().parents:
+        for _json_path in (_json_parent / 'Deployment', _json_parent / 'deployment',
+                           _json_parent / 'share/shadow6/deployment'):
+            if (_json_path / 'service_storage.py').is_file():
+                sys.path.insert(0,str(_json_path)); break
+        else: continue
+        break
+    from service_storage import strict_json as portable_json, private_read as read_private_config
+
 import argparse,json,os,subprocess,sys
 from pathlib import Path
 _HERE = Path(__file__).resolve().parent
@@ -453,7 +468,7 @@ def main():
    else: result={"schema":"shadow6.native-profile-catalog.v1","sourceContracts":True,"profiles":profiles(a.core)}
   elif a.core_action=="inspect": result=catalog.inspect(a.core)
   elif a.core_action=="config-schema": result=catalog.inspect(a.core)["configurationSchema"]
-  elif a.core_action=="validate-config": result={"valid":True,"core":a.core,"config":catalog.binding(a.core,json.loads(a.config.read_text()))["config"]}
+  elif a.core_action=="validate-config": result={"valid":True,"core":a.core,"config":catalog.binding(a.core,portable_json(read_private_config(a.config),limit=1048576))["config"]}
   else: result=catalog.import_file(a.descriptor)
   print(json.dumps(result,ensure_ascii=True,sort_keys=True,indent=2)); return 0
  if a.command=="service":
@@ -561,7 +576,7 @@ def main():
    result=subprocess.run(command_for(name,["--feature-report"]),capture_output=True,text=True,timeout=10,check=False)
    if a.json_events:print(json.dumps({"event":"process.finished","component":name,"exit_code":result.returncode}),file=sys.stderr,flush=True)
    if result.returncode:raise SystemExit(result.returncode)
-   try: report=json.loads(result.stdout)
+   try: report=portable_json(result.stdout, limit=1048576)
    except json.JSONDecodeError as error:raise SystemExit(f"{name}: invalid feature report JSON: {error}") from error
    if not isinstance(report,dict) or report.get("core")!="shadow6-"+name:raise SystemExit(f"{name}: unexpected feature report")
    reports.append(report)

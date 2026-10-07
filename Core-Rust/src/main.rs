@@ -13,6 +13,7 @@ use rcgen::generate_simple_self_signed;
 use rustls::pki_types::CertificateDer;
 use serde::{Deserialize, Serialize};
 mod strict_json;
+mod unicode_nfc;
 use sha2::{Digest, Sha256};
 use socket2::{Domain, Protocol, Socket, Type};
 use std::collections::{HashMap, HashSet};

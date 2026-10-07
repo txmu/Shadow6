@@ -7,13 +7,13 @@
   "properties": {
     "schema": {"const": "shadow6.boundary-descriptor.v1"},
     "kind": {"enum": ["stream", "message"]},
-    "realization": {"enum": ["localhost-tcp-proxy", "localhost-udp-datagram-proxy", "seqpacket-fd"]},
+    "realization": {"enum": ["localhost-tcp-proxy", "localhost-udp-datagram-proxy", "seqpacket-fd", "credited-socket"]},
     "semantics": {"enum": ["stream", "datagram", "record", "message"]},
     "max_record": {"type": ["integer", "null"], "minimum": 1, "maximum": 65536},
     "reliable": {"type": ["boolean", "null"]},
     "ordered": {"type": ["boolean", "null"]},
     "freshness_preferred": {"type": ["boolean", "null"]},
     "fd_ownership": {"const": "borrowed-until-close"},
-    "data_path": {"const": "native-socket"}
+    "data_path": {"enum": ["native-socket", "s6na-credited-socket"]}
   }
 }

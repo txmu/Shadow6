@@ -35,6 +35,25 @@ jobs:
         with:
           name: shadow6-linux-application-sdk
           path: application-sdk/
+  application-handle-backends:
+    name: Application handle backend (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with: {python-version: '3.12'}
+      - name: Prepare the existing SDK runtime dependency
+        run: python -m pip install --disable-pip-version-check 'cryptography==50.0.1'
+      - name: Verify real kernel transfer, credited sockets and peer lifecycle
+        run: python -m unittest -v libshadow6.test_handle_transfer libshadow6.test_fd_transfer libshadow6.test_credited_boundary libshadow6.test_peer
+      - name: Compile the macOS native application ABI
+        if: runner.os == 'macOS'
+        run: make -C libshadow6/native check PYTHON_CONFIG="$(command -v python3-config)"
   guix-init-contract:
     name: Guix System Shepherd definition
     runs-on: ubuntu-24.04
@@ -184,13 +203,13 @@ jobs:
       - name: Run one acceptance gate without compiling native Cores
         run: |
           set -euo pipefail
-          PYTHONPATH=Control-Center .venv/bin/python -m unittest -v Control-Center/test_web_gateway.py libshadow6/test_boundary.py libshadow6/test_libshadow6.py
+          PYTHONPATH=Control-Center .venv/bin/python -m unittest -v Control-Center/test_web_gateway.py libshadow6/test_boundary.py libshadow6/test_libshadow6.py libshadow6/test_peer.py libshadow6/test_credited_boundary.py libshadow6/test_fd_transfer.py
           .venv/bin/python -m unittest discover -s Test-Lab -p 'test_*.py' -v
           sudo .venv/bin/python -m unittest discover -s Test-Lab -p 'test_s6epe_runner.py' -v
           .venv/bin/python -m unittest -v \
             Crosed.test_native_profiles Crosed.test_limits Deployment.test_profile_realization Deployment.test_profile_availability Deployment.test_profile_binding Deployment.test_deployment Deployment.test_topology_contract Deployment.test_core_explicit \
             Deployment.test_service_context Deployment.test_service_lifecycle Deployment.test_message_attachment Deployment.test_active_application \
-            Deployment.test_installed_imports Tools.test_install_tree
+            Deployment.test_configuration_forms Deployment.test_config_store Deployment.test_installed_imports Tools.test_install_tree
           (cd /tmp && "$GITHUB_WORKSPACE/.venv/bin/python" "$GITHUB_WORKSPACE/CLI/shadow6.py" abi catalog)
           .venv/bin/python CLI/shadow6.py acceptance \
             --manifest Deployment/example.deployment.json \
@@ -1091,6 +1110,11 @@ jobs:
         run: |
           set -euo pipefail
           .venv/bin/python integration/test_named_profiles.py -v
+          make -C libshadow6/native check
+          PYTHONPATH=Control-Center .venv/bin/python -m unittest -v Control-Center/test_fd_gateway.py
+          .venv/bin/python -m pip install 'playwright==1.58.0'
+          .venv/bin/python -m playwright install chromium
+          SHADOW6_BROWSER_TEST=1 .venv/bin/python integration/test_application_lifecycle.py -v
       - name: Verify native dependencies and hardening
         run: |
           check_elf() {
@@ -1352,7 +1376,7 @@ jobs:
           if-no-files-found: error
   native-test-lab:
     name: Artifact-backed all-Core WAN/PCAP Test Lab
-    needs: [linux, idris, privacy-envelope-contract]
+    needs: [linux, idris, privacy-envelope-contract, application-sdk]
     if: always() && needs.linux.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 120
@@ -1362,8 +1386,9 @@ jobs:
         with: {python-version: '3.12'}
       - name: Prepare the Named Service and TLS fixture Python runtime
         run: |
-          python3 -m pip install --disable-pip-version-check 'cryptography==50.0.1'
-          python3 -c 'from Deployment.service_registry import ServiceRegistry; from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey'
+          python3 -m venv .tmp/test-lab-venv
+          .tmp/test-lab-venv/bin/python -m pip install --disable-pip-version-check 'cryptography==50.0.1'
+          .tmp/test-lab-venv/bin/python -c 'from Deployment.service_registry import ServiceRegistry; from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey'
       - name: Download same-run Linux Core artifacts and provenance manifest
         uses: actions/download-artifact@v7
         with:
@@ -1379,6 +1404,17 @@ jobs:
         with:
           name: shadow6-s6epe-linux-runtime
           path: .tmp/test-lab-companions/shadow6-s6epe-linux-runtime
+      - name: Download the same-run C application ABI
+        uses: actions/download-artifact@v7
+        with:
+          name: shadow6-linux-application-sdk
+          path: .tmp/test-lab-application-sdk
+      - name: Admit the bounded same-run application SDK
+        run: |
+          (cd .tmp/test-lab-application-sdk && sha256sum -c SHA256SUMS)
+          test "$(cat .tmp/test-lab-application-sdk/COMMIT)" = "$GITHUB_SHA"
+          chmod 0755 .tmp/test-lab-application-sdk/lib/libshadow6.so.1
+          echo "SHADOW6_APPLICATION_LIBRARY=$PWD/.tmp/test-lab-application-sdk/lib/libshadow6.so.1" >> "$GITHUB_ENV"
       - name: Prepare bounded capture and namespace tools
         uses: Homebrew/actions/setup-homebrew@49d03f1bf5d455a413dfbdf99e6718054a4cd975
       - name: Install bounded capture tools and the matching Idris runtime
@@ -1394,8 +1430,8 @@ jobs:
           # while making the downloaded files owner-controlled for that runner.
           sudo chown -R root:root -- .tmp/test-lab-artifacts .tmp/test-lab-companions
           set +e
-          sudo --preserve-env=PATH,GITHUB_SHA,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,GITHUB_RUN_NUMBER \
-            python3 Test-Lab/shadow6_test_lab.py --all-profiles \
+          sudo --preserve-env=PATH,GITHUB_SHA,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,GITHUB_RUN_NUMBER,SHADOW6_APPLICATION_LIBRARY \
+            "$PWD/.tmp/test-lab-venv/bin/python" Test-Lab/shadow6_test_lab.py --all-profiles \
               --artifacts-dir .tmp/test-lab-artifacts \
               --companion-artifacts-dir .tmp/test-lab-companions \
               --scenario clean --scenario lan --scenario good-wan --scenario mobile --scenario long-haul \
@@ -1463,6 +1499,13 @@ jobs:
           print(f"Native Core coverage: {coverage['executed']}/12 executed; {coverage['counts']}; "
                 f"loss-conditioned FAIL rows retained: {observed_loss_failures}")
           PY
+      - name: Make generated Test Lab evidence readable by the artifact uploader
+        if: always()
+        run: |
+          evidence_dir=".tmp/wan-pcap/ci-${GITHUB_RUN_ID}"
+          if test -d "$evidence_dir"; then
+            sudo chown -R "$(id -u):$(id -g)" -- "$evidence_dir"
+          fi
       - name: Upload all-Core WAN/PCAP Test Lab report and captures
         if: always()
         uses: actions/upload-artifact@v6

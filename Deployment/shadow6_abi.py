@@ -13,6 +13,11 @@ import struct
 import uuid
 from typing import Any
 
+try:
+    from .service_storage import strict_json
+except ImportError:
+    from service_storage import strict_json
+
 ABI_VERSION = "S6ABI/1"
 MAX_CONTROL = 262144
 MAX_DATA = 16 * 1024 * 1024
@@ -30,15 +35,6 @@ def _reject_float(value: Any) -> None:
     elif isinstance(value, list):
         for item in value:
             _reject_float(item)
-
-
-def _pairs(items):
-    result = {}
-    for key, value in items:
-        if key in result:
-            raise ValueError("duplicate S6ABI field")
-        result[key] = value
-    return result
 
 
 def _token(value: Any, label: str, size: int = 128) -> str:
@@ -62,6 +58,7 @@ def _check_message(value: dict) -> dict:
         raise ValueError("S6ABI payload must be an object")
     _reject_float(value)
     raw = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False).encode()
+    strict_json(raw, limit=MAX_CONTROL,string_limit=MAX_CONTROL)
     if len(raw) > MAX_CONTROL:
         raise ValueError("S6ABI control frame is oversized")
     if value["method"] == "send" and "data" in value["payload"]:
@@ -83,14 +80,14 @@ def decode_control(frame: bytes) -> dict:
     size = struct.unpack(">I", frame[:4])[0]
     if size > MAX_CONTROL or len(frame) != size + 4:
         raise ValueError("invalid S6ABI control frame length")
-    value = json.loads(bytes(frame[4:]).decode("utf-8"), object_pairs_hook=_pairs, parse_float=lambda _: (_ for _ in ()).throw(ValueError("float")), parse_constant=lambda _: (_ for _ in ()).throw(ValueError("constant")))
+    value = strict_json(bytes(frame[4:]), limit=MAX_CONTROL,string_limit=MAX_CONTROL)
     return _check_message(value)
 
 
 def encode_data(data: bytes, *, session: str, sequence: int, final: bool = False, message: bool = False) -> bytes:
     if not isinstance(data, (bytes, bytearray)) or len(data) > MAX_DATA:
         raise ValueError("S6ABI data frame is oversized")
-    if not isinstance(session, str) or not 1 <= len(session) <= 128 or type(sequence) is not int or not 0 <= sequence <= 2**63 - 1:
+    if not isinstance(session, str) or not 1 <= len(session) <= 128 or type(sequence) is not int or not 0 <= sequence <= 2**53 - 1:
         raise ValueError("invalid S6ABI data metadata")
     flags = (1 if final else 0) | (2 if message else 0)
     meta = json.dumps({"abi": ABI_VERSION, "session": session, "sequence": sequence, "flags": flags}, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode()
@@ -105,7 +102,7 @@ def decode_data(frame: bytes) -> dict:
     meta_size, data_size = struct.unpack(">II", frame[:8])
     if meta_size > MAX_META or data_size > MAX_DATA or len(frame) != 8 + meta_size + data_size:
         raise ValueError("invalid S6ABI data frame length")
-    meta = json.loads(bytes(frame[8:8 + meta_size]).decode("utf-8"), object_pairs_hook=_pairs, parse_float=lambda _: (_ for _ in ()).throw(ValueError("float")), parse_constant=lambda _: (_ for _ in ()).throw(ValueError("constant")))
+    meta = strict_json(bytes(frame[8:8 + meta_size]), limit=MAX_META)
     if set(meta) != {"abi", "session", "sequence", "flags"} or meta["abi"] != ABI_VERSION or type(meta["sequence"]) is not int or not 0 <= meta["sequence"] <= 2**63 - 1 or type(meta["flags"]) is not int or not 0 <= meta["flags"] <= 3:
         raise ValueError("invalid S6ABI data metadata")
     _token(meta["session"], "session")

@@ -58,7 +58,20 @@ def form(catalog, *, core, profile, role):
         if isinstance(value,list): return [clean(item,key) for item in value]
         return value
     template = clean(template)
+    def field_schema(value, key=''):
+        if secret_key(key): return {'type':'string','writeOnly':True}
+        if isinstance(value,dict):
+            return {'type':'object','additionalProperties':False,
+                    'required':list(value),'properties':{k:field_schema(v,k) for k,v in value.items()}}
+        if isinstance(value,list):
+            return {'type':'array','maxItems':256,**({'items':field_schema(value[0])} if value else {})}
+        if type(value) is bool: return {'type':'boolean'}
+        if type(value) is int:
+            return {'type':'integer','minimum':1 if key.endswith('_port') else 0,
+                    'maximum':65535 if key.endswith('_port') else 2**53-1}
+        if value is None: return {'type':['string','null']}
+        return {'type':'string','maxLength':65536}
     return {'schema':'shadow6.configuration-form.v1','profileBinding':bind_profile(core,profile),
-            'role':role,'template':template,'contractDigest':profile_digest(selected),
+            'role':role,'template':template,'inputSchema':field_schema(template),'contractDigest':profile_digest(selected),
             'provider':provider,'secretFieldsWriteOnly':True,
             'evidence':'existing normalized/native configuration realization; values require operator review'}

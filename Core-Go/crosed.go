@@ -99,7 +99,7 @@ func writePortableJSON(out *strings.Builder, value any, depth int) error {
 		}
 		out.WriteString(strconv.FormatInt(number, 10))
 	case string:
-		if len(item) > 16384 || strings.ContainsRune(item, 0) || !utf8.ValidString(item) {
+		if len(item) > 16384 || strings.ContainsRune(item, 0) || !utf8.ValidString(item) || !unicodeNFC(item) {
 			return errors.New("invalid Crosed string")
 		}
 		out.WriteByte('"')

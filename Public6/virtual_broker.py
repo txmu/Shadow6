@@ -1,6 +1,21 @@
 #!/usr/bin/env python3
 """Public6 virtual Broker: authenticated admission plus opaque bounded relay."""
 from __future__ import annotations
+
+try:
+    from Deployment.service_storage import strict_json as portable_json
+except ImportError:
+    import sys
+    from pathlib import Path
+    for _json_parent in Path(__file__).resolve().parents:
+        for _json_path in (_json_parent / 'Deployment', _json_parent / 'deployment',
+                           _json_parent / 'share/shadow6/deployment'):
+            if (_json_path / 'service_storage.py').is_file():
+                sys.path.insert(0,str(_json_path)); break
+        else: continue
+        break
+    from service_storage import strict_json as portable_json
+
 import argparse, asyncio, base64, hashlib, heapq, hmac, ipaddress, json, os, socket, stat, struct, sys, time
 from threading import RLock
 from dataclasses import dataclass, field
@@ -53,7 +68,7 @@ class Config:
     datagram_listeners:tuple[tuple[int,str,str,str,bool],...]=()
 
 def load_config(path:Path)->Config:
-    value=json.loads(bounded_file(path,262144).decode(),object_pairs_hook=pairs,parse_float=reject_float,parse_constant=reject_float)
+    value=portable_json(bounded_file(path,262144).decode(), limit=262144)
     allowed={"schema","listen","identity_key_file","cores","tenants","routes","approvals","guard","gate","c11relay","limits","anonymous_listeners","datagram_listeners"}
     if type(value) is not dict or set(value)-allowed or allowed-{"anonymous_listeners","datagram_listeners"}-set(value) or value["schema"]!=SCHEMA: raise ValueError("unknown virtual Broker schema or field")
     listen=value["listen"]
@@ -149,7 +164,7 @@ class Broker:
                 if self.nonces.get(key)==expires: del self.nonces[key]
     def admit(self,raw:bytes)->tuple[Tenant,str,tuple[str,int]]:
         if len(raw)>16384: raise ValueError("admission request oversized")
-        request=json.loads(raw,object_pairs_hook=pairs,parse_float=reject_float,parse_constant=reject_float)
+        request=portable_json(raw, limit=262144)
         expected={"schema","tenant","client","core","issued","expires","nonce","public_key","signature"}
         if type(request) is not dict or set(request)!=expected or request["schema"]!="shadow6.virtual-broker-admission.v1": raise ValueError("invalid admission schema")
         if any(type(request[name]) is not str for name in ("tenant","client","core","nonce","public_key","signature")): raise ValueError("invalid admission field type")

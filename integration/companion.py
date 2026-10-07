@@ -1,4 +1,19 @@
 """Equal Python/Node library isolation and S6NA carrier adapters for stack_test."""
+
+try:
+    from Deployment.service_storage import strict_json as portable_json
+except ImportError:
+    import sys
+    from pathlib import Path
+    for _json_parent in Path(__file__).resolve().parents:
+        for _json_path in (_json_parent / 'Deployment', _json_parent / 'deployment',
+                           _json_parent / 'share/shadow6/deployment'):
+            if (_json_path / 'service_storage.py').is_file():
+                sys.path.insert(0,str(_json_path)); break
+        else: continue
+        break
+    from service_storage import strict_json as portable_json
+
 import json
 import queue
 import shutil
@@ -53,7 +68,7 @@ class Adapter:
         if not line or len(line) > 32768:
             self.errors.seek(0)
             raise RuntimeError("companion library failed or exceeded output bound: " + self.errors.read(4096).decode(errors="replace"))
-        result = json.loads(line)
+        result = portable_json(line, limit=65536)
         if set(result) != {"frames", "messages"}:
             raise ValueError("invalid companion result")
         return [bytes.fromhex(f) for f in result["frames"]], [bytes.fromhex(m) for m in result["messages"]]

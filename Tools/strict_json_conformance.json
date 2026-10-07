@@ -66,6 +66,31 @@
       "id": "depth-overflow",
       "input": "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[0]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
       "accepted": false
+    },
+    {
+      "id": "float-exponent",
+      "input": "{\"x\":1e0}",
+      "accepted": false
+    },
+    {
+      "id": "float-integral",
+      "input": "{\"x\":1.0}",
+      "accepted": false
+    },
+    {
+      "id": "non-nfc",
+      "input": "{\"x\":\"e\\u0301\"}",
+      "accepted": false
+    },
+    {
+      "id": "utf8-bom",
+      "input": "﻿{}",
+      "accepted": false
+    },
+    {
+      "id": "depth-policy-overflow",
+      "input": "[[[[[[[[[[[[[[[[[[0]]]]]]]]]]]]]]]]]]",
+      "accepted": false
     }
   ]
 }

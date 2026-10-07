@@ -98,50 +98,19 @@ def canonical(document: Any) -> bytes:
 
 def strict_json_loads(raw: bytes | str, limit: int = MAX_JSON) -> Any:
     """Parse bounded UTF-8 portable JSON, rejecting ambiguous signed inputs."""
-    if type(limit) is not int or limit < 1:
-        raise SecurityError("JSON limit must be a positive integer")
-    if not isinstance(raw, (bytes, str)) or len(raw) > limit:
-        raise SecurityError("JSON input is invalid or oversized")
-
-    def pairs(items: list[tuple[str, Any]]) -> dict[str, Any]:
-        result: dict[str, Any] = {}
-        for key, value in items:
-            if key in result:
-                raise SecurityError("JSON contains a duplicate key")
-            result[key] = value
-        return result
-
-    def reject_number(value: str) -> Any:
-        raise SecurityError("JSON floats and non-finite numbers are forbidden")
-
     try:
-        text = raw.decode("utf-8", errors="strict") if isinstance(raw, bytes) else raw
-        if len(text.encode("utf-8")) > limit:
-            raise SecurityError("JSON input is oversized")
-        # Bound nesting before the decoder allocates deeply nested containers.
-        depth, quoted, escaped = 0, False, False
-        for character in text:
-            if quoted:
-                if escaped:
-                    escaped = False
-                elif character == "\\":
-                    escaped = True
-                elif character == '"':
-                    quoted = False
-            elif character == '"':
-                quoted = True
-            elif character in "[{":
-                depth += 1
-                if depth > 17:
-                    raise SecurityError("JSON nesting exceeds 16 levels")
-            elif character in "]}":
-                depth -= 1
-        document = json.loads(text, object_pairs_hook=pairs, parse_float=reject_number,
-                              parse_constant=reject_number)
-        validate_portable(document)
-        return document
-    except (UnicodeError, ValueError, RecursionError) as exc:
-        raise SecurityError("invalid portable UTF-8 JSON") from exc
+        from Deployment.service_storage import strict_json
+    except ImportError:
+        for candidate in (_HERE.parent / 'Deployment', _HERE.parent / 'deployment',
+                          _HERE.parent / 'share/shadow6/deployment'):
+            if (candidate / 'service_storage.py').is_file():
+                sys.path.insert(0, str(candidate)); break
+        from service_storage import strict_json
+    try:
+        return strict_json(raw, limit=limit)
+    except ValueError as exc:
+        message='duplicate JSON field' if str(exc)=='duplicate JSON field' else 'invalid portable UTF-8 JSON'
+        raise SecurityError(message) from exc
 
 
 def validate_portable(value: Any, depth: int = 0) -> None:

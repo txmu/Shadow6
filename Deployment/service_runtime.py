@@ -442,7 +442,15 @@ def start(plan):
     try:
         acknowledgement = os.read(read_fd, 4096) if select.select([read_fd], [], [], 32)[0] else b''
         if acknowledgement != b'OK':
-            child.terminate(); child.wait(timeout=8)
+            child.terminate()
+            try: child.wait(timeout=8)
+            except subprocess.TimeoutExpired:
+                # This launcher created the new session and still owns its
+                # unreaped leader. Kill only that startup session, including
+                # its native children, when graceful cleanup cannot finish.
+                if child.poll() is None and os.getpgid(child.pid)==child.pid and os.getsid(child.pid)==child.pid:
+                    os.killpg(child.pid,signal.SIGKILL)
+                child.wait(timeout=5)
             detail = acknowledgement.removeprefix(b'ERROR:').decode('utf-8', errors='replace') if acknowledgement.startswith(b'ERROR:') else 'StartupAcknowledgementUnavailable'
             raise ValueError('service failed to start: ' + detail)
         token = identity(child.pid)

@@ -28,18 +28,21 @@ def private_read(path, limit=LIMIT):
             if not part:
                 break
             data.extend(part)
-        if len(data) > limit or identity(opened) != identity(os.fstat(fd)):
+        if (len(data) > limit or len(data)!=opened.st_size or identity(opened) != identity(os.fstat(fd)) or
+                identity(opened)!=identity(path.lstat())):
             raise ValueError('private file changed or exceeded limit')
         return bytes(data)
     finally:
         os.close(fd)
 
 
-def strict_json(data, *, limit=LIMIT, allow_measurement_floats=False, uint64_measurements_as_strings=False):
+def strict_json(data, *, limit=LIMIT, string_limit=65536, allow_measurement_floats=False, uint64_measurements_as_strings=False):
     if not isinstance(data, (str, bytes, bytearray)):
         raise ValueError('JSON input must be text or bytes')
     if type(limit) is not int or limit < 1:
         raise ValueError('invalid JSON input limit')
+    if type(string_limit) is not int or not 1<=string_limit<=16*1024*1024:
+        raise ValueError('invalid JSON string limit')
     if type(allow_measurement_floats) is not bool:
         raise ValueError('invalid JSON numeric policy')
     if type(uint64_measurements_as_strings) is not bool or (uint64_measurements_as_strings and not allow_measurement_floats):
@@ -68,7 +71,7 @@ def strict_json(data, *, limit=LIMIT, allow_measurement_floats=False, uint64_mea
             quoted = True
         elif character in '[{':
             depth += 1
-            if depth > 25:
+            if depth > 17:
                 raise ValueError('JSON nesting limit')
         elif character in ']}':
             depth -= 1
@@ -96,11 +99,11 @@ def strict_json(data, *, limit=LIMIT, allow_measurement_floats=False, uint64_mea
             parse_float=measurement if allow_measurement_floats else reject, parse_constant=reject,
             parse_int=measurement_integer if uint64_measurements_as_strings else int)
         def bounded(v, depth=0):
-            if depth > 24:
+            if depth > 16:
                 raise ValueError('JSON nesting limit')
             if type(v) is int and not -(2**53-1) <= v <= 2**53-1:
                 raise ValueError('JSON integer limit')
-            if isinstance(v, str) and (len(v.encode('utf-8')) > 8192 or '\0' in v or unicodedata.normalize('NFC', v) != v):
+            if isinstance(v, str) and (len(v.encode('utf-8')) > string_limit or '\0' in v or unicodedata.normalize('NFC', v) != v):
                 raise ValueError('JSON string limit')
             if isinstance(v, dict):
                 for k, child in v.items():

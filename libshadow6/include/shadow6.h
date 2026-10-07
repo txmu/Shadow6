@@ -10,13 +10,19 @@ extern "C" {
 /* This is an application attachment ABI, never a Core wire/data ABI. */
 typedef struct s6_connection s6_connection;
 typedef struct { uint32_t abi_version; char code[S6_ERROR_CODE_SIZE]; } s6_error;
-/* Control uses installed Python/libshadow6; data uses the returned native fd.
+/* Control prefers the owner-only FD Gateway/SCM_RIGHTS when configured;
+ * otherwise it uses installed Python/libshadow6. Data uses the native fd.
  * Services are operator-created and explicitly bound before this call.
  * The library does not initialize/finalize an application's Python runtime.
  * When used standalone it initializes Python once and leaves it alive.
  * Do not fork with live handles or finalize Python before destroying handles.
  */
+/* Bounded connect; cancel_fd is a borrowed readable POSIX event/pipe, -1 disables.
+ * Readiness cancels without consuming bytes or closing the caller's descriptor.
+ */
+typedef struct { uint32_t abi_version; uint32_t timeout_ms; int cancel_fd; } s6_open_options;
 uint32_t s6_application_abi(void);
+int s6_connection_open_with_options(uint32_t abi, const char *service, const s6_open_options *options, s6_connection **out, s6_error *error);
 int s6_connection_open(uint32_t abi, const char *service, s6_connection **out, s6_error *error);
 /* Borrowed CLOEXEC descriptor, valid until destroy. Application synchronizes
  * data I/O against destroy. Never close a borrowed fd or store it after destroy.

@@ -383,7 +383,7 @@ test:
 	@$(PYTHON) -m unittest -v test_compliance.py
 	@PYTHONPATH=Tools $(PYTHON) -m unittest discover -s Tools -p 'test_*.py' -v
 	@PYTHONPATH=Crosed $(PYTHON) -m unittest discover -s Test-Lab -p 'test_*.py' -v
-	@$(PYTHON) -m unittest -v libshadow6/test_libshadow6.py libshadow6/test_boundary.py
+	@$(PYTHON) -m unittest -v libshadow6/test_libshadow6.py libshadow6/test_boundary.py libshadow6/test_peer.py libshadow6/test_credited_boundary.py libshadow6/test_fd_transfer.py libshadow6/test_handle_transfer.py
 	@PYTHONPATH=Tools $(PYTHON) -m unittest -v Tools/test_app_flow_proxy.py
 ifeq ($(BUILD_HARE),1)
 	@$(MAKE) test-hare
@@ -585,6 +585,7 @@ endif
 	@install -m 0644 libshadow6/webrtc_signal.py "$(DESTDIR)$(PYTHON_SITE_PACKAGES)/libshadow6/"
 	@install -m 0644 libshadow6/boundary.py "$(DESTDIR)$(PYTHON_SITE_PACKAGES)/libshadow6/"
 	@install -m 0644 libshadow6/control.py "$(DESTDIR)$(PYTHON_SITE_PACKAGES)/libshadow6/"
+	@install -m 0644 libshadow6/peer.py libshadow6/credited_boundary.py libshadow6/fd_client.py libshadow6/handle_transfer.py libshadow6/native_client.py libshadow6/pending.py "$(DESTDIR)$(PYTHON_SITE_PACKAGES)/libshadow6/"
 	@install -d -m 0755 "$(DESTDIR)$(PREFIX)/include" "$(DESTDIR)$(PREFIX)/lib" "$(DESTDIR)$(PREFIX)/share/shadow6/sdk/examples" "$(DESTDIR)$(PREFIX)/share/shadow6/sdk/schemas"
 	@install -m 0644 libshadow6/include/shadow6.h "$(DESTDIR)$(PREFIX)/include/"
 	@install -m 0644 libshadow6/examples/direct.c libshadow6/examples/game.py "$(DESTDIR)$(PREFIX)/share/shadow6/sdk/examples/"

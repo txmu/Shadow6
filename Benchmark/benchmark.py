@@ -1,6 +1,21 @@
 #!/usr/bin/env python3
 """Fixed-command benchmark runner; process and network measurements differ."""
 from __future__ import annotations
+
+try:
+    from Deployment.service_storage import strict_json as portable_json
+except ImportError:
+    import sys
+    from pathlib import Path
+    for _json_parent in Path(__file__).resolve().parents:
+        for _json_path in (_json_parent / 'Deployment', _json_parent / 'deployment',
+                           _json_parent / 'share/shadow6/deployment'):
+            if (_json_path / 'service_storage.py').is_file():
+                sys.path.insert(0,str(_json_path)); break
+        else: continue
+        break
+    from service_storage import strict_json as portable_json
+
 import argparse,errno,json,math,os,platform,signal,socket,subprocess,sys,tempfile,time,shutil
 from pathlib import Path
 try: import resource
@@ -71,7 +86,7 @@ def validate_config(d):
 def _load_config(path):
  d={"cores":list(CORE_PATHS),"backends":list(BACKENDS),"roles":["feature-report","network-chain"],"repeats":1,"args":{},"network":{"payload_bytes":4,"requests":32,"concurrency":1},"require_network":False}
  if path:
-  x=json.loads(Path(path).read_text());
+  x=portable_json(Path(path).read_text(), limit=1048576, allow_measurement_floats=True);
   if not isinstance(x,dict) or set(x)-set(d):raise ValueError("unknown benchmark fields")
   d.update(x)
  return validate_config(d)
@@ -85,7 +100,7 @@ def available(exe,core):
  return binary(exe)
 
 def network_result(out,core,backend="native",expected=None):
- result=json.loads(out.splitlines()[-1])
+ result=portable_json(out.splitlines()[-1], limit=1048576, allow_measurement_floats=True)
  if result.get('schema')!='shadow6.network-suite.v1':raise ValueError('expected common stack suite, not an internal benchmark emitter')
  result=result['results']['shadow6-'+core+('' if backend=='native' else '@'+backend)]
  for field in ['throughput_bps','duration_seconds','latency_p95_seconds','success_rate']:
@@ -145,7 +160,7 @@ def run(c):
       row.update(status="failed",reason=str(error));rows.append(row);continue
      row.update(status="ok" if code==0 else "failed",returncode=code,
                 elapsed_seconds=time.perf_counter()-started,process=process,stderr=err[-2048:])
-     try:row["network" if kind=="network-chain" else "native"]=network_result(out,core,backend,c['network']) if kind=="network-chain" else json.loads(out)
+     try:row["network" if kind=="network-chain" else "native"]=network_result(out,core,backend,c['network']) if kind=="network-chain" else portable_json(out, limit=1048576, allow_measurement_floats=True)
      except (ValueError,TypeError,KeyError,IndexError) as error:
       if kind=="network-chain" and not code:row.update(status="failed",reason="missing or invalid network metrics: "+str(error))
      if code:

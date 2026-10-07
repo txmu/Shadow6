@@ -249,10 +249,10 @@ _CONFIG_DRAFT = {"name":_STRING,"core":_STRING,"profile":_STRING,
     "document":{"type":"string","maxLength":65536},
     "expected_digest":{"type":["string","null"],"maxLength":71}}
 METHOD_SPECS.update({
-    "service.config_plan": _method("Plan an explicitly selected managed draft using canonical deployment/material/HostBudget validation.", {"name":_STRING,"core":_STRING,"profile":_STRING,"privacy":{"type":"string","enum":["native","envelope"]},"spec":_OBJECT,"context":_OBJECT}, ("name","core","profile")),
+    "service.config_plan": _method("Plan an explicitly selected managed draft using canonical deployment/material/HostBudget validation.", {"name":_STRING,"core":_STRING,"profile":_STRING,"privacy":{"type":"string","enum":["native","envelope"]},"spec":_OBJECT,"context":_OBJECT,"source":{"type":"string","enum":["draft","locked"]}}, ("name","core","profile")),
     "service.config_apply": _method("Apply/relock a reviewed managed configuration only to a stopped service; optional explicit run.", {"name":_STRING,"core":_STRING,"profile":_STRING,"privacy":{"type":"string","enum":["native","envelope"]},"spec":_OBJECT,"context":_OBJECT,"confirmed":_CONFIRMED,"expected_plan_digest":_REVIEWED_LOCK,"expected_material_digest":_REVIEWED_LOCK,"expected_lock_digest":{"type":"string","maxLength":71},"run":_BOOL}, ("name","core","profile","confirmed","expected_plan_digest","expected_material_digest","expected_lock_digest"),mutating=True),
     "service.config_inspect": _method("Read redacted owner-controlled managed configuration; no browser host paths.", {"name":_STRING}, ("name",)),
-    "service.config_reclaim": _method("Reclaim only hash-verified unreferenced managed snapshots; preserve active and current draft materials.", {"name":_STRING,"confirmed":_CONFIRMED,"expected_digest":{"type":["string","null"],"maxLength":71}}, ("name","confirmed","expected_digest"),mutating=True),
+    "service.config_reclaim": _method("Reclaim only hash-verified unreferenced managed snapshots; preserve active and current draft materials.", {"name":_STRING,"confirmed":_CONFIRMED,"discard_draft":_BOOL,"expected_digest":{"type":["string","null"],"maxLength":71}}, ("name","confirmed","expected_digest"),mutating=True),
     "service.config_review": _method("Review a strict managed draft and secret-safe semantic diff without saving or applying.", _CONFIG_DRAFT, tuple(key for key in _CONFIG_DRAFT if key != 'role')),
     "service.config_save": _method("Save a reviewed managed draft atomically; never apply/relock/start implicitly.", {**_CONFIG_DRAFT,"confirmed":_CONFIRMED,"expected_review_digest":_REVIEWED_LOCK}, tuple(key for key in _CONFIG_DRAFT if key != 'role')+("confirmed","expected_review_digest"),mutating=True),
     "service.connect_execute": _method("Execute a reviewed connection plan after explicit human confirmation; open a bounded local application session only when the reviewed runtime attachment is real.", {"name": _STRING, "confirmed": _CONFIRMED, "expected_plan_digest": _REVIEWED_LOCK, "expected_material_digest": _REVIEWED_LOCK, "expected_lock_digest": _REVIEWED_LOCK, "core": _STRING, "role": _STRING}, ("name", "confirmed", "expected_plan_digest", "expected_material_digest", "expected_lock_digest"), mutating=True),
@@ -1014,7 +1014,8 @@ def _error_code(exc: Exception) -> str:
         'LimitRequestExceedsCeiling','LimitNotRuntimeConfigurable','MissingLimitEnforcer',
         'ProfileUnavailable','RuntimeObservationRequired','ExplicitHumanConfirmationRequired',
         'ApplicationSessionTimeout','ApplicationSessionCapacityReached',
-        'ApplicationSessionExpiredOrUnknown','FlowCapabilityUnavailable'}
+        'ApplicationSessionExpiredOrUnknown','FlowCapabilityUnavailable','ApplicationReadinessUnavailable',
+        'ManagedConfigurationMaterialChanged','ManagedConfigurationInUse','ConfigurationBindingMismatch'}
     value = str(exc).split(':', 1)[0]
     if value == 'ApplicationBoundaryBusy' or value in allowed:
         return value
@@ -1617,12 +1618,16 @@ def http_runner(app):
 
 async def serve(host: str, port: int, token_file: Path, allow_mutations: bool, unix_socket: Path | None = None) -> None:
     from aiohttp import web
+    import signal
     if not _loopback(host) or type(port) is not int or not 1 <= port <= 65535:
         raise ValueError("HTTP API must use a loopback host and a valid port")
     token = secure_read(token_file, 4096, secret=True).decode("utf-8").strip()
     runner = http_runner(http_app(token, allow_mutations))
     await runner.setup()
     fd_gateway = None
+    stopping=asyncio.Event()
+    loop=asyncio.get_running_loop()
+    loop.add_signal_handler(signal.SIGTERM,stopping.set)
     try:
         if unix_socket is not None:
             for directory in (ROOT/'Deployment', HERE.parent/'share/shadow6/deployment'):
@@ -1631,10 +1636,11 @@ async def serve(host: str, port: int, token_file: Path, allow_mutations: bool, u
             fd_gateway = await FDGateway(unix_socket, token, allow_mutations=allow_mutations).start()
         await web.TCPSite(runner, "127.0.0.1" if host.lower() == "localhost" else host, port, backlog=64).start()
         print(f"Shadow6 Control Center listening on http://{host}:{port}/v1", flush=True)
-        await asyncio.Event().wait()
+        await stopping.wait()
     finally:
         if fd_gateway is not None: await fd_gateway.close()
         await runner.cleanup()
+        loop.remove_signal_handler(signal.SIGTERM)
 
 
 def main() -> int:

@@ -92,8 +92,8 @@ func jsonFields(target reflect.Type) map[string]reflect.Type {
 }
 
 func strictJSONValue(decoder *json.Decoder, target reflect.Type, depth int) error {
-	if depth > 64 {
-		return errors.New("JSON nesting exceeds 64 levels")
+	if depth > 16 {
+		return errors.New("JSON nesting exceeds 16 levels")
 	}
 	for target != nil && target.Kind() == reflect.Pointer {
 		target = target.Elem()
@@ -101,6 +101,15 @@ func strictJSONValue(decoder *json.Decoder, target reflect.Type, depth int) erro
 	token, err := decoder.Token()
 	if err != nil {
 		return err
+	}
+	if text, ok := token.(string); ok && (len(text) > 65536 || strings.ContainsRune(text, 0) || !unicodeNFC(text)) {
+		return errors.New("invalid bounded NFC string")
+	}
+	if number, ok := token.(json.Number); ok {
+		value, err := strconv.ParseInt(string(number), 10, 64)
+		if err != nil || value < -9007199254740991 || value > 9007199254740991 {
+			return errors.New("nonportable JSON number")
+		}
 	}
 	delim, ok := token.(json.Delim)
 	if !ok {
@@ -119,7 +128,7 @@ func strictJSONValue(decoder *json.Decoder, target reflect.Type, depth int) erro
 				return err
 			}
 			key, ok := token.(string)
-			if !ok || seen[key] {
+			if !ok || seen[key] || len(key) > 65536 || strings.ContainsRune(key, 0) || !unicodeNFC(key) {
 				return errors.New("duplicate or invalid JSON field")
 			}
 			seen[key] = true

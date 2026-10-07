@@ -8,7 +8,7 @@
 #include <fcntl.h>
 
 struct s6_connection { PyObject *facade; PyObject *handle; int fd; int native_fd; char *descriptor; };
-extern int s6_fd_open(const char *, int *, char **, char *, size_t);
+extern int s6_fd_open(const char *, int *, char **, char *, size_t, int, int);
 static pthread_once_t runtime_once = PTHREAD_ONCE_INIT;
 static void initialize(void) {
     if (!Py_IsInitialized()) { Py_Initialize(); PyEval_SaveThread(); }
@@ -34,7 +34,14 @@ static void python_error(s6_error *error) {
 }
 uint32_t s6_application_abi(void) { return S6_APPLICATION_ABI_V1; }
 int s6_connection_open(uint32_t abi, const char *service, s6_connection **out, s6_error *error) {
+    const s6_open_options options={S6_APPLICATION_ABI_V1,30000,-1};
+    return s6_connection_open_with_options(abi,service,&options,out,error);
+}
+int s6_connection_open_with_options(uint32_t abi, const char *service, const s6_open_options *options, s6_connection **out, s6_error *error) {
     if (out) *out = NULL;
+    if (!options || options->abi_version!=S6_APPLICATION_ABI_V1 || options->timeout_ms<1 || options->timeout_ms>30000 || options->cancel_fd < -1) {
+        error_code(error,"InvalidApplicationOptions");return -1;
+    }
     if (abi != S6_APPLICATION_ABI_V1 || !out || !service || strnlen(service,4097) > 4096 || !*service) {
         error_code(error,"InvalidApplicationABIOrService"); return -1;
     }
@@ -43,7 +50,7 @@ int s6_connection_open(uint32_t abi, const char *service, s6_connection **out, s
         if (!direct) { error_code(error,"ResourceUnavailable");return -1; }
         direct->fd=-1;
         char code[S6_ERROR_CODE_SIZE]="FDAttachmentRejected";
-        if (s6_fd_open(service,&direct->fd,&direct->descriptor,code,sizeof(code))) {
+        if (s6_fd_open(service,&direct->fd,&direct->descriptor,code,sizeof(code),(int)options->timeout_ms,options->cancel_fd)) {
             free(direct);error_code(error,code);return -1;
         }
         direct->native_fd=1;*out=direct;error_code(error,"None");return 0;
@@ -57,7 +64,20 @@ int s6_connection_open(uint32_t abi, const char *service, s6_connection **out, s
     module=PyImport_ImportModule("libshadow6");
     if (module) factory=PyObject_GetAttrString(module,"Shadow6");
     if (factory) connection->facade=PyObject_CallNoArgs(factory);
-    if (connection->facade) connection->handle=PyObject_CallMethod(connection->facade,"connect_handle","s",service);
+    if (connection->facade) {
+        PyObject *method=PyObject_GetAttrString(connection->facade,"connect_handle");
+        PyObject *args=Py_BuildValue("(s)",service);
+        PyObject *keywords=Py_BuildValue("{s:d}","timeout",options->timeout_ms/1000.0);
+        if (keywords && options->cancel_fd>=0) {
+            PyObject *cancel_module=PyImport_ImportModule("libshadow6.fd_client");
+            PyObject *cancel_factory=cancel_module ? PyObject_GetAttrString(cancel_module,"CancellationFD") : NULL;
+            PyObject *cancel=cancel_factory ? PyObject_CallFunction(cancel_factory,"i",options->cancel_fd) : NULL;
+            if (cancel) PyDict_SetItemString(keywords,"cancellation",cancel);
+            Py_XDECREF(cancel);Py_XDECREF(cancel_factory);Py_XDECREF(cancel_module);
+        }
+        if (method && args && keywords && !PyErr_Occurred()) connection->handle=PyObject_Call(method,args,keywords);
+        Py_XDECREF(method);Py_XDECREF(args);Py_XDECREF(keywords);
+    }
     if (connection->handle) fd=PyObject_CallMethod(connection->handle,"dup_fd",NULL);
     if (fd) connection->fd=(int)PyLong_AsLong(fd);
     if (connection->fd >= 0 && !PyErr_Occurred()) metadata=PyObject_CallMethod(connection->handle,"describe",NULL);

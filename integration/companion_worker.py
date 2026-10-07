@@ -1,4 +1,19 @@
 """Isolated library driver; IPC stays local, only S6NA/1 enters Core sockets."""
+
+try:
+    from Deployment.service_storage import strict_json as portable_json
+except ImportError:
+    import sys
+    from pathlib import Path
+    for _json_parent in Path(__file__).resolve().parents:
+        for _json_path in (_json_parent / 'Deployment', _json_parent / 'deployment',
+                           _json_parent / 'share/shadow6/deployment'):
+            if (_json_path / 'service_storage.py').is_file():
+                sys.path.insert(0,str(_json_path)); break
+        else: continue
+        break
+    from service_storage import strict_json as portable_json
+
 import json
 import sys
 from pathlib import Path
@@ -20,7 +35,7 @@ def main():
             return
         if len(line) > 16384 or not line.endswith(b"\n"):
             raise ValueError("oversized library request")
-        request = json.loads(line)
+        request = portable_json(line, limit=65536)
         if set(request) != {"op", "data"}:
             raise ValueError("unknown library request fields")
         op, raw = request["op"], bytes.fromhex(request["data"])

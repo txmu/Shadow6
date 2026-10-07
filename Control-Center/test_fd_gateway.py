@@ -7,13 +7,15 @@ from pathlib import Path
 import secrets
 import socket
 import tempfile
+import time
+import struct
 import unittest
 from unittest.mock import patch
 import shadow6_control as control
 from fd_gateway import FDGateway, SCHEMA
-from profile_registry import bind_profile
-from service_runtime import identity
-from session_handles import sessions
+from Deployment.profile_registry import bind_profile
+from Deployment.service_runtime import identity
+from Deployment.session_handles import sessions
 
 
 class FDGatewayTests(unittest.IsolatedAsyncioTestCase):
@@ -40,18 +42,26 @@ class FDGatewayTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(allow_mutations)
         return {'ok':True,'result':{'session':sessions.open('home/game',self.plan['lockDigest'],'review',self.plan)}}
 
-    def request(self,token='t'*32):
-        connection=socket.socket(socket.AF_UNIX,socket.SOCK_SEQPACKET)
+    def request(self,token='t'*32,nonce=None,issued_at=None):
+        connection=socket.socket(socket.AF_UNIX,self.gateway.kind)
         connection.settimeout(10)
         try:
             connection.connect(str(self.gateway.path))
-            nonce=secrets.token_hex(32)
-            connection.send(json.dumps({'schema':SCHEMA,'nonce':nonce,'token':token,'name':'home/game','confirmed':True}).encode())
-            body,ancillary,flags,_=connection.recvmsg(65536,socket.CMSG_SPACE(4),socket.MSG_CMSG_CLOEXEC)
+            nonce=nonce or secrets.token_hex(32)
+            request=json.dumps({'schema':SCHEMA,'nonce':nonce,'token':token,'name':'home/game','confirmed':True,'issuedAt':int(time.time()) if issued_at is None else issued_at}).encode()
+            connection.sendall(struct.pack('!I',len(request))+request if self.gateway.kind==socket.SOCK_STREAM else request)
+            body,ancillary,flags,_=connection.recvmsg(65536,socket.CMSG_SPACE(4),getattr(socket,'MSG_CMSG_CLOEXEC',0))
             fds=[]
             for level,kind,data in ancillary:
                 if level==socket.SOL_SOCKET and kind==socket.SCM_RIGHTS:
                     items=array.array('i');items.frombytes(data);fds.extend(items)
+            if self.gateway.kind==socket.SOCK_STREAM:
+                while len(body)<4 or len(body)<4+struct.unpack('!I',body[:4])[0]:
+                    part=connection.recv(65540-len(body))
+                    if not part: raise ValueError('truncated response')
+                    body+=part
+                body=body[4:]
+            for fd in fds:os.set_inheritable(fd,False)
             return json.loads(body),fds,flags
         finally:connection.close()
 
@@ -78,3 +88,42 @@ class FDGatewayTests(unittest.IsolatedAsyncioTestCase):
             self.gateway.allow_mutations=False
             value,fds,_=await asyncio.to_thread(self.request)
             self.assertIn('error',value);self.assertEqual(fds,[]);dispatch.assert_not_called()
+
+    async def test_replay_and_expired_request_never_open_another_session(self):
+        nonce=secrets.token_hex(32)
+        with patch.object(control,'response',side_effect=self.fake_response) as dispatch:
+            value,fds,_=await asyncio.to_thread(self.request,nonce=nonce)
+            for fd in fds:os.close(fd)
+            accepted=dispatch.call_count
+            value,fds,_=await asyncio.to_thread(self.request,nonce=nonce)
+            self.assertIn('error',value);self.assertEqual(fds,[])
+            self.assertEqual(dispatch.call_count,accepted)
+            value,fds,_=await asyncio.to_thread(self.request,issued_at=int(time.time())-60)
+            self.assertIn('error',value);self.assertEqual(fds,[])
+            self.assertEqual(dispatch.call_count,accepted)
+
+    async def test_c_abi_early_cancel_and_invalid_options_never_dispatch(self):
+        import ctypes
+        library=Path(__file__).resolve().parents[1]/'libshadow6/native/libshadow6.so'
+        if not library.is_file():self.skipTest('small native SDK must be built by the application-sdk CI job')
+        token=Path(self.temp.name)/'token';token.write_bytes(b't'*32);token.chmod(0o600)
+        class Options(ctypes.Structure):_fields_=[('version',ctypes.c_uint32),('timeout_ms',ctypes.c_uint32),('cancel_fd',ctypes.c_int)]
+        class Error(ctypes.Structure):_fields_=[('version',ctypes.c_uint32),('code',ctypes.c_char*96)]
+        lib=ctypes.CDLL(str(library))
+        lib.s6_connection_open_with_options.argtypes=[ctypes.c_uint32,ctypes.c_char_p,ctypes.POINTER(Options),ctypes.POINTER(ctypes.c_void_p),ctypes.POINTER(Error)]
+        read_fd,write_fd=os.pipe()
+        try:
+            os.write(write_fd,b'cancel')
+            def invoke():
+                handle=ctypes.c_void_p();error=Error()
+                options=Options(1,1000,read_fd)
+                self.assertEqual(lib.s6_connection_open_with_options(1,b'home/game',ctypes.byref(options),ctypes.byref(handle),ctypes.byref(error)),-1)
+                self.assertEqual(error.code,b'ConnectionCancelled');self.assertFalse(handle)
+                options.timeout_ms=0
+                self.assertEqual(lib.s6_connection_open_with_options(1,b'home/game',ctypes.byref(options),ctypes.byref(handle),ctypes.byref(error)),-1)
+                self.assertEqual(error.code,b'InvalidApplicationOptions')
+            with patch.dict(os.environ,{'SHADOW6_CONTROL_SOCKET':str(self.gateway.path),'SHADOW6_CONTROL_TOKEN_FILE':str(token)}),patch.object(control,'response') as dispatch:
+                await asyncio.to_thread(invoke)
+                dispatch.assert_not_called()
+            self.assertEqual(os.read(read_fd,6),b'cancel')
+        finally:os.close(read_fd);os.close(write_fd)

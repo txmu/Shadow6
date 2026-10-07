@@ -6,6 +6,21 @@ Provides Zero-Touch Provisioning, Cryptographic SPA Coordination, SNI Rotation,
 Plugin RPC with strict ACLs, and Multi-Init-System deployment.
 """
 
+try:
+    from Deployment.service_storage import strict_json as portable_json
+except ImportError:
+    import sys
+    from pathlib import Path
+    for _json_parent in Path(__file__).resolve().parents:
+        for _json_path in (_json_parent / 'Deployment', _json_parent / 'deployment',
+                           _json_parent / 'share/shadow6/deployment'):
+            if (_json_path / 'service_storage.py').is_file():
+                sys.path.insert(0,str(_json_path)); break
+        else: continue
+        break
+    from service_storage import strict_json as portable_json
+
+
 import os
 import sys
 import json
@@ -97,13 +112,6 @@ MAX_TOPOLOGY_BYTES = 1024 * 1024
 MAX_NODES = 256
 
 
-def strict_json_pairs(pairs):
-    result = {}
-    for key, value in pairs:
-        if key in result:
-            raise ValueError(f"duplicate JSON field: {key}")
-        result[key] = value
-    return result
 
 
 class TopologyLoader(yaml.SafeLoader):
@@ -249,7 +257,7 @@ class RPCServer:
         if request.content_length is not None and request.content_length > 16_384:
             return web.json_response({"error": "Request too large"}, status=413)
         try:
-            data = await asyncio.wait_for(request.json(loads=lambda value: json.loads(value, object_pairs_hook=strict_json_pairs)), timeout=5)
+            data = await asyncio.wait_for(request.json(loads=lambda value: portable_json(value, limit=1048576)), timeout=5)
         except (ValueError, RecursionError, asyncio.TimeoutError):
             return web.json_response({"error": "Invalid JSON"}, status=400)
         if not isinstance(data, dict) or set(data) != {"target"}:

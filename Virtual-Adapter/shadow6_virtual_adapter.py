@@ -1,6 +1,21 @@
 #!/usr/bin/env python3
 """Small fail-closed TUN/TAP carrier; interface provisioning stays external."""
 from __future__ import annotations
+
+try:
+    from Deployment.service_storage import strict_json as portable_json
+except ImportError:
+    import sys
+    from pathlib import Path
+    for _json_parent in Path(__file__).resolve().parents:
+        for _json_path in (_json_parent / 'Deployment', _json_parent / 'deployment',
+                           _json_parent / 'share/shadow6/deployment'):
+            if (_json_path / 'service_storage.py').is_file():
+                sys.path.insert(0,str(_json_path)); break
+        else: continue
+        break
+    from service_storage import strict_json as portable_json
+
 import argparse, json, os, selectors, socket, stat, sys, time
 from collections import deque
 from dataclasses import dataclass
@@ -18,8 +33,7 @@ class Config:
     side:int=0
 
 def load_config(path:Path)->Config:
-    value=json.loads(_bounded_owned_text(path,32768),object_pairs_hook=_unique_pairs,
-                     parse_float=_reject_float,parse_constant=_reject_float)
+    value=portable_json(_bounded_owned_text(path,32768), limit=1048576)
     required={"schema","mode","core","interface_fd","bind_host","bind_port","peer_host","peer_port","key_file"}
     optional={"limits_file","mtu","max_packets_per_tick","side"}
     if type(value) is not dict or set(value)-required-optional or not required<=set(value) or value["schema"]!="shadow6.virtual-adapter.v1": raise ValueError("unknown virtual-adapter field")

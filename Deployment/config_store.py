@@ -26,36 +26,40 @@ def digest(raw): return 'sha256:'+hashlib.sha256(raw).hexdigest()
 
 def secret_key(key):
     value = key.lower()
-    return value in SECRET_KEYS or value.endswith(('_secret','_password','_private_key','_token'))
+    return (value in SECRET_KEYS or value.endswith(('_secret','_password','_private_key','_token')) or
+            any(part in {'secret','password','token','credential','credentials','private'} for part in value.split('_')) or
+            value in {'api_key','signing_key','bearer'})
+
+
+def redact(value, key=''):
+    if secret_key(key):
+        return {'secret':True,'present':value is not None}
+    if isinstance(value, dict):
+        return {name:redact(child, name) for name,child in value.items()}
+    if isinstance(value, list):
+        return [redact(child) for child in value]
+    return value
 
 
 def view(document, old=None, path=''):
-    """Redact secrets and return only semantic field-level changes."""
-    redacted, changes = {}, []
+    """Redact every nesting level, including arrays and removed/retyped values."""
+    changes = []
     for key, value in document.items():
-        field = path+'/'+key
+        field = path+'/'+key.replace('~','~0').replace('/','~1')
         before = old.get(key) if isinstance(old,dict) else None
+        if old is None or before == value:
+            continue
         if secret_key(key):
-            redacted[key] = {'secret':True,'present':value is not None}
-            if old is not None and before != value:
-                changes.append({'field':field,'secret':True,'before':'redacted','after':'redacted'})
-        elif isinstance(value,dict):
-            nested, delta = view(value,before,field)
-            redacted[key] = nested; changes.extend(delta)
-        elif isinstance(value,list):
-            # Arrays can contain credentials. Redact recursively rather than
-            # reflecting native config collections as raw JSON.
-            redacted[key] = [view(item)[0] if isinstance(item,dict) else item for item in value]
-            if old is not None and before != value:
-                changes.append({'field':field,'collectionChanged':True})
+            changes.append({'field':field,'secret':True,'before':'redacted','after':'redacted'})
+        elif isinstance(value,dict) and isinstance(before,dict):
+            changes.extend(view(value,before,field)[1])
         else:
-            redacted[key] = value
-            if old is not None and before != value:
-                changes.append({'field':field,'before':before,'after':value})
+            changes.append({'field':field,'before':redact(before,key),'after':redact(value,key)})
     if isinstance(old,dict):
-        for key in old.keys()-document.keys():
-            changes.append({'field':path+'/'+key,'removed':True,'secret':secret_key(key)})
-    return redacted,changes
+        for key in sorted(old.keys()-document.keys()):
+            changes.append({'field':path+'/'+key.replace('~','~0').replace('/','~1'),
+                            'removed':True,'secret':secret_key(key)})
+    return redact(document),changes
 
 
 def merge_secrets(document, old):
@@ -63,17 +67,25 @@ def merge_secrets(document, old):
     output = {}
     for key,value in document.items():
         before = old.get(key) if isinstance(old,dict) else None
-        if key in FORBIDDEN_KEYS and value not in ('',None):
+        if key.lower() in FORBIDDEN_KEYS and value not in ('',None):
             raise ValueError('HostCommandConfigurationRejected')
         if secret_key(key) and value == {'unchanged':True}:
             if before is None: raise ValueError('SecretReplacementRequired')
             output[key] = before
         elif isinstance(value,dict): output[key] = merge_secrets(value,before)
         elif isinstance(value,list):
-            output[key] = [merge_secrets(item, before[index] if isinstance(before,list) and index<len(before) else None)
-                           if isinstance(item,dict) else item for index,item in enumerate(value)]
+            output[key] = merge_array(value, before)
         else: output[key] = value
     return output
+
+
+def merge_array(value, old):
+    result = []
+    for index,item in enumerate(value):
+        before = old[index] if isinstance(old,list) and index<len(old) else None
+        result.append(merge_secrets(item,before) if isinstance(item,dict) else
+                      merge_array(item,before) if isinstance(item,list) else item)
+    return result
 
 
 class ConfigStore:
@@ -166,12 +178,15 @@ class ConfigStore:
         atomic_write(path,raw)
         return {**review,'saved':True,'native_config':str(material)}
 
-    def reclaim(self,name,*,confirmed,expected_digest):
+    def reclaim(self,name,*,confirmed,expected_digest,discard_draft=False):
         if confirmed is not True: raise ValueError('ExplicitHumanConfirmationRequired')
+        if type(discard_draft) is not bool: raise ValueError('InvalidManagedConfigurationReclaim')
+        if discard_draft and name in getattr(self.registry,'services',{}):
+            raise ValueError('ManagedConfigurationInUse')
         current = self.inspect(name)
         if current['digest'] != expected_digest: raise ValueError('ReviewedConfigurationChanged')
         path = self.path(name)
-        protected = {str(path.parent/('material-'+current['digest'].removeprefix('sha256:')+'.json'))} if current['digest'] else set()
+        protected = {str(path.parent/('material-'+current['digest'].removeprefix('sha256:')+'.json'))} if current['digest'] and not discard_draft else set()
         for item in getattr(self.registry,'services',{}).values():
             config = (item.get('coreBinding') or {}).get('config') or {}
             if config.get('config_path'): protected.add(str(Path(config['config_path']).absolute()))
@@ -186,5 +201,10 @@ class ConfigStore:
             raw = private_read(candidate,limit=MAX_CONFIG)
             if hashlib.sha256(raw).hexdigest()!=match[1]: raise ValueError('ManagedConfigurationMaterialChanged')
             candidate.unlink();removed += 1
+        if discard_draft and current['exists']:
+            if digest(private_read(path,limit=MAX_CONFIG))!=expected_digest:
+                raise ValueError('ReviewedConfigurationChanged')
+            path.unlink()
+        if discard_draft and not any(path.parent.iterdir()): path.parent.rmdir()
         return {'schema':'shadow6.managed-config-reclaim.v1','name':name,
-                'removedSnapshots':removed,'activeMaterialsPreserved':True}
+                'removedSnapshots':removed,'activeMaterialsPreserved':True,'draftDiscarded':discard_draft}

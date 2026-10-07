@@ -3,6 +3,21 @@
 
 from __future__ import annotations
 
+try:
+    from Deployment.service_storage import strict_json as portable_json
+except ImportError:
+    import sys
+    from pathlib import Path
+    for _json_parent in Path(__file__).resolve().parents:
+        for _json_path in (_json_parent / 'Deployment', _json_parent / 'deployment',
+                           _json_parent / 'share/shadow6/deployment'):
+            if (_json_path / 'service_storage.py').is_file():
+                sys.path.insert(0,str(_json_path)); break
+        else: continue
+        break
+    from service_storage import strict_json as portable_json
+
+
 import argparse
 import json
 import os
@@ -44,23 +59,10 @@ class Public6Error(ValueError):
     pass
 
 
-def _reject_float(_: str) -> None:
-    raise Public6Error("floats are not permitted in portable Public6 JSON")
 
 
-def _integer(value: str) -> int:
-    if len(value.lstrip("-")) > 16 or abs(int(value)) > MAX_INTEGER:
-        raise Public6Error("integer exceeds the portable JSON range")
-    return int(value)
 
 
-def _object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
-    result: dict[str, Any] = {}
-    for key, value in pairs:
-        if key in result:
-            raise Public6Error("duplicate JSON field")
-        result[key] = value
-    return result
 
 
 def _decode(payload: bytes) -> Any:
@@ -86,9 +88,8 @@ def _decode(payload: bytes) -> Any:
                     raise Public6Error("JSON nesting exceeds the limit")
             elif char in "}]":
                 depth -= 1
-        return json.loads(source, object_pairs_hook=_object, parse_int=_integer,
-                          parse_float=_reject_float, parse_constant=_reject_float)
-    except (UnicodeError, json.JSONDecodeError, RecursionError) as exc:
+        return portable_json(source, limit=MAX_DOCUMENT)
+    except (UnicodeError, ValueError, RecursionError) as exc:
         raise Public6Error("invalid UTF-8 Public6 JSON") from exc
 
 

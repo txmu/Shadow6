@@ -1,6 +1,17 @@
 """Compose a registered Core and a bounded loopback application-flow proxy."""
 from __future__ import annotations
 
+try:
+    from Deployment.service_storage import strict_json as portable_json
+except ImportError:
+    import sys
+    from pathlib import Path
+    for _json_path in (Path(__file__).resolve().parents[1] / 'Deployment',
+                       Path(__file__).resolve().parents[1] / 'deployment'):
+        if (_json_path / 'service_storage.py').is_file():
+            sys.path.insert(0, str(_json_path)); break
+    from service_storage import strict_json as portable_json
+
 import json
 import os
 import queue
@@ -26,22 +37,8 @@ MAX_RECORD = 1172
 _NAME = re.compile(r"[a-z0-9][a-z0-9-]{0,63}\Z")
 
 
-def _unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
-    result = {}
-    for key, value in pairs:
-        if key in result:
-            raise ValueError("duplicate JSON field")
-        result[key] = value
-    return result
-
-
-def _reject_float(_value: str) -> None:
-    raise ValueError("floating-point JSON values are not allowed")
-
-
 def _strict_json(data: str | bytes) -> Any:
-    return json.loads(data, object_pairs_hook=_unique_object, parse_float=_reject_float,
-                      parse_constant=_reject_float)
+    return portable_json(data, limit=MAX_FEATURE_REPORT)
 
 
 def capsule_registry() -> dict[str, dict[str, Any]]:

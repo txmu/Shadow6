@@ -1,6 +1,21 @@
 #!/usr/bin/env python3
 """Bounded, manifest-driven Shadow6 migration CLI; never executes imported content."""
 from __future__ import annotations
+
+try:
+    from Deployment.service_storage import strict_json as portable_json
+except ImportError:
+    import sys
+    from pathlib import Path
+    for _json_parent in Path(__file__).resolve().parents:
+        for _json_path in (_json_parent / 'Deployment', _json_parent / 'deployment',
+                           _json_parent / 'share/shadow6/deployment'):
+            if (_json_path / 'service_storage.py').is_file():
+                sys.path.insert(0,str(_json_path)); break
+        else: continue
+        break
+    from service_storage import strict_json as portable_json
+
 import argparse, gzip, hashlib, io, json, os, re, shutil, stat, tarfile, tempfile, zipfile
 from contextlib import contextmanager
 from pathlib import Path, PurePosixPath
@@ -15,13 +30,6 @@ SCOPES={
  "identities": ("*.key","*.pub","*.pem"),
 }
 class MigrationError(ValueError): pass
-def _reject_duplicate(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
-    result: dict[str, Any] = {}
-    for key, value in pairs:
-        if key in result:
-            raise MigrationError(f"duplicate JSON field: {key}")
-        result[key] = value
-    return result
 
 
 def strict_json(data: bytes, limit: int = 1024 * 1024) -> dict[str, Any]:
@@ -29,8 +37,7 @@ def strict_json(data: bytes, limit: int = 1024 * 1024) -> dict[str, Any]:
         raise MigrationError("JSON document exceeds size limit")
     try:
         text = data.decode("utf-8") if isinstance(data, bytes) else data
-        reject_number = lambda _: (_ for _ in ()).throw(MigrationError("floats/nonfinite numbers are forbidden"))
-        value = json.loads(text, object_pairs_hook=_reject_duplicate, parse_float=reject_number, parse_constant=reject_number)
+        value = portable_json(text, limit=limit)
     except (UnicodeError, ValueError, RecursionError) as exc:
         raise MigrationError("invalid UTF-8 JSON") from exc
     if not isinstance(value, dict):
@@ -73,6 +80,9 @@ def canonical(value: Any) -> bytes:
     encoded = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False).encode()
     if len(encoded) > 1_048_576:
         raise MigrationError("JSON document exceeds size limit")
+    try:
+        portable_json(encoded,limit=1_048_576)
+    except ValueError as exc:raise MigrationError("invalid portable JSON") from exc
     return encoded
 
 

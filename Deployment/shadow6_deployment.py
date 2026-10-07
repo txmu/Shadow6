@@ -23,6 +23,11 @@ except ImportError:
     from broker_set import validate_routes
     from topology_contract import check_node_binding
 
+try:
+    from .service_storage import strict_json
+except ImportError:
+    from service_storage import strict_json
+
 MAX_BYTES = 1024 * 1024
 MAX_NODES = 256
 MAX_SERVICES = 1024
@@ -44,13 +49,6 @@ def _no_float(value: Any) -> None:
             _no_float(item)
 
 
-def _pairs(items):
-    result = {}
-    for key, value in items:
-        if key in result:
-            raise ValueError(f"duplicate manifest field: {key}")
-        result[key] = value
-    return result
 
 
 def _read(path: Path) -> Any:
@@ -59,7 +57,7 @@ def _read(path: Path) -> Any:
         raise ValueError("deployment manifest is oversized")
     try:
         if path.suffix.lower() == ".json":
-            value = json.loads(raw.decode("utf-8"), object_pairs_hook=_pairs, parse_float=lambda _: (_ for _ in ()).throw(ValueError("float")), parse_constant=lambda _: (_ for _ in ()).throw(ValueError("constant")))
+            value = strict_json(raw, limit=MAX_BYTES)
         else:
             try:
                 import yaml  # type: ignore

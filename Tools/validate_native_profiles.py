@@ -1,5 +1,20 @@
 #!/usr/bin/env python3
 """Validate every Native Profile against installed/CI-provided artifacts."""
+
+try:
+    from Deployment.service_storage import strict_json as portable_json
+except ImportError:
+    import sys
+    from pathlib import Path
+    for _json_parent in Path(__file__).resolve().parents:
+        for _json_path in (_json_parent / 'Deployment', _json_parent / 'deployment',
+                           _json_parent / 'share/shadow6/deployment'):
+            if (_json_path / 'service_storage.py').is_file():
+                sys.path.insert(0,str(_json_path)); break
+        else: continue
+        break
+    from service_storage import strict_json as portable_json
+
 import argparse, json, pathlib, subprocess
 from native_profiles import profiles
 from Deployment.profile_registry import bind_profile, validate_profile_binding
@@ -13,7 +28,7 @@ def main():
         except Exception as e: row['contract']='error:'+str(e)
         if path.is_file():
             try:
-                report=json.loads(subprocess.run([str(path),'--feature-report'],capture_output=True,text=True,timeout=8,check=True).stdout)
+                report=portable_json(subprocess.run([str(path),'--feature-report'],capture_output=True,text=True,timeout=8,check=True).stdout, limit=1048576)
                 row['featureReport']={'core':report.get('core'),'crosedMaxLevel':report.get('crosed_max_level'),'appTransport':report.get('app_transport')}
             except Exception as e: row['artifactError']=type(e).__name__+': '+str(e)
         rows.append(row)

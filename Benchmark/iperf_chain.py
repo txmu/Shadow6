@@ -8,6 +8,21 @@ The TCP fixture adds a bounded Python copy; a matching fixture baseline is
 reported. Parallelism means independent native trios, not worker threads.
 """
 from __future__ import annotations
+
+try:
+    from Deployment.service_storage import strict_json as portable_json
+except ImportError:
+    import sys
+    from pathlib import Path
+    for _json_parent in Path(__file__).resolve().parents:
+        for _json_path in (_json_parent / 'Deployment', _json_parent / 'deployment',
+                           _json_parent / 'share/shadow6/deployment'):
+            if (_json_path / 'service_storage.py').is_file():
+                sys.path.insert(0,str(_json_path)); break
+        else: continue
+        break
+    from service_storage import strict_json as portable_json
+
 import argparse
 import errno
 from contextlib import nullcontext
@@ -228,7 +243,7 @@ def measure(endpoint, target, processes, seconds, reverse, rate, baseline=False)
     (target.directory / 'client.json').write_bytes(result.stdout)
     (target.directory / 'client.stderr').write_bytes(result.stderr)
     after = snapshot(processes)
-    document = json.loads(result.stdout)
+    document = portable_json(result.stdout, limit=1048576, allow_measurement_floats=True)
     if result.returncode or document.get('error'):
         raise RuntimeError(document.get('error', result.stderr.decode(errors='replace')))
     end = document['end']

@@ -28,6 +28,7 @@ def target_for(name: str) -> tuple[str, str]:
     exact = {
         "shadow6-android-debug": ("android", "multi-abi"),
         "shadow6-linux-release": ("linux", "x86_64"),
+        "shadow6-linux-application-sdk": ("linux", "x86_64"),
         "shadow6-linux-arm64-components": ("linux", "arm64"),
         "shadow6-linux-arm64-network-benchmark": ("linux", "arm64"),
         "shadow6-linux-arm64-named-profile-lifecycle": ("linux", "arm64"),
@@ -215,6 +216,7 @@ def package(input_dir: Path, output: Path, *, run_id: str, commit: str):
             (group_dir / "README.md").write_text(_platform_readme(platform_name, arch,
                 [name for name, _ in entries], full_linux_release=full_linux_release), encoding="utf-8")
             shutil.copyfile(installer_source, group_dir / "install_platform_payload.py")
+            shutil.copyfile(Path(__file__).resolve().parents[1]/"Deployment/service_storage.py",group_dir/"service_storage.py")
             shell = group_dir / "install.sh"
             shell.write_text(_install_shell(platform_name, arch, commit), encoding="utf-8")
             shell.chmod(0o755)

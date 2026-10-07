@@ -6,6 +6,11 @@ import secrets
 import socket
 import threading
 import time
+import sys
+
+# Source and installed dispatcher imports must share one capability authority.
+sys.modules.setdefault('session_handles', sys.modules[__name__])
+sys.modules.setdefault('Deployment.session_handles', sys.modules[__name__])
 
 try:
     from .connection_plan import LocalMessageSession, open_local_session
@@ -28,6 +33,7 @@ class SessionHandleManager:
         self.limit = limit
         self._lock = threading.RLock()
         self._entries = {}
+        self._transfers = {}
 
     @staticmethod
     def _remaining_ms(session):
@@ -64,17 +70,34 @@ class SessionHandleManager:
         for handle in expired:
             entry = self._entries.pop(handle)
             self._close_entry(entry)
+        finished = [handle for handle,entry in self._transfers.items()
+                    if entry['session'].stop.is_set()]
+        for handle in finished: self._transfers.pop(handle)
 
-    def open(self, service, lock_digest, plan_digest, plan):
+    def open(self, service, lock_digest, plan_digest, plan, *, registry=None):
         if not isinstance(service, str) or not isinstance(lock_digest, str) or not isinstance(plan_digest, str):
             raise ValueError('InvalidApplicationSessionBinding')
-        session = open_local_session(plan)
-        boundary = 'message' if isinstance(session, LocalMessageSession) else 'stream'
+        if (plan.get('applicationAdapter') or {}).get('provider')=='s6na':
+            from libshadow6 import Shadow6, RegistryControl
+            from libshadow6.credited_boundary import CreditedBoundary
+            facade=Shadow6(control=RegistryControl(registry)) if registry is not None else Shadow6()
+            try:
+                credited=facade.open_credited_for_service(service)
+                kind=plan['applicationAdapter']['boundary']
+                maximum=min(credited.endpoint.adapter.limits.max_message,plan.get('creditedBoundaryMaximum',65536),plan.get('effectiveLimits',{}).get('max_record',65536))
+                session=CreditedBoundary(credited,kind=kind,max_record=maximum,owner=facade,
+                                        authority=facade,name=service,lock_digest=lock_digest)
+                boundary=kind
+            except BaseException:
+                facade.close();raise
+        else:
+            session = open_local_session(plan)
+            boundary = 'message' if isinstance(session, LocalMessageSession) else 'stream'
         entry = {'service': service, 'lockDigest': lock_digest, 'planDigest': plan_digest,
                  'boundary': boundary, 'session': session, 'ioLock': threading.RLock()}
         with self._lock:
             self._reap_locked()
-            if len(self._entries) >= self.limit:
+            if len(self._entries)+len(self._transfers) >= self.limit:
                 self._close_entry(entry)
                 raise ValueError('ApplicationSessionCapacityReached')
             while True:
@@ -177,6 +200,7 @@ class SessionHandleManager:
             raise ValueError('InvalidApplicationSessionHandle')
         with self._lock:
             entry = self._entries.pop(handle, None)
+            if entry is None: entry=self._transfers.pop(handle,None)
         if entry is None:
             return {'schema': 'shadow6.application-session-close.v1', 'handle': handle, 'closed': False}
         with entry['ioLock']:
@@ -197,11 +221,23 @@ class SessionHandleManager:
                 if self._entries.get(handle) is not entry:
                     raise ValueError('ApplicationSessionExpiredOrUnknown')
                 del self._entries[handle]
-            return entry['session'].socket.detach()
+            try:
+                # Python timeout sockets use O_NONBLOCK underneath. A raw C
+                # borrower receives a blocking descriptor and chooses its own
+                # poll/nonblocking policy after transfer.
+                entry['session'].socket.settimeout(None)
+                if hasattr(entry['session'],'detach'):
+                    fd=entry['session'].detach()
+                    with self._lock:self._transfers[handle]=entry
+                    return fd
+                return entry['session'].socket.detach()
+            except BaseException:
+                self._close_entry(entry);raise
 
     def close_service(self, service):
         with self._lock:
             handles = [handle for handle, entry in self._entries.items() if entry['service'] == service]
+            handles.extend(handle for handle,entry in self._transfers.items() if entry['service']==service)
         closed = 0
         for handle in handles:
             if self.close(handle)['closed']:
@@ -210,7 +246,7 @@ class SessionHandleManager:
 
     def close_all(self):
         with self._lock:
-            handles = list(self._entries)
+            handles = list(self._entries)+list(self._transfers)
         for handle in handles:
             self.close(handle)
 

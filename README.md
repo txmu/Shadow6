@@ -1,5 +1,13 @@
 # Shadow6
 
+Operator configuration uses the existing typed/native form → secret-safe review →
+managed content-addressed store → plan/lock/material checks → apply/run/relock/
+remove/reclaim authority. See [Operator Web](docs/operator-web.md). Applications
+consume Named Services through the [Application SDK](docs/application-sdk.md),
+including native FD handoff, locked S6NA credited sockets and explicit peer
+fallback/reconnect. [Test Lab](docs/wan-pcap-test-lab.md) keeps kernel transfer,
+real native payloads, WAN/PCAP and unsupported platform capabilities distinct.
+
 ## First Named Service without global installation
 
 Use a trusted **prebuilt tar** for your platform, verify its published digest,

@@ -70,3 +70,18 @@ class BoundaryTests(unittest.TestCase):
         facade.connection_plan = lambda _name: next(plans)
         with self.assertRaises(ConnectionError) as caught: facade.connect_handle('test',timeout=1)
         self.assertEqual(caught.exception.code,'ReviewedLockChanged')
+
+    def test_late_socket_attachment_after_timeout_is_closed(self):
+        from libshadow6.pending import bounded
+        import time
+        released=threading.Event();opened=threading.Event();closed=threading.Event()
+        class Attachment:
+            def __init__(self):self.socket,self.peer=socket.socketpair()
+            def close(self):self.socket.close();self.peer.close();closed.set()
+        def opening():
+            opened.set();released.wait(1);return Attachment()
+        started=time.monotonic()
+        with self.assertRaisesRegex(ConnectionError,'ConnectionTimedOut'):
+            bounded(opening,deadline=started+.02,attachment=True)
+        self.assertLess(time.monotonic()-started,.25)
+        self.assertTrue(opened.is_set());released.set();self.assertTrue(closed.wait(1))

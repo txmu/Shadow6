@@ -1,6 +1,21 @@
 #!/usr/bin/env python3
 """Comparable, bounded component workloads; separate from native Core rankings."""
 from __future__ import annotations
+
+try:
+    from Deployment.service_storage import strict_json as portable_json
+except ImportError:
+    import sys
+    from pathlib import Path
+    for _json_parent in Path(__file__).resolve().parents:
+        for _json_path in (_json_parent / 'Deployment', _json_parent / 'deployment',
+                           _json_parent / 'share/shadow6/deployment'):
+            if (_json_path / 'service_storage.py').is_file():
+                sys.path.insert(0,str(_json_path)); break
+        else: continue
+        break
+    from service_storage import strict_json as portable_json
+
 import argparse
 import asyncio
 import base64
@@ -183,7 +198,7 @@ def run(components=("adapter","virtual-broker"),cores=tuple(CORE_PATHS),payloads
                             if not node: raise RuntimeError("Node.js unavailable")
                             code,out,err,usage=execute([node,str(ROOT/"Benchmark/adapter_worker.mjs"),json.dumps(spec)],60)
                             if code: raise RuntimeError(err[-2048:] or f"worker exit {code}")
-                            return json.loads(out)
+                            return portable_json(out, limit=1048576, allow_measurement_floats=True)
                         record(row,operation)
     if "virtual-broker" in components:
         for load in loads:

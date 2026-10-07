@@ -12,6 +12,21 @@ Workflow:
     Detector -> stdout -> Sentinel (watch.py) -> Orchestrator (apply)
 """
 
+try:
+    from Deployment.service_storage import strict_json as portable_json
+except ImportError:
+    import sys
+    from pathlib import Path
+    for _json_parent in Path(__file__).resolve().parents:
+        for _json_path in (_json_parent / 'Deployment', _json_parent / 'deployment',
+                           _json_parent / 'share/shadow6/deployment'):
+            if (_json_path / 'service_storage.py').is_file():
+                sys.path.insert(0,str(_json_path)); break
+        else: continue
+        break
+    from service_storage import strict_json as portable_json
+
+
 import os
 import sys
 import time
@@ -193,7 +208,7 @@ class ShadowSentinel:
                     result[key] = value
                 return result
 
-            event = json.loads(reason.split(marker, 1)[1], object_pairs_hook=unique_fields)
+            event = portable_json(reason.split(marker, 1)[1], limit=1048576)
             if not isinstance(event, dict) or set(event) != {"version", "source", "port"}:
                 return None
             if type(event["version"]) is not int or event["version"] != 1:

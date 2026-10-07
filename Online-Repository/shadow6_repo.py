@@ -1,6 +1,21 @@
 #!/usr/bin/env python3
 """Signed bounded Shadow6 online repository builder, verifier, fetcher and server."""
 from __future__ import annotations
+
+try:
+    from Deployment.service_storage import strict_json as portable_json
+except ImportError:
+    import sys
+    from pathlib import Path
+    for _json_parent in Path(__file__).resolve().parents:
+        for _json_path in (_json_parent / 'Deployment', _json_parent / 'deployment',
+                           _json_parent / 'share/shadow6/deployment'):
+            if (_json_path / 'service_storage.py').is_file():
+                sys.path.insert(0,str(_json_path)); break
+        else: continue
+        break
+    from service_storage import strict_json as portable_json
+
 import argparse,hashlib,json,os,re,socket,ssl,stat,tempfile,threading,urllib.parse,urllib.request
 from http.server import ThreadingHTTPServer,BaseHTTPRequestHandler
 from pathlib import Path
@@ -8,13 +23,6 @@ from typing import Any
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey,Ed25519PublicKey
 MAX_INDEX=1_048_576;MAX_PACKAGE=256*1024*1024;MAX_TOTAL_DOWNLOAD=512*1024*1024;MAX_PACKAGES=2048
-def _reject_duplicate(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
-    result: dict[str, Any] = {}
-    for key, value in pairs:
-        if key in result:
-            raise ValueError(f"duplicate JSON field: {key}")
-        result[key] = value
-    return result
 
 
 def strict_json(data: bytes, limit: int = 1024 * 1024) -> dict[str, Any]:
@@ -22,8 +30,7 @@ def strict_json(data: bytes, limit: int = 1024 * 1024) -> dict[str, Any]:
         raise ValueError("JSON document exceeds size limit")
     try:
         text = data.decode("utf-8") if isinstance(data, bytes) else data
-        reject_number = lambda _: (_ for _ in ()).throw(ValueError("floats/nonfinite numbers are forbidden"))
-        value = json.loads(text, object_pairs_hook=_reject_duplicate, parse_float=reject_number, parse_constant=reject_number)
+        value = portable_json(text, limit=limit)
     except (UnicodeError, ValueError, RecursionError) as exc:
         raise ValueError("invalid UTF-8 JSON") from exc
     if not isinstance(value, dict):
@@ -66,6 +73,9 @@ def canonical(value: Any) -> bytes:
     encoded = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False).encode()
     if len(encoded) > 1_048_576:
         raise ValueError("JSON document exceeds size limit")
+    try:
+        portable_json(encoded,limit=1_048_576)
+    except ValueError as exc:raise ValueError("invalid portable JSON") from exc
     return encoded
 
 

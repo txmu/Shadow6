@@ -2,6 +2,21 @@
 """Loopback Virtual Client/Agent admission proxy for one native Core family."""
 from __future__ import annotations
 
+try:
+    from Deployment.service_storage import strict_json as portable_json
+except ImportError:
+    import sys
+    from pathlib import Path
+    for _json_parent in Path(__file__).resolve().parents:
+        for _json_path in (_json_parent / 'Deployment', _json_parent / 'deployment',
+                           _json_parent / 'share/shadow6/deployment'):
+            if (_json_path / 'service_storage.py').is_file():
+                sys.path.insert(0,str(_json_path)); break
+        else: continue
+        break
+    from service_storage import strict_json as portable_json
+
+
 import argparse
 import asyncio
 import base64
@@ -47,9 +62,7 @@ def _endpoint(value):
 
 
 def load_config(path: Path):
-    value = json.loads(bounded_file(path, 16384).decode("utf-8"),
-                       object_pairs_hook=pairs, parse_float=reject_float,
-                       parse_constant=reject_float)
+    value = portable_json(bounded_file(path, 16384).decode("utf-8"), limit=262144)
     expected = {"schema", "role", "core", "tenant", "identity", "private_key_file",
                 "transport", "listen", "gate", "max_connections", "idle_seconds"}
     if type(value) is not dict or set(value) != expected or value["schema"] != SCHEMA:

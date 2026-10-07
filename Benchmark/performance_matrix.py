@@ -1,6 +1,21 @@
 #!/usr/bin/env python3
 """Bounded throughput/long-flow matrix, separate from the 4-byte CI gate."""
 from __future__ import annotations
+
+try:
+    from Deployment.service_storage import strict_json as portable_json
+except ImportError:
+    import sys
+    from pathlib import Path
+    for _json_parent in Path(__file__).resolve().parents:
+        for _json_path in (_json_parent / 'Deployment', _json_parent / 'deployment',
+                           _json_parent / 'share/shadow6/deployment'):
+            if (_json_path / 'service_storage.py').is_file():
+                sys.path.insert(0,str(_json_path)); break
+        else: continue
+        break
+    from service_storage import strict_json as portable_json
+
 import argparse, json, os, platform, subprocess, sys, time
 from pathlib import Path
 from benchmark import BACKENDS, CORE_PATHS, execute, network_result
@@ -83,7 +98,7 @@ def main():
     parser.add_argument("--concurrency",action="append",type=int)
     args=parser.parse_args(); targets=None
     if args.external_config:
-        document=json.loads(Path(args.external_config).read_text(encoding="utf-8"))
+        document=portable_json(Path(args.external_config).read_text(encoding="utf-8"), limit=1048576)
         if not isinstance(document,dict) or set(document)!={"version","targets"} or document["version"]!=1 or not isinstance(document["targets"],list):
             parser.error("invalid external config")
         targets=document["targets"]

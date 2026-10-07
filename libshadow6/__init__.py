@@ -11,7 +11,7 @@ from threading import RLock
 from pathlib import Path
 
 __all__ = ["Shadow6", "Shadow6Error", "Session", "CreditedSession",
-           "WebrtcClientReflector", "BoundaryDescriptor", "ConnectionHandle", "ConnectionError", "ControlClient", "RegistryControl", "run"]
+           "PeerConnection", "WebrtcClientReflector", "BoundaryDescriptor", "ConnectionHandle", "ConnectionError", "ControlClient", "RegistryControl", "run"]
 
 from .webrtc_signal import WebrtcClientReflector
 from .boundary import BoundaryDescriptor, ConnectionHandle, ConnectionError
@@ -313,9 +313,8 @@ class Shadow6:
                         require: dict | None):
         """Return a direct native socket after canonical readiness and admission.
 
-        The Named Service supplies the operator-selected Core/Profile. This
-        version fails closed for credited paths requiring a userspace facade.
-        Existing connect/open_application APIs remain available for those paths.
+        The Named Service supplies the operator-selected Core/Profile and
+        adapter. A credited socket retains S6NA credit/backpressure admission.
         """
         import time
         if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or not 0 < timeout <= 300:
@@ -328,8 +327,8 @@ class Shadow6:
                 raise ConnectionError('FacadeClosed')
             if cancellation is not None and cancellation.is_set():
                 raise ConnectionError('ConnectionCancelled', state='cancelled')
-            plan = self.connection_plan(name)
-            binding = (plan.get('lockDigest'), plan.get('profileBinding'), plan.get('applicationAdapter'))
+            plan = self._connection_plan_before(name,deadline,cancellation)
+            binding = tuple(plan.get(key) for key in ('lockDigest','profileBinding','applicationAdapter','securityPolicyDigest','contextDigest'))
             if initial is None:
                 initial = binding
             elif initial != binding:
@@ -342,8 +341,6 @@ class Shadow6:
                 cancellation.wait(min(.1, max(0, deadline-time.monotonic())))
             else:
                 time.sleep(min(.1, max(0, deadline-time.monotonic())))
-        if (plan.get('applicationAdapter') or {}).get('provider') == 's6na':
-            raise ConnectionError('DirectBoundaryUnavailable')
         descriptor = BoundaryDescriptor.from_plan(plan)
         capabilities = descriptor.to_dict()
         if require is not None:
@@ -352,8 +349,39 @@ class Shadow6:
             if any(capabilities.get(key) != value for key, value in require.items()):
                 raise ConnectionError('FlowCapabilityUnavailable')
         from Deployment.connection_plan import open_local_session
-        attachment = open_local_session(plan)
+        if time.monotonic()>=deadline: raise ConnectionError('ConnectionTimedOut',retryable=True)
+        if os.environ.get('SHADOW6_CONTROL_SOCKET'):
+            if os.environ.get('SHADOW6_APPLICATION_LIBRARY'):
+                from .native_client import open_native
+                attachment,metadata=open_native(name,timeout=deadline-time.monotonic(),cancellation=cancellation)
+            else:
+                from .fd_client import open_fd, SocketAttachment
+                connection,metadata=open_fd(name,timeout=deadline-time.monotonic(),cancellation=cancellation)
+                attachment=SocketAttachment(connection)
+            if (metadata.get('profileBinding')!=plan.get('profileBinding') or
+                    metadata.get('lockDigest')!=plan.get('lockDigest') or
+                    metadata.get('boundary')!=descriptor.to_dict()):
+                attachment.close();raise ConnectionError('ReviewedLockChanged')
+        elif (plan.get('applicationAdapter') or {}).get('provider')=='s6na':
+            from .credited_boundary import CreditedBoundary
+            session=self.open_credited_for_service(name)
+            maximum=min(session.endpoint.adapter.limits.max_message, descriptor.max_record or 65536)
+            attachment=CreditedBoundary(session,kind=descriptor.kind,max_record=maximum,
+                                       authority=self,name=name,lock_digest=plan.get('lockDigest'))
+        else:
+            try:
+                from .pending import bounded
+                attachment=bounded(lambda:open_local_session(plan),deadline=deadline,cancellation=cancellation,attachment=True)
+            except (TimeoutError,OSError) as error:
+                raise ConnectionError('ConnectionTimedOut' if isinstance(error,TimeoutError) else 'ConnectionRefused',retryable=True) from None
         try:
+            if time.monotonic()>=deadline: raise ConnectionError('ConnectionTimedOut',retryable=True)
+            from .pending import bounded
+            refreshed=bounded(lambda:self._control('service.status',{'name':name}),deadline=deadline,cancellation=cancellation)
+            if ((refreshed.get('deploymentLock') or {}).get('digest')!=plan.get('lockDigest') or
+                    refreshed.get('profileBinding')!=plan.get('profileBinding') or
+                    refreshed.get('state') not in {'running','degraded'}):
+                raise ConnectionError('ReviewedLockChanged')
             if cancellation is not None and cancellation.is_set():
                 raise ConnectionError('ConnectionCancelled', state='cancelled')
             handle = ConnectionHandle(self, name, plan, attachment, descriptor)
@@ -392,6 +420,10 @@ class Shadow6:
         """Resolve a named service through the same S6P1 connection pipeline."""
         return self._control('service.connect', {'name':name})
 
+    def _connection_plan_before(self,name,deadline,cancellation):
+        from .pending import bounded
+        return bounded(lambda:self.connection_plan(name),deadline=deadline,cancellation=cancellation)
+
     def profiles(self) -> dict:
         return self._control('core.profiles', {})
 
@@ -409,7 +441,9 @@ class Shadow6:
         """
         allowed = {'service.propose','service.validate','service.plan','service.create',
             'service.setup','service.run','service.stop','service.restart','service.relock',
-            'service.apply','service.remove','service.connection_review'}
+            'service.apply','service.remove','service.connection_review',
+            'service.config_inspect','service.config_review','service.config_save',
+            'service.config_plan','service.config_apply','service.config_reclaim'}
         if method not in allowed:
             raise ValueError('unsupported lifecycle operation')
         return self._control(method, params)
@@ -542,6 +576,9 @@ class Shadow6:
                 existing.close_when_idle = close_when_idle and existing.close_when_idle
                 return existing, preferred
             self._attachment_pools.add(pool)
+            if len(self._attachment_pools)>64:
+                self._attachment_pools.discard(pool);endpoint.close()
+                raise Shadow6Error('S6NA_ENDPOINT_CAPACITY')
             self._attachment_pool_map[cache_key] = pool
         return pool, preferred
 
@@ -563,7 +600,8 @@ class Shadow6:
         try:
             from Deployment.service_registry import ServiceRegistry
             from Deployment.credited_attachment import credited_core
-            item, material = ServiceRegistry().credited_attachment(name)
+            registry=getattr(getattr(self,'_control_client',None),'_registry',None) or ServiceRegistry()
+            item, material = registry.credited_attachment(name)
         except (OSError, ValueError) as error:
             raise Shadow6Error(str(error)) from error
         attachment = material

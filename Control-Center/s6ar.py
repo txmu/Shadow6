@@ -2,32 +2,24 @@
 from __future__ import annotations
 import base64, json, re, uuid
 
+try:
+    from Deployment.service_storage import strict_json as portable_json
+except ImportError:
+    import sys
+    from pathlib import Path
+    for _json_path in (Path(__file__).resolve().parents[1] / 'Deployment',
+                       Path(__file__).resolve().parents[1] / 'deployment'):
+        if (_json_path / 'service_storage.py').is_file():
+            sys.path.insert(0, str(_json_path)); break
+    from service_storage import strict_json as portable_json
+
 PREFIX = "S6AR1."
 MAX_SIZE = 262144
-
-def _reject_float(value):
-    raise ValueError("floating-point values are not permitted in S6AR1")
-
-def _pairs(items):
-    result = {}
-    for key, value in items:
-        if key in result:
-            raise ValueError("duplicate S6AR1 field")
-        result[key] = value
-    return result
-
-def _reject_nested_float(value):
-    if isinstance(value, float):
-        raise ValueError("floating-point values are not permitted in S6AR1")
-    if isinstance(value, dict):
-        for item in value.values(): _reject_nested_float(item)
-    elif isinstance(value, list):
-        for item in value: _reject_nested_float(item)
 
 def pack(message: dict) -> str:
     if type(message) is not dict or set(message) != {"schema", "version", "kind", "receiver", "router", "payload"}:
         raise ValueError("invalid S6AR1 message")
-    if message["schema"] != "shadow6.api-receiver-router.v1" or message["version"] != 1:
+    if message["schema"] != "shadow6.api-receiver-router.v1" or type(message["version"]) is not int or message["version"] != 1:
         raise ValueError("invalid S6AR1 schema")
     if message["kind"] not in ("request", "response", "event"):
         raise ValueError("invalid S6AR1 kind")
@@ -53,8 +45,8 @@ def pack(message: dict) -> str:
     else:
         if set(payload) - {"event", "correlation_id", "data"} or not re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", str(payload.get("event", ""))): raise ValueError("invalid S6AR1 event")
         if "correlation_id" in payload and not re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", str(payload["correlation_id"])): raise ValueError("invalid S6AR1 event correlation")
-    _reject_nested_float(message)
     raw = json.dumps(message, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False).encode()
+    portable_json(raw, limit=MAX_SIZE)
     token = PREFIX + base64.urlsafe_b64encode(raw).decode().rstrip("=")
     if len(token) > MAX_SIZE: raise ValueError("S6AR1 message is oversized")
     return token
@@ -62,7 +54,8 @@ def pack(message: dict) -> str:
 def unpack(token: str) -> dict:
     if type(token) is not str or not token.startswith(PREFIX) or len(token) > MAX_SIZE:
         raise ValueError("invalid S6AR1 message")
-    try: value = json.loads(base64.urlsafe_b64decode(token[len(PREFIX):] + "==="), object_pairs_hook=_pairs, parse_float=_reject_float, parse_constant=_reject_float)
+    if not re.fullmatch(r"[A-Za-z0-9_-]+",token[len(PREFIX):]):raise ValueError("invalid S6AR1 alphabet")
+    try: value = portable_json(base64.b64decode(token[len(PREFIX):] + "=" * (-len(token[len(PREFIX):]) % 4), altchars=b"-_", validate=True), limit=MAX_SIZE)
     except Exception as exc: raise ValueError("invalid S6AR1 encoding") from exc
     pack(value)
     return value

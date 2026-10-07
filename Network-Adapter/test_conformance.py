@@ -48,3 +48,16 @@ class ConformanceTests(unittest.TestCase):
   self.assertEqual(frame.hex(),"53364e41010100000000000000000007000000000000002a000000010000000d42e3db28ec08001b41581ea8010d468a5f828ae126237ba96b6b3f53f6")
 
 if __name__=="__main__":unittest.main()
+
+class StrictJsonNodeTests(unittest.TestCase):
+ def test_shared_strict_json_corpus_in_node(self):
+  import json, subprocess
+  from pathlib import Path
+  root=Path(__file__).resolve().parents[1]
+  script="""import fs from 'node:fs'; import {strictJSON} from './Network-Adapter/shadow6_network.mjs';
+const corpus=JSON.parse(fs.readFileSync('./Tools/strict_json_conformance.json','utf8'));
+for(const row of corpus.cases){let accepted=true;try{strictJSON(row.input)}catch{accepted=false}if(accepted!==row.accepted)throw Error(row.id)}
+for(const input of ['{\"x\":1e0}','{\"x\":1.0}','{\"x\":\"e\\\\u0301\"}']){let accepted=true;try{strictJSON(input)}catch{accepted=false}if(accepted)throw Error(input)}
+console.log('strict corpus passed');"""
+  result=subprocess.run(['node','--input-type=module','-e',script],cwd=root,capture_output=True,text=True,timeout=10)
+  self.assertEqual(result.returncode,0,result.stderr)

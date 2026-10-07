@@ -320,7 +320,7 @@ class BrokerRuntimeRealizationTests(unittest.TestCase):
         from unittest.mock import patch
         from Deployment.connection_plan import resolve_connection
         context=minimal_context('go');context['role']='client';context['routes']=[pool(2)]
-        item={'state':'running','protocolContext':context,'profileBinding':__import__('Deployment.profile_registry',fromlist=['bind_profile']).bind_profile('go'),'coreBinding':{'core':'go'},'runtime':{'readiness':'process-alive','endpoint':None}}
+        item={'state':'running','privacy':'native','spec':{},'protocolContext':context,'profileBinding':__import__('Deployment.profile_registry',fromlist=['bind_profile']).bind_profile('go'),'coreBinding':{'core':'go','config':{'config_path':str(self.config)}},'runtime':{'readiness':'process-alive','endpoint':None}}
         with patch('Deployment.connection_plan.connection_plan',wraps=__import__('Deployment.connection_plan',fromlist=['connection_plan']).connection_plan) as planner:
             from unittest.mock import Mock
             registry=Mock();registry.connection_inputs.return_value=(item,{'brokerRealization':{'adapter':'gate'}})

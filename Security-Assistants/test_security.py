@@ -7,7 +7,7 @@ from pathlib import Path
 
 
 HERE = Path(__file__).resolve().parent
-ROOT = HERE.parent
+ROOT = Path(os.environ.get('SHADOW6_TEST_RUNTIME_ROOT',HERE.parent)).resolve()
 sys.path.insert(0, str(HERE))
 from shadow6_security import (  # noqa: E402
     COMPONENTS, SecurityError, append_event, doctor, evaluate_policy, generate_ledger_key,

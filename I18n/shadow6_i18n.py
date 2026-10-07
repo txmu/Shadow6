@@ -2,6 +2,21 @@
 """Bounded UTF-8 bundles and named-only interpolation for contributed text."""
 from __future__ import annotations
 
+try:
+    from Deployment.service_storage import strict_json as portable_json
+except ImportError:
+    import sys
+    from pathlib import Path
+    for _json_parent in Path(__file__).resolve().parents:
+        for _json_path in (_json_parent / 'Deployment', _json_parent / 'deployment',
+                           _json_parent / 'share/shadow6/deployment'):
+            if (_json_path / 'service_storage.py').is_file():
+                sys.path.insert(0,str(_json_path)); break
+        else: continue
+        break
+    from service_storage import strict_json as portable_json
+
+
 import json
 import os
 import re
@@ -100,7 +115,7 @@ def load_bundle(path: Path) -> dict[str, str]:
                     raise I18nError("translation bundles cannot contain nested containers")
             elif char in "}]":
                 depth -= 1
-        document = json.loads(source, object_pairs_hook=_object)
+        document = portable_json(source, limit=1048576)
     except (UnicodeError, ValueError, RecursionError) as exc:
         raise I18nError("invalid UTF-8 translation bundle") from exc
     if not isinstance(document, dict):

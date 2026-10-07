@@ -1,96 +1,135 @@
-# Application SDK: direct native attachments (v1)
+# Application SDK and handle ownership (v1)
 
-An operator binds a Named Service to an explicit Core and Native Profile using
-`shadow6 setup`. Applications select that service; changing its locked Profile
-does not add a Core branch to application networking code. The canonical
-ServiceRegistry still performs material/lock/HostBudget admission. No SDK
-operation chooses a different Core, relocks drift, or substitutes a relay.
+Operators choose an explicit Core and Profile and provision a Named Service.
+Applications consume its Application Boundary through `Shadow6.connect_handle`
+or `Shadow6.peer`; application networking has no Core selection branch. The
+existing ServiceRegistry remains the material, lock, policy and admission
+authority. Attachments do not create, relock or stop an independent service.
 
-`Shadow6.connect_handle(name, timeout=10, cancellation=threading.Event(),
-require={...})` obtains the canonical connection plan and opens its observed
-ApplicationBoundary. It returns `ConnectionHandle`, with a frozen versioned
-`BoundaryDescriptor`, `socket`, borrowed `fileno()`, caller-owned `dup_fd()`,
-`describe()`, canonical `status()`, and idempotent `close()`/`disconnect()`.
-There are at most 64 attachments and pending connects per facade. Capability
-and ownership tests are distinct from real transport verification.
+```python
+from libshadow6 import Shadow6
 
-For a persistent control connection, explicitly create
-`ControlClient(token_file, port=9466)` and pass `Shadow6(control=client)`.
-The backend remains loopback-only and bearer-authenticated. The caller owns
-and closes this control client separately. `profiles()`, `service_status()` and
-`lifecycle(method, params)` reuse dispatcher operations. Lifecycle mutations
-require the same explicit confirmation and reviewed digests as other adapters.
-There is no implicit create/run/stop associated with attachment lifetime.
-Legacy `connect`, `open_application`, `open`, and credited APIs remain intact.
+with Shadow6() as sdk, sdk.peer("home/game") as peer:
+    handle = peer.connect(timeout=10)
+    print(handle.describe())
+    # Use handle.socket with the application's own framing/event loop.
+```
 
-The data path is the returned native socket, with no CLI/JSON/RPC per packet.
-Use `send/recv`, `recv_into`, scatter/gather, and the application's own event
-loop. This avoids SDK forwarding and unnecessary user-space copies; it does
-not claim kernel zero-copy for every socket or Core.
+`ConnectionHandle` owns its attachment. `fileno()` is borrowed until close;
+`dup_fd()` returns a caller-owned non-inheritable POSIX duplicate. Duplicates
+share socket queues/flags and can survive handle close. Close every duplicate
+and serialize I/O, flag changes and destruction. `close()` is idempotent, and
+facade close closes its attachments. Neither action stops the Named Service.
+`status()` checks the current canonical lock and observable socket failures.
+Remote identity remains null when the authority has no authenticated remote
+identity to publish; a local PID is not a remote authentication claim.
 
-| Logical boundary | Realization | Application semantics |
+## Native ABI and transfer backends
+
+Build only the small C/C++ attachment library with
+`make -C libshadow6/native check`. It requires POSIX, pthreads and Python
+embedding headers/libpython. It builds on Linux and macOS. `shadow6.h`
+negotiates `S6_APPLICATION_ABI_V1`; descriptor queries copy versioned JSON into
+caller-sized buffers. This ABI does not make twelve Core wire formats compatible.
+
+With `SHADOW6_CONTROL_SOCKET` and `SHADOW6_CONTROL_TOKEN_FILE`, C and Python
+prefer the existing FD Gateway. It executes a fresh canonical connection review
+and `connect_execute`, checks the local peer UID, and transfers exactly one
+socket using SCM_RIGHTS. Linux uses Unix seqpacket control messages; macOS uses
+bounded length-prefixed Unix stream control messages. The credential is a
+stable owner-controlled mode-0600 regular file, and the socket and parent are
+owner-only. Each request has a cryptographic nonce and bounded issuance window;
+replays and malformed/truncated/extra-descriptor responses fail closed. Receiving
+code closes all unaccepted descriptors. A raw transferred descriptor starts
+blocking and non-inheritable; the application chooses its own polling policy.
+
+`s6_connection_open_with_options` accepts a 1..30000 ms timeout and an optional
+borrowed POSIX cancellation fd. Readability cancels without consuming or
+closing that fd. The old `s6_connection_open` remains a 30-second convenience
+entry. Destroy must be serialized against all uses of its connection pointer.
+
+Without a configured FD Gateway, the C ABI retains the Python control fallback.
+It initializes Python only when necessary and leaves the interpreter alive;
+never finalize/unload Python with live fallback handles. Python also retains
+its local observed-boundary fallback. With both gateway variables and
+`SHADOW6_APPLICATION_LIBRARY`, Python wraps the same C ABI; Test Lab uses this
+mode. Load only a trusted SDK build/artifact. The wrapper snapshots the bounded,
+owner-controlled library before loading so path replacement cannot substitute
+bytes between validation and loading.
+
+Windows uses `ConnectionHandle.export_handle` and
+`WindowsHandleTransfer.receive`, wrapping the actual
+WSADuplicateSocket/socket.share/socket.fromshare backend. It checks the explicit
+recipient PID and same-user process tokens, authenticates the transfer with a
+private control-session credential and expected nonce, enforces a 30-second
+expiry, and rejects replay. The recipient owns and closes the returned socket.
+Transport the bounded transfer document through the application's already
+authenticated private control channel. It is not a file descriptor integer or
+an automatic network listener. The POSIX C library is not a Windows DLL; the
+Windows handle backend is verified by a Windows kernel/process CI test.
+
+Named Service supervision still requires Linux pidfd and owned runtime
+observations. macOS SCM_RIGHTS and Windows handle transfer do not imply a
+portable replacement for that supervisor. Native Core platform/transport limits
+remain those in each Core README; no hypervisor or NAT capability is inferred.
+
+## Boundary semantics and S6NA
+
+| Kind | Realization | Data and framing |
 | --- | --- | --- |
-| stream | localhost-tcp-proxy | bytes; application supplies framing |
-| message | localhost-udp-datagram-proxy | one datagram per send; best effort, unordered |
-| message | seqpacket-fd | one bounded record per send; owner-checked Unix attachment handshake |
+| stream | localhost-tcp-proxy | Native bytes; application framing |
+| message | localhost-udp-datagram-proxy | Native bounded datagrams |
+| message | seqpacket-fd | Owned bounded native record attachment |
+| stream/message | credited-socket | Bounded local socket over the locked S6NA credited session |
 
-`reliable`, `ordered`, and `freshness_preferred` are nullable: null means the
-Profile does not promise that capability. A local seqpacket socket does not
-prove native end-to-end reliability. Requirements match declared capabilities;
-unknown cannot satisfy a true or false requirement. Oversize and EOF behavior
-remain the Native Profile's contract. In particular, seqpacket empty records
-mean drain/EOF; UDP empty datagrams remain datagrams. Raw record reads must use
-`recvmsg` and reject `MSG_TRUNC`. No record-to-stream conversion is implicit.
+`BoundaryDescriptor` publishes kind, realization, semantics, maximum record,
+nullable reliability/order/freshness capabilities, ownership and `data_path`.
+A local socket does not add native delivery guarantees. Unknown capabilities
+cannot satisfy a requested true/false guarantee. Raw message reads must reject
+truncation and preserve one record per send. Native seqpacket empty records
+retain their declared EOF semantics; UDP empty datagrams are not stream EOF.
 
-The descriptor schema is in `libshadow6/schemas`. Descriptor v1 is immutable
-metadata; handle v1 includes current SDK lifecycle state, the locked binding,
-endpoint, runtime identity, and canonical readiness evidence. Peer/session
-identity is null when the authority does not publish it; local PID identity is
-not presented as authenticated remote identity. WebRTC envelope readiness is
-admitted by the existing ServiceRegistry's current authenticated transport
-observation, rather than by the SDK probing a port.
+A locked S6NA path is consumed through `connect_handle` without bypassing S6NA.
+Its bounded worker uses the existing CreditedSession/CreditedPool transport and
+credit accounting, with one pending record per direction and bounded socket
+buffers. It stops consuming local writes while S6NA has exhausted credits;
+local socket queues supply application backpressure. Stream chunks fit the
+available frame window; message maxima also respect that window. Profiles'
+reliability declarations are preserved. S6NA requires nonempty data records.
 
-The original fd is borrowed until close. `dup_fd()` creates a non-inheritable
-reference owned by the caller. Duplicates share socket queues/options and can
-keep an attachment alive after the handle closes; applications must close all
-of them. Python control operations are serialized, but applications must
-synchronize data I/O, changing blocking flags, and close. Each facade owns its
-new handles; facade close closes attachments, never the Named Service runtime.
-No finalizer stops a service. Process exit releases owned OS descriptors.
-Do not fork with live SDK/control objects; close inherited descriptors in the
-child and create a fresh facade. A direct fd does not have the web terminal's
-300-second/16-MiB facade budget; native Profile and deployment limits still
-apply. Applications own queue/record limits after handoff.
+`data_path=s6na-credited-socket` distinguishes this forwarding path from
+`native-socket`; it is not zero-copy. At most 64 workers are live, with a
+300-second/16-MiB boundary budget. Closing a stream fd ends its worker; local
+UDP record sockets have no close notification and use explicit handle close or
+the finite lifetime. Transferred credited sessions remain tracked for canonical
+service stop/remove. Direct Python credited handles additionally check the
+service lock/state periodically. Raw native fd handoff has no Web terminal
+byte/time budget; deployment and native Profile limits still apply.
 
-Build the C/C++ application attachment interface with
-`make -C libshadow6/native check` (POSIX, pthreads, Python development headers
-and libpython). `shadow6.h` negotiates `S6_APPLICATION_ABI_V1`; descriptor
-queries use caller-sized buffers. It embeds the same Python control facade and
-hands the application a native fd. This is an application ABI, not a shared
-native data ABI for twelve Cores. The interpreter remains alive; do not unload
-libpython or finalize it before destroying handles. C destroy must be serialized
-against every use of that pointer. Windows HANDLE integration is not implemented.
+## Peer connection state
 
-`libshadow6/examples/direct.c` demonstrates connection/descriptor/fd ownership;
-`libshadow6/examples/game.py` owns a bounded 60Hz event loop and stream framing.
-Run the latter against a real operator-provisioned echo peer. Matchmaking and
-session material provisioning remain the application's integration with the
-existing explicit deployment workflow.
+`PeerConnection` supports idle/planning/connecting/connected/path-failed/
+degraded/cancelled/failed/closed states with bounded event history. `cancel()`
+and external cancellation events cancel an attempt; `disconnect()` prevents a
+late result from being published and closes a completed attachment.
+`reconnect()` closes the old attachment and explicitly opens a fresh one.
+Late success after timeout/cancellation is closed. Authority queries and local
+attachment opens use a bounded pool of sixteen pending operations; timeout
+returns promptly and late operations release their capacity when they finish. A naturally drained native
+one-flow service may need an operator restart before reconnection.
 
-The direct handle currently rejects a locked S6NA credited facade with
-`DirectBoundaryUnavailable`; it never bypasses the locked adapter. Existing
-`open_application()` supplies that facade. A transferable direct S6NA local
-boundary, remote authenticated identity publication, negotiated mixed reliable
-control/unreliable game flows, and explicit relay fallback orchestration require
-additional implementation and verification. NAT rebinding and seamless session
-migration are not claimed.
+Fallback services are explicit, distinct and bounded to four. Only declared
+retryable path failures trigger fallback. The candidate must match the primary
+Core, Profile, S6P1 context and security-policy digest. Actual opened handles
+are checked against the reviewed lock/binding, and reconnect pins the original
+security identity. A policy/Profile change requires a new peer object and an
+explicitly reviewed operator deployment. Network failure produces degraded
+state; status never reconnects silently. Matchmaking accepts only an existing
+validated S6P1 envelope. Seamless migration and SDK ICE are unsupported.
 
-The existing thirteen-Profile Named Service integration gate exercises both
-legacy attachments and the direct handle with real installed artifacts, native
-trios, payload correctness, 60Hz ticks, process restart and cleanup. It does not
-by itself establish WAN or NAT traversal evidence. Test Lab's Native and legal S6EPE worker paths also consume this handle, send
-60Hz bounded state updates and, only with declared reliability, intermittent
-control records. They publish loss/latency and unsupported control-flow
-capabilities separately and retain existing WAN/PCAP/artifact admission. The
-full WAN matrix requires CI execution; local loopback verification does not
-prove that matrix or NAT traversal.
+The real Web/config/ABI integration test uses an existing Go/KCP artifact,
+authenticated HTTP and native processes. The thirteen-Profile Named gate and
+Test Lab's native/legal S6EPE workers verify native application payloads and
+60Hz traffic. Test Lab additionally uses C ABI/SCM_RIGHTS in the owned WAN
+namespaces, retaining exact echo, flow ownership and PCAP checks. Loopback
+verification alone does not establish WAN, NAT traversal or remote deployment.

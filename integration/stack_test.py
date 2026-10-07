@@ -8,6 +8,21 @@ processes carry traffic to a local TCP echo target.
 
 from __future__ import annotations
 
+try:
+    from Deployment.service_storage import strict_json as portable_json
+except ImportError:
+    import sys
+    from pathlib import Path
+    for _json_parent in Path(__file__).resolve().parents:
+        for _json_path in (_json_parent / 'Deployment', _json_parent / 'deployment',
+                           _json_parent / 'share/shadow6/deployment'):
+            if (_json_path / 'service_storage.py').is_file():
+                sys.path.insert(0,str(_json_path)); break
+        else: continue
+        break
+    from service_storage import strict_json as portable_json
+
+
 import argparse
 import json
 import ipaddress
@@ -479,7 +494,7 @@ def wait_for_proxy(client: subprocess.Popen[str], log_path: Path, deadline: floa
 async def generate_configs(engine: str, output: Path, target_port: int, broker_port: int) -> None:
     if engine == "shadow6-cpp":
         subprocess.run([str(CORE_BINARIES[engine]), "--init-demo", str(output)], check=True, capture_output=True, timeout=10)
-        documents = {role: json.loads((output / f"{role}.json").read_text(encoding="utf-8")) for role in ("broker", "agent", "client")}
+        documents = {role: portable_json((output / f"{role}.json").read_text(encoding="utf-8"), limit=1048576) for role in ("broker", "agent", "client")}
         documents["broker"]["broker"]["listen_addr"] = f"127.0.0.1:{broker_port}"
         for role in ("agent", "client"):
             documents[role][role]["broker_addr"] = f"127.0.0.1:{broker_port}"

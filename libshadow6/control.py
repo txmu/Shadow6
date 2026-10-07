@@ -80,4 +80,8 @@ class RegistryControl:
         if method not in methods or set(params) != {'name'}:
             raise ConnectionError('UnsupportedControlOperation')
         with self._lock:
-            return methods[method](params['name'])
+            try:return methods[method](params['name'])
+            except (OSError,ValueError) as error:
+                code=str(error).split(':',1)[0]
+                if not code.isascii() or not code.isalpha() or len(code)>96:code='ConnectionRejected'
+                raise ConnectionError(code,retryable=code in {'ApplicationReadinessUnavailable','PeerUnavailable'}) from None

@@ -3,7 +3,7 @@
 ## 说明与范围
 
 本文根据当前 Git 仓库和前期考古材料整理，覆盖从 Shadow6 开始开发的
-2026-05-31 到 2026-10-04。5.31—9.5 的内容主要来自尚未提交的历史材料；
+2026-05-31 到 2026-10-07。5.31—9.5 的内容主要来自尚未提交的历史材料；
 9.6 起进入可直接追踪的 Git 信史阶段。因此，最早可见提交 `deb56a8a`
 （2026-09-06）不是项目起点，只是公开提交时间线的起点。
 
@@ -706,3 +706,38 @@ Carrier 抓包和 Detector 的 capture-group train/test 当前都如实标注 un
 SKIP；Control Center envelope 测试 10 PASS。四 Carrier PCAP、SSH/VPS 真实 WAN、完整 veth 分端
 矩阵、Android 设备抓包、capture-group 安全的 Detector 实验仍未实现。新增 CI 总包 workflow
 尚未在当前 revision 运行，不能声称该总包已由 GitHub 构建验证。
+
+## 2026-10-07：canonical 配置生命周期、Application ABI 与测试收口
+
+本轮在 `cb1b5393` 的现有 Control Center / Deployment / Named Service authority 上
+补齐配置 typed form、递归秘密脱敏 review/diff、内容寻址材料、plan/apply 摘要检查、
+当前绑定材料 relock 和删除服务后的显式 draft/snapshot reclaim。WebUI 没有增加任意
+文件写入、shell 或另一套部署 authority。旧 CLI/capsule 兼容入口仍保留。
+
+Application SDK 优先使用 FD Gateway / SCM_RIGHTS，保留 Python fallback，增加有界
+timeout/cancel、晚到结果清理、fd ownership、nonce 重放和 peer UID 检查。S6NA 通过
+现有 credited session 提供有界 socket boundary，保留 credit/backpressure；描述符
+明确标记该转交路径。PeerConnection 的 explicit fallback 校验 Core/Profile、上下文
+与安全策略绑定，reconnect 是新连接，不宣称 seamless migration 或 SDK ICE。
+macOS 提供 Unix stream SCM_RIGHTS backend，Windows 封装真实 WSADuplicateSocket
+及同用户进程/凭据/nonce/expiry 校验；Linux pidfd supervisor 尚未移植到其他平台。
+
+Python JSON trust boundaries复用既有 Deployment strict parser；Go/Rust/Gate/C++/Node
+补齐一致的 portable number、depth、duplicate/trailing、UTF-8/NFC 拒绝语义。
+NFC 表由同一 Unicode 数据库生成，不下载新依赖，也不共享 Core wire 实现。
+修复最新 Actions run `37596070786` 的安装遗漏 peer.py、sudo Python 依赖、抓包文件
+上传权限和 application-sdk artifact 映射问题。
+
+本地复用该 run 中成功 producer 的 Linux artifacts，没有做十二 Core 全编译。
+最终本地记录包括 Deployment 150、SDK/FD/Peer/config 43、Control Center 67、Security
+24、Infrastructure 3、standalone native Unicode/parser 3 项检查；相关组件、CLI、
+Detector、Tools 和 Node conformance suites 均通过。真实 Go/KCP 三角色 Web HTTP
+配置生命周期与 Python/C handoff 测试通过；Test Lab worker 的 C-ABI/SCM_RIGHTS、
+60Hz 60 次状态更新及 4 次控制记录、exact echo 和 cleanup 通过。源码离线 audit
+7 passed / 0 failed / 1 skipped（明确未做完整 binary hardening），shellcheck 无错误。
+早期临时空间不足、编译超时及验证中源码变化引发的失败保留在本地日志，未算作通过。
+
+CI 新增 Chromium typed form/save/apply 实测、三平台 kernel handle backend，以及
+全部 Native / 合法 S6EPE worker 的同次 SDK artifact / C ABI 验证。本地没有 Chromium、
+macOS/Windows kernel 或完整 WAN/netns/PCAP matrix 通过证据；本次提交时这些必须
+由新 CI run 验证，不能把源码或单元测试作为全矩阵 PASS。未生成新 release archives。

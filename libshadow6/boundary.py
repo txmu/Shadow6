@@ -1,6 +1,6 @@
 """Versioned application handles; native sockets remain the data path."""
 from __future__ import annotations
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, replace
 from threading import RLock
 import copy
 import os
@@ -49,9 +49,18 @@ class BoundaryDescriptor:
             if type(effective) is not int or not 1 <= effective <= maximum:
                 raise ConnectionError('InvalidApplicationRecordLimit')
             maximum = effective
-        return cls('shadow6.boundary-descriptor.v1', boundary['kind'], mode,
+        result = cls('shadow6.boundary-descriptor.v1', boundary['kind'], mode,
                    semantics, maximum, boundary.get('reliable'),
                    boundary.get('ordered'), boundary.get('freshness_preferred'))
+        if (plan.get('applicationAdapter') or {}).get('provider')=='s6na':
+            credited_maximum=plan.get('creditedBoundaryMaximum')
+            if type(credited_maximum) is not int or not 1<=credited_maximum<=65536:
+                raise ConnectionError('InvalidCreditedBoundaryLimit')
+            result=replace(result,realization='credited-socket',
+                semantics='stream' if boundary['kind']=='stream' else 'record',
+                max_record=min(maximum,credited_maximum) if maximum is not None else None,
+                data_path='s6na-credited-socket')
+        return result
 
     def to_dict(self):
         return asdict(self)
@@ -78,10 +87,21 @@ class ConnectionHandle:
             if self.state == 'closed': raise ConnectionError('ConnectionClosed', state='closed')
             return self._attachment.socket.fileno()
 
+    def export_handle(self, peer_pid, *, credential, nonce):
+        """Transfer to an explicit authenticated same-user Windows process."""
+        from .handle_transfer import WindowsHandleTransfer
+        with self._lock:
+            self.fileno()
+            return WindowsHandleTransfer.export(self.socket,peer_pid,credential=credential,nonce=nonce)
+
     def dup_fd(self):
         with self._lock:
+            self.fileno()
+            if os.name=='nt':
+                raise ConnectionError('UseWindowsHandleTransfer')
             fd = os.dup(self.fileno())
-            os.set_inheritable(fd, False)
+            try: os.set_inheritable(fd, False)
+            except BaseException: os.close(fd);raise
             return fd
 
     @property
@@ -104,7 +124,22 @@ class ConnectionHandle:
 
     def status(self):
         with self._lock:
+            self.fileno()
+            import socket, select
+            connection=self._attachment.socket
+            if connection.getsockopt(socket.SOL_SOCKET,socket.SO_ERROR):
+                self.state='degraded'
+                raise ConnectionError('PeerUnavailable',retryable=True)
+            if self.boundary.semantics=='stream' and select.select([connection],[],[],0)[0]:
+                try:
+                    if not connection.recv(1,socket.MSG_PEEK|getattr(socket,'MSG_DONTWAIT',0)):
+                        self.state='degraded'
+                        raise ConnectionError('PeerUnavailable',retryable=True)
+                except BlockingIOError: pass
             value = self._owner._control('service.status', {'name':self.name})
+            if getattr(self._attachment,'error',None):
+                self.state='degraded'
+                raise ConnectionError('PeerUnavailable',retryable=True)
             lock = (value.get('deploymentLock') or {}).get('digest')
             if lock != self._plan.get('lockDigest'):
                 self.state = 'drifted'
@@ -114,10 +149,11 @@ class ConnectionHandle:
     def close(self):
         with self._lock:
             if self.state == 'closed': return
-            self._attachment.close()
-            self.state = 'closed'
-            with self._owner._attachment_lock:
-                self._owner._connections.discard(self)
+            try: self._attachment.close()
+            finally:
+                self.state = 'closed'
+                with self._owner._attachment_lock:
+                    self._owner._connections.discard(self)
 
     disconnect = close
     def __enter__(self): return self

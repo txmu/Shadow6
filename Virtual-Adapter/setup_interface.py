@@ -1,6 +1,21 @@
 #!/usr/bin/env python3
 """Plan or explicitly create a local TUN/TAP interface; never run through an API."""
 from __future__ import annotations
+
+try:
+    from Deployment.service_storage import strict_json as portable_json
+except ImportError:
+    import sys
+    from pathlib import Path
+    for _json_parent in Path(__file__).resolve().parents:
+        for _json_path in (_json_parent / 'Deployment', _json_parent / 'deployment',
+                           _json_parent / 'share/shadow6/deployment'):
+            if (_json_path / 'service_storage.py').is_file():
+                sys.path.insert(0,str(_json_path)); break
+        else: continue
+        break
+    from service_storage import strict_json as portable_json
+
 import argparse
 import ipaddress
 import json
@@ -82,7 +97,7 @@ def apply_plan(value):
     existing = run(value['probe']).stdout
     if len(existing) > 1024 * 1024:
         raise ValueError('interface inventory exceeds limit')
-    names = [entry['ifname'] for entry in json.loads(existing)] if value['system'] == 'Linux' else existing.split()
+    names = [entry['ifname'] for entry in portable_json(existing, limit=1048576)] if value['system'] == 'Linux' else existing.split()
     if value['name'] in names:
         raise ValueError('interface already exists; refusing to modify it')
     created = False
