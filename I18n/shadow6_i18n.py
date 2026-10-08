@@ -120,7 +120,7 @@ def load_bundle(path: Path) -> dict[str, str]:
         raise I18nError("invalid UTF-8 translation bundle") from exc
     if not isinstance(document, dict):
         raise I18nError("bundle must be an object")
-    return document
+    return _object(list(document.items()))
 
 
 class Translator:

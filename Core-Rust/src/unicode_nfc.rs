@@ -3941,7 +3941,7 @@ fn expand(c: u32, out: &mut Vec<u32>) {
         let s = c - 0xac00;
         expand(0x1100 + s / 588, out);
         expand(0x1161 + (s % 588) / 28, out);
-        if s % 28 != 0 {
+        if !s.is_multiple_of(28) {
             expand(0x11a7 + s % 28, out)
         };
         return;
@@ -3979,11 +3979,11 @@ pub fn is_nfc(text: &str) -> bool {
         let mut combined = 0;
         if let Some(i) = starter {
             if last < cc || last == 0 {
-                let left = result[i];
+                let left: u32 = result[i];
                 if (0x1100..=0x1112).contains(&left) && (0x1161..=0x1175).contains(&c) {
                     combined = 0xac00 + (left - 0x1100) * 588 + (c - 0x1161) * 28
                 } else if (0xac00..0xd7a4).contains(&left)
-                    && (left - 0xac00) % 28 == 0
+                    && (left - 0xac00).is_multiple_of(28)
                     && (0x11a8..=0x11c2).contains(&c)
                 {
                     combined = left + c - 0x11a7

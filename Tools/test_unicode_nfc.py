@@ -34,7 +34,7 @@ class NativeUnicodeTests(unittest.TestCase):
     def test_rust_nfc_without_building_a_core(self):
         with tempfile.TemporaryDirectory(prefix='shadow6-rust-nfc-') as temporary:
             root=Path(temporary);source=root/'check.rs';binary=root/'check'
-            source.write_text('#[path="'+str(ROOT/'Core-Rust/src/unicode_nfc.rs')+'"] mod nfc;\nfn main(){for (text,expected) in [("中文",true),("é",true),("e\\u{301}",false),("Å\\u{301}",false),("Ḋ\\u{323}",false),("\\u{1100}\\u{1161}",false)] {assert_eq!(nfc::is_nfc(text),expected);}}')
+            source.write_text('#[path="'+str(ROOT/'Core-Rust/src/unicode_nfc.rs')+'"] mod nfc;\nfn main(){for (text,expected) in [("中文",true),("é",true),("가",true),("각",true),("가각",true),("가\\u{11a8}",false),("e\\u{301}",false),("Å\\u{301}",false),("Ḋ\\u{323}",false),("\\u{1100}\\u{1161}",false)] {assert_eq!(nfc::is_nfc(text),expected);}}')
             subprocess.run(['rustc','--edition=2021',str(source),'-o',str(binary)],check=True,timeout=45)
             subprocess.run([str(binary)],check=True,timeout=5)
 

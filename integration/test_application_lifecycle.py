@@ -85,11 +85,29 @@ class ApplicationLifecycleTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(plan['valid'],plan)
         apply_params={**plan_params,'confirmed':True,'expected_plan_digest':plan['expected_plan_digest'],
                       'expected_material_digest':plan['materialDigest'],'expected_lock_digest':plan['expected_lock_digest']}
-        await self.rpc('service.config_apply',apply_params)
-        # A reviewed apply cannot be replayed after its lock changed.
-        error=await self.rpc('service.config_apply',apply_params,ok=False)
-        self.assertIn(error['code'],('ReviewedLockChanged','ReviewedPlanChanged'))
+        applied=await self.rpc('service.config_apply',apply_params)
+        # Identical browser-saved material keeps its lock, so applying it again
+        # is idempotent. A request reviewed against a changed lock must fail.
+        if applied['deploymentLock']['digest']==plan['expected_lock_digest']:
+            repeated=await self.rpc('service.config_apply',apply_params)
+            self.assertEqual(repeated['deploymentLock']['digest'],plan['expected_lock_digest'])
+        else:
+            error=await self.rpc('service.config_apply',apply_params,ok=False)
+            self.assertEqual(error['code'],'ReviewedLockChanged')
         return saved
+
+    async def test_already_applied_configuration_keeps_lock(self):
+        first=await self.save_apply('client')
+        initial=await self.rpc('service.status',{'name':'e2e/client'})
+        second=await self.save_apply('client',expected=first['digest'])
+        current=await self.rpc('service.status',{'name':'e2e/client'})
+        self.assertEqual(first['digest'],second['digest'])
+        self.assertEqual(initial['deploymentLock']['digest'],current['deploymentLock']['digest'])
+        document=json.loads(json.dumps(self.documents['client']))
+        document['client']['broker_addrs']=[f'ws://127.0.0.1:{free_port()}/ws']
+        await self.save_apply('client',expected=second['digest'],document=document)
+        changed=await self.rpc('service.status',{'name':'e2e/client'})
+        self.assertNotEqual(current['deploymentLock']['digest'],changed['deploymentLock']['digest'])
 
     async def browser_config(self):
         # CI explicitly provides Chromium; local dependency-free runs still
