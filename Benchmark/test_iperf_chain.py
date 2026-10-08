@@ -5,7 +5,76 @@ import tempfile
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
-from iperf_chain import receiver_result, measure
+from iperf_chain import iperf_document, portable_json, receiver_result, measure
+
+
+class IperfDocumentTests(unittest.TestCase):
+    rate = 1_100_000_000
+
+    def document(self, fields=None, extra=''):
+        if fields is None:
+            fields = f'"target_bitrate":{self.rate},"target_bitrate":{self.rate}'
+        return ('{"server_output_json":{"start":{' + fields + '},'
+                '"end":{"sum_received":{"sender":false,"bits_per_second":1100000000,'
+                '"lost_percent":0,"packets":10000,"lost_packets":0}}}' + extra + '}')
+
+    def test_iperf_316_udp_metadata_preserves_forward_receiver(self):
+        raw = self.document().encode()
+        with self.assertRaisesRegex(ValueError, 'duplicate JSON field'):
+            portable_json(raw, allow_measurement_floats=True)
+        document = iperf_document(raw, udp_rate=self.rate)
+        self.assertEqual(document['server_output_json']['start']['target_bitrate'], self.rate)
+        receiver, passed = receiver_result(document, True, reverse=False)
+        self.assertEqual(receiver['bits_per_second'], self.rate)
+        self.assertTrue(passed)
+
+    def test_udp_measure_accepts_known_duplicate_and_preserves_raw_evidence(self):
+        raw = self.document(extra=',"end":{"sum_sent":{}}').encode()
+        with tempfile.TemporaryDirectory() as directory:
+            target = SimpleNamespace(datagram=True, server_port=12345, host='127.0.0.1',
+                                     directory=Path(directory))
+            result = SimpleNamespace(returncode=0, stdout=raw, stderr=b'')
+            with patch('iperf_chain.subprocess.run', return_value=result):
+                row = measure(('127.0.0.1', 12345), target, (), 1, False, self.rate, True)
+            self.assertEqual(row['status'], 'ok')
+            self.assertEqual(row['receiver_bps'], self.rate)
+            self.assertEqual((target.directory / 'client.json').read_bytes(), raw)
+
+    def test_duplicate_rate_requires_udp_workload_and_exact_integer_value(self):
+        for rate in (None, float(self.rate), True):
+            with self.subTest(rate=rate), self.assertRaisesRegex(ValueError, 'duplicate JSON field'):
+                iperf_document(self.document(), udp_rate=rate)
+        for fields in (
+                f'"target_bitrate":{self.rate},"target_bitrate":{self.rate + 1}',
+                '"target_bitrate":1,"target_bitrate":1',
+                f'"target_bitrate":{self.rate},"target_bitrate":{self.rate}.0',
+                f'"target_bitrate":{self.rate}.0,"target_bitrate":{self.rate}',
+                '"target_bitrate":true,"target_bitrate":true',
+                f'"target_bitrate":{self.rate},"target_bitrate":{self.rate},"target_bitrate":{self.rate}'):
+            with self.subTest(fields=fields), self.assertRaisesRegex(ValueError, 'duplicate JSON field'):
+                iperf_document(self.document(fields), udp_rate=self.rate)
+
+    def test_other_duplicate_fields_and_paths_remain_rejected(self):
+        documents = (
+            self.document('"version":"iperf 3.16","version":"iperf 3.16"'),
+            self.document(extra=',"receiver_bps":1,"receiver_bps":2'),
+            self.document().replace('"bits_per_second":1100000000',
+                                    '"bits_per_second":1100000000,"bits_per_second":1100000000'),
+            '{"start":{"target_bitrate":1100000000,"target_bitrate":1100000000}}',
+            '{"end":{"target_bitrate":1100000000,"target_bitrate":1100000000}}',
+        )
+        for raw in documents:
+            with self.subTest(raw=raw), self.assertRaisesRegex(ValueError, 'duplicate JSON field'):
+                iperf_document(raw, udp_rate=self.rate)
+
+    def test_known_duplicate_does_not_relax_json_bounds(self):
+        for extra in (',"x":NaN', ',"x":1e999', ',"x":9007199254740992',
+                      ',"x":"e\\u0301"', ',"x":"\\u0000"',
+                      ',"x":"' + 'a' * 65537 + '"',
+                      ',"x":' + '[' * 18 + '0' + ']' * 18,
+                      ',"x":"' + 'a' * 1048576 + '"'):
+            with self.subTest(extra=extra[:40]), self.assertRaises(ValueError):
+                iperf_document(self.document(extra=extra), udp_rate=self.rate)
 
 
 class ReceiverTests(unittest.TestCase):

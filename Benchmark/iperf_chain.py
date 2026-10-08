@@ -47,6 +47,43 @@ sys.path.insert(0, str(ROOT / 'integration'))
 from stack_test import CORE_BINARIES, DATAGRAM_CORES, JSON_DATAGRAM_ENGINES, run_engine
 
 
+def iperf_document(data, *, udp_rate=None):
+    """Read bounded measurements, tolerating only iperf's repeated UDP rate."""
+    try:
+        return portable_json(data, limit=1048576, allow_measurement_floats=True)
+    except ValueError as error:
+        if type(udp_rate) is not int or str(error) != 'duplicate JSON field':
+            raise
+    # iperf 3.16 adds target_bitrate twice to the server's start object.
+    # The first strict parse has already bounded input size and nesting.
+    # Preserve object pairs so every other duplicate still fails closed.
+    class ObjectPairs(list):
+        pass
+
+    def normalize(value, path=()):
+        if isinstance(value, ObjectPairs):
+            result, repeated = {}, set()
+            for key, child in value:
+                child = normalize(child, path + (key,))
+                if key in result:
+                    if (path != ('server_output_json', 'start') or key != 'target_bitrate'
+                            or key in repeated or type(result[key]) is not int or type(child) is not int
+                            or child != result[key] or child != udp_rate):
+                        raise ValueError('duplicate JSON field')
+                    repeated.add(key)
+                result[key] = child
+            return result
+        if isinstance(value, list):
+            return [normalize(child, path + (index,)) for index, child in enumerate(value)]
+        return value
+
+    document = normalize(json.loads(data, object_pairs_hook=ObjectPairs))
+    # Recheck numeric, UTF-8/NFC, string and structural bounds after removing
+    # the single redundant metadata field. Raw evidence remains untouched.
+    return portable_json(json.dumps(document, ensure_ascii=False, allow_nan=False, separators=(',', ':')),
+                         limit=1048576, allow_measurement_floats=True)
+
+
 def receiver_result(document, datagram, *, reverse):
     if document.get('error'):
         raise ValueError(document['error'])
@@ -243,7 +280,7 @@ def measure(endpoint, target, processes, seconds, reverse, rate, baseline=False)
     (target.directory / 'client.json').write_bytes(result.stdout)
     (target.directory / 'client.stderr').write_bytes(result.stderr)
     after = snapshot(processes)
-    document = portable_json(result.stdout, limit=1048576, allow_measurement_floats=True)
+    document = iperf_document(result.stdout, udp_rate=rate if target.datagram else None)
     if result.returncode or document.get('error'):
         raise RuntimeError(document.get('error', result.stderr.decode(errors='replace')))
     end = document['end']
