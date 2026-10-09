@@ -88,6 +88,7 @@ def reproduce(output, repeats):
     except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
         report['reason'] = f'{type(error).__name__}: {error}'
         report['status'] = 'BLOCKED'
+        print(f"FastJob BLOCKED: {report['reason']}", flush=True)
     _write_json(output / 'report.json', report)
     lines = ['# SCTP FastJob', '', f"Result: {report['status']}; EOF reproduced: {report['eofReproduced']}",
         '', f"Commit: `{report['sourceCommit']}`", '',

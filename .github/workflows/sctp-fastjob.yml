@@ -66,6 +66,11 @@ jobs:
       - name: Reproduce the real Native trio and SCTP carrier under directional WAN
         run: |
           set -euo pipefail
+          # Only the compiled products cross into the root namespace driver.
+          # Keep checkout ownership so workers still drop to the runner UID.
+          sudo chown root:root -- Core-Cpp/shadow6-cpp \
+            OCaml/privacy_envelope/_build/default/src/main.exe \
+            libshadow6/native/libshadow6.so.1
           sudo --preserve-env=PATH,GITHUB_SHA,GITHUB_RUN_ID,SHADOW6_APPLICATION_LIBRARY \
             "$PWD/.tmp/sctp-fastjob-venv/bin/python" Test-Lab/sctp_fastjob.py \
               --repeats 2 --output-dir .tmp/sctp-fastjob-evidence
@@ -76,7 +81,7 @@ jobs:
           if test -d "$evidence_dir"; then
             sudo chown -R "$(id -u):$(id -g)" -- "$evidence_dir"
             if test -f "$evidence_dir/summary.md"; then
-              cat "$evidence_dir/summary.md" >> "$GITHUB_STEP_SUMMARY"
+              cat "$evidence_dir/summary.md" | tee -a "$GITHUB_STEP_SUMMARY"
             fi
           fi
       - uses: actions/upload-artifact@v6
