@@ -9,6 +9,19 @@ import unittest
 
 ROOT=Path(__file__).resolve().parents[1]
 
+def peer_address_count(sock):
+    # Linux SCTP_GET_PEER_ADDRS on a one-to-one, established association.
+    buffer=c.create_string_buffer(4096);size=c.c_uint(len(buffer))
+    query=c.CDLL(None,use_errno=True).getsockopt
+    query.argtypes=[c.c_int,c.c_int,c.c_int,c.c_void_p,c.POINTER(c.c_uint)]
+    query.restype=c.c_int
+    if query(sock.fileno(),132,108,buffer,c.byref(size)):
+        raise OSError(c.get_errno(),'SCTP peer address observation failed')
+    if not 8<=size.value<=len(buffer):raise ValueError('SCTP peer address result bound')
+    count=c.c_uint.from_buffer(buffer,4).value
+    if not 1<=count<=64:raise ValueError('SCTP peer address count bound')
+    return count
+
 class Event(c.Structure):
     _fields_=[('kind',c.c_uint),('stream',c.c_uint),('ordered',c.c_uint),
               ('ppid',c.c_uint32),('context',c.c_uint32),('size',c.c_size_t),
@@ -37,13 +50,17 @@ class SCTPNativeTests(unittest.TestCase):
         for name,(args,result) in declarations.items():
             function=getattr(cls.lib,name);function.argtypes=args;function.restype=result
 
-    def pair(self,maximum=131072):
+    def pair(self,maximum=131072,source_bound=False):
         listener=socket.socket(socket.AF_INET,socket.SOCK_STREAM,132)
         self.addCleanup(listener.close)
         self.assertEqual(self.lib.s6_sctp_prepare(listener.fileno(),8),0)
         listener.bind(('127.0.0.1',0));listener.listen(1);listener.settimeout(3)
         client=socket.socket(socket.AF_INET,socket.SOCK_STREAM,132);self.addCleanup(client.close)
         self.assertEqual(self.lib.s6_sctp_prepare(client.fileno(),8),0)
+        if source_bound:
+            with socket.socket(type=socket.SOCK_DGRAM) as route:
+                route.connect(listener.getsockname())
+                client.bind((route.getsockname()[0],0))
         client.settimeout(3);client.connect(listener.getsockname())
         server,_=listener.accept();self.addCleanup(server.close)
         handles=[]
@@ -52,6 +69,10 @@ class SCTPNativeTests(unittest.TestCase):
             handle=self.lib.s6_sctp_attach(sock.fileno(),maximum)
             self.assertTrue(handle);self.addCleanup(self.lib.s6_sctp_free,handle);handles.append(handle)
         return *handles,client,server
+
+    def test_route_selected_source_advertises_one_peer_address(self):
+        _,_,_,server=self.pair(source_bound=True)
+        self.assertEqual(peer_address_count(server),1)
 
     def send(self,handle,payload,stream=0,ordered=True,ppid=0,policy=0,budget=0):
         return self.lib.s6_sctp_send(handle,payload,len(payload),stream,ordered,ppid,0,policy,budget)

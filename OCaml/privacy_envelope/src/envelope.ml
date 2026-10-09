@@ -67,6 +67,18 @@ let stream config metrics =
 let connect_sctp endpoint config =
   let fd=Unix.socket ~cloexec:true (Config.socket_domain endpoint) Unix.SOCK_STREAM 132 in
   try
+    (* An unbound SCTP socket advertises every eligible local interface.
+       Overlapping private addresses on separate hosts can then send a peer's
+       heartbeat back into its own namespace and elicit an association ABORT.
+       Select the kernel route's source without sending a datagram, and bind
+       this one-to-one association to that address before its INIT exchange. *)
+    let route=Unix.socket ~cloexec:true (Config.socket_domain endpoint) Unix.SOCK_DGRAM 0 in
+    let source=Fun.protect ~finally:(fun () -> close route) (fun () ->
+      Unix.connect route endpoint;
+      match Unix.getsockname route with
+      | Unix.ADDR_INET(ip,_) -> Unix.ADDR_INET(ip,0)
+      | Unix.ADDR_UNIX _ -> invalid_arg "SCTP requires an IP source") in
+    Unix.bind fd source;
     Carrier_sctp.prepare fd ~streams:config.Config.sctp_streams;Unix.set_nonblock fd;
     (try Unix.connect fd endpoint with Unix.Unix_error((Unix.EINPROGRESS|Unix.EWOULDBLOCK),_,_) -> ());
     Forward.wait fd true (Unix.gettimeofday () +. config.handshake_timeout);

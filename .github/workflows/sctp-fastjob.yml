@@ -63,6 +63,13 @@ jobs:
           dune build --root OCaml/privacy_envelope src/main.exe
           make -C libshadow6/native check PYTHON_CONFIG="$(command -v python3-config)"
           echo "SHADOW6_APPLICATION_LIBRARY=$PWD/libshadow6/native/libshadow6.so.1" >> "$GITHUB_ENV"
+      - name: Verify both outgoing SCTP legs advertise only the routed source
+        run: |
+          set -euo pipefail
+          S6EPE_BINARY="$PWD/OCaml/privacy_envelope/_build/default/src/main.exe" \
+            PYTHONPATH=OCaml/privacy_envelope/test \
+            .tmp/sctp-fastjob-venv/bin/python -m unittest -v \
+              test_sctp_e2e.SCTPEnvelopeE2E.test_outgoing_associations_advertise_only_the_routed_source
       - name: Reproduce the real Native trio and SCTP carrier under directional WAN
         run: |
           set -euo pipefail

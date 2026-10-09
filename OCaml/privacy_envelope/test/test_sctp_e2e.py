@@ -37,7 +37,7 @@ class SCTPEnvelopeE2E(unittest.TestCase):
         self.assertTrue(handle)
         return handle
 
-    def echo_sctp(self,expect_abort=False,resets=None):
+    def echo_sctp(self,expect_abort=False,resets=None,peer_counts=None):
         listener=self.native_socket();listener.bind(('127.0.0.1',0));listener.listen(8);listener.settimeout(.1)
         self.addCleanup(listener.close)
         failures=[]
@@ -48,6 +48,7 @@ class SCTPEnvelopeE2E(unittest.TestCase):
                 except OSError:return
                 handle=None
                 try:
+                    if peer_counts is not None:peer_counts.append(native_fixture.peer_address_count(sock))
                     handle=self.handle(sock,4096)
                     while not self.done.is_set():
                         result,event,data=self.receive(handle)
@@ -82,7 +83,7 @@ class SCTPEnvelopeE2E(unittest.TestCase):
         self.addCleanup(self.lib.s6_sctp_free,handle)
         return sock,handle
 
-    def wire_relay(self,upstream,attack=None):
+    def wire_relay(self,upstream,attack=None,peer_counts=None):
         listener=self.native_socket();listener.bind(('127.0.0.1',0));listener.listen(1);listener.settimeout(.1)
         self.addCleanup(listener.close)
         captured=[];failures=[]
@@ -96,6 +97,7 @@ class SCTPEnvelopeE2E(unittest.TestCase):
                         if time.monotonic()>deadline:raise RuntimeError('SCTP relay accept deadline')
                 else:return
                 sockets.append(peer)
+                if peer_counts is not None:peer_counts.append(native_fixture.peer_address_count(peer))
                 target=self.native_socket();sockets.append(target)
                 target.settimeout(3);target.connect(('127.0.0.1',upstream))
                 handles.extend((self.handle(peer),self.handle(target)))
@@ -129,6 +131,21 @@ class SCTPEnvelopeE2E(unittest.TestCase):
         worker=threading.Thread(target=relay,daemon=True);worker.start()
         self.addCleanup(lambda:(self.done.set(),worker.join(3)))
         return listener.getsockname()[1],captured,failures
+
+    def test_outgoing_associations_advertise_only_the_routed_source(self):
+        local_counts=[];wire_counts=[]
+        native,failures=self.echo_sctp(peer_counts=local_counts)
+        server,_=self.launch_sctp('source-server','server',native)
+        relay,_,relay_failures=self.wire_relay(server,peer_counts=wire_counts)
+        client,_=self.launch_sctp('source-client','client',relay)
+        _,handle=self.connect(client)
+        payload=b'one routed SCTP source'
+        self.assertEqual(self.send(handle,payload),1)
+        result,event,data=self.next_event(handle)
+        self.assertEqual((result,event.kind,data),(1,1,payload))
+        self.assertEqual(local_counts,[1])
+        self.assertEqual(wire_counts,[1])
+        self.assertEqual(failures+relay_failures,[])
 
     def test_actual_sctp_wire_encrypts_payload_but_identifies_hello(self):
         native,failures=self.echo_sctp()
