@@ -10,11 +10,12 @@ import tarfile
 import hashlib
 import unittest
 import time
+import threading
 import artifacts
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
-from carrier_endpoint import configuration, exact, sctp_socket, sctp_send, sctp_receive
+from carrier_endpoint import configuration, exact, sctp_socket, sctp_send, sctp_receive, forward_records
 from s6epe import endpoint_config, matrix, RawCarrier, TLSCarrier, SCTPCarrier, WebRTCCarrier, flow_ownership
 from network import NamespacePair, capabilities, DirectionalImpairment, SCENARIOS
 from shadow6_test_lab import Capture
@@ -31,6 +32,37 @@ class AttachmentTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory(prefix='s6lab-tests-')
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
+    def test_forward_records_pipelines_delayed_replies(self):
+        stopping = threading.Event()
+        counted, errors = [], []
+        with socket.socket(type=socket.SOCK_DGRAM) as listener, \
+             socket.socket(type=socket.SOCK_DGRAM) as upstream, \
+             socket.socket(type=socket.SOCK_DGRAM) as remote, \
+             socket.socket(type=socket.SOCK_DGRAM) as client:
+            for connection in (listener, remote, client):
+                connection.bind(('127.0.0.1', 0))
+                connection.settimeout(2)
+            upstream.connect(remote.getsockname())
+            def relay():
+                try:
+                    forward_records(listener, upstream, limit=512,
+                        deadline=time.monotonic() + 5, stopping=stopping, count=counted.append)
+                except Exception as error: errors.append(error)
+            thread = threading.Thread(target=relay)
+            thread.start()
+            try:
+                payloads = [b'first', b'', b'last']
+                for payload in payloads: client.sendto(payload, listener.getsockname())
+                # The remote receives the whole burst before releasing any echo.
+                arrivals = [remote.recvfrom(513) for _ in payloads]
+                self.assertEqual([data for data, _ in arrivals], payloads)
+                for data, address in reversed(arrivals): remote.sendto(data, address)
+                self.assertEqual([client.recv(513) for _ in payloads], list(reversed(payloads)))
+            finally:
+                stopping.set(); thread.join(timeout=2)
+            self.assertFalse(thread.is_alive())
+            self.assertEqual(errors, [])
+            self.assertEqual(counted, list(reversed(payloads)))
     def launch(self, profile, kind, port, peer=1):
         path = self.root / (kind + '.json')
         value = endpoint_config(path, profile, kind, port, peer)

@@ -11,6 +11,7 @@ import json
 import os
 from pathlib import Path
 import signal
+import select
 import socket
 import struct
 import sys
@@ -93,6 +94,25 @@ def sctp_receive(connection, limit):
     if stream != 0 or delivery & 1 or ppid != 0: raise ValueError('SCTP message policy mismatch')
     return data
 
+def forward_records(listener, upstream, *, limit, deadline, stopping, count):
+    """Forward one owned UDP peer without serializing records behind WAN RTT."""
+    address = None
+    while time.monotonic() < deadline and not stopping.is_set():
+        ready, _, _ = select.select([listener, upstream], [], [], .25)
+        for connection in ready:
+            if connection is listener:
+                data, sender = listener.recvfrom(limit + 1)
+                if len(data) > limit: raise ValueError('UDP record bound exceeded')
+                if address is None: address = sender
+                if sender != address: raise ValueError('Native forward peer changed')
+                if upstream.send(data) != len(data): raise OSError('partial record send')
+            else:
+                data = upstream.recv(limit + 1)
+                if address is None or len(data) > limit:
+                    raise ValueError('unexpected Native WAN record')
+                listener.sendto(data, address)
+                count(data)
+
 def serve(config):
     kind, limit = config['kind'], config['maxRecord']
     udp = kind in {'echo-udp', 'record-to-stream', 'forward-record'}
@@ -157,12 +177,18 @@ def serve(config):
             publish()
     active = []
     record_stream = None
-    record_datagram = None
     deadline = time.monotonic() + config['ttl']
     try:
         publish()
         print(json.dumps({'event': 'shadow6.lab-carrier-endpoint-ready.v1', **metrics,
             'host': config['host'], 'port': config['port'], 'transport': 'sctp' if kind == 'echo-sctp' else 'udp' if udp else 'tcp'}, allow_nan=False), flush=True)
+        if kind == 'forward-record':
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as upstream:
+                upstream.settimeout(.25)
+                upstream.connect((config['peerHost'], config['peerPort']))
+                forward_records(listener, upstream, limit=limit, deadline=deadline,
+                    stopping=stopping, count=count)
+            return
         while time.monotonic() < deadline and not stopping.is_set():
             active = [thread for thread in active if thread.is_alive()]
             try:
@@ -170,15 +196,6 @@ def serve(config):
                     data, address = listener.recvfrom(limit + 1)
                     if len(data) > limit: raise ValueError('UDP record bound exceeded')
                     if kind == 'echo-udp': listener.sendto(data, address)
-                    elif kind == 'forward-record':
-                        if record_datagram is None:
-                            record_datagram = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-                            record_datagram.settimeout(15)
-                            record_datagram.connect((config['peerHost'], config['peerPort']))
-                        if record_datagram.send(data) != len(data): raise OSError('partial record send')
-                        reply = record_datagram.recv(limit + 1)
-                        if reply != data: raise ValueError('native WAN record echo mismatch')
-                        listener.sendto(reply, address)
                     else:
                         if record_stream is None:
                             record_stream = socket.create_connection(('127.0.0.1', config['peerPort']), timeout=15)
@@ -199,7 +216,6 @@ def serve(config):
     finally:
         stopping.set(); listener.close()
         if record_stream is not None: record_stream.close()
-        if record_datagram is not None: record_datagram.close()
         for thread in active: thread.join(timeout=.5)
         publish()
 

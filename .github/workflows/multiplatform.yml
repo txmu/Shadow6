@@ -1420,7 +1420,8 @@ jobs:
       - name: Install bounded capture tools and the matching Idris runtime
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends tcpdump iproute2
+          # The downloaded Idris FFI still dynamically requires libsodium.so.23.
+          sudo apt-get install -y --no-install-recommends tcpdump iproute2 libsodium23
           eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
           brew install chezscheme
           echo "$(brew --prefix chezscheme)/bin" >> "$GITHUB_PATH"
