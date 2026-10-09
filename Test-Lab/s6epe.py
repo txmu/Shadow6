@@ -320,7 +320,9 @@ def matrix(availability, by_profile, artifact_root, scenarios, output, run_id, *
             rows.append(row)
     return rows
 
-def case(profile, core_binary, epe_binary, adapter, scenario, output, run_id, *, payload_bytes, requests, expected_artifact_digest):
+def case(profile, core_binary, epe_binary, adapter, scenario, output, run_id, *, payload_bytes, requests, expected_artifact_digest, worker_timeout=180):
+    if type(worker_timeout) is not int or not 1 <= worker_timeout <= 180:
+        raise ValueError('S6EPE worker timeout outside bounded budget')
     from shadow6_test_lab import Capture, _worker, _write_json
     row = {'scenario': scenario, 'status': 'FAIL', 'networkKind': 'directional-veth-simulated',
         'stages': {stage: {'status': 'BLOCKED', 'reason': 'upstream stage did not complete'} for stage in STAGES[3:]}}
@@ -414,7 +416,7 @@ def case(profile, core_binary, epe_binary, adapter, scenario, output, run_id, *,
             observer = SocketObserver(processes).start()
             result = _worker(profile, core_binary, payload_bytes=payload_bytes,
                 requests=max(requests, 12) if scenario == 'failure-recovery' else requests,
-                namespace=a, timeout=180, rtt_ms=250 if scenario == 'failure-recovery' else 0,
+                namespace=a, timeout=worker_timeout, rtt_ms=250 if scenario == 'failure-recovery' else 0,
                 on_ready=impairment.workload_ready, target_port=target_port)
             observer.close()
             row['coreRuntimeObservation'] = result.get('runtimeObservation')

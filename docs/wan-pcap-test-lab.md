@@ -7,6 +7,37 @@ Profile, native transport, application boundary, adapter, and carrier.
 
 ## English
 
+### SCTP FastJob / SCTP EOF 快速复现
+
+The independent `SCTP FastJob` workflow starts without waiting for the
+all-Core release matrix. It builds only the default L0 C++ Core, the OCaml
+SCTP envelope (without provisioning WebRTC), and the C application ABI from
+the checked-out commit. It reuses `s6epe.case`, including the locked Native
+broker/agent/client trio, typed Agent attachment, directional NamespacePair,
+byte-for-byte workload, 60Hz game workload and dual outer/inner PCAP.
+
+Default execution is one clean baseline followed by two rounds of `lan`,
+`good-wan` and `failure-recovery`. Each worker has a 90-second budget; the
+entire CI job has a 20-minute limit. The first EOF ends execution after the
+case has preserved its evidence. Other regressions still fail the job, and
+missing privileges or prerequisites are reported as BLOCKED with a nonzero
+exit. No all-Core coverage or physical Internet WAN claim is made.
+
+相关源文件变更会自动触发，也可在 Actions 中单独运行 `SCTP FastJob`
+（`workflow_dispatch`）。下载 `shadow6-sctp-fastjob-evidence`，检查
+`report.json`、每轮 PCAP 和 `endpoint-diagnostics.json`。报告会保留原始
+workload EOF，即使后续抓包/所有权检查覆盖了外层错误。PASS 只表示这些
+有界尝试没有复现故障，不保证间歇性 WAN EOF 已消失。
+
+With those three components already built and the declared namespace/capture
+privileges explicitly supplied, the same fixed driver can run without builds:
+
+```sh
+sudo --preserve-env=PATH,SHADOW6_APPLICATION_LIBRARY \
+  .venv/bin/python Test-Lab/sctp_fastjob.py --repeats 2 \
+  --output-dir .tmp/sctp-fastjob-evidence
+```
+
 ### Fetch a successful Actions artifact without compiling Cores
 
 Authenticate the GitHub CLI, then ask the Test Lab to fetch the most recent

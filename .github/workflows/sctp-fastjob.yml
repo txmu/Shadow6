@@ -1,0 +1,88 @@
+name: SCTP FastJob
+on:
+  push:
+    paths:
+      - '.github/workflows/sctp-fastjob.yml'
+      - 'Test-Lab/**'
+      - 'Core-Cpp/**'
+      - 'OCaml/privacy_envelope/**'
+      - 'Deployment/**'
+      - 'Crosed/**'
+      - 'libshadow6/**'
+      - 'integration/**'
+      - 'Control-Center/privacy_envelope.py'
+  pull_request:
+    paths:
+      - '.github/workflows/sctp-fastjob.yml'
+      - 'Test-Lab/**'
+      - 'Core-Cpp/**'
+      - 'OCaml/privacy_envelope/**'
+      - 'Deployment/**'
+      - 'Crosed/**'
+      - 'libshadow6/**'
+      - 'integration/**'
+      - 'Control-Center/privacy_envelope.py'
+  workflow_dispatch:
+permissions:
+  contents: read
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+concurrency:
+  group: sctp-fastjob-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  fastjob:
+    name: FastJob C++ / SCTP WAN EOF
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with: {python-version: '3.12'}
+      - name: Install only the SCTP reproducer dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential ocaml opam libsodium-dev libssl-dev tcpdump iproute2
+          python3 -m venv .tmp/sctp-fastjob-venv
+          .tmp/sctp-fastjob-venv/bin/python -m pip install --disable-pip-version-check 'cryptography==50.0.1'
+      - uses: actions/cache@v5
+        with:
+          path: ~/.opam
+          key: sctp-fastjob-ubuntu24-ocaml-${{ hashFiles('OCaml/privacy_envelope/dune-project', 'OCaml/privacy_envelope/src/dune') }}
+      - name: Build only the default C++ Core, SCTP envelope and application ABI
+        run: |
+          set -euo pipefail
+          opam init --bare --no-setup -y
+          if ! opam switch list --short | grep -Fxq sctp-fastjob; then
+            opam switch create sctp-fastjob ocaml-system -y
+          fi
+          opam install --switch=sctp-fastjob dune digestif -y
+          eval "$(opam env --switch=sctp-fastjob)"
+          (cd Core-Cpp && CPPFLAGS='-DCROSED_LEVEL=0 -DAPP_TRANSPORT=0 -DQUBES_ISOLATION=0' bash ./compile.sh)
+          dune build --root OCaml/privacy_envelope src/main.exe
+          make -C libshadow6/native check PYTHON_CONFIG="$(command -v python3-config)"
+          echo "SHADOW6_APPLICATION_LIBRARY=$PWD/libshadow6/native/libshadow6.so.1" >> "$GITHUB_ENV"
+      - name: Reproduce the real Native trio and SCTP carrier under directional WAN
+        run: |
+          set -euo pipefail
+          sudo --preserve-env=PATH,GITHUB_SHA,GITHUB_RUN_ID,SHADOW6_APPLICATION_LIBRARY \
+            "$PWD/.tmp/sctp-fastjob-venv/bin/python" Test-Lab/sctp_fastjob.py \
+              --repeats 2 --output-dir .tmp/sctp-fastjob-evidence
+      - name: Publish the bounded reproduction summary
+        if: always()
+        run: |
+          evidence_dir=.tmp/sctp-fastjob-evidence
+          if test -d "$evidence_dir"; then
+            sudo chown -R "$(id -u):$(id -g)" -- "$evidence_dir"
+            if test -f "$evidence_dir/summary.md"; then
+              cat "$evidence_dir/summary.md" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          fi
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: shadow6-sctp-fastjob-evidence
+          path: .tmp/sctp-fastjob-evidence/
+          if-no-files-found: warn
+          retention-days: 14
