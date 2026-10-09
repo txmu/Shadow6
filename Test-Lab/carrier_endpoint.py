@@ -172,8 +172,10 @@ def serve(config):
     def worker(peer):
         try: connected(peer)
         except EOFError: pass
-        except (OSError, ValueError):
+        except (OSError, ValueError) as error:
             with lock: metrics['failures'] += 1
+            if metrics['failures'] <= 4:
+                print(f'{kind}: {type(error).__name__}: {error}', file=sys.stderr, flush=True)
             publish()
     active = []
     record_stream = None

@@ -1425,6 +1425,12 @@ jobs:
           eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
           brew install chezscheme
           echo "$(brew --prefix chezscheme)/bin" >> "$GITHUB_PATH"
+          # The release images use env chezscheme, while Homebrew installs chez.
+          chez_bin="$(brew --prefix chezscheme)/bin/chez"
+          test -x "$chez_bin"
+          printf '#!/bin/bash\nexec "%s" "$@"\n' "$chez_bin" | sudo tee /usr/local/bin/chezscheme > /dev/null
+          sudo chmod 0755 /usr/local/bin/chezscheme
+          echo /usr/local/bin >> "$GITHUB_PATH"
       - name: Run every registered Native Profile against the downloaded artifacts
         run: |
           # The namespace runner runs as root. Preserve artifact bytes/digests

@@ -236,6 +236,18 @@ class WebRTCCarrier(RawCarrier):
 
 ADAPTERS = {'raw': RawCarrier, 'tls': TLSCarrier, 'sctp': SCTPCarrier, 'webrtc': WebRTCCarrier}
 
+def accounted_metrics(path, expected, *, timeout=2):
+    """Wait for the bounded, periodically published authenticated counters."""
+    deadline = time.monotonic() + timeout
+    while True:
+        telemetry = read_metrics(path)
+        if (telemetry['observation'] == 'current' and telemetry['authenticated_sessions'] >= 1
+                and min(telemetry['bytes_in'], telemetry['bytes_out']) >= expected):
+            return telemetry
+        if time.monotonic() >= deadline:
+            return telemetry
+        time.sleep(.05)
+
 def envelope_config(path, adapter, role, listen, upstream, key, tls=None, signal_path=None):
     value = {'mode': adapter.mode, 'role': role, 'carrier': adapter.name,
         'listen': listen, 'upstream': upstream, 'auth_key': key, 'max_frame': 8192,
@@ -420,13 +432,13 @@ def case(profile, core_binary, epe_binary, adapter, scenario, output, run_id, *,
             if adapter.name == 'webrtc' and ('sha256:' + sha256_file(adapter.peer) != adapter.peer_digest or
                     'sha256:' + sha256_file(adapter.peer.parent / 'lib/libdatachannel.so.0.23') != adapter.provider_digest):
                 raise ValueError('WebRTC peer/provider material drift')
-            telemetry = read_metrics(server['metrics_path'])
+            expected = row['stages']['correctness']['bytesSent'] + (row.get('applicationGame') or {}).get('bytesSent', 0)
+            telemetry = accounted_metrics(server['metrics_path'], expected)
             if telemetry['observation'] != 'current' or telemetry['authenticated_sessions'] < 1:
                 raise ValueError('fresh authenticated S6EPE metrics unavailable')
             if adapter.name == 'webrtc' and (telemetry.get('active_sessions', 0) < 1 or
                     not any(s['transport'] == 'udp' for s in server_process.snapshot()['sockets'])):
                 raise ValueError('fresh active authenticated WebRTC session/owned UDP socket unavailable')
-            expected = row['stages']['correctness']['bytesSent'] + (row.get('applicationGame') or {}).get('bytesSent', 0)
             if min(telemetry['bytes_in'], telemetry['bytes_out']) < expected:
                 raise ValueError('S6EPE application byte accounting does not cover Core probe')
             row['endpointOwnership'] = after; row['privacyTelemetry'] = telemetry
@@ -496,6 +508,15 @@ def case(profile, core_binary, epe_binary, adapter, scenario, output, run_id, *,
                     row['stages']['wireClassification']['status'] = 'FAIL'
             if row['stages']['PCAP']['status'] != 'PASS' and row['status'] == 'PASS':
                 row.update(status='FAIL', reason='dual outer PCAP evidence unavailable')
-            for process in reversed(processes): process.close()
+            diagnostics = {}
+            for process in reversed(processes):
+                process.err.seek(0, os.SEEK_END)
+                process.err.seek(max(0, process.err.tell() - 4096))
+                diagnostic = process.err.read(4096).decode('utf-8', 'replace')
+                if diagnostic: diagnostics[process.label] = diagnostic
+                process.close()
+            if diagnostics:
+                _write_json(root_output / 'endpoint-diagnostics.json', diagnostics)
+                row['endpointDiagnostics'] = diagnostics
             if broker: broker.close()
     return row

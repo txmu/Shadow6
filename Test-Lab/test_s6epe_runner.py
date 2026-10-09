@@ -11,12 +11,13 @@ import hashlib
 import unittest
 import time
 import threading
+from unittest.mock import patch
 import artifacts
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 from carrier_endpoint import configuration, exact, sctp_socket, sctp_send, sctp_receive, forward_records
-from s6epe import endpoint_config, matrix, RawCarrier, TLSCarrier, SCTPCarrier, WebRTCCarrier, flow_ownership
+from s6epe import endpoint_config, matrix, RawCarrier, TLSCarrier, SCTPCarrier, WebRTCCarrier, flow_ownership, accounted_metrics
 from network import NamespacePair, capabilities, DirectionalImpairment, SCENARIOS
 from shadow6_test_lab import Capture
 from profile_registry import profiles, select_profile
@@ -127,6 +128,15 @@ class AttachmentTests(unittest.TestCase):
             with self.assertRaises(ValueError): configuration(json.dumps({**value, **patch}).encode())
 
 class CarrierMatrixTests(unittest.TestCase):
+    def test_accounting_waits_for_publication_without_accepting_short_counts(self):
+        stale = {'observation': 'current', 'authenticated_sessions': 1, 'bytes_in': 100, 'bytes_out': 50}
+        complete = {**stale, 'bytes_out': 100}
+        with patch('s6epe.read_metrics', side_effect=[stale, complete]) as reader, \
+             patch('s6epe.time.sleep'):
+            self.assertEqual(accounted_metrics('/unused', 100), complete)
+            self.assertEqual(reader.call_count, 2)
+        with patch('s6epe.read_metrics', return_value=stale):
+            self.assertEqual(accounted_metrics('/unused', 100, timeout=0), stale)
     def test_idris_existing_release_fasl_uses_verified_companion_modes_without_byte_replacement(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory); staged = root / 'producer'; core = root / 'Core-Idris'; companion = root / 'companion'
