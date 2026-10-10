@@ -420,6 +420,8 @@ def case(profile, core_binary, epe_binary, adapter, scenario, output, run_id, *,
                 on_ready=impairment.workload_ready, target_port=target_port)
             observer.close()
             row['coreRuntimeObservation'] = result.get('runtimeObservation')
+            row['probeFailures'] = result.get('probeFailures', [])
+            row['workerDiagnostics'] = result.get('workerDiagnostics')
             row['applicationGame'] = result.get('applicationGame')
             row['stages']['correctness'] = result.get('correctness') or {'status': result['status'], 'reason': result.get('reason')}
             row['metrics'] = result.get('metrics')

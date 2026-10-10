@@ -28,6 +28,7 @@ class FDGateway:
         self.executions = set()
         self.replay = {}
         self.closed = False
+        self.diagnostic_count = 0
 
     async def start(self):
         from Deployment.service_storage import private_directory
@@ -161,7 +162,18 @@ class FDGateway:
                 await asyncio.wait_for(loop.sock_sendall(connection,packet[count:]),5)
             elif count!=len(packet): raise OSError('FDMetadataPartialWrite')
             delivered=True
-        except (ValueError,OSError,PermissionError,TimeoutError,RuntimeError):
+        except (ValueError,OSError,PermissionError,TimeoutError,RuntimeError) as error:
+            # Keep credentials, paths, request bodies and exception messages
+            # out of diagnostics. Fixed frame names/lines identify the failed
+            # admission stage without weakening the public rejection contract.
+            if self.diagnostic_count < 8:
+                self.diagnostic_count += 1
+                frames = []; trace = error.__traceback__
+                while trace is not None and len(frames) < 8:
+                    frames.append({'function': trace.tb_frame.f_code.co_name[:96], 'line': trace.tb_lineno})
+                    trace = trace.tb_next
+                print(json.dumps({'schema': 'shadow6.fd-admission-diagnostic.v1',
+                    'exception': type(error).__name__, 'frames': frames}), file=sys.stderr, flush=True)
             try:
                 await self.send_error(connection,nonce,'FDAttachmentRejected')
             except (OSError,TimeoutError): pass

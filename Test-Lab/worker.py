@@ -30,6 +30,42 @@ from application_abi import application_gateway
 from contextlib import ExitStack
 
 
+def echo_probes(session, payload, requests, record_bytes, rtt_ms=0):
+    """Run every requested record probe; loss remains a failed measurement."""
+    message = session.boundary.kind == 'message'
+    latencies = []; failures = []; sent = received = 0; received_digest = None
+    for index in range(requests):
+        started = time.monotonic(); echoed = bytearray(); lost = False
+        for offset in range(0, len(payload), record_bytes):
+            part = payload[offset:offset + record_bytes]
+            if message:
+                if len(part) > session.boundary.max_record: raise ValueError('application record exceeds negotiated boundary')
+                if session.socket.send(part) != len(part): raise ValueError('partial application record')
+                sent += len(part)
+                try:
+                    reply, _, flags, _ = session.socket.recvmsg(session.boundary.max_record)
+                except socket.timeout:
+                    failures.append({'request': index, 'offset': offset, 'reason': 'TimeoutError: timed out'})
+                    lost = True
+                    continue
+                if flags & socket.MSG_TRUNC: raise ValueError('truncated native application record')
+            else:
+                session.socket.sendall(part); sent += len(part); reply = bytearray()
+                while len(reply) < len(part):
+                    chunk = session.socket.recv(len(part) - len(reply))
+                    if not chunk: raise EOFError('application echo ended early')
+                    reply.extend(chunk)
+                reply = bytes(reply)
+            if reply != part: raise ValueError('exact application record/stream mismatch')
+            received += len(reply); echoed.extend(reply)
+        if not lost:
+            if bytes(echoed) != payload: raise ValueError('exact logical application echo mismatch')
+            received_digest = hashlib.sha256(echoed).hexdigest()
+            latencies.append(time.monotonic() - started)
+        if rtt_ms: time.sleep(rtt_ms / 1000)
+    return sent, received, latencies, received_digest, failures
+
+
 def named_workload(profile, binary, payload_bytes, requests, rtt_ms, target_port=None):
     """Use the same locked supervisor and attachment path as deployed services."""
     import stack_test
@@ -118,38 +154,10 @@ def named_workload(profile, binary, payload_bytes, requests, rtt_ms, target_port
                 abi['peerState']=peer.state
                 abi['migrationSupported']=False
                 session.socket.settimeout(10)
-                for _ in range(requests):
-                    request_started = time.monotonic()
-                    echoed = bytearray()
-                    for offset in range(0, payload_bytes, record_bytes):
-                        part = payload[offset:offset + record_bytes]
-                        if message:
-                            if len(part) > session.boundary.max_record:
-                                raise ValueError('application record exceeds negotiated boundary')
-                            if session.socket.send(part) != len(part):
-                                raise ValueError('partial application record')
-                            reply, _, flags, _ = session.socket.recvmsg(session.boundary.max_record)
-                            if flags & socket.MSG_TRUNC:
-                                raise ValueError('truncated native application record')
-                        else:
-                            session.socket.sendall(part)
-                            reply = bytearray()
-                            while len(reply) < len(part):
-                                chunk = session.socket.recv(len(part) - len(reply))
-                                if not chunk: raise EOFError('application echo ended early')
-                                reply.extend(chunk)
-                            reply = bytes(reply)
-                        if reply != part: raise ValueError('exact application record/stream mismatch')
-                        sent += len(part)
-                        received_count += len(reply)
-                        echoed.extend(reply)
-                    if len(echoed) != payload_bytes or bytes(echoed) != payload:
-                        raise ValueError('exact logical application echo mismatch')
-                    received_digest = hashlib.sha256(echoed).hexdigest()
-                    latencies.append(time.monotonic() - request_started)
-                    if rtt_ms: time.sleep(rtt_ms / 1000)
+                sent, received_count, latencies, received_digest, probe_failures = echo_probes(
+                    session, payload, requests, record_bytes, rtt_ms)
                 echo_duration = time.monotonic() - started
-                game = game_workload(session)
+                game = game_workload(session) if not probe_failures else None
                 # Check while the attachment is still open. Closing a declared
                 # one-flow/record attachment can legitimately drain and stop
                 # its Core; that must not be mistaken for mid-probe PID drift.
@@ -173,10 +181,13 @@ def named_workload(profile, binary, payload_bytes, requests, rtt_ms, target_port
                 for role, item in final.items():
                     evidence[role]['runtimeObservation'] = item['runtimeObservation']
                 duration = echo_duration
-            result = stack_test.benchmark_metrics(payload, latencies, duration)
+            result = (stack_test.benchmark_metrics(payload, latencies, duration) if latencies else {
+                'duration_seconds': duration, 'throughput_bps': 0,
+                'latency_p95_seconds': None, 'latency_avg_seconds': None})
+            result.update(success_rate=len(latencies) / requests, probe_failures=probe_failures)
             result.update(bytes_sent=sent, bytes_received=received_count,
                 exact_echo={'payload_sha256': hashlib.sha256(payload).hexdigest(),
-                    'received_sha256': received_digest, 'byte_for_byte': True,
+                    'received_sha256': received_digest, 'byte_for_byte': not probe_failures,
                     'verified_requests': len(latencies), 'record_bytes': record_bytes},
                 runtime_observation={'status': 'observed', 'scope': 'during-application-probe',
                     'retainedLiveCapability': False, 'roles': evidence,
@@ -203,17 +214,23 @@ def run(core: str, profile_id: str, binary: Path, payload_bytes: int, requests: 
     if type(rtt_ms) is not int or not 0 <= rtt_ms <= 250:
         raise ValueError("rtt-ms must be 0..250")
     result = named_workload(profile, binary.absolute(), payload_bytes, requests, rtt_ms, target_port)
+    if not isinstance(result, dict):
+        raise ValueError('native application workload did not return a structured result')
     exact = result.get('exact_echo', {}) if isinstance(result, dict) else {}
-    if (not isinstance(result, dict) or result.get("success_rate") != 1.0 or
+    failures = result.get("probe_failures", [])
+    if not failures and (not isinstance(result, dict) or result.get("success_rate") != 1.0 or
             result.get("bytes_received") != payload_bytes * requests or
             result.get('bytes_sent') != payload_bytes * requests or
             exact.get('byte_for_byte') is not True or exact.get('verified_requests') != requests or
             exact.get('payload_sha256') != exact.get('received_sha256')):
         raise ValueError("native application workload did not satisfy bounded correctness contract")
-    return {"status": "PASS", "core": core, "profile": profile_id,
+    status = "FAIL" if failures else "PASS"
+    return {"status": status, "core": core, "profile": profile_id,
+            "reason": "TimeoutError: application record probe loss" if failures else None,
+            "probeFailures": failures,
             "nativeTransport": profile["nativeTransport"],
             "applicationBoundary": profile["applicationBoundary"],
-            "correctness": {"status": "PASS", "workload": "named-service-profile-echo-v1",
+            "correctness": {"status": status, "workload": "named-service-profile-echo-v1",
                 "payloadBytes": payload_bytes, "requests": requests,
                 "bytesSent": result["bytes_sent"], "bytesReceived": result["bytes_received"],
                 "payloadSha256": exact['payload_sha256'],

@@ -70,6 +70,8 @@ def case(profile, binary, scenario, output, run_id, *, capture_enabled, payload_
                 observer.close()
                 if observer.errors: raise ValueError('Native pair socket observation failed')
                 row.update(status=result['status'], correctness=result.get('correctness'), metrics=result.get('metrics'),
+                    probeFailures=result.get('probeFailures', []),
+                    workerDiagnostics=result.get('workerDiagnostics'),
                     applicationGame=result.get('applicationGame'),
                     reason=result.get('reason'), runtimeObservation=result.get('runtimeObservation'))
                 if result['status'] == 'PASS':

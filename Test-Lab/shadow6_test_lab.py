@@ -262,6 +262,8 @@ def _worker(profile: dict, binary: Path, *, payload_bytes: int, requests: int,
     if process.returncode and value.get("status") != "FAIL":
         value["status"] = "FAIL"
         value["reason"] = f"worker exit {process.returncode}"
+    if value.get('status') != 'PASS' and stderr:
+        value['workerDiagnostics'] = stderr
     if value.get('status') == 'PASS' and not ready_seen:
         raise ValueError('worker PASS lacks a structured workload readiness event')
     return value

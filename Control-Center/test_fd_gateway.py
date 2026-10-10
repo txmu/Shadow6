@@ -2,6 +2,7 @@
 import array
 import asyncio
 import json
+import io
 import os
 from pathlib import Path
 import secrets
@@ -88,6 +89,20 @@ class FDGatewayTests(unittest.IsolatedAsyncioTestCase):
             self.gateway.allow_mutations=False
             value,fds,_=await asyncio.to_thread(self.request)
             self.assertIn('error',value);self.assertEqual(fds,[]);dispatch.assert_not_called()
+
+    async def test_admission_diagnostics_are_redacted_bounded_and_keep_rejection(self):
+        output=io.StringIO()
+        with patch.object(control,'response',side_effect=RuntimeError('SECRET-credential-value')), \
+             patch('sys.stderr',output):
+            for _ in range(10):
+                value,fds,_=await asyncio.to_thread(self.request)
+                self.assertEqual(value['error'],'FDAttachmentRejected')
+                self.assertEqual(fds,[])
+        text=output.getvalue()
+        self.assertNotIn('SECRET',text)
+        diagnostics=[json.loads(line) for line in text.splitlines()]
+        self.assertEqual(len(diagnostics),8)
+        self.assertTrue(all(row['exception']=='RuntimeError' and len(row['frames'])<=8 for row in diagnostics))
 
     async def test_replay_and_expired_request_never_open_another_session(self):
         nonce=secrets.token_hex(32)

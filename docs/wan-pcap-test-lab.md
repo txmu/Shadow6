@@ -70,6 +70,13 @@ byte for byte, with sent/received lengths and SHA-256 recorded. Message Profiles
 use whole records bounded by the Profile max_record, including the real
 seqpacket-fd attachment; stream Profiles use the registered TCP boundary.
 Each measured goodput result is accepted only after payload correctness passes.
+The Lab's message workload records receive timeouts and continues the remaining
+requested records without retransmitting a lost record. Any loss keeps the case
+and correctness result FAIL, with actual sent/received byte totals and failed
+request/record offsets. This preserves later WAN capture and ownership evidence
+when the first best-effort datagram is lost. The game workload is omitted after
+record loss; stream corruption, EOF and timeouts still stop immediately. Complete
+loss still fails the capture/evidence gate rather than fabricating traffic.
 Failure/recovery schedules latency-only baseline, degraded and restored phases
 after the worker emits its structured workload-ready event. Twelve bounded
 probes span the phases while preserving the exact echo contract for best-effort
