@@ -159,6 +159,33 @@ class CarrierMatrixTests(unittest.TestCase):
             (core / 'shadow6-idris_app/shadow6-idris.so').write_bytes(b'tampered')
             with self.assertRaises(ValueError): artifacts.merge_runtime_companions(root, idris_artifact=companion, s6epe_artifact=None)
 
+    def test_idris_portable_header_requires_the_exact_verified_companion_body(self):
+        original = b'#!/home/linuxbrew/.linuxbrew/bin/chez --program\nverified-fasl-body'
+        portable = b'#!/usr/bin/env -S chezscheme --program\nverified-fasl-body'
+        for replacement in (portable, portable.replace(b'body', b'evil'),
+                            portable.replace(b'chezscheme', b'other-tool')):
+            with self.subTest(replacement=replacement), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory); staged = root / 'producer'; companion = root / 'companion'
+                companion.mkdir()
+                relative = Path('shadow6-idris_app/shadow6-idris.so')
+                source = staged / relative; source.parent.mkdir(parents=True)
+                source.write_bytes(original); source.chmod(0o755)
+                (staged / 'SHA256SUMS').write_text(hashlib.sha256(original).hexdigest() + '  ' + relative.as_posix() + '\n')
+                (staged / 'SHA256SUMS').chmod(0o644)
+                target = root / 'Core-Idris' / relative; target.parent.mkdir(parents=True)
+                target.write_bytes(replacement); target.chmod(0o644)
+                with tarfile.open(companion / 'core-idris-runtime.tar.gz', 'w:gz') as archive:
+                    archive.add(staged / 'SHA256SUMS', arcname='SHA256SUMS')
+                    archive.add(source, arcname=relative.as_posix())
+                if replacement == portable:
+                    self.assertEqual(artifacts.merge_runtime_companions(root,
+                        idris_artifact=companion, s6epe_artifact=None), [])
+                    self.assertEqual(target.read_bytes(), replacement)
+                    self.assertEqual(target.stat().st_mode & 0o777, 0o755)
+                else:
+                    with self.assertRaisesRegex(ValueError, 'differs'):
+                        artifacts.merge_runtime_companions(root, idris_artifact=companion, s6epe_artifact=None)
+
     def test_component_passport_binds_same_run_and_restores_only_actions_modes(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory); runtime = root / 'runtime'

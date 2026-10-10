@@ -687,7 +687,22 @@ def merge_runtime_companions(root: Path, *, idris_artifact: Path | None,
                             continue
                         before = _checked_file(destination)
                         if before.st_size != expected.st_size or sha256_file(destination) != expected_digest:
-                            raise ValueError('same-run Idris runtime differs from existing release bytes')
+                            # The Linux producer changes only these two FASL
+                            # interpreter lines before recording its release
+                            # manifest. Compare the checksum-verified companion
+                            # body under that exact fixed rewrite; never replace
+                            # an installed byte or admit arbitrary launchers.
+                            image_names = {'shadow6-idris_app/shadow6-idris.so',
+                                           'shadow6-idris-crosed_app/shadow6-idris.so'}
+                            original = _read_file(source) if relative.as_posix() in image_names else b''
+                            prefix = b'#!/home/linuxbrew/.linuxbrew/bin/chez --program\n'
+                            portable = b'#!/usr/bin/env -S chezscheme --program\n'
+                            normalized = (portable + original[len(prefix):]
+                                if relative.as_posix() in image_names and original.startswith(prefix) else None)
+                            if (normalized is None or before.st_size != len(normalized) or
+                                    sha256_file(destination) != hashlib.sha256(normalized).hexdigest()):
+                                raise ValueError('same-run Idris runtime differs from existing release bytes')
+                            expected_digest = hashlib.sha256(normalized).hexdigest()
                         actual, desired = stat.S_IMODE(before.st_mode), stat.S_IMODE(expected.st_mode)
                         if actual == desired: continue
                         if (actual, desired) != (0o644, 0o755): raise ValueError('Idris runtime mode drift')

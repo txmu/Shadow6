@@ -1397,9 +1397,8 @@ jobs:
       - name: Download same-run Idris and Native WebRTC runtime companions
         uses: actions/download-artifact@v7
         with:
-          pattern: shadow6-idris-ubuntu-latest-X64
-          merge-multiple: false
-          path: .tmp/test-lab-companions
+          name: shadow6-idris-ubuntu-latest-X64
+          path: .tmp/test-lab-companions/shadow6-idris-ubuntu-latest-X64
       - uses: actions/download-artifact@v7
         with:
           name: shadow6-s6epe-linux-runtime
@@ -1433,6 +1432,7 @@ jobs:
           echo /usr/local/bin >> "$GITHUB_PATH"
       - name: Run every registered Native Profile against the downloaded artifacts
         run: |
+          test -s .tmp/test-lab-companions/shadow6-idris-ubuntu-latest-X64/core-idris-runtime.tar.gz
           # The namespace runner runs as root. Preserve artifact bytes/digests
           # while making the downloaded files owner-controlled for that runner.
           sudo chown -R root:root -- .tmp/test-lab-artifacts .tmp/test-lab-companions
