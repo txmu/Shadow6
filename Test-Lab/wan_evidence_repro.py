@@ -36,15 +36,16 @@ def reproduce(args):
     output = args.output_dir; output.mkdir(parents=True, exist_ok=True)
     report = {'schema': 'shadow6.wan-evidence-repro.v1', 'status': 'BLOCKED',
         'controllerCommit': subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT,
-            text=True, timeout=5).strip(), 'profile': 'zig-enet', 'carrier': 'raw',
+            text=True, timeout=5).strip(), 'profile': args.profile, 'carrier': 'raw',
         'results': [], 'reason': None}
     try:
         merge_runtime_companions(args.artifacts_dir, idris_artifact=None, s6epe_artifact=args.envelope_dir)
         inventory = verify_inventory(args.artifacts_dir, expected_commit=args.source_commit,
             expected_run_id=args.source_run_id, expected_run_attempt=args.source_attempt)
-        admitted = next(row for row in inventory['cores'] if row['core'] == 'zig')
+        profile = select_profile(args.profile.split('-')[0], args.profile)
+        admitted = next(row for row in inventory['cores'] if row['core'] == profile['core'])
         if not admitted['available']: raise ValueError(admitted.get('reason'))
-        profile = select_profile('zig', 'zig-enet'); binary = args.artifacts_dir / profile['artifact']
+        binary = args.artifacts_dir / profile['artifact']
         native = _current_feature_report(profile, binary)
         if native['availability'] != 'AVAILABLE': raise ValueError(native.get('reason'))
         runtime = args.artifacts_dir / 'runtime-artifacts/shadow6-s6epe-linux-runtime'
@@ -52,7 +53,7 @@ def reproduce(args):
         envelope = runtime / 'shadow6-privacy-envelope'
         features = feature_report(str(envelope), require_core=False)
         if not feature_availability(features)['available']: raise ValueError('encrypted S6EPE contract unavailable')
-        adapter = RawCarrier('datagram'); adapter.admit(features, runtime)
+        adapter = RawCarrier('stream' if args.profile == 'gleam-secure-stream' else 'datagram'); adapter.admit(features, runtime)
         report['binaryProvenance'] = {'core': admitted, 'envelope': passport,
             'sourceCommit': args.source_commit, 'sourceRunId': args.source_run_id,
             'sourceRunAttempt': args.source_attempt, 'nativeFeatureReport': native,
@@ -60,6 +61,8 @@ def reproduce(args):
         digest = 'sha256:' + sha256_file(envelope)
         plan = [('baseline', 'clean', None), ('first-drop', 'clean', 'drop-first-carrier-datagram')]
         plan += [(f'mobile-{i}', 'mobile', None) for i in range(1, args.repeats + 1)]
+        if args.profile == 'gleam-secure-stream':
+            plan = [('baseline', 'clean', None)] + [(f'high-jitter-{i}', 'high-jitter', None) for i in range(1, args.repeats + 1)]
         report['status'] = 'RUNNING'
         for label, scenario, fault in plan:
             row = case(profile, binary, envelope, adapter, scenario, output / label,
@@ -85,7 +88,7 @@ def reproduce(args):
         report.update(status='BLOCKED', reason=f'{type(error).__name__}: {error}')
         print(report['reason'], flush=True)
     _write_json(output / 'report.json', report)
-    lines = ['# Zig/raw WAN evidence专项', '', f"Gate: {report['status']}", '',
+    lines = [f'# {args.profile}/raw WAN evidence专项', '', f"Gate: {report['status']}", '',
         f"Controller commit: `{report['controllerCommit']}`", f"Binary source run: `{args.source_run_id}`", '',
         '| Case | Measurement | Exact evidence gate |', '|---|---|---|']
     for row in report['results']: lines.append(f"| {row['label']} | {row['status']} | {row['gateStatus']} |")
@@ -104,6 +107,7 @@ def main():
     parser.add_argument('--source-run-id', required=True)
     parser.add_argument('--source-attempt', required=True)
     parser.add_argument('--output-dir', type=Path, required=True)
+    parser.add_argument('--profile', choices=('zig-enet', 'gleam-secure-stream'), default='zig-enet')
     parser.add_argument('--repeats', type=int, choices=(1, 2, 3), default=1)
     args = parser.parse_args()
     return 0 if reproduce(args)['status'] == 'PASS' else 1

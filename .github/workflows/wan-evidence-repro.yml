@@ -6,21 +6,27 @@ on:
     inputs:
       source_run_id:
         description: Existing multiplatform run providing all three tested binary artifacts
-        default: '38101166170'
+        default: '38110235006'
         required: true
         type: string
+      profile:
+        description: Exact regression profile
+        default: gleam-secure-stream
+        type: choice
+        options: [gleam-secure-stream, zig-enet]
 permissions:
   contents: read
   actions: read
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
-  SOURCE_RUN_ID: ${{ inputs.source_run_id || '38101166170' }}
+  REPRO_PROFILE: ${{ inputs.profile || 'gleam-secure-stream' }}
+  SOURCE_RUN_ID: ${{ inputs.source_run_id || '38110235006' }}
 concurrency:
   group: wan-evidence-repro-${{ github.ref }}
   cancel-in-progress: true
 jobs:
   exact-zig-raw-evidence:
-    name: Zig/raw first-packet loss — original WAN evidence gate
+    name: Exact artifact-backed WAN regression
     runs-on: ubuntu-24.04
     timeout-minutes: 12
     steps:
@@ -93,7 +99,7 @@ jobs:
               --artifacts-dir .tmp/wan-evidence-source/cores \
               --envelope-dir .tmp/wan-evidence-source/envelope \
               --source-commit "$SOURCE_COMMIT" --source-run-id "$SOURCE_RUN_ID" \
-              --source-attempt "$SOURCE_ATTEMPT" --repeats 1 \
+              --source-attempt "$SOURCE_ATTEMPT" --profile "$REPRO_PROFILE" --repeats 3 \
               --output-dir .tmp/wan-evidence-result
       - name: Publish the exact-case outcome
         if: always()

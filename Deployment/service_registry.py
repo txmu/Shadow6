@@ -844,6 +844,15 @@ class ServiceRegistry:
         # A plan is evidence of intent. The canonical runtime status is the
         # sole source of truth for whether a session actually exists.
         observed = self.status(name)
+        # Supervisor snapshots and live /proc socket reads are independent.
+        # A transient mismatch invalidates the snapshot; wait for a new,
+        # fully validated observation instead of rejecting a healthy listener.
+        # Never reuse an invalid snapshot or retry a terminal lifecycle state.
+        for _ in range(20):
+            if observed.get('runtimeObservation') or observed.get('state') != 'degraded':
+                break
+            time.sleep(.1)
+            observed = self.status(name)
         if observed.get('state') not in ('running', 'degraded') or not observed.get('runtimeObservation'):
             raise ValueError('RuntimeObservationRequired')
         result = json.loads(json.dumps(observed))

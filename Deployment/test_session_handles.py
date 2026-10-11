@@ -131,6 +131,33 @@ class SessionHandleTests(unittest.TestCase):
         self.assertNotIn('session', result)
         attach.assert_not_called()
 
+    def test_connect_waits_for_fresh_observation_and_fails_closed_at_bound(self):
+        material = {'nativeConfigDigest': 'sha256:x'}
+        plan = {'capability': {'sessionLaunch': 'unavailable'}}
+        class Dummy:
+            def connection_inputs(self, name):
+                return {'deploymentLock': {'digest': 'sha256:lock'}}, material
+            def connect(self, name, **kwargs): return plan
+        args = dict(confirmed=True, expected_plan_digest=digest(encoded(plan)),
+                    expected_material_digest=digest(encoded(material)), expected_lock_digest='sha256:lock')
+        pending = {'state': 'degraded', 'runtime': {'readiness': 'unavailable'}}
+        fresh = {'state': 'running', 'runtimeObservation': {'schema': 'observed'},
+                 'runtime': {'readiness': 'listener-ready'}}
+        dummy = Dummy()
+        dummy.status = mock.Mock(side_effect=[pending, fresh])
+        with mock.patch('Deployment.service_registry.time.sleep'):
+            result = ServiceRegistry.connect_execute.__wrapped__(dummy, 'home/nas', **args)
+        self.assertEqual(result['sessionState'], 'transport-ready')
+        dummy.status = mock.Mock(return_value=pending)
+        with mock.patch('Deployment.service_registry.time.sleep'), \
+             self.assertRaisesRegex(ValueError, 'RuntimeObservationRequired'):
+            ServiceRegistry.connect_execute.__wrapped__(dummy, 'home/nas', **args)
+        self.assertEqual(dummy.status.call_count, 21)
+        dummy.status = mock.Mock(return_value={'state': 'failed'})
+        with self.assertRaisesRegex(ValueError, 'RuntimeObservationRequired'):
+            ServiceRegistry.connect_execute.__wrapped__(dummy, 'home/nas', **args)
+        self.assertEqual(dummy.status.call_count, 1)
+
 
 if __name__ == '__main__':
     unittest.main()
