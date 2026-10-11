@@ -169,11 +169,24 @@ class FDGateway:
             if self.diagnostic_count < 8:
                 self.diagnostic_count += 1
                 frames = []; trace = error.__traceback__
-                while trace is not None and len(frames) < 8:
+                for _ in range(64):
+                    if trace is None: break
                     frames.append({'function': trace.tb_frame.f_code.co_name[:96], 'line': trace.tb_lineno})
+                    if len(frames) > 8: del frames[0]
                     trace = trace.tb_next
-                print(json.dumps({'schema': 'shadow6.fd-admission-diagnostic.v1',
-                    'exception': type(error).__name__, 'frames': frames}), file=sys.stderr, flush=True)
+                known = {'ReviewedPlanChanged':'ReviewedPlanChanged',
+                    'ReviewedMaterialChanged':'ReviewedMaterialChanged', 'ReviewedLockChanged':'ReviewedLockChanged',
+                    'RuntimeObservationRequired':'RuntimeObservationRequired',
+                    'ApplicationReadinessUnavailable':'ApplicationReadinessUnavailable',
+                    'ApplicationBoundaryBusy':'ApplicationBoundaryBusy',
+                    'ApplicationEndpointOwnerUnavailable':'ApplicationEndpointOwnerUnavailable',
+                    'service is not running':'ServiceNotRunning', 'deployment drift':'DeploymentDrift',
+                    'Core binding drift':'CoreBindingDrift', 'Core binary drift':'CoreBinaryDrift'}
+                message = str(error)
+                code = next((value for prefix,value in known.items()
+                    if message == prefix or message.startswith((prefix + ':', prefix + ';'))), 'Unclassified')
+                print(json.dumps({'schema': 'shadow6.fd-admission-diagnostic.v2',
+                    'exception': type(error).__name__, 'code':code, 'frames': frames}), file=sys.stderr, flush=True)
             try:
                 await self.send_error(connection,nonce,'FDAttachmentRejected')
             except (OSError,TimeoutError): pass

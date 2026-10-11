@@ -5,6 +5,8 @@ on:
       - '.github/workflows/sctp-fastjob.yml'
       - 'Test-Lab/**'
       - 'Core-Cpp/**'
+      - 'Core-Pony/**'
+      - 'Control-Center/fd_gateway.py'
       - 'OCaml/privacy_envelope/**'
       - 'Deployment/**'
       - 'Crosed/**'
@@ -16,6 +18,8 @@ on:
       - '.github/workflows/sctp-fastjob.yml'
       - 'Test-Lab/**'
       - 'Core-Cpp/**'
+      - 'Core-Pony/**'
+      - 'Control-Center/fd_gateway.py'
       - 'OCaml/privacy_envelope/**'
       - 'Deployment/**'
       - 'Crosed/**'
@@ -96,5 +100,73 @@ jobs:
         with:
           name: shadow6-sctp-fastjob-evidence
           path: .tmp/sctp-fastjob-evidence/
+          if-no-files-found: warn
+          retention-days: 14
+  pony-fd-fastjob:
+    name: FastJob Pony application FD admission
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with: {python-version: '3.12'}
+      - name: Prepare only the Pony and FD ABI dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential libsodium-dev libssl-dev tcpdump iproute2
+          python3 -m venv .tmp/pony-fd-venv
+          .tmp/pony-fd-venv/bin/python -m pip install --disable-pip-version-check 'cryptography==50.0.1'
+          pony_dir=$(mktemp -d "$RUNNER_TEMP/shadow6-pony-compiler.XXXXXX")
+          curl --fail --location --retry 3 --max-time 180 \
+            https://github.com/ponylang/ponyc/releases/download/0.72.0/ponyc-x86-64-unknown-linux-ubuntu24.04.tar.gz \
+            -o "$pony_dir/compiler.tar.gz"
+          echo "a101427ff3daa510b821860b04a6bb786e42803fcfa8fa7723bb8183102b5a91  $pony_dir/compiler.tar.gz" | sha256sum -c -
+          tar -xzf "$pony_dir/compiler.tar.gz" --strip-components=1 -C "$pony_dir"
+          echo "PONYC=$pony_dir/bin/ponyc" >> "$GITHUB_ENV"
+      - name: Build only the default Pony Core and application ABI
+        run: |
+          set -euo pipefail
+          make core-pony BUILD_PONY=1 PONY_CROSED_LEVEL=0 CROSED_LEVEL=0 APP_TRANSPORT=0 QUBES_ISOLATION=0
+          make -C libshadow6/native check PYTHON_CONFIG="$(command -v python3-config)"
+          echo "SHADOW6_APPLICATION_LIBRARY=$PWD/libshadow6/native/libshadow6.so.1" >> "$GITHUB_ENV"
+      - name: Exercise a real Pony FD attachment across owned namespaces
+        run: |
+          set -euo pipefail
+          sudo chown root:root -- Core-Pony/shadow6-pony libshadow6/native/libshadow6.so.1
+          sudo --preserve-env=PATH,SHADOW6_APPLICATION_LIBRARY \
+            "$PWD/.tmp/pony-fd-venv/bin/python" - <<'PY'
+          import sys
+          from pathlib import Path
+          sys.path.insert(0, 'Test-Lab')
+          from shadow6_test_lab import ROOT, _current_feature_report, _write_json
+          from profile_registry import select_profile
+          from native_pair import case
+          profile = select_profile('pony', 'pony-udp')
+          binary = ROOT / profile['artifact']
+          admission = _current_feature_report(profile, binary)
+          if admission['availability'] != 'AVAILABLE':
+              raise SystemExit(admission.get('reason'))
+          features = admission['featureReport']
+          assert features['crosed_max_level'] == 0 and not features['app_transport'] and not features['qubes_isolation']
+          output = Path('.tmp/pony-fd-evidence')
+          row = case(profile, binary, 'clean', output, 'pony-fd-fastjob',
+              capture_enabled=True, payload_bytes=4096, requests=2)
+          _write_json(output / 'report.json', row)
+          print('Pony FD:', row['status'], row.get('reason'))
+          print(row.get('workerDiagnostics') or '')
+          if row['status'] != 'PASS': raise SystemExit(1)
+          PY
+      - name: Hand back the owned diagnostics
+        if: always()
+        run: |
+          if test -d .tmp/pony-fd-evidence; then
+            sudo chown -R "$(id -u):$(id -g)" -- .tmp/pony-fd-evidence
+          fi
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: shadow6-pony-fd-fastjob-evidence
+          path: .tmp/pony-fd-evidence/
           if-no-files-found: warn
           retention-days: 14

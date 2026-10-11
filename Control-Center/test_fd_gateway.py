@@ -104,6 +104,20 @@ class FDGatewayTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(diagnostics),8)
         self.assertTrue(all(row['exception']=='RuntimeError' and len(row['frames'])<=8 for row in diagnostics))
 
+    async def test_deep_admission_reason_is_retained_without_exception_message(self):
+        def inner_failure(depth):
+            if depth: return inner_failure(depth-1)
+            raise ValueError('ApplicationReadinessUnavailable: SECRET-detail')
+        output=io.StringIO()
+        with patch.object(control,'response',side_effect=lambda *a,**kw:inner_failure(12)), patch('sys.stderr',output):
+            value,fds,_=await asyncio.to_thread(self.request)
+        self.assertEqual(value['error'],'FDAttachmentRejected');self.assertEqual(fds,[])
+        self.assertNotIn('SECRET',output.getvalue())
+        diagnostic=json.loads(output.getvalue())
+        self.assertEqual(diagnostic['code'],'ApplicationReadinessUnavailable')
+        self.assertEqual(len(diagnostic['frames']),8)
+        self.assertEqual(diagnostic['frames'][-1]['function'],'inner_failure')
+
     async def test_replay_and_expired_request_never_open_another_session(self):
         nonce=secrets.token_hex(32)
         with patch.object(control,'response',side_effect=self.fake_response) as dispatch:

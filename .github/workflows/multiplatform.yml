@@ -468,7 +468,7 @@ jobs:
                 sudo pkgin clean
               fi
               sudo pkgin -y update
-              sudo pkgin -y install python311 iperf3 || {
+              sudo pkgin -y install python311 gmake curl || {
                 if test '${{ matrix.arch }}' = arm64; then
                   echo "Package installation failed on NetBSD ARM64, skipping iperf3 tests"
                   exit 0
@@ -476,6 +476,24 @@ jobs:
                 exit 1
               }
               python=/usr/pkg/bin/python3.11
+              # pkgsrc's 3.20 can hang during parallel stream teardown.
+              # Use the upstream cancellation/connection race fixes in a
+              # private build; never install or activate an iperf service.
+              iperf_work=$(mktemp -d /tmp/shadow6-netbsd-iperf.XXXXXX)
+              trap 'rm -rf "$iperf_work"' EXIT HUP INT TERM
+              curl --fail --location --retry 3 --max-time 180 \
+                https://downloads.es.net/pub/iperf/iperf-3.22.tar.gz \
+                -o "$iperf_work/iperf.tar.gz"
+              test "$(sha256 -q "$iperf_work/iperf.tar.gz")" = \
+                1c0d0fb02c52626111d6e132db80edfbf27bbaff8bd9245df2a371dcb0b35a92
+              tar -xzf "$iperf_work/iperf.tar.gz" -C "$iperf_work"
+              (
+                cd "$iperf_work/iperf-3.22"
+                ./configure --without-openssl --without-sctp --disable-shared
+                gmake -j2
+              )
+              PATH="$iperf_work/iperf-3.22/src:$PATH"
+              export PATH
               ;;
           esac
           timeout_retries=0
