@@ -1,6 +1,7 @@
 name: SCTP FastJob
 on:
   push:
+    branches-ignore: ['ci/wan-evidence']
     paths:
       - '.github/workflows/sctp-fastjob.yml'
       - 'Test-Lab/**'
