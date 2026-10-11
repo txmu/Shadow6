@@ -26,9 +26,11 @@ the expected loss. The job is bounded to twelve minutes and has no build
 dependencies.
 
 The default `profile=gleam-secure-stream` tests the connection admission
-regression from run `38110235006`: a clean baseline followed by three
-high-jitter cases. Every case requires application correctness and the complete
-PCAP/ownership/privacy gate to pass. Connection execution may wait up to two
+regression from run `38131015938`: three native NamespacePair clean
+cases, followed by an S6EPE clean baseline and three high-jitter cases.
+Pushes to the debug branch also run `gleam-micro-mux` through TLS with the
+same native/clean/high-jitter plan. Every case requires application correctness and the complete
+PCAP/ownership/privacy gate to pass. Every connection-plan input and final execution check may wait up to two
 seconds for a fresh, fully validated supervisor observation; an invalid or
 terminal observation never grants a connection.
 
@@ -38,7 +40,7 @@ terminal observation never grants a connection.
 
 ```sh
 gh workflow run wan-evidence-repro.yml --ref ci/wan-evidence \
-  -f source_run_id=38110235006 -f profile=gleam-secure-stream
+  -f source_run_id=38131015938 -f profile=gleam-secure-stream
 ```
 
 检查 `shadow6-wan-evidence-exact-case` 中的 `report.json`、PCAP 和

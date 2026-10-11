@@ -95,7 +95,7 @@ jobs:
           test "$(cat .tmp/wan-evidence-source/sdk/COMMIT)" = "$SOURCE_COMMIT"
           chmod 0755 .tmp/wan-evidence-source/sdk/lib/libshadow6.so.1
           echo "SHADOW6_APPLICATION_LIBRARY=$PWD/.tmp/wan-evidence-source/sdk/lib/libshadow6.so.1" >> "$GITHUB_ENV"
-      - name: Run only the exact first-drop and mobile evidence regression
+      - name: Run the exact native and envelope admission regression
         run: |
           set -euo pipefail
           sudo chown -R root:root -- .tmp/wan-evidence-source
