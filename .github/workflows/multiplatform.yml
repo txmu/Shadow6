@@ -18,10 +18,12 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with: {python-version: '3.12'}
       - name: Compile the C application ABI without building Cores
         run: |
           set -euo pipefail
-          make -C libshadow6/native check
+          make -C libshadow6/native check PYTHON_CONFIG="$(command -v python3-config)"
           mkdir -p application-sdk/include application-sdk/lib application-sdk/examples application-sdk/schemas
           cp libshadow6/include/shadow6.h application-sdk/include/
           cp libshadow6/native/libshadow6.so.1 application-sdk/lib/
