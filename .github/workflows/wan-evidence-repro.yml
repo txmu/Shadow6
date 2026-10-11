@@ -1,0 +1,113 @@
+name: WAN evidence专项
+on:
+  push:
+    branches: ['ci/wan-evidence']
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: Existing multiplatform run providing all three tested binary artifacts
+        default: '38101166170'
+        required: true
+        type: string
+permissions:
+  contents: read
+  actions: read
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+  SOURCE_RUN_ID: ${{ inputs.source_run_id || '38101166170' }}
+concurrency:
+  group: wan-evidence-repro-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  exact-zig-raw-evidence:
+    name: Zig/raw first-packet loss — original WAN evidence gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with: {python-version: '3.12'}
+      - name: Admit the existing artifact run identity
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          value = os.environ['SOURCE_RUN_ID']
+          if not value.isascii() or not value.isdecimal() or not 0 < int(value) < 2**53:
+              raise SystemExit('invalid bounded source run ID')
+          PY
+          mkdir -p .tmp/wan-evidence-source
+          gh api "repos/$GH_REPO/actions/runs/$SOURCE_RUN_ID" \
+            --jq '{id,head_sha,run_attempt,path,repository:.repository.full_name}' \
+            > .tmp/wan-evidence-source/run.json
+          python3 - <<'PY'
+          import json, os, re
+          with open('.tmp/wan-evidence-source/run.json') as source: run = json.load(source)
+          if set(run) != {'id','head_sha','run_attempt','path','repository'} or \
+              str(run['id']) != os.environ['SOURCE_RUN_ID'] or run['repository'] != os.environ['GH_REPO'] or \
+              run['path'] != '.github/workflows/multiplatform.yml' or \
+              not isinstance(run['head_sha'],str) or not re.fullmatch('[0-9a-f]{40}',run['head_sha']) or \
+              type(run['run_attempt']) is not int or not 0 < run['run_attempt'] < 2**53:
+              raise SystemExit('source workflow identity mismatch')
+          with open(os.environ['GITHUB_ENV'],'a') as target:
+              target.write('SOURCE_COMMIT='+run['head_sha']+'\nSOURCE_ATTEMPT='+str(run['run_attempt'])+'\n')
+          PY
+      - uses: actions/download-artifact@v7
+        with:
+          name: shadow6-linux-release
+          run-id: ${{ env.SOURCE_RUN_ID }}
+          github-token: ${{ github.token }}
+          path: .tmp/wan-evidence-source/cores
+      - uses: actions/download-artifact@v7
+        with:
+          name: shadow6-s6epe-linux-runtime
+          run-id: ${{ env.SOURCE_RUN_ID }}
+          github-token: ${{ github.token }}
+          path: .tmp/wan-evidence-source/envelope
+      - uses: actions/download-artifact@v7
+        with:
+          name: shadow6-linux-application-sdk
+          run-id: ${{ env.SOURCE_RUN_ID }}
+          github-token: ${{ github.token }}
+          path: .tmp/wan-evidence-source/sdk
+      - name: Prepare only the Python and namespace observation tools
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends tcpdump iproute2 libsodium23
+          python3 -m venv .tmp/wan-evidence-venv
+          .tmp/wan-evidence-venv/bin/python -m pip install --disable-pip-version-check 'cryptography==50.0.1'
+          (cd .tmp/wan-evidence-source/sdk && sha256sum -c SHA256SUMS)
+          test "$(cat .tmp/wan-evidence-source/sdk/COMMIT)" = "$SOURCE_COMMIT"
+          chmod 0755 .tmp/wan-evidence-source/sdk/lib/libshadow6.so.1
+          echo "SHADOW6_APPLICATION_LIBRARY=$PWD/.tmp/wan-evidence-source/sdk/lib/libshadow6.so.1" >> "$GITHUB_ENV"
+      - name: Run only the exact first-drop and mobile evidence regression
+        run: |
+          set -euo pipefail
+          sudo chown -R root:root -- .tmp/wan-evidence-source
+          sudo --preserve-env=PATH,SHADOW6_APPLICATION_LIBRARY \
+            "$PWD/.tmp/wan-evidence-venv/bin/python" Test-Lab/wan_evidence_repro.py \
+              --artifacts-dir .tmp/wan-evidence-source/cores \
+              --envelope-dir .tmp/wan-evidence-source/envelope \
+              --source-commit "$SOURCE_COMMIT" --source-run-id "$SOURCE_RUN_ID" \
+              --source-attempt "$SOURCE_ATTEMPT" --repeats 1 \
+              --output-dir .tmp/wan-evidence-result
+      - name: Publish the exact-case outcome
+        if: always()
+        run: |
+          if test -d .tmp/wan-evidence-result; then
+            sudo chown -R "$(id -u):$(id -g)" -- .tmp/wan-evidence-result
+            if test -f .tmp/wan-evidence-result/summary.md; then
+              cat .tmp/wan-evidence-result/summary.md | tee -a "$GITHUB_STEP_SUMMARY"
+            fi
+          fi
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: shadow6-wan-evidence-exact-case
+          path: .tmp/wan-evidence-result/
+          if-no-files-found: warn
+          retention-days: 14

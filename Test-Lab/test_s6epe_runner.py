@@ -98,6 +98,30 @@ class AttachmentTests(unittest.TestCase):
                 break
             time.sleep(.01)
         self.assertEqual((observation['bytesIn'], observation['bytesOut'], observation['failures']), (4096, 4096, 0))
+
+    def test_stream_datagram_first_loss_does_not_starve_remaining_chunks_or_resend(self):
+        arrivals = []; failures = []
+        with socket.socket(type=socket.SOCK_DGRAM) as target:
+            target.bind(('127.0.0.1', 0)); target.settimeout(5)
+            def echo():
+                try:
+                    for index in range(4):
+                        data, address = target.recvfrom(8192); arrivals.append(data)
+                        if index: target.sendto(data, address)
+                except Exception as error: failures.append(type(error).__name__)
+            thread = threading.Thread(target=echo); thread.start()
+            port = free_port()
+            value = self.launch(select_profile('zig','zig-enet'), 'stream-to-datagram', port, target.getsockname()[1])
+            payload = b''.join(bytes([index])*512 for index in range(4))
+            try:
+                with socket.create_connection(('127.0.0.1', port), timeout=5) as client:
+                    client.settimeout(5); client.sendall(payload)
+                    self.assertEqual(exact(client, 1536), payload[512:])
+            finally: thread.join(timeout=5)
+            self.assertFalse(thread.is_alive()); self.assertEqual(failures, [])
+            self.assertEqual(arrivals, [payload[offset:offset+512] for offset in range(0,2048,512)])
+            observation = strict_json(private_read(value['metrics']))
+            self.assertEqual(observation['failures'],1)
     def test_record_stream_attachment_preserves_distinct_empty_and_nonempty_records(self):
         profile = select_profile('gleam', 'gleam-micro-mux')
         peer, local = free_port(), free_port()

@@ -320,16 +320,18 @@ def matrix(availability, by_profile, artifact_root, scenarios, output, run_id, *
             rows.append(row)
     return rows
 
-def case(profile, core_binary, epe_binary, adapter, scenario, output, run_id, *, payload_bytes, requests, expected_artifact_digest, worker_timeout=180):
+def case(profile, core_binary, epe_binary, adapter, scenario, output, run_id, *, payload_bytes, requests, expected_artifact_digest, worker_timeout=180, fault=None):
     if type(worker_timeout) is not int or not 1 <= worker_timeout <= 180:
         raise ValueError('S6EPE worker timeout outside bounded budget')
+    if fault not in (None, 'drop-first-carrier-datagram') or (fault and (adapter.name != 'raw' or adapter.mode != 'datagram')):
+        raise ValueError('unsupported bounded carrier fault')
     from shadow6_test_lab import Capture, _worker, _write_json
     row = {'scenario': scenario, 'status': 'FAIL', 'networkKind': 'directional-veth-simulated',
         'stages': {stage: {'status': 'BLOCKED', 'reason': 'upstream stage did not complete'} for stage in STAGES[3:]}}
     root_output = output / 's6epe' / profile['id'] / adapter.name / scenario
     root_output.mkdir(parents=True, exist_ok=True)
     processes = []; captures = []; broker = None; impairment = None
-    observer = None
+    observer = None; first_drop = None
     with NamespacePair() as pair, tempfile.TemporaryDirectory(prefix='s6lab-') as private, ExitStack() as lifecycle:
         private = Path(private)
         a, b = Side(pair, pair.a, 's6tl-a'), Side(pair, pair.b, 's6tl-b')
@@ -360,6 +362,10 @@ def case(profile, core_binary, epe_binary, adapter, scenario, output, run_id, *,
                 lifecycle.callback(capture.stop)
                 if not capture.start(): raise RequirementMissing(capture.reason or 'bounded capture unavailable')
             material = adapter.material(private)
+            if fault:
+                from first_datagram_fault import FirstCarrierDatagramDrop
+                first_drop = FirstCarrierDatagramDrop(pair).start()
+                lifecycle.callback(first_drop.close)
             host = '::1' if profile['core'] == 'hare' else '127.0.0.1'
             if adapter.name != 'webrtc':
                 attachment(b, adapter.echo_kind(message), 18401, label='echo-B')
@@ -458,6 +464,9 @@ def case(profile, core_binary, epe_binary, adapter, scenario, output, run_id, *,
         except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
             row.update(status='FAIL', reason=f'{type(error).__name__}: {error}')
         finally:
+            if first_drop is not None:
+                first_drop.close()
+                row['faultInjection'] = first_drop.evidence()
             if observer is not None: observer.close()
             if impairment is not None: impairment.close()
             outer = []; inner = []; ownership = observer.evidence() if observer is not None else []

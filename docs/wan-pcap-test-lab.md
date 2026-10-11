@@ -7,6 +7,36 @@ Profile, native transport, application boundary, adapter, and carrier.
 
 ## English
 
+### WAN evidence专项：复用失败产物，不等待完整矩阵
+
+`wan-evidence-repro.yml` is independent of all build jobs. It downloads the
+existing Linux Core, S6EPE and SDK artifacts from one explicitly selected
+`multiplatform` run, checks their original run/attempt/commit identities and
+digests, and records the current controller commit separately. It never
+recompiles a Core or claims these reused binaries were built by the专项.
+
+The exact regression is Zig/raw S6EPE: a clean baseline, a deterministic first
+carrier datagram drop, then the original mobile case. The drop filter touches
+only the owned namespace's UDP hop to `198.18.6.2:18402`, observes exactly one
+dropped packet and removes itself. The lost business bytes must still produce
+a FAIL measurement; the专项 succeeds only when the remaining owned traffic
+provides the same PCAP, ownership, wire-classification and privacy evidence
+required by the full workflow. A control/admission failure is not accepted as
+the expected loss. The job is bounded to twelve minutes and has no build
+dependencies.
+
+在 `ci/wan-evidence` 分支推送只触发这个专项；完整矩阵和原 FastJobs
+排除该调试分支，其他分支的覆盖不变。工作流进入默认分支后，可单独指定
+失败 run，无需重跑完整构建：
+
+```sh
+gh workflow run wan-evidence-repro.yml --ref ci/wan-evidence \
+  -f source_run_id=38101166170
+```
+
+检查 `shadow6-wan-evidence-exact-case` 中的 `report.json`、PCAP 和
+`faultInjection`。通过表示该精确证据回归通过，不代表完整矩阵全部通过。
+
 ### SCTP FastJob / SCTP EOF 快速复现
 
 The independent `SCTP FastJob` workflow starts without waiting for the
