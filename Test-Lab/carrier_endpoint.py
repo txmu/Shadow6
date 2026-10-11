@@ -156,10 +156,9 @@ def serve(config):
                 upstream = sctp_socket() if kind == 'stream-to-sctp' else socket.socket(socket.AF_INET,
                     socket.SOCK_STREAM if kind == 'forward-stream' else socket.SOCK_DGRAM)
                 with upstream:
-                    upstream.settimeout(2 if kind == 'stream-to-datagram' else 15)
-                    upstream.connect((config['peerHost'], config['peerPort']))
+                    upstream.settimeout(15); upstream.connect((config['peerHost'], config['peerPort']))
                     while not stopping.is_set():
-                        data = peer.recv(min(limit, 512) if kind == 'stream-to-datagram' else limit)
+                        data = peer.recv(limit)
                         if not data: return
                         if kind == 'stream-to-sctp':
                             sctp_send(upstream, data); reply = sctp_receive(upstream, limit)
@@ -167,15 +166,7 @@ def serve(config):
                             upstream.sendall(data); reply = exact(upstream, len(data))
                         else:
                             if upstream.send(data) != len(data): raise OSError('partial UDP send')
-                            try: reply = upstream.recv(limit + 1)
-                            except socket.timeout:
-                                # This carrier is best effort: do not resend or
-                                # invent missing stream bytes. Continue queued
-                                # application chunks so one lost datagram does
-                                # not suppress the entire WAN evidence path.
-                                with lock: metrics['failures'] += 1
-                                publish()
-                                continue
+                            reply = upstream.recv(limit + 1)
                         if reply != data: raise ValueError('carrier attachment exact echo mismatch')
                         peer.sendall(reply); count(data)
     def worker(peer):
