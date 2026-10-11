@@ -1,0 +1,7 @@
+{
+  "schema": "ziokt.provider.v1",
+  "enabled": false,
+  "federation_id": "home",
+  "provider_id": "shadow6-local",
+  "allow_mutations": false
+}

@@ -27,6 +27,7 @@ BUILD_SLOTS ?= 1
 BUILD_PUBLIC6 ?= 1
 BUILD_GATE ?= 1
 BUILD_MIGRATION ?= 1
+BUILD_ZIOKT ?= 1
 BUILD_COMPLIANCE ?= 0
 CROSED_LEVEL ?= 0
 APP_TRANSPORT ?= 0
@@ -42,6 +43,9 @@ PYTHON_SITE_PACKAGES ?= $(shell $(PYTHON) -c 'import sysconfig; print(sysconfig.
 
 .PHONY: privacy-envelope
 .PHONY: application-sdk
+.PHONY: ziokt-test
+ziokt-test:
+	@$(PYTHON) -m unittest discover -s Ziokt-Support -v
 application-sdk:
 	@$(MAKE) -C libshadow6/native check
 privacy-envelope:
@@ -121,6 +125,7 @@ test-ada: core-ada prove-ada ada-crosed-variant
 ifeq ($(BUILD_ADA),1)
 build: core-ada
 test: test-ada
+test: ziokt-test
 endif
 
 core-zig:
@@ -552,6 +557,11 @@ ifeq ($(BUILD_GATE),1)
 endif
 	@install -m 0755 Migration/shadow6_migrate.py "$(DESTDIR)$(PREFIX)/bin/shadow6-migrate"
 	@install -m 0755 CLI/shadow6.py "$(DESTDIR)$(PREFIX)/bin/shadow6"
+ifeq ($(BUILD_ZIOKT),1)
+	@install -m 0755 Ziokt-Support/shadow6_ziokt.py "$(DESTDIR)$(PREFIX)/bin/shadow6-ziokt"
+	@install -d "$(DESTDIR)$(PREFIX)/share/shadow6/modules"
+	@install -m 0644 Ziokt-Support/zfcp_runtime.py "$(DESTDIR)$(PREFIX)/share/shadow6/modules/zfcp_runtime.py"
+endif
 	@install -m 0755 CLI/shadow6_connect.py "$(DESTDIR)$(PREFIX)/bin/shadow6-connect"
 	@install -m 0755 CLI/native_config.py "$(DESTDIR)$(PREFIX)/bin/shadow6-native-config"
 	@install -m 0755 CLI/native_key.py "$(DESTDIR)$(PREFIX)/bin/shadow6-native-key"

@@ -23,6 +23,7 @@ usage() {
         '  --enable-public6 | --disable-public6' \
         '  --enable-gate | --disable-gate' \
         '  --enable-migration | --disable-migration' \
+        '  --enable-ziokt | --disable-ziokt (native federation support)' \
         '  --crosed-level=0..5' \
         '  --enable-app-transport | --disable-app-transport' \
         '  --enable-qubes-isolation | --disable-qubes-isolation' \
@@ -55,6 +56,7 @@ BUILD_SLOTS=1
 BUILD_PUBLIC6=1
 BUILD_GATE=1
 BUILD_MIGRATION=1
+BUILD_ZIOKT=1
 BUILD_COMPLIANCE=0
 CROSED_LEVEL=0
 APP_TRANSPORT=0
@@ -62,8 +64,8 @@ QUBES_ISOLATION=0
 
 for argument in "$@"; do
     case "$argument" in
-        --enable-all) BUILD_GO=1; BUILD_RUST=1; BUILD_CPP=1; BUILD_RELAY=1; BUILD_GUARD=1; BUILD_AUTO=1; BUILD_DETECTOR=1; BUILD_PLUGINS=1; BUILD_CROSED=1; BUILD_APP=1; BUILD_ASSISTANTS=1; BUILD_CONTROL=1; BUILD_SLOTS=1; BUILD_PUBLIC6=1; BUILD_GATE=1; BUILD_MIGRATION=1 ;;
-        --disable-all) BUILD_GO=0; BUILD_RUST=0; BUILD_CPP=0; BUILD_RELAY=0; BUILD_GUARD=0; BUILD_AUTO=0; BUILD_DETECTOR=0; BUILD_PLUGINS=0; BUILD_CROSED=0; BUILD_APP=0; BUILD_ASSISTANTS=0; BUILD_CONTROL=0; BUILD_SLOTS=0; BUILD_PUBLIC6=0; BUILD_GATE=0; BUILD_MIGRATION=0 ;;
+        --enable-all) BUILD_GO=1; BUILD_RUST=1; BUILD_CPP=1; BUILD_RELAY=1; BUILD_GUARD=1; BUILD_AUTO=1; BUILD_DETECTOR=1; BUILD_PLUGINS=1; BUILD_CROSED=1; BUILD_APP=1; BUILD_ASSISTANTS=1; BUILD_CONTROL=1; BUILD_SLOTS=1; BUILD_PUBLIC6=1; BUILD_GATE=1; BUILD_MIGRATION=1; BUILD_ZIOKT=1 ;;
+        --disable-all) BUILD_GO=0; BUILD_RUST=0; BUILD_CPP=0; BUILD_RELAY=0; BUILD_GUARD=0; BUILD_AUTO=0; BUILD_DETECTOR=0; BUILD_PLUGINS=0; BUILD_CROSED=0; BUILD_APP=0; BUILD_ASSISTANTS=0; BUILD_CONTROL=0; BUILD_SLOTS=0; BUILD_PUBLIC6=0; BUILD_GATE=0; BUILD_MIGRATION=0; BUILD_ZIOKT=0 ;;
         --disable-cores)
             for core in GO RUST CPP GLEAM PONY ZIG HARE ADA CARP D NIM IDRIS; do
                 printf -v "BUILD_${core}" '%s' 0
@@ -101,6 +103,8 @@ for argument in "$@"; do
         --disable-gate) BUILD_GATE=0 ;;
         --enable-migration) BUILD_MIGRATION=1 ;;
         --disable-migration) BUILD_MIGRATION=0 ;;
+        --enable-ziokt) BUILD_ZIOKT=1 ;;
+        --disable-ziokt) BUILD_ZIOKT=0 ;;
         --crosed-level=*) CROSED_LEVEL=${argument#*=}; case "$CROSED_LEVEL" in 0|1|2|3|4|5) ;; *) printf 'Invalid Crosed level: %s\n' "$CROSED_LEVEL" >&2; exit 2 ;; esac ;;
         --enable-app-transport) APP_TRANSPORT=1 ;;
         --disable-app-transport) APP_TRANSPORT=0 ;;
@@ -137,6 +141,7 @@ trap 'rm -f "$temporary"' EXIT
     printf 'BUILD_PUBLIC6=%s\n' "$BUILD_PUBLIC6"
     printf 'BUILD_GATE=%s\n' "$BUILD_GATE"
     printf 'BUILD_MIGRATION=%s\n' "$BUILD_MIGRATION"
+    printf 'BUILD_ZIOKT=%s\n' "$BUILD_ZIOKT"
     printf 'BUILD_COMPLIANCE=%s\n' "$BUILD_COMPLIANCE"
     printf 'CROSED_LEVEL=%s\n' "$CROSED_LEVEL"
     printf 'APP_TRANSPORT=%s\n' "$APP_TRANSPORT"

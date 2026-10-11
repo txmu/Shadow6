@@ -918,6 +918,18 @@ class ServiceRegistry:
         return [self.status(k) for k in sorted(self.services)]
 
     @transaction
+    def ziokt_stop(self, name, *, expected_revision):
+        """Stop only the reviewed native revision, under the native registry lock.
+
+        The opt-in provider supplies local authorization; this method preserves
+        the same identity/lifecycle authority and cannot select another Core.
+        """
+        item = self.inspect(name)
+        if expected_revision != digest(encoded(item)):
+            raise ValueError('ZioktStaleNativeRevision')
+        return self.stop(name)
+
+    @transaction
     def inspect(self, name):
         if name not in self.services:
             raise ValueError('unknown named service')

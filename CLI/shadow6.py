@@ -59,6 +59,7 @@ COMPONENTS.update({
  "deployment": ROOT/"Deployment/shadow6_deployment.py",
  "web": ROOT/"CLI/shadow6_web.py",
  "acceptance": ROOT/"Deployment/shadow6_acceptance.py",
+ "ziokt": ROOT/"Ziokt-Support/shadow6_ziokt.py",
 
 })
 try:
