@@ -84,7 +84,7 @@ BUILD_FLAGS = (
     "build_relay", "build_guard", "build_auto",
     "build_detector", "build_plugins", "build_crosed", "build_app",
     "build_assistants", "build_control", "build_compliance",
-    "build_slots", "build_public6", "build_gate", "build_migration",
+    "build_slots", "build_public6", "build_gate", "build_migration", "build_ziokt",
 )
 OPTIONAL_CORE_FLAGS = {"build_gleam", "build_pony", "build_zig", "build_hare", "build_ada", "build_carp", "build_d", "build_nim", "build_idris"}
 
