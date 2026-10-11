@@ -8,12 +8,13 @@ from pathlib import Path
 import subprocess
 import uuid
 
-from shadow6_test_lab import ROOT, _write_json, _current_feature_report, _scenario_case
+from shadow6_test_lab import ROOT, _write_json, _current_feature_report
 from artifacts import verify_inventory, merge_runtime_companions, admit_s6epe_runtime, sha256_file
 from profile_registry import select_profile
 from service_runtime import feature_report
 from privacy_envelope import feature_availability
 from s6epe import RawCarrier, TLSCarrier, case
+from native_pair import case as native_pair_case
 
 
 def evidence_errors(row, *, expected_loss=False):
@@ -67,7 +68,7 @@ def reproduce(args):
         report['status'] = 'RUNNING'
         if args.profile.startswith('gleam-'):
             for i in range(1, args.repeats + 1):
-                row = _scenario_case(profile, binary, 'clean', output / f'native-clean-{i}',
+                row = native_pair_case(profile, binary, 'clean', output / f'native-clean-{i}',
                     uuid.uuid4().hex, capture_enabled=True, payload_bytes=4096, requests=2)
                 errors = [key for key in ('capture', 'noBypass', 'correctness')
                           if row.get(key, {}).get('status') != 'PASS']
