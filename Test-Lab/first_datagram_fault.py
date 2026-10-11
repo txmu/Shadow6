@@ -1,10 +1,10 @@
 """One deterministic drop on the owned A-to-B raw S6EPE application hop."""
 import subprocess
+import re
 import threading
 import time
 
 from network import system_tool
-from service_storage import strict_json
 
 
 class FirstCarrierDatagramDrop:
@@ -35,18 +35,14 @@ class FirstCarrierDatagramDrop:
             deadline = time.monotonic() + 90
             try:
                 while not self.stop.is_set() and time.monotonic() < deadline:
-                    rows = strict_json(self.command(['-s', '-j', 'filter', 'show', 'dev', 's6tl-a', 'egress']),
-                        limit=16384, allow_measurement_floats=True, uint64_measurements_as_strings=True)
-                    if not isinstance(rows, list) or len(rows) > 32 or not all(isinstance(row, dict) for row in rows):
-                        raise ValueError('invalid bounded filter observation')
-                    for row in rows:
-                        if row.get('pref') != 404: continue
-                        for action in row.get('options', {}).get('actions', []):
-                            value = action.get('stats', {}).get('packets', 0)
-                            if type(value) is int and 0 <= value < 2**64: count = value
-                            elif isinstance(value, str) and value.isascii() and value.isdecimal() and len(value) <= 20 and int(value) < 2**64: count = int(value)
-                            else: raise ValueError('invalid fault packet counter')
-                            self.dropped = max(self.dropped, count)
+                    # u32's JSON output repeats selector keys, which our
+                    # strict JSON parser correctly rejects. Read the single
+                    # fixed action's bounded statistics line instead.
+                    text = self.command(['-s', 'filter', 'show', 'dev', 's6tl-a', 'egress']).decode('ascii')
+                    counters = re.findall(r'(?m)^\s*Sent\s+([0-9]{1,20})\s+bytes\s+([0-9]{1,20})\s+pkt\s+\(dropped\s+([0-9]{1,20}),', text)
+                    if len(counters) != 1 or any(int(value) >= 2**64 for value in counters[0]):
+                        raise ValueError('invalid single-action fault counters')
+                    self.dropped = max(self.dropped, int(counters[0][2]))
                     if self.dropped: break
                     self.stop.wait(.1)
                 if not self.dropped and not self.stop.is_set(): self.errors.append('DropObservationDeadline')

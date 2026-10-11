@@ -39,8 +39,8 @@ class OwnedDropTests(unittest.TestCase):
         pair=SimpleNamespace(a='owned-a',exec=lambda namespace,argv:['owned-netns',namespace,*argv])
         def command(argv,**kwargs):
             calls.append(argv)
-            rows=[{'pref':404,'options':{'actions':[{'stats':{'packets':count}}]}}]
-            return SimpleNamespace(stdout=json.dumps(rows).encode() if '-j' in argv else b'')
+            text=f' Sent 100 bytes {count} pkt (dropped {count}, overlimits 0 requeues 0)\n'
+            return SimpleNamespace(stdout=text.encode() if 'show' in argv else b'')
         with patch('first_datagram_fault.system_tool',return_value='/usr/sbin/tc'), \
              patch('first_datagram_fault.subprocess.run',side_effect=command):
             fault=FirstCarrierDatagramDrop(pair).start()
@@ -53,7 +53,7 @@ class OwnedDropTests(unittest.TestCase):
         self.assertTrue(all(command[:2]==['owned-netns','owned-a'] for command in calls))
         self.assertIn('del',calls[-1]);self.assertIn('18402',calls[1])
 
-    def test_boolean_counter_is_rejected_and_filter_is_still_removed(self):
+    def test_non_numeric_counter_is_rejected_and_filter_is_still_removed(self):
         evidence,calls=self.run_fault(True)
         self.assertEqual(evidence['status'],'FAIL')
         self.assertEqual(evidence['errors'],['ValueError'])
