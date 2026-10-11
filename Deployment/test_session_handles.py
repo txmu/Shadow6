@@ -158,6 +158,24 @@ class SessionHandleTests(unittest.TestCase):
             ServiceRegistry.connect_execute.__wrapped__(dummy, 'home/nas', **args)
         self.assertEqual(dummy.status.call_count, 1)
 
+    def test_connection_inputs_refreshes_before_plan_generation(self):
+        material = {'nativeConfigDigest': 'sha256:x'}
+        fresh = {'state': 'running', 'runtime': {},
+                 'runtimeObservation': {'schema': 'observed'},
+                 'deploymentLock': {'digest': digest(encoded(material))}}
+        class Dummy:
+            def inspect(self, name): return fresh
+            def apply(self, name): pass
+            def _material(self, name): return material
+        dummy = Dummy()
+        dummy.status = mock.Mock(side_effect=[{'state': 'degraded'}, fresh])
+        with mock.patch('Deployment.service_registry.runtime.alive', return_value=True), \
+             mock.patch('Deployment.service_registry.time.sleep'):
+            item, actual = ServiceRegistry.connection_inputs.__wrapped__(dummy, 'home/nas')
+        self.assertEqual(item, fresh)
+        self.assertEqual(actual, material)
+        self.assertEqual(dummy.status.call_count, 2)
+
 
 if __name__ == '__main__':
     unittest.main()

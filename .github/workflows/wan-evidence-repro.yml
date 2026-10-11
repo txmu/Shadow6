@@ -6,27 +6,31 @@ on:
     inputs:
       source_run_id:
         description: Existing multiplatform run providing all three tested binary artifacts
-        default: '38110235006'
+        default: '38131015938'
         required: true
         type: string
       profile:
         description: Exact regression profile
         default: gleam-secure-stream
         type: choice
-        options: [gleam-secure-stream, zig-enet]
+        options: [gleam-secure-stream, gleam-micro-mux, zig-enet]
 permissions:
   contents: read
   actions: read
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
-  REPRO_PROFILE: ${{ inputs.profile || 'gleam-secure-stream' }}
-  SOURCE_RUN_ID: ${{ inputs.source_run_id || '38110235006' }}
+  REPRO_PROFILE: ${{ matrix.profile }}
+  SOURCE_RUN_ID: ${{ inputs.source_run_id || '38131015938' }}
 concurrency:
   group: wan-evidence-repro-${{ github.ref }}
   cancel-in-progress: true
 jobs:
   exact-zig-raw-evidence:
-    name: Exact artifact-backed WAN regression
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: ${{ github.event_name == 'push' && fromJSON('["gleam-secure-stream","gleam-micro-mux"]') || fromJSON(format('["{0}"]', inputs.profile)) }}
+    name: Exact WAN regression (${{ matrix.profile }})
     runs-on: ubuntu-24.04
     timeout-minutes: 12
     steps:
@@ -113,7 +117,7 @@ jobs:
       - uses: actions/upload-artifact@v6
         if: always()
         with:
-          name: shadow6-wan-evidence-exact-case
+          name: shadow6-wan-evidence-exact-case-${{ matrix.profile }}
           path: .tmp/wan-evidence-result/
           if-no-files-found: warn
           retention-days: 14

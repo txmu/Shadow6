@@ -114,6 +114,17 @@ def transaction(method):
     return call
 
 
+def connection_status(registry, name):
+    """Await a fresh validated observation at every connection admission stage."""
+    observed = registry.status(name)
+    for _ in range(20):
+        if observed.get('runtimeObservation') or observed.get('state') != 'degraded':
+            break
+        time.sleep(.1)
+        observed = registry.status(name)
+    return observed
+
+
 class ServiceRegistry:
     def __init__(self, path=None, catalog=None):
         self.path = Path(path or os.environ.get('SHADOW6_SERVICE_REGISTRY', Path.home() / '.config/shadow6/services.json')).absolute()
@@ -668,7 +679,7 @@ class ServiceRegistry:
         if item['state'] not in ('running', 'degraded') or not runtime.alive(item.get('runtime', {})):
             raise ValueError('service is not running')
         self.apply(name)
-        item = self.status(name)
+        item = connection_status(self, name)
         if item['state'] == 'stale':
             raise ValueError('deployment drift; explicitly stop and reconfigure/relock')
         if item['state'] not in ('running', 'degraded') or not runtime.alive(item.get('runtime', {})):
@@ -843,16 +854,7 @@ class ServiceRegistry:
             raise ValueError('ReviewedPlanChanged')
         # A plan is evidence of intent. The canonical runtime status is the
         # sole source of truth for whether a session actually exists.
-        observed = self.status(name)
-        # Supervisor snapshots and live /proc socket reads are independent.
-        # A transient mismatch invalidates the snapshot; wait for a new,
-        # fully validated observation instead of rejecting a healthy listener.
-        # Never reuse an invalid snapshot or retry a terminal lifecycle state.
-        for _ in range(20):
-            if observed.get('runtimeObservation') or observed.get('state') != 'degraded':
-                break
-            time.sleep(.1)
-            observed = self.status(name)
+        observed = connection_status(self, name)
         if observed.get('state') not in ('running', 'degraded') or not observed.get('runtimeObservation'):
             raise ValueError('RuntimeObservationRequired')
         result = json.loads(json.dumps(observed))
