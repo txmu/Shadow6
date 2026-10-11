@@ -23,8 +23,14 @@ class FirstCarrierDatagramDrop:
         if not self.tc: raise PermissionError('tc required for owned first-datagram fault')
         self.command(['qdisc', 'add', 'dev', 's6tl-a', 'clsact'])
         self.command(['filter', 'add', 'dev', 's6tl-a', 'egress', 'protocol', 'ip',
-            'pref', '404', 'flower', 'ip_proto', 'udp', 'dst_ip', '198.18.6.2',
-            'dst_port', '18402', 'action', 'drop'])
+            'pref', '404', 'u32', 'match', 'ip', 'protocol', '17', '0xff',
+            'match', 'ip', 'dst', '198.18.6.2/32',
+            # Offset zero admits both an unfragmented datagram and its first
+            # IPv4 fragment. The MF bit is excluded from this mask. flower's
+            # L4 port dissector skips fragmented datagrams, delaying the fault
+            # until game traffic instead of the first business record.
+            'match', 'u16', '0', '0x1fff', 'at', '6',
+            'match', 'ip', 'dport', '18402', '0xffff', 'action', 'drop'])
         def observe():
             deadline = time.monotonic() + 90
             try:
