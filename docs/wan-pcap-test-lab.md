@@ -15,7 +15,7 @@ existing Linux Core, S6EPE and SDK artifacts from one explicitly selected
 digests, and records the current controller commit separately. It never
 recompiles a Core or claims these reused binaries were built by the专项.
 
-The exact regression is Zig/raw S6EPE: a clean baseline, a deterministic first
+With `profile=zig-enet`, the exact regression is Zig/raw S6EPE: a clean baseline, a deterministic first
 carrier datagram drop, then the original mobile case. The drop filter touches
 only the owned namespace's UDP hop to `198.18.6.2:18402`, observes exactly one
 dropped packet and removes itself. The lost business bytes must still produce
@@ -25,13 +25,20 @@ required by the full workflow. A control/admission failure is not accepted as
 the expected loss. The job is bounded to twelve minutes and has no build
 dependencies.
 
+The default `profile=gleam-secure-stream` tests the connection admission
+regression from run `38110235006`: a clean baseline followed by three
+high-jitter cases. Every case requires application correctness and the complete
+PCAP/ownership/privacy gate to pass. Connection execution may wait up to two
+seconds for a fresh, fully validated supervisor observation; an invalid or
+terminal observation never grants a connection.
+
 在 `ci/wan-evidence` 分支推送只触发这个专项；完整矩阵和原 FastJobs
 排除该调试分支，其他分支的覆盖不变。工作流进入默认分支后，可单独指定
 失败 run，无需重跑完整构建：
 
 ```sh
 gh workflow run wan-evidence-repro.yml --ref ci/wan-evidence \
-  -f source_run_id=38101166170
+  -f source_run_id=38110235006 -f profile=gleam-secure-stream
 ```
 
 检查 `shadow6-wan-evidence-exact-case` 中的 `report.json`、PCAP 和
