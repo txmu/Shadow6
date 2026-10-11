@@ -19,7 +19,6 @@ permissions:
   actions: read
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
-  REPRO_PROFILE: ${{ matrix.profile }}
   SOURCE_RUN_ID: ${{ inputs.source_run_id || '38131015938' }}
 concurrency:
   group: wan-evidence-repro-${{ github.ref }}
@@ -31,6 +30,8 @@ jobs:
       matrix:
         profile: ${{ github.event_name == 'push' && fromJSON('["gleam-secure-stream","gleam-micro-mux"]') || fromJSON(format('["{0}"]', inputs.profile)) }}
     name: Exact WAN regression (${{ matrix.profile }})
+    env:
+      REPRO_PROFILE: ${{ matrix.profile }}
     runs-on: ubuntu-24.04
     timeout-minutes: 12
     steps:
