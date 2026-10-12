@@ -23,7 +23,7 @@ MAX_CONFIG = 262_144
 MAX_OBJECTS = 4096
 ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}\Z")
 METHODS = ("capabilities.get", "status.get", "objects.list", "operation.prepare",
-           "operation.commit", "operation.abort", "operation.status", "operation.reconcile", "events.list", "content.get", "governance.fact")
+           "operation.commit", "operation.abort", "operation.status", "operation.reconcile", "events.list", "content.get", "governance.fact", "zkt.status", "zkt.account")
 
 
 class ProtocolError(ValueError):
@@ -43,6 +43,32 @@ def encoded(value):
 
 def digest(value):
     return hashlib.sha256(encoded(value)).hexdigest()
+
+
+def windows_file_info(handle):
+    """Retrieve NTFS file information via OS handle to verify volume and inode identity."""
+    import ctypes
+    from ctypes import wintypes
+    class BY_HANDLE_FILE_INFORMATION(ctypes.Structure):
+        _fields_ = [
+            ("dwFileAttributes", wintypes.DWORD),
+            ("ftCreationTime", wintypes.FILETIME),
+            ("ftLastAccessTime", wintypes.FILETIME),
+            ("ftLastWriteTime", wintypes.FILETIME),
+            ("dwVolumeSerialNumber", wintypes.DWORD),
+            ("nFileSizeHigh", wintypes.DWORD),
+            ("nFileSizeLow", wintypes.DWORD),
+            ("nNumberOfLinks", wintypes.DWORD),
+            ("nFileIndexHigh", wintypes.DWORD),
+            ("nFileIndexLow", wintypes.DWORD),
+        ]
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel.GetFileInformationByHandle.argtypes = [wintypes.HANDLE, ctypes.POINTER(BY_HANDLE_FILE_INFORMATION)]
+    kernel.GetFileInformationByHandle.restype = wintypes.BOOL
+    info = BY_HANDLE_FILE_INFORMATION()
+    if not kernel.GetFileInformationByHandle(handle, ctypes.byref(info)):
+        fail("UNSAFE_FILE", "Windows file information cannot be inspected")
+    return info
 
 
 def windows_owner_controlled(handle, private):
@@ -248,18 +274,27 @@ def secure_read(path, limit=MAX_CONFIG, private=True):
         opened = os.fstat(fd)
 
         def identity(s):
+            if os.name == "nt":
+                return (s.st_mode, s.st_size)
             return (s.st_dev, s.st_ino, s.st_mode, s.st_uid, s.st_nlink,
                     s.st_size, s.st_mtime_ns, s.st_ctime_ns)
 
         if os.name == "nt":
             import msvcrt
-            windows_owner_controlled(msvcrt.get_osfhandle(fd), private is True)
+            handle = msvcrt.get_osfhandle(fd)
+            windows_owner_controlled(handle, private is True)
+            info = windows_file_info(handle)
+            if (info.dwVolumeSerialNumber != before.st_dev
+                    or ((info.nFileIndexHigh << 32) | info.nFileIndexLow) != before.st_ino
+                    or info.nNumberOfLinks != 1):
+                fail("UNSAFE_FILE", "stable owner-controlled regular file required")
         if (not stat.S_ISREG(opened.st_mode) or (os.name != "nt" and opened.st_uid != os.geteuid())
-                or opened.st_nlink != 1 or opened.st_size > limit
+                or (os.name != "nt" and opened.st_nlink != 1) or opened.st_size > limit
                 or (os.name != "nt" and private and stat.S_IMODE(opened.st_mode) != 0o600)
                 or (os.name != "nt" and private is False and opened.st_mode & 0o022)
                 or identity(before) != identity(opened)
-                or identity(path.lstat()) != identity(opened)):
+                or (os.name != "nt" and identity(path.lstat()) != identity(opened))
+                or (before.st_dev, before.st_ino, before.st_size) != (path.lstat().st_dev, path.lstat().st_ino, path.lstat().st_size)):
             fail("UNSAFE_FILE", "stable owner-controlled regular file required")
         data = bytearray()
         while len(data) <= limit:
@@ -269,7 +304,8 @@ def secure_read(path, limit=MAX_CONFIG, private=True):
             data.extend(chunk)
         if (len(data) != opened.st_size or len(data) > limit
                 or identity(opened) != identity(os.fstat(fd))
-                or identity(opened) != identity(path.lstat())):
+                or (os.name != "nt" and identity(opened) != identity(path.lstat()))
+                or (before.st_dev, before.st_ino, before.st_size) != (path.lstat().st_dev, path.lstat().st_ino, path.lstat().st_size)):
             fail("UNSAFE_FILE", "file changed during read")
         return bytes(data)
     finally:
@@ -396,6 +432,11 @@ def validate_request(value, config):
                 type(params.get("offset", 0)) is not int or not 0 <= params.get("offset", 0) <= 64*1024*1024 or
                 type(params.get("length", 6144)) is not int or not 1 <= params.get("length", 6144) <= 6144):
             fail("INVALID_PARAMS", "fixed native peer and bounded content range required")
+    elif method in {"zkt.status", "zkt.account"}:
+        if set(params) != (set() if method == "zkt.status" else {"address"}):
+            fail("INVALID_PARAMS", "exact native reputation query required")
+        if method == "zkt.account" and (not isinstance(params["address"], str) or not re.fullmatch(r"[a-f0-9]{64}", params["address"])):
+            fail("INVALID_PARAMS", "native account identity required")
     elif method.startswith("operation."):
         expected = ({"operation_id", "action", "resource", "arguments", "expected_revision"}
                     if method == "operation.prepare" else
@@ -576,7 +617,7 @@ def capabilities(provider, config):
             "profile": "local-v1", "mutations": config["allow_mutations"],
             "capabilities": [{"id": "ziokt." + method + ".v1", "operation": method,
                               "status": "available" if config["enabled"] and (method not in {"operation.prepare", "operation.commit", "operation.abort", "operation.reconcile"} or config["allow_mutations"]) else "disabled"}
-                             for method in METHODS if provider == "corium" or method not in {"content.get", "governance.fact"}],
+                              for method in METHODS if provider == "corium" or (not method.startswith("zkt.") and method not in {"content.get", "governance.fact"})],
             "native_actions": sorted(OPERATIONS[provider]),
             "object_kinds": ["service", "package", "application"] if provider == "shadow6" else ["package", "environment", "application", "identity", "name", "proposal", "recovery"],
             "transport": "native-application-boundary; one Core family per path" if provider == "shadow6" else "native-signature-preserving Ziokt binding; explicit fallback"}
@@ -622,6 +663,10 @@ def rpc(provider, root, network, config, stream):
                 code = native_transport_main([str(root), network, params["peer_id"], "ZIOKT_CONTENT_GET", encoded(query).decode()])
             if code != 0: fail("NO_APPROVED_BINDING", "content retrieval requires an explicit native application binding")
             result = strict_json(output.getvalue().strip().encode())
+        elif method in {"zkt.status", "zkt.account"}:
+            if provider != "corium":
+                fail("METHOD_UNSUPPORTED", "native ZKT reputation belongs to Corium")
+            result = zkt_read_status(root / "var/lib/corix/networks" / network / "blockchain/chain.db", request["params"].get("address"))
         else:
             result = page(native_objects(provider, root, network, config), request["params"])
         if time.time_ns() // 1_000_000 >= request["deadline_ms"]:
