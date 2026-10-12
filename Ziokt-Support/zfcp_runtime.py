@@ -284,9 +284,31 @@ def secure_read(path, limit=MAX_CONFIG, private=True):
             handle = msvcrt.get_osfhandle(fd)
             windows_owner_controlled(handle, private is True)
             info = windows_file_info(handle)
-            if (info.dwVolumeSerialNumber != before.st_dev
-                    or ((info.nFileIndexHigh << 32) | info.nFileIndexLow) != before.st_ino
-                    or info.nNumberOfLinks != 1):
+            if info.nNumberOfLinks != 1 or (info.dwFileAttributes & 0x400):
+                fail("UNSAFE_FILE", "stable owner-controlled regular file required")
+            import ctypes
+            from ctypes import wintypes
+            kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+            kernel.GetFinalPathNameByHandleW.argtypes = [wintypes.HANDLE, wintypes.LPWSTR, wintypes.DWORD, wintypes.DWORD]
+            kernel.GetFinalPathNameByHandleW.restype = wintypes.DWORD
+            buf = ctypes.create_unicode_buffer(1024)
+            length = kernel.GetFinalPathNameByHandleW(handle, buf, 1024, 0)
+            if length >= 1024:
+                buf = ctypes.create_unicode_buffer(length + 1)
+                length = kernel.GetFinalPathNameByHandleW(handle, buf, length + 1, 0)
+            if not length:
+                fail("UNSAFE_FILE", "Windows final path cannot be determined")
+            opened_name = buf.value
+            if opened_name.lower().startswith("\\\\?\\unc\\"):
+                opened_name = "\\" + opened_name[7:]
+            elif opened_name.startswith("\\\\?\\"):
+                opened_name = opened_name[4:]
+            target_name = os.path.realpath(path)
+            if target_name.lower().startswith("\\\\?\\unc\\"):
+                target_name = "\\" + target_name[7:]
+            elif target_name.startswith("\\\\?\\"):
+                target_name = target_name[4:]
+            if os.path.normcase(os.path.normpath(opened_name)) != os.path.normcase(os.path.normpath(target_name)):
                 fail("UNSAFE_FILE", "stable owner-controlled regular file required")
         if (not stat.S_ISREG(opened.st_mode) or (os.name != "nt" and opened.st_uid != os.geteuid())
                 or (os.name != "nt" and opened.st_nlink != 1) or opened.st_size > limit
