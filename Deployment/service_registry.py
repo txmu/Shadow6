@@ -930,6 +930,14 @@ class ServiceRegistry:
         return self.stop(name)
 
     @transaction
+    def ziokt_run(self, name, *, expected_revision):
+        """Use the same reviewed native binding and run authority for every Core."""
+        item = self.inspect(name)
+        if expected_revision != digest(encoded(item)):
+            raise ValueError('ZioktStaleNativeRevision')
+        return self.run(name)
+
+    @transaction
     def inspect(self, name):
         if name not in self.services:
             raise ValueError('unknown named service')
