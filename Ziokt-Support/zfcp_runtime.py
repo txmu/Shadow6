@@ -357,7 +357,7 @@ def validate_config(value):
                 any(not isinstance(v, str) or not 1 <= len(v) <= 160 for v in values) or len(set(values)) != len(values)):
             fail("INVALID_CONFIG", "bounded explicit native action/resource allowlists required")
     known_operations = {"service.stop", "service.run", "artifact.stage", "package.install", "package.activate",
-                        "wiki.create", "snapshot.create", "strata.create", "chain.mine", "recovery.checkpoint", "recovery.restore"}
+                        "wiki.create", "snapshot.create", "strata.create", "chain.mine", "compute.run", "recovery.checkpoint", "recovery.restore"}
     if any(v not in known_operations for v in result["allowed_operations"]):
         fail("INVALID_CONFIG", "unknown native action")
     if "coordinator_public_key" in result and (not isinstance(result["coordinator_public_key"], str) or not re.fullmatch("[a-f0-9]{64}", result["coordinator_public_key"])):
@@ -767,7 +767,7 @@ import sqlite3
 from contextlib import closing
 
 OPERATIONS = {"shadow6": {"service.stop", "service.run", "package.install", "package.activate", "recovery.checkpoint", "recovery.restore"},
-              "corium": {"artifact.stage", "wiki.create", "snapshot.create", "strata.create", "chain.mine", "recovery.checkpoint", "recovery.restore"}}
+              "corium": {"artifact.stage", "wiki.create", "snapshot.create", "strata.create", "chain.mine", "compute.run", "recovery.checkpoint", "recovery.restore"}}
 
 
 def operation_directory(provider, root, network):
@@ -939,6 +939,8 @@ def operation_preflight(provider, root, network, params, config):
         fail("POLICY_DENIED", "native resource is not allowed")
     if action.startswith("recovery."):
         return recovery_preflight(provider, root, network, params, config)
+    if action == "compute.run":
+        return compute_preflight(root, network, params, config)
     if action in {"service.stop", "service.run"}:
         if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}/[A-Za-z0-9][A-Za-z0-9._-]{0,63}", resource) or args:
             fail("INVALID_PARAMS", "fixed named-service lifecycle operation required")
@@ -1059,7 +1061,7 @@ def operation_execute(provider, root, network, plan, config=None):
                 fail("NATIVE_STATE_CONFLICT", "native package changed before activation")
             activate(Path(config["package_root"]), evidence["kind"], evidence["id"], evidence["version"])
         return {"native_selector": resource, "native_signature_verified": True, "activated": plan["action"] == "package.activate", "manifest_digest": evidence["manifest_digest"]}
-    if plan["action"] in {"wiki.create", "snapshot.create", "strata.create", "chain.mine", "recovery.checkpoint", "recovery.restore"}:
+    if plan["action"] in {"wiki.create", "snapshot.create", "strata.create", "chain.mine", "compute.run", "recovery.checkpoint", "recovery.restore"}:
         import subprocess
         source = os.environ.get("_ZIOKT_CORIUM_SOURCE")
         if not source: fail("NATIVE_STATE_UNAVAILABLE", "production monolith unavailable for native action")
@@ -1156,6 +1158,7 @@ def operation_reconcile(provider, root, network, plan, config):
             if pointer != {"schema_version": 1, "version": e["version"]}: return None
         return {"native_selector": plan["resource"], "native_signature_verified": True, "activated": action == "package.activate", "reconciled": True}
     if action == "wiki.create": return wiki_receipt(root, network, plan)
+    if action == "compute.run": return compute_receipt(root, network, plan)
     if action == "chain.mine":
         e = plan["binding_evidence"]
         with closing(corium_db(root, network, "blockchain/chain.db")) as db:
@@ -1515,6 +1518,108 @@ def governance_fact(root, network, tx_hash):
             "transaction_type": tx_type, "sender_id": hashlib.sha256(public.rstrip("\n").encode()).hexdigest(),
             "height": height, "block_hash": blocks[0][1], "tip_height": tip, "confirmations": tip-height+1,
             "workflow_digest": requested, "assurance": "native-signed-inclusion", "native_permissions_granted": False}
+
+"""Fixed Corium compute engine execution with native signatures and crash receipts."""
+
+
+def compute_preflight(root, network, params, config):
+    resource = params['resource']
+    if (not resource.startswith('compute:') or params['arguments'] or params['expected_revision'] is not None or
+            not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._/-]{0,127}', resource[8:])):
+        fail('INVALID_PARAMS', 'fixed approved native compute engine required')
+    engine = resource[8:]
+    with closing(corium_db(root, network, 'blockchain/chain.db')) as db:
+        cached = db.execute("SELECT value FROM chain_state WHERE key='chain_info'").fetchone()
+        # Match blockchain_get_latest_hash: the native accepted head wins over
+        # a heavier unaccepted/invalid branch merely present in the database.
+        if cached:
+            fields = cached[0].split('|')
+            if len(fields) != 2 or not fields[1].isdigit():
+                fail('NATIVE_STATE_CONFLICT', 'native canonical head cache is malformed')
+            tip = db.execute('SELECT height,hash FROM blocks WHERE hash=? AND height=?', (fields[0], int(fields[1]))).fetchone()
+        else:
+            tip = db.execute('SELECT height,hash FROM blocks ORDER BY total_weight DESC,height DESC LIMIT 1').fetchone()
+        if not tip: fail('NATIVE_STATE_UNAVAILABLE', 'native compute requires an available canonical head')
+        row = db.execute('SELECT engine_id,pkg_id,compute_program_hash,verifier_script_hash,is_active FROM compute_engines WHERE engine_id=?', (engine,)).fetchone()
+        if engine == 'corium/internal-engine-zero-v1':
+            row = [engine, 'corium/internal-engine-zero-v1', 'BUILT_IN', 'BUILT_IN', 1]
+            problem = None
+        else:
+            if not row or row[4] != 1: fail('POLICY_DENIED', 'native computation engine is not active')
+            problem = db.execute('SELECT set_id,metadata,activation_height FROM problem_sets WHERE engine_id=? AND activation_height IS NOT NULL AND activation_height<=? ORDER BY activation_height DESC LIMIT 1', (engine, tip[0])).fetchone()
+            if not problem or len(encoded(list(problem))) > 8192:
+                fail('NATIVE_STATE_UNAVAILABLE', 'bounded active native problem set required')
+    return {'engine_id': engine, 'engine_digest': 'sha256:'+digest(list(row)),
+            'problem_digest': 'sha256:'+digest(list(problem) if problem else None),
+            'height': tip[0], 'block_hash': tip[1], 'author': corium_identity(root, network)}
+
+
+def compute_directory(root, network, op_id):
+    identifier(op_id, 'operation_id')
+    return operation_directory('corium', root, network)/('compute-'+op_id)
+
+
+def compute_finish(args):
+    root, network, op_id = Path(args[0]).absolute(), args[1], args[2]
+    identifier(network, 'network')
+    db = operation_db('corium', root, network)
+    try:
+        row = db.execute('SELECT * FROM operations WHERE id=?', (op_id,)).fetchone()
+        if row is None or row[3] != 'unknown': fail('POLICY_DENIED', 'recorded compute execution intent required')
+        plan = strict_json(row[2].encode())
+        config = load_config('corium', root/'etc/corix/networks'/network/'corix.conf')
+        if plan['action'] != 'compute.run' or operation_preflight('corium', root, network, plan, config) != plan['binding_evidence']:
+            fail('STALE_PLAN', 'native compute facts changed during execution')
+        directory = compute_directory(root, network, op_id)
+        proofs = []
+        paths = sorted(directory.glob('proof-*.json'))
+        if len(paths) > 4: fail('RESPONSE_LIMIT', 'native compute proof count exceeded')
+        for path in paths:
+            data = secure_read(path, 6144, private=None)
+            proofs.append({'digest': 'sha256:'+hashlib.sha256(data).hexdigest(), 'data_base64': base64.b64encode(data).decode()})
+        payload = {'native_action': 'compute.run', 'engine_id': plan['binding_evidence']['engine_id'],
+                   'binding_digest': 'sha256:'+digest(plan['binding_evidence']), 'proofs': proofs,
+                   'proof_verified': False, 'application_ready': False}
+        from cryptography.hazmat.primitives import serialization
+        private = serialization.load_pem_private_key(secure_read(root/'etc/corix/networks'/network/'identity.key'), password=None)
+        public = private.public_key().public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo).decode().rstrip('\n')
+        receipt = {'payload': payload, 'native_public': public,
+                   'signature': native_ec_sign(private, b'Ziokt/native-compute/v1\n'+encoded(payload))}
+        target = directory/'completed.json'
+        fd = os.open(target, os.O_WRONLY|os.O_CREAT|os.O_EXCL|getattr(os, 'O_NOFOLLOW', 0), 0o600)
+        try:
+            make_private(target)
+            with os.fdopen(fd, 'wb') as output:
+                output.write(encoded(receipt)); output.flush(); os.fsync(output.fileno())
+        except BaseException:
+            target.unlink(missing_ok=True); raise
+    finally: db.close()
+
+
+def compute_receipt(root, network, plan):
+    target = compute_directory(root, network, plan['operation_id'])/'completed.json'
+    if not target.exists(): return None
+    receipt = strict_json(secure_read(target, 65536))
+    if not isinstance(receipt, dict) or set(receipt) != {'payload', 'native_public', 'signature'}:
+        fail('NATIVE_STATE_CONFLICT', 'exact signed native compute receipt required')
+    public = secure_read(root/'etc/corix/networks'/network/'identity.key.pub', 16384, private=None).decode().rstrip('\n')
+    if receipt['native_public'] != public or hashlib.sha256(public.encode()).hexdigest() != plan['binding_evidence']['author']:
+        fail('NATIVE_STATE_CONFLICT', 'native compute signer changed')
+    value = receipt['payload']
+    native_ec_verify(public, receipt['signature'], b'Ziokt/native-compute/v1\n'+encoded(value))
+    if (not isinstance(value, dict) or set(value) != {'native_action', 'engine_id', 'binding_digest', 'proofs', 'proof_verified', 'application_ready'} or
+            value['native_action'] != 'compute.run' or value['engine_id'] != plan['binding_evidence']['engine_id'] or
+            value['binding_digest'] != 'sha256:'+digest(plan['binding_evidence']) or value['proof_verified'] is not False or
+            value['application_ready'] is not False or not isinstance(value['proofs'], list) or len(value['proofs']) > 4):
+        fail('NATIVE_STATE_CONFLICT', 'native compute receipt scope changed')
+    for proof in value['proofs']:
+        if not isinstance(proof, dict) or set(proof) != {'digest', 'data_base64'}:
+            fail('NATIVE_STATE_CONFLICT', 'native compute proof schema changed')
+        try: data = base64.b64decode(proof['data_base64'], validate=True)
+        except (ValueError, TypeError): fail('NATIVE_STATE_CONFLICT', 'native proof encoding changed')
+        if len(data) > 6144 or proof['digest'] != 'sha256:'+hashlib.sha256(data).hexdigest():
+            fail('ARTIFACT_DIGEST_MISMATCH', 'native computation proof bytes changed')
+    return {**value, 'native_signature_verified': True, 'phase': 'native-execution-completed'}
 
 """Core-neutral encrypted application records over stream or message boundaries.
 
