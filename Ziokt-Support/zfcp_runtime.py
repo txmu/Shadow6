@@ -23,7 +23,7 @@ MAX_CONFIG = 262_144
 MAX_OBJECTS = 4096
 ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}\Z")
 METHODS = ("capabilities.get", "status.get", "objects.list", "operation.prepare",
-           "operation.commit", "operation.abort", "operation.status", "operation.reconcile", "events.list", "content.get", "governance.fact", "zkt.status", "zkt.account")
+           "operation.commit", "operation.abort", "operation.status", "operation.reconcile", "events.list", "content.get", "governance.fact")
 
 
 class ProtocolError(ValueError):
@@ -396,11 +396,6 @@ def validate_request(value, config):
                 type(params.get("offset", 0)) is not int or not 0 <= params.get("offset", 0) <= 64*1024*1024 or
                 type(params.get("length", 6144)) is not int or not 1 <= params.get("length", 6144) <= 6144):
             fail("INVALID_PARAMS", "fixed native peer and bounded content range required")
-    elif method in {"zkt.status", "zkt.account"}:
-        if set(params) != (set() if method == "zkt.status" else {"address"}):
-            fail("INVALID_PARAMS", "exact native asset query required")
-        if method == "zkt.account" and (not isinstance(params["address"], str) or not re.fullmatch(r"[a-f0-9]{64}", params["address"])):
-            fail("INVALID_PARAMS", "native account identity required")
     elif method.startswith("operation."):
         expected = ({"operation_id", "action", "resource", "arguments", "expected_revision"}
                     if method == "operation.prepare" else
@@ -581,7 +576,7 @@ def capabilities(provider, config):
             "profile": "local-v1", "mutations": config["allow_mutations"],
             "capabilities": [{"id": "ziokt." + method + ".v1", "operation": method,
                               "status": "available" if config["enabled"] and (method not in {"operation.prepare", "operation.commit", "operation.abort", "operation.reconcile"} or config["allow_mutations"]) else "disabled"}
-                             for method in METHODS if provider == "corium" or (not method.startswith("zkt.") and method not in {"content.get", "governance.fact"})],
+                             for method in METHODS if provider == "corium" or method not in {"content.get", "governance.fact"}],
             "native_actions": sorted(OPERATIONS[provider]),
             "object_kinds": ["service", "package", "application"] if provider == "shadow6" else ["package", "environment", "application", "identity", "name", "proposal", "recovery"],
             "transport": "native-application-boundary; one Core family per path" if provider == "shadow6" else "native-signature-preserving Ziokt binding; explicit fallback"}
@@ -627,10 +622,6 @@ def rpc(provider, root, network, config, stream):
                 code = native_transport_main([str(root), network, params["peer_id"], "ZIOKT_CONTENT_GET", encoded(query).decode()])
             if code != 0: fail("NO_APPROVED_BINDING", "content retrieval requires an explicit native application binding")
             result = strict_json(output.getvalue().strip().encode())
-        elif method in {"zkt.status", "zkt.account"}:
-            if provider != "corium":
-                fail("METHOD_UNSUPPORTED", "native ZKT ledger belongs to Corium")
-            result = zkt_read_status(root / "var/lib/corix/networks" / network / "blockchain/chain.db", request["params"].get("address"))
         else:
             result = page(native_objects(provider, root, network, config), request["params"])
         if time.time_ns() // 1_000_000 >= request["deadline_ms"]:
