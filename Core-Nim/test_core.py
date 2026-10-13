@@ -132,6 +132,8 @@ class CoreTests(unittest.TestCase):
         self.line(broker,"Broker ready")
         common = {"broker_addrs":[f"ws://127.0.0.1:{port}/ws"],
                   "broker_pubkey":keys["broker"]["public_key"],"transport":"webrtc"}
+        if os.environ.get('SHADOW6_TEST_TURN'):
+            common.update(ice_servers=[os.environ['SHADOW6_TEST_TURN']], ice_transport_policy='relay')
         agent = self.start({"role":"agent","agent":{**common,"id":"agent",
             "private_key":keys["agent"]["private_key"],"target_port":listener.getsockname()[1],
             "client_pubkeys":{"client":keys["client"]["public_key"]},"auto_close_after":60}})
