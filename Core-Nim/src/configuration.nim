@@ -43,7 +43,7 @@ proc validate*(doc: JsonNode) =
             seen.add name.getStr
   else:
     if role == "agent":
-      schema(cfg, "id:JString broker_addrs:JArray broker_pubkey:JString private_key:JString transport:JString target_port:JInt auto_close_after?:JInt allow_local_discovery?:JBool client_pubkeys:JObject")
+      schema(cfg, "id:JString broker_addrs:JArray broker_pubkey:JString private_key:JString transport:JString target_port:JInt auto_close_after?:JInt allow_local_discovery?:JBool client_pubkeys:JObject ice_servers?:JArray ice_transport_policy?:JString")
       require(cfg["target_port"].getInt in 1..65535)
       if cfg.hasKey("auto_close_after"): require(cfg["auto_close_after"].getInt in 1..86400)
       require(cfg["client_pubkeys"].len <= 16)
@@ -51,11 +51,32 @@ proc validate*(doc: JsonNode) =
         require(identifier(name) and key.kind == JString)
         discard unhex(key.getStr, 32)
     else:
-      schema(cfg, "id:JString broker_addrs:JArray broker_pubkey:JString private_key:JString transport:JString target_agent:JString agent_pubkey:JString on_success?:JString allow_local_discovery?:JBool")
+      schema(cfg, "id:JString broker_addrs:JArray broker_pubkey:JString private_key:JString transport:JString target_agent:JString agent_pubkey:JString on_success?:JString allow_local_discovery?:JBool ice_servers?:JArray ice_transport_policy?:JString")
       require(identifier(cfg.text("target_agent")) and cfg.text("on_success") == "")
       discard unhex(cfg.text("agent_pubkey"), 32)
     require(identifier(cfg.text("id")) and cfg.text("transport") == "webrtc")
     require(not cfg.hasKey("allow_local_discovery") or not cfg["allow_local_discovery"].getBool)
+    var hasTurn = false
+    if cfg.hasKey("ice_servers"):
+      require(cfg["ice_servers"].len <= 8)
+      var seen: seq[string]
+      for server in cfg["ice_servers"]:
+        require(server.kind == JString)
+        let value = server.getStr
+        require(value.len in 1..1024 and value notin seen)
+        for c in value: require(c >= '!' and c <= '~' and c notin {'"', '\\'})
+        let split = value.find(':')
+        require(split > 0 and value[0..<split] in ["stun", "turn", "turns"])
+        let parsed = parseUri(value[0..split] & "//" & value[split+1..^1])
+        require(parsed.hostname.len in 1..253 and parsed.anchor == "" and parsed.path == "")
+        require(parsed.query in ["", "transport=udp", "transport=tcp"])
+        if parsed.port != "": require(parseInt(parsed.port) in 1..65535)
+        if value.startsWith("stun:"): require(parsed.username == "" and parsed.password == "")
+        else: hasTurn = true
+        seen.add value
+    let icePolicy = cfg.text("ice_transport_policy", "all")
+    require(icePolicy in ["all", "relay"])
+    require(icePolicy != "relay" or hasTurn, "relay-only ICE requires an explicit TURN server")
     discard unhex(cfg.text("broker_pubkey"), 32)
     require(cfg["broker_addrs"].len in 1..8)
     for address in cfg["broker_addrs"]:

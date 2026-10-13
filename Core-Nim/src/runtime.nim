@@ -230,7 +230,14 @@ proc endpointRun(cfg: JsonNode; client: bool) =
   let nonce = challenge(ws)
   verifyAuth(receiveJson(ws),cfg.text("broker_pubkey"),"broker",nonce)
   echo "Control authenticated"
-  let pc = createPeer("")
+  var iceValues: seq[string]
+  if cfg.hasKey("ice_servers"):
+    for server in cfg["ice_servers"]: iceValues.add server.getStr
+  var icePointers: seq[cstring]
+  for i in 0..<iceValues.len: icePointers.add iceValues[i].cstring
+  let servers = if icePointers.len == 0: nil else: addr icePointers[0]
+  let pc = createPeer("", servers, icePointers.len.cint,
+    (if cfg.text("ice_transport_policy", "all") == "relay": 1.cint else: 0.cint))
   require(pc >= 0)
   defer: discard deletePeer(pc)
   let dc = createChannel(pc)

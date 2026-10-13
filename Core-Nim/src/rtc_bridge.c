@@ -215,7 +215,8 @@ static void gathering(int pc, rtcGatheringState state, void *unused) {
     (void)pc; (void)unused;
     if (state == RTC_GATHERING_COMPLETE) atomic_store(&gathered,1);
 }
-int nim_rtc_peer(const char *bind) {
+int nim_rtc_peer(const char *bind, const char **servers, int count, int relay_only) {
+    if (count < 0 || count > 8 || (count && !servers) || (relay_only != 0 && relay_only != 1)) return -1;
     rtcSctpSettings settings = {0};
     settings.recvBufferSize = 262144; settings.sendBufferSize = 262144;
     settings.maxChunksOnQueue = 128; settings.maxRetransmitAttempts = 5;
@@ -223,6 +224,8 @@ int nim_rtc_peer(const char *bind) {
     rtcConfiguration config = {0};
     config.disableAutoNegotiation = true; config.maxMessageSize = 16392;
     config.bindAddress = bind && *bind ? bind : NULL;
+    config.iceServers = servers; config.iceServersCount = count;
+    config.iceTransportPolicy = relay_only ? RTC_TRANSPORT_POLICY_RELAY : RTC_TRANSPORT_POLICY_ALL;
     atomic_store(&gathered,0);
     int pc = rtcCreatePeerConnection(&config);
     if (pc >= 0 && rtcSetGatheringStateChangeCallback(pc,gathering)) {

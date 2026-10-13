@@ -4,7 +4,7 @@
 proc wsServer*(host: cstring; port: cint; cert, key: cstring): cint {.importc: "nim_rtc_server".}
 proc wsClient*(url: cstring): cint {.importc: "nim_rtc_websocket".}
 proc wsAccept*(): cint {.importc: "nim_rtc_accept".}
-proc createPeer*(bindAddress: cstring): cint {.importc: "nim_rtc_peer".}
+proc createPeer*(bindAddress: cstring; iceServers: ptr cstring; count, relayOnly: cint): cint {.importc: "nim_rtc_peer".}
 proc createChannel*(pc: cint): cint {.importc: "nim_rtc_channel".}
 proc gathered*(): cint {.importc: "nim_rtc_gathered".}
 proc isOpen*(id: cint): bool {.importc: "rtcIsOpen", header: "rtc/rtc.h".}

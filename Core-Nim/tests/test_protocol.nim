@@ -1,7 +1,20 @@
 import std/unittest
-import strictjson, crypto, frames
+import strictjson, crypto, frames, configuration
 
 suite "bounded protocol and crypto":
+  test "explicit bounded ICE and relay privacy":
+    let seed = randomHex(32)
+    let cfg = %*{"role": "client", "client": {"id": "test", "broker_addrs": ["ws://127.0.0.1:8080/ws"], "broker_pubkey": publicKey(seed), "private_key": seed, "transport": "webrtc", "target_agent": "agent", "agent_pubkey": publicKey(seed)}}
+    validate(cfg)
+    cfg["client"]["ice_servers"] = %*["stun:127.0.0.1:3478", "turn:user:pass@127.0.0.1:3478?transport=udp"]
+    cfg["client"]["ice_transport_policy"] = %"relay"
+    validate(cfg)
+    cfg["client"]["ice_servers"] = %*["stun:127.0.0.1:3478"]
+    expect ValueError: validate(cfg)
+    cfg["client"]["ice_transport_policy"] = %"all"
+    for server in ["https://example.org", "stun:user:pass@127.0.0.1", "turn:127.0.0.1:70000", "turn:127.0.0.1/path", "stun:127.0.0.1?other=1"]:
+      cfg["client"]["ice_servers"] = %*[server]
+      expect ValueError: validate(cfg)
   test "duplicate, floats, overflow, nesting, malformed escapes":
     for value in ["{\"a\":1,\"a\":2}", "{\"a\":1.0}", "{\"a\":9007199254740992}",
                   "{\"a\":01}", "{\"a\":true,}", "{\"a\":\"\\x41\"}", "{}{}"]:
