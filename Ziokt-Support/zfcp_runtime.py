@@ -23,7 +23,7 @@ MAX_CONFIG = 262_144
 MAX_OBJECTS = 4096
 ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}\Z")
 METHODS = ("capabilities.get", "status.get", "objects.list", "operation.prepare",
-           "operation.commit", "operation.abort", "operation.status", "operation.reconcile", "events.list", "content.get", "governance.fact", "zkt.status", "zkt.account", "identity.fact", "zkn.list")
+           "operation.commit", "operation.abort", "operation.status", "operation.reconcile", "events.list", "content.get", "governance.fact", "zkt.status", "zkt.account", "identity.fact", "zkn.list", "zkn.fact", "zkc.list", "zkc.fact", "service.binding")
 
 
 class ProtocolError(ValueError):
@@ -335,7 +335,7 @@ def secure_read(path, limit=MAX_CONFIG, private=True):
 
 
 def validate_config(value):
-    allowed = {"schema", "enabled", "federation_id", "provider_id", "allow_mutations",
+    allowed = {"schema", "enabled", "federation_id", "provider_id", "allow_mutations", "service_registry_file",
                "allowed_operations", "allowed_resources", "package_root", "package_trust_file", "artifact_root", "transport_bindings_file", "coordinator_public_key", "zkn_enabled"}
     if (not isinstance(value, dict) or set(value) - allowed or
             value.get("schema") != "ziokt.provider.v1" or
@@ -359,12 +359,12 @@ def validate_config(value):
                 any(not isinstance(v, str) or not 1 <= len(v) <= 160 for v in values) or len(set(values)) != len(values)):
             fail("INVALID_CONFIG", "bounded explicit native action/resource allowlists required")
     known_operations = {"service.stop", "service.run", "artifact.stage", "package.install", "package.activate",
-                        "wiki.create", "snapshot.create", "strata.create", "chain.mine", "compute.run", "identity.register", "content.publish", "zkn.transfer", "recovery.checkpoint", "recovery.restore"}
+                        "wiki.create", "snapshot.create", "strata.create", "chain.mine", "compute.run", "identity.register", "content.publish", "zkn.transfer", "zkn.gift", "zkc.issue", "recovery.checkpoint", "recovery.restore"}
     if any(v not in known_operations for v in result["allowed_operations"]):
         fail("INVALID_CONFIG", "unknown native action")
     if "coordinator_public_key" in result and (not isinstance(result["coordinator_public_key"], str) or not re.fullmatch("[a-f0-9]{64}", result["coordinator_public_key"])):
         fail("INVALID_CONFIG", "pinned Ed25519 coordinator authority required")
-    for name in ("package_root", "package_trust_file", "artifact_root", "transport_bindings_file"):
+    for name in ("package_root", "package_trust_file", "artifact_root", "transport_bindings_file", "service_registry_file"):
         if name in result and (not isinstance(result[name], str) or not Path(result[name]).is_absolute() or ".." in Path(result[name]).parts):
             fail("INVALID_CONFIG", "native package settings require fixed absolute paths")
     if result["allow_mutations"] and (not result["enabled"] or not result["allowed_operations"] or not result["allowed_resources"]):
@@ -446,7 +446,10 @@ def validate_request(value, config):
         fail("METHOD_UNSUPPORTED", "operation not available in this native profile")
     params = value["params"]
     method = value["method"]
-    if method == "governance.fact":
+    if method=='service.binding':
+        if set(params)!={'service_name'} or not isinstance(params['service_name'],str) or not re.fullmatch('[A-Za-z0-9][A-Za-z0-9._/-]{0,127}',params['service_name']):
+            fail('INVALID_PARAMS','fixed named Broker binding required')
+    elif method in {"governance.fact","zkn.fact","zkc.fact"}:
         if set(params) != {"transaction_hash"} or not isinstance(params["transaction_hash"], str) or not re.fullmatch("[a-f0-9]{64}", params["transaction_hash"]):
             fail("INVALID_PARAMS", "exact native signed transaction reference required")
     elif method == 'identity.fact':
@@ -646,7 +649,7 @@ def capabilities(provider, config):
             "profile": "local-v1", "mutations": config["allow_mutations"],
             "capabilities": [{"id": "ziokt." + method + ".v1", "operation": method,
                               "status": "available" if config["enabled"] and (method not in {"operation.prepare", "operation.commit", "operation.abort", "operation.reconcile"} or config["allow_mutations"]) else "disabled"}
-                              for method in METHODS if provider == "corium" or (not method.startswith(("zkt.","zkn.")) and method not in {"content.get", "governance.fact", "identity.fact"})],
+                              for method in METHODS if provider == "corium" or (not method.startswith(("zkt.","zkn.","zkc.")) and method not in {"content.get", "governance.fact", "identity.fact"})],
             "native_actions": sorted(OPERATIONS[provider]),
             "object_kinds": ["service", "package", "application"] if provider == "shadow6" else ["package", "environment", "application", "identity", "name", "proposal", "recovery"],
             "transport": "native-application-boundary; one Core family per path" if provider == "shadow6" else "native-signature-preserving Ziokt binding; explicit fallback"}
@@ -677,12 +680,15 @@ def rpc(provider, root, network, config, stream):
             result = capabilities(provider, config)
         elif method == "status.get":
             result = status(provider, config, network)
+        elif method=='service.binding':
+            if provider!='shadow6': fail('METHOD_UNSUPPORTED','native Broker bindings belong to Shadow6')
+            result=service_binding_fact(root,config,request['params']['service_name'])
         elif method.startswith("operation.") or method == "events.list":
             result = operation_dispatch(provider, root, network, config, method, request["params"])
         elif method == "governance.fact":
             if provider != "corium": fail("METHOD_UNSUPPORTED", "native chain facts belong to Corium")
             result = governance_fact(root, network, request["params"]["transaction_hash"])
-        elif method in {'identity.fact','zkn.list'}:
+        elif method in {'identity.fact','zkn.list','zkn.fact','zkc.list','zkc.fact'}:
             if provider!='corium': fail('METHOD_UNSUPPORTED','native chain assets belong to Corium')
             result=asset_query(root,network,method,request['params'])
         elif method == "content.get":
@@ -777,7 +783,7 @@ import sqlite3
 from contextlib import closing
 
 OPERATIONS = {"shadow6": {"service.stop", "service.run", "package.install", "package.activate", "recovery.checkpoint", "recovery.restore"},
-              "corium": {"artifact.stage", "wiki.create", "snapshot.create", "strata.create", "chain.mine", "compute.run", "identity.register", "content.publish", "zkn.transfer", "recovery.checkpoint", "recovery.restore"}}
+              "corium": {"artifact.stage", "wiki.create", "snapshot.create", "strata.create", "chain.mine", "compute.run", "identity.register", "content.publish", "zkn.transfer", "zkn.gift", "zkc.issue", "recovery.checkpoint", "recovery.restore"}}
 
 
 def operation_directory(provider, root, network):
@@ -896,6 +902,42 @@ def native_registry(root):
     return ServiceRegistry(catalog=CoreCatalog(root))
 
 
+def service_binding_fact(root,config,name):
+    """Verify locked native materials; return no credentials or unscoped files."""
+    sys.path.insert(0,str(root/'Deployment'))
+    from service_registry import ServiceRegistry
+    from core_catalog import CoreCatalog
+    import service_runtime
+    registry=ServiceRegistry(config.get('service_registry_file'),CoreCatalog(root))
+    item=registry.inspect(name)
+    if not item.get('deploymentLock'): fail('STALE_PLAN','locked named Broker required')
+    material=registry._material(name)
+    from service_registry import digest as native_digest,encoded as native_encoded
+    if native_digest(native_encoded(material))!=item['deploymentLock']['digest']:fail('STALE_PLAN','native Broker material changed')
+    role=item['protocolContext']['role']
+    if role not in {'broker','all'}:fail('INVALID_PARAMS','Broker role required for Virtual Broker route')
+    content=secure_read(item['coreBinding']['config']['config_path'])
+    native=strict_json(content)
+    endpoints=[]
+    def scan(value):
+        if isinstance(value,dict):
+            for key,child in value.items():
+                if key in {'listen_addr','listen_address','listen'} and isinstance(child,str): endpoints.append(child)
+                if key=='listen_host' and type(value.get('listen_port')) is int:
+                    endpoints.append(('['+child+']' if ':' in child else child)+':'+str(value['listen_port']))
+                scan(child)
+        elif isinstance(value,list):
+            for child in value:scan(child)
+    if item.get('privacy')=='envelope':
+        fields=service_runtime.parse_envelope(secure_read(item['spec']['envelope_config']))
+        endpoints=[fields['listen']]
+    else:scan(native.get('broker',native))
+    return {'schema':'ziokt.native-broker-binding.v1','service_name':name,'core':item['coreBinding']['core'],
+        'profile':item['profileBinding']['profile'],'privacy':item['privacy'],'lock_digest':item['deploymentLock']['digest'],
+        'entry_endpoints':endpoints,'runtime_ready':item.get('state') in {'running','degraded'} and service_runtime.alive(item.get('runtime',{})),
+        'assurance':'native-locked-material','wire_translation':False}
+
+
 def native_database(path):
     """Validate an owned native database without reading its whole history."""
     path = Path(path).absolute()
@@ -951,7 +993,7 @@ def operation_preflight(provider, root, network, params, config):
         return recovery_preflight(provider, root, network, params, config)
     if action == "compute.run":
         return compute_preflight(root, network, params, config)
-    if action in {'identity.register','content.publish','zkn.transfer'}:
+    if action in {'identity.register','content.publish','zkn.transfer','zkn.gift','zkc.issue'}:
         return asset_preflight(root,network,params,config)
     if action in {"service.stop", "service.run"}:
         if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}/[A-Za-z0-9][A-Za-z0-9._-]{0,63}", resource) or args:
@@ -1046,6 +1088,10 @@ def operation_preflight(provider, root, network, params, config):
 
 def operation_execute(provider, root, network, plan, config=None):
     resource = plan["resource"]
+    if provider=='corium' and plan['action'] in {'zkn.gift','zkc.issue'}:
+        if asset_preflight(root,network,plan,config)!=plan['binding_evidence']:
+            fail('STALE_PLAN','private gift evidence changed')
+        return asset_submit_gift(root,network,plan['arguments']['transaction'],'zkc_issue' if plan['action']=='zkc.issue' else 'zkn_private_transfer')
     if provider == "shadow6" and plan["action"].startswith("recovery."):
         return recovery_execute(provider, root, network, plan, config)
     if plan["action"] in {"service.stop", "service.run"}:
@@ -1073,7 +1119,7 @@ def operation_execute(provider, root, network, plan, config=None):
                 fail("NATIVE_STATE_CONFLICT", "native package changed before activation")
             activate(Path(config["package_root"]), evidence["kind"], evidence["id"], evidence["version"])
         return {"native_selector": resource, "native_signature_verified": True, "activated": plan["action"] == "package.activate", "manifest_digest": evidence["manifest_digest"]}
-    if plan["action"] in {"wiki.create", "snapshot.create", "strata.create", "chain.mine", "compute.run", "identity.register", "content.publish", "zkn.transfer", "recovery.checkpoint", "recovery.restore"}:
+    if plan["action"] in {"wiki.create", "snapshot.create", "strata.create", "chain.mine", "compute.run", "identity.register", "content.publish", "zkn.transfer", "zkn.gift", "zkc.issue", "recovery.checkpoint", "recovery.restore"}:
         import subprocess
         source = os.environ.get("_ZIOKT_CORIUM_SOURCE")
         if not source: fail("NATIVE_STATE_UNAVAILABLE", "production monolith unavailable for native action")
@@ -1171,7 +1217,7 @@ def operation_reconcile(provider, root, network, plan, config):
         return {"native_selector": plan["resource"], "native_signature_verified": True, "activated": action == "package.activate", "reconciled": True}
     if action == "wiki.create": return wiki_receipt(root, network, plan)
     if action == "compute.run": return compute_receipt(root, network, plan)
-    if action in {'identity.register','content.publish','zkn.transfer'}: return asset_receipt(root,network,plan)
+    if action in {'identity.register','content.publish','zkn.transfer','zkn.gift','zkc.issue'}: return asset_receipt(root,network,plan)
     if action == "chain.mine":
         e = plan["binding_evidence"]
         with closing(corium_db(root, network, "blockchain/chain.db")) as db:
@@ -1636,7 +1682,7 @@ def compute_receipt(root, network, plan):
 
 """Native signed registration receipts and transferable block-snapshot ZKN assets."""
 
-ASSET_TYPES = {'ziokt_identity_register', 'ziokt_content', 'zkn_mint', 'zkn_transfer'}
+ASSET_TYPES = {'ziokt_identity_register', 'ziokt_content', 'zkn_mint', 'zkn_transfer', 'zkn_private_transfer', 'zkc_issue'}
 
 
 def asset_tables(db):
@@ -1644,7 +1690,9 @@ def asset_tables(db):
     definitions = {
         'ziokt_registrations': 'network TEXT,member TEXT,commitment TEXT,policy TEXT,issuer TEXT,transaction_hash TEXT,height INTEGER,PRIMARY KEY(network,member,policy)',
         'zkn_tokens': 'token_id TEXT PRIMARY KEY,block_hash TEXT UNIQUE,owner TEXT,nonce INTEGER,manifest TEXT,mint_transaction TEXT,height INTEGER',
+        'zkn_receivers': 'address TEXT PRIMARY KEY,transaction_hash TEXT UNIQUE,height INTEGER',
     }
+    definitions['zkc_editions']='edition_id TEXT PRIMARY KEY,token_id TEXT,kind TEXT,serial TEXT,contents_digest TEXT,issuer TEXT,transaction_hash TEXT,height INTEGER'
     for table, fields in definitions.items(): db.execute('CREATE TABLE IF NOT EXISTS "'+table+'" ('+fields+')')
 
 
@@ -1652,12 +1700,103 @@ def asset_token_id(network, block_hash):
     return hashlib.sha256(('Ziokt/ZKN/v1\n'+network+'\n'+block_hash).encode()).hexdigest()
 
 
+def asset_transaction_bytes(tx):
+    # Match Corium's existing signed serialization exactly.
+    return ('{"type":'+json.dumps(tx['type'])+',"data":'+encoded(tx['data']).decode()+',"timestamp":'+str(tx['timestamp'])+'}').encode()
+
+
+def zkc_edition_id(payload):
+    return hashlib.sha256(b'Ziokt/ZKC/edition/v1\n'+encoded({k:payload[k] for k in ('network_id','token_id','kind','serial')})).hexdigest()
+
+
+def asset_signed_gift(tx, network, kind='zkn_private_transfer'):
+    if (not isinstance(tx,dict) or set(tx)!={'type','data','timestamp','public_key','signature'} or
+            kind not in {'zkn_private_transfer','zkc_issue'} or tx['type']!=kind or type(tx['timestamp']) is not int or not 0<tx['timestamp']<2**53 or
+            not isinstance(tx['data'],dict) or tx['data'].get('network_id')!=network or
+            not isinstance(tx['public_key'],str) or len(tx['public_key'])>1024 or
+            not isinstance(tx['signature'],str) or len(tx['signature'])>160):
+        fail('INVALID_ZKN','scoped signed private gift transaction required')
+    raw=asset_transaction_bytes(tx)
+    if len(raw)>8192: fail('RESPONSE_LIMIT','gift transaction exceeds budget')
+    native_ec_verify(tx['public_key'],tx['signature'],raw)
+    return tx,hashlib.sha256(raw).hexdigest(),hashlib.sha256(tx['public_key'].rstrip('\n').encode()).hexdigest()
+
+
+def asset_publish_transaction(root, network, tx, tx_hash):
+    directory=root/'var/lib/corix/p2p/objects/transactions'
+    private_mkdir(directory)
+    target=directory/tx_hash;body=encoded(tx)
+    if target.exists():
+        if secure_read(target,16384)!=body: fail('IDEMPOTENCY_CONFLICT','immutable P2P gift object changed')
+    else:
+        fd=os.open(target,os.O_WRONLY|os.O_CREAT|os.O_EXCL|getattr(os,'O_NOFOLLOW',0),0o600)
+        make_private(target)
+        with os.fdopen(fd,'wb') as stream: stream.write(body);stream.flush();os.fsync(stream.fileno())
+    with closing(asset_writable_database(root/'var/lib/corix/p2p/dht.db')) as dht,dht:
+        dht.execute('INSERT OR REPLACE INTO local_chunks VALUES (?,?,0,?)',(tx_hash,str(target),len(body)))
+    return target
+
+
+def asset_writable_database(path):
+    check=native_database(path);check.close()
+    return sqlite3.connect(Path(path).absolute().as_uri()+'?mode=rw',uri=True,timeout=5)
+
+
+def asset_submit_gift(root, network, tx, kind='zkn_private_transfer'):
+    tx,tx_hash,sender=asset_signed_gift(tx,network,kind)
+    with closing(asset_writable_database(root/'var/lib/corix/networks'/network/'blockchain/chain.db')) as db:
+        try:
+            db.execute('BEGIN IMMEDIATE')
+            old=db.execute('SELECT type,data,signature,public_key,timestamp FROM transactions WHERE hash=?',(tx_hash,)).fetchone()
+            expected=(tx['type'],encoded(tx['data']).decode(),tx['signature'],tx['public_key'],tx['timestamp'])
+            if old:
+                if tuple(old)!=expected: fail('IDEMPOTENCY_CONFLICT','gift transaction bytes changed')
+            else:
+                asset_validate(db,network,tx['type'],tx['data'],sender)
+                for (raw,) in db.execute("SELECT data FROM transactions WHERE type IN ('zkn_transfer','zkn_private_transfer','zkc_issue') AND block_height IS NULL LIMIT 4097"):
+                    pending=strict_json(raw.encode())
+                    if kind=='zkn_private_transfer' and 'nonce' in pending and pending.get('token_id')==tx['data']['token_id'] and pending.get('nonce')==tx['data']['nonce']:
+                        fail('GIFT_CONFLICT','another gift already spends this collectible sequence')
+                    if kind=='zkn_private_transfer' and pending.get('recipient')==tx['data']['recipient']:
+                        fail('RECIPIENT_REUSED','one-time receiver already has a pending gift')
+                    if kind=='zkc_issue' and 'kind' in pending and zkc_edition_id(pending)==zkc_edition_id(tx['data']):
+                        fail('EDITION_PENDING','edition already has a pending issue; reuse its transaction')
+                if db.execute('SELECT COUNT(*) FROM transactions WHERE block_height IS NULL').fetchone()[0]>=4096:
+                    fail('BACKPRESSURE','pending transaction budget exhausted')
+                db.execute('INSERT INTO transactions (hash,type,data,signature,public_key,timestamp,block_height) VALUES (?,?,?,?,?,?,NULL)',(tx_hash,*expected))
+            db.commit()
+        except BaseException: db.rollback();raise
+    # If registration is interrupted after the transaction commit, submitting
+    # these same bytes again safely repairs publication without a second gift.
+    asset_publish_transaction(root,network,tx,tx_hash)
+    return {'transaction_hash':tx_hash,'phase':'pending-native-consensus','fee_required':False}
+
+
+def asset_forward_pending(root, network):
+    """Every packer republishes bounded signed collectible objects at no fee."""
+    with closing(corium_db(root,network,'blockchain/chain.db')) as db:
+        rows=db.execute("SELECT hash,type,data,signature,public_key,timestamp FROM transactions WHERE type IN ('zkn_private_transfer','zkc_issue') ORDER BY timestamp DESC LIMIT 64").fetchall()
+    for tx_hash,kind,data,signature,public,stamp in rows:
+        tx={'type':kind,'data':strict_json(data.encode()),'signature':signature,'public_key':public,'timestamp':stamp}
+        _,checked,_=asset_signed_gift(tx,network,kind)
+        if checked!=tx_hash: fail('NATIVE_FACT_REJECTED','forwarding object digest changed')
+        asset_publish_transaction(root,network,tx,tx_hash)
+    return len(rows)
+
+
 def asset_manifest(envelope, network, db):
     if not isinstance(envelope, dict) or set(envelope) != {'manifest','public_key','signature'}:
         fail('INVALID_ZKN', 'exact native ZKN signature required')
     value = envelope['manifest']
     fields = {'schema','network_id','token_id','block_hash','height','packer','packed_at','contents_digest','contents_size','zkt_score'}
-    if not isinstance(value, dict) or set(value) != fields or value['schema'] != 'ziokt.zkn-snapshot.v1' or value['network_id'] != network:
+    if not isinstance(value, dict) or value.get('schema') not in {'ziokt.zkn-snapshot.v1','ziokt.zkn-snapshot.v2'}:
+        fail('INVALID_ZKN', 'versioned native collectible required')
+    if value['schema'] == 'ziokt.zkn-snapshot.v2':
+        fields |= {'lucky_digit','relay_obligation'}
+        if (not isinstance(value.get('lucky_digit'),str) or not re.fullmatch('[0-9A-F]',value['lucky_digit']) or
+                value.get('relay_obligation') != 'free-p2p-forwarding-v1'):
+            fail('INVALID_ZKN','immutable hexadecimal collectible digit and forwarding obligation required')
+    if set(value) != fields or value['network_id'] != network:
         fail('INVALID_ZKN', 'scoped ZKN snapshot manifest required')
     if any(not isinstance(value[k], str) or not re.fullmatch('[a-f0-9]{64}', value[k]) for k in ('token_id','block_hash','packer')):
         fail('INVALID_ZKN', 'native ZKN identities must be exact digests')
@@ -1671,11 +1810,28 @@ def asset_manifest(envelope, network, db):
         fail('INVALID_ZKN', 'snapshot does not match its packed block')
     if hashlib.sha256(envelope['public_key'].rstrip('\n').encode()).hexdigest() != value['packer']:
         fail('INVALID_ZKN', 'snapshot signer is not its packer')
-    native_ec_verify(envelope['public_key'],envelope['signature'],b'Ziokt/ZKN/snapshot/v1\n'+encoded(value))
+    domain = b'Ziokt/ZKN/snapshot/v2\n' if value['schema'].endswith('.v2') else b'Ziokt/ZKN/snapshot/v1\n'
+    native_ec_verify(envelope['public_key'],envelope['signature'],domain+encoded(value))
     return value
 
 
 def asset_validate(db, network, tx_type, payload, sender):
+    if tx_type=='zkc_issue':
+        fields={'network_id','token_id','kind','serial','contents_digest'}
+        if (not isinstance(payload,dict) or set(payload)!=fields or payload['network_id']!=network or
+                not isinstance(payload['token_id'],str) or not re.fullmatch('[a-f0-9]{64}',payload['token_id']) or
+                not isinstance(payload['kind'],str) or payload['kind'] not in {'repeat','unique'} or not isinstance(payload['serial'],str) or
+                not re.fullmatch('0|[1-9][0-9]{0,127}',payload['serial']) or
+                payload['kind']=='repeat' and payload['serial']!='0' or payload['kind']=='unique' and payload['serial']=='0' or
+                not isinstance(payload['contents_digest'],str) or not re.fullmatch('sha256:[a-f0-9]{64}',payload['contents_digest'])):
+            fail('INVALID_ZKC','exact collectible edition without payment fields required')
+        if not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='zkn_tokens'").fetchone(): fail('NATIVE_STATE_UNAVAILABLE','parent collectible must be included')
+        owner=db.execute('SELECT owner FROM zkn_tokens WHERE token_id=?',(payload['token_id'],)).fetchone()
+        if not owner or owner[0]!=sender: fail('POLICY_DENIED','only current parent collectible holder may issue editions')
+        if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='zkc_editions'").fetchone():
+            prior=db.execute('SELECT contents_digest FROM zkc_editions WHERE edition_id=?',(zkc_edition_id(payload),)).fetchone()
+            if prior and (payload['kind']=='unique' or prior[0]!=payload['contents_digest']): fail('EDITION_CONFLICT','edition serial or repeat content already assigned')
+        return payload
     if tx_type=='ziokt_content':
         if not isinstance(payload,dict) or set(payload)!={'text','data_base64','content_type'} or any(not isinstance(v,str) for v in payload.values()) or len(payload['text'].encode())>8192 or not re.fullmatch('[A-Za-z0-9.+-]+/[A-Za-z0-9.+-]+',payload['content_type']):
             fail('INVALID_CONTENT','bounded text and binary content required')
@@ -1700,9 +1856,19 @@ def asset_validate(db, network, tx_type, payload, sender):
             if db.execute('SELECT 1 FROM zkn_tokens WHERE token_id=?',(value['token_id'],)).fetchone():
                 fail('IDEMPOTENCY_CONFLICT','block snapshot NFT already minted')
         return value
-    if tx_type == 'zkn_transfer':
-        if not isinstance(payload,dict) or set(payload)!={'token_id','recipient','nonce'}:
+    if tx_type in {'zkn_transfer','zkn_private_transfer'}:
+        fields = {'token_id','recipient','nonce'}
+        if tx_type == 'zkn_private_transfer': fields |= {'network_id','receipt'}
+        if not isinstance(payload,dict) or set(payload)!=fields:
             fail('INVALID_ZKN','exact native NFT transfer required')
+        if tx_type == 'zkn_private_transfer':
+            if payload['network_id'] != network: fail('SCOPE_MISMATCH','gift belongs to another network')
+            try:
+                receipt=base64.b64decode(payload['receipt'],validate=True)
+                if len(receipt)!=2048: raise ValueError()
+            except (ValueError,TypeError): fail('INVALID_ZKN','fixed sealed collectible receipt required')
+            if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='zkn_receivers'").fetchone() and db.execute('SELECT 1 FROM zkn_receivers WHERE address=?',(payload['recipient'],)).fetchone():
+                fail('RECIPIENT_REUSED','private gift requires a fresh one-time receiver')
         if (not re.fullmatch('[a-f0-9]{64}',str(payload['token_id'])) or not re.fullmatch('[a-f0-9]{64}',str(payload['recipient'])) or
                 type(payload['nonce']) is not int or not 1 <= payload['nonce'] < 2**53):
             fail('INVALID_ZKN','bounded NFT recipient and transfer nonce required')
@@ -1725,14 +1891,23 @@ def asset_apply(db, network, tx_hash, tx_type, payload, sender, height):
     elif tx_type=='zkn_mint':
         db.execute('INSERT INTO zkn_tokens VALUES (?,?,?,0,?,?,?)',
             (value['token_id'],value['block_hash'],value['packer'],encoded(payload['snapshot']).decode(),tx_hash,height))
+    elif tx_type=='zkc_issue':
+        db.execute('INSERT OR IGNORE INTO zkc_editions VALUES (?,?,?,?,?,?,?,?)',
+            (zkc_edition_id(payload),payload['token_id'],payload['kind'],payload['serial'],payload['contents_digest'],sender,tx_hash,height))
     else:
         db.execute('UPDATE zkn_tokens SET owner=?,nonce=? WHERE token_id=?',
             (payload['recipient'],payload['nonce'],payload['token_id']))
+        if tx_type=='zkn_private_transfer':
+            db.execute('INSERT INTO zkn_receivers VALUES (?,?,?)',(payload['recipient'],tx_hash,height))
 
 
 def asset_engine_main(args):
     action,db_path,network=args[0],Path(args[1]).absolute(),args[2]
     identifier(network,'network')
+    if action=='forward':
+        root=Path(args[3]).absolute()
+        asset_forward_pending(root,network)
+        return 0
     if action in {'validate','apply'}:
         tx_type,raw,sender=args[3:6]
         payload=strict_json(raw.encode())
@@ -1774,7 +1949,12 @@ def asset_engine_main(args):
             if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='zkt_accounts'").fetchone():
                 found=db.execute('SELECT total_points FROM zkt_accounts WHERE address=?',(packer,)).fetchone()
                 if found: score=found[0]
-            body=encoded({'schema':'ziokt.zkn-block-content.v1','network_id':network,'block':list(block),'transactions':transactions})
+            # A keyed random digit is stable across publication retries of
+            # this block; no retry can reroll a previously signed collectible.
+            import hmac
+            seed=private.private_bytes(serialization.Encoding.DER,serialization.PrivateFormat.PKCS8,serialization.NoEncryption())
+            lucky_digit='0123456789ABCDEF'[hmac.new(seed,b'Ziokt/ZKN/lucky/v1\n'+block_hash.encode(),hashlib.sha256).digest()[0]&15]
+            body=encoded({'schema':'ziokt.zkn-block-content.v2','network_id':network,'block':list(block),'transactions':transactions,'lucky_digit':lucky_digit})
         finally: db.close()
         if len(body)>64*1024*1024: fail('RESPONSE_LIMIT','native block snapshot byte budget exceeded')
         directory=Path(config['artifact_root']) if 'artifact_root' in config else root/'var/lib/corix/p2p/objects/ziokt'
@@ -1786,9 +1966,10 @@ def asset_engine_main(args):
             fd=os.open(target,os.O_WRONLY|os.O_CREAT|os.O_EXCL|getattr(os,'O_NOFOLLOW',0),0o600)
             make_private(target)
             with os.fdopen(fd,'wb') as output: output.write(body);output.flush();os.fsync(output.fileno())
-        value={'schema':'ziokt.zkn-snapshot.v1','network_id':network,'token_id':token_id,'block_hash':block_hash,
-               'height':block[0],'packer':packer,'packed_at':block[3],'contents_digest':sha,'contents_size':len(body),'zkt_score':score}
-        envelope={'manifest':value,'public_key':public,'signature':native_ec_sign(private,b'Ziokt/ZKN/snapshot/v1\n'+encoded(value))}
+        value={'schema':'ziokt.zkn-snapshot.v2','network_id':network,'token_id':token_id,'block_hash':block_hash,
+               'height':block[0],'packer':packer,'packed_at':block[3],'contents_digest':sha,'contents_size':len(body),'zkt_score':score,
+               'lucky_digit':lucky_digit,'relay_obligation':'free-p2p-forwarding-v1'}
+        envelope={'manifest':value,'public_key':public,'signature':native_ec_sign(private,b'Ziokt/ZKN/snapshot/v2\n'+encoded(value))}
         print(encoded({'snapshot':envelope}).decode());return 0
     fail('INVALID_PARAMS','known native asset engine action required')
 
@@ -1807,6 +1988,17 @@ def asset_preflight(root,network,params,config):
         if resource!='content:'+network: fail('INVALID_PARAMS','fixed content ledger scope required')
         with closing(corium_db(root,network,'blockchain/chain.db')) as db: asset_validate(db,network,'ziokt_content',arguments,corium_identity(root,network))
         return {'transaction_type':'ziokt_content','payload':arguments,'issuer':corium_identity(root,network)}
+    if action in {'zkn.gift','zkc.issue'}:
+        if not resource.startswith('zkn:') or set(arguments)!={'transaction'}: fail('INVALID_PARAMS','signed private gift required')
+        with closing(corium_db(root,network,'blockchain/chain.db')) as db:
+            tx,tx_hash,sender=asset_signed_gift(arguments['transaction'],network,'zkc_issue' if action=='zkc.issue' else 'zkn_private_transfer')
+            if tx['data']['token_id']!=resource[4:]: fail('SCOPE_MISMATCH','gift token differs from operation')
+            existing=db.execute('SELECT type,data,signature,public_key,timestamp FROM transactions WHERE hash=?',(tx_hash,)).fetchone()
+            if existing:
+                if tuple(existing)!=(tx['type'],encoded(tx['data']).decode(),tx['signature'],tx['public_key'],tx['timestamp']):
+                    fail('IDEMPOTENCY_CONFLICT','signed transaction changed')
+            else: asset_validate(db,network,tx['type'],tx['data'],sender)
+        return {'transaction_type':tx['type'],'payload':tx['data'],'issuer':sender,'transaction_hash':tx_hash}
     if action=='zkn.transfer':
         if not resource.startswith('zkn:') or set(arguments)!={'recipient','nonce'}: fail('INVALID_PARAMS','fixed NFT gift arguments required')
         payload={'token_id':resource[4:],**arguments};sender=corium_identity(root,network)
@@ -1841,6 +2033,27 @@ def asset_query(root,network,method,params):
             native_ec_verify(tx[3],tx[2],raw)
             if hashlib.sha256(tx[3].rstrip('\n').encode()).hexdigest()!=row[1]: fail('NATIVE_FACT_REJECTED','registration issuer changed')
             return {'registered':True,'member_public':params['member_public'],'policy_digest':params['policy_digest'],'document_commitment':row[0],'issuer':row[1],'transaction_hash':row[2],'block_hash':block[0],'height':row[3],'network_id':network}
+        if method=='zkc.list':
+            if params: fail('INVALID_PARAMS','edition list accepts no extra arguments')
+            if not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='zkc_editions'").fetchone(): return {'editions':[]}
+            rows=db.execute('SELECT edition_id,token_id,kind,serial,contents_digest,issuer,transaction_hash,height FROM zkc_editions ORDER BY height DESC,edition_id LIMIT 64').fetchall()
+            return {'editions':[dict(zip(('edition_id','token_id','kind','serial','contents_digest','issuer','transaction_hash','height'),row)) for row in rows]}
+        if method in {'zkn.fact','zkc.fact'}:
+            if set(params)!={'transaction_hash'} or not re.fullmatch('[a-f0-9]{64}',str(params['transaction_hash'])):
+                fail('INVALID_PARAMS','exact gift transaction digest required')
+            row=db.execute('SELECT type,data,signature,public_key,timestamp,block_height FROM transactions WHERE hash=?',(params['transaction_hash'],)).fetchone()
+            if not row: return {'phase':'absent','transaction_hash':params['transaction_hash']}
+            tx=dict(zip(('type','data','signature','public_key','timestamp'),row[:5]));tx['data']=strict_json(tx['data'].encode())
+            _,tx_hash,_=asset_signed_gift(tx,network,'zkc_issue' if method=='zkc.fact' else 'zkn_private_transfer')
+            if tx_hash!=params['transaction_hash']: fail('NATIVE_FACT_REJECTED','gift transaction changed')
+            result={'phase':'pending-native-consensus','transaction_hash':tx_hash,'transaction':tx,'height':None,'confirmations':0}
+            if row[5] is not None:
+                block=db.execute('SELECT hash,transactions FROM blocks WHERE height=?',(row[5],)).fetchone()
+                if not block or tx_hash not in strict_json(block[1].encode()): fail('NATIVE_FACT_REJECTED','gift branch changed')
+                proof=governance_fact(root,network,tx_hash)
+                if proof['height']!=row[5] or proof['block_hash']!=block[0]:fail('NATIVE_FACT_REJECTED','gift branch changed during observation')
+                result.update(phase='on-chain',height=row[5],block_hash=proof['block_hash'],confirmations=proof['confirmations'],inclusion=proof)
+            return result
         if method=='zkn.list':
             if params: fail('INVALID_PARAMS','NFT list accepts no extra arguments')
             if not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='zkn_tokens'").fetchone(): return {'tokens':[]}

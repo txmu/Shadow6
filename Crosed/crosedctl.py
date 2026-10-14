@@ -255,12 +255,27 @@ def inspect_binary(path: Path) -> dict[str, Any]:
 
 def negotiate(core: Path, request: Path, trust: Path) -> dict[str, Any]:
     report = inspect_binary(core)
+    # Idris exposes the same signed authorization boundary through its own
+    # --authorize entry point. Normalize only its local result vocabulary;
+    # every signature, domain rule and replay nonce is still checked by Idris.
+    idris = report['core'] == 'shadow6-idris'
+    command = ([str(core.resolve()), '--authorize', str(request.resolve()), str(trust.resolve())]
+               if idris else [str(core.resolve()), '--crosed-request', str(request.resolve()), '--crosed-trust', str(trust.resolve())])
     completed = subprocess.run(
-        [str(core.resolve()), "--crosed-request", str(request.resolve()), "--crosed-trust", str(trust.resolve())],
+        command,
         capture_output=True, text=True, timeout=5, check=False,
     )
     if completed.returncode != 0:
         raise CrosedError(f"Core rejected Crosed input: {completed.stderr.strip()}")
+    if idris:
+        document = strict_json(secure_read(request, 65536), 65536)
+        level = document.get('requested_level')
+        caps = document.get('capabilities')
+        if (type(level) is not int or not 1 <= level <= report['crosed_max_level'] or
+                not isinstance(caps, list) or not caps or any(not isinstance(c,str) or c not in report['crosed_capabilities'] or CAPABILITY_LEVELS.get(c,6)>level for c in caps) or
+                completed.stdout != f"granted {document.get('mod_id')} L{level}\n"):
+            raise CrosedError('Idris did not return an exact matching native authorization')
+        return {**report,'mod_id':document['mod_id'],'status':'granted','granted_level':level,'granted_capabilities':sorted(caps)}
     response = portable_json(completed.stdout, limit=1048576)
     if response.get("core") != report["core"] or response.get("version") != report["version"]:
         raise CrosedError("Core response does not match its feature report")
