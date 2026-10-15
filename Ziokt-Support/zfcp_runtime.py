@@ -23,7 +23,7 @@ MAX_CONFIG = 262_144
 MAX_OBJECTS = 4096
 ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}\Z")
 METHODS = ("capabilities.get", "status.get", "objects.list", "operation.prepare",
-           "operation.commit", "operation.abort", "operation.status", "operation.reconcile", "events.list", "content.get", "governance.fact", "zkt.status", "zkt.account", "identity.fact", "zkn.list", "zkn.fact", "zkc.list", "zkc.fact", "service.binding")
+           "operation.commit", "operation.abort", "operation.status", "operation.reconcile", "events.list", "content.get", "governance.fact", "zkt.status", "zkt.account", "identity.fact", "zkn.list", "zkn.fact", "zkc.list", "zkc.fact", "service.binding", "compute.challenge")
 
 
 class ProtocolError(ValueError):
@@ -359,7 +359,7 @@ def validate_config(value):
                 any(not isinstance(v, str) or not 1 <= len(v) <= 160 for v in values) or len(set(values)) != len(values)):
             fail("INVALID_CONFIG", "bounded explicit native action/resource allowlists required")
     known_operations = {"service.stop", "service.run", "artifact.stage", "package.install", "package.activate",
-                        "wiki.create", "snapshot.create", "strata.create", "chain.mine", "compute.run", "identity.register", "content.publish", "zkn.transfer", "zkn.gift", "zkc.issue", "recovery.checkpoint", "recovery.restore"}
+                        "wiki.create", "snapshot.create", "strata.create", "chain.mine", "compute.run", "compute.submit", "identity.register", "content.publish", "zkn.transfer", "zkn.gift", "zkc.issue", "recovery.checkpoint", "recovery.restore"}
     if any(v not in known_operations for v in result["allowed_operations"]):
         fail("INVALID_CONFIG", "unknown native action")
     if "coordinator_public_key" in result and (not isinstance(result["coordinator_public_key"], str) or not re.fullmatch("[a-f0-9]{64}", result["coordinator_public_key"])):
@@ -446,7 +446,9 @@ def validate_request(value, config):
         fail("METHOD_UNSUPPORTED", "operation not available in this native profile")
     params = value["params"]
     method = value["method"]
-    if method=='service.binding':
+    if method=='compute.challenge':
+        if params:fail('INVALID_PARAMS','Engine Zero challenge takes no client configuration')
+    elif method=='service.binding':
         if set(params)!={'service_name'} or not isinstance(params['service_name'],str) or not re.fullmatch('[A-Za-z0-9][A-Za-z0-9._/-]{0,127}',params['service_name']):
             fail('INVALID_PARAMS','fixed named Broker binding required')
     elif method in {"governance.fact","zkn.fact","zkc.fact"}:
@@ -649,7 +651,7 @@ def capabilities(provider, config):
             "profile": "local-v1", "mutations": config["allow_mutations"],
             "capabilities": [{"id": "ziokt." + method + ".v1", "operation": method,
                               "status": "available" if config["enabled"] and (method not in {"operation.prepare", "operation.commit", "operation.abort", "operation.reconcile"} or config["allow_mutations"]) else "disabled"}
-                              for method in METHODS if provider == "corium" or (not method.startswith(("zkt.","zkn.","zkc.")) and method not in {"content.get", "governance.fact", "identity.fact"})],
+                              for method in METHODS if provider == "corium" or (not method.startswith(("zkt.","zkn.","zkc.")) and method not in {"content.get", "governance.fact", "identity.fact", "compute.challenge"})],
             "native_actions": sorted(OPERATIONS[provider]),
             "object_kinds": ["service", "package", "application"] if provider == "shadow6" else ["package", "environment", "application", "identity", "name", "proposal", "recovery"],
             "transport": "native-application-boundary; one Core family per path" if provider == "shadow6" else "native-signature-preserving Ziokt binding; explicit fallback"}
@@ -685,6 +687,9 @@ def rpc(provider, root, network, config, stream):
             result=service_binding_fact(root,config,request['params']['service_name'])
         elif method.startswith("operation.") or method == "events.list":
             result = operation_dispatch(provider, root, network, config, method, request["params"])
+        elif method == "compute.challenge":
+            if provider != "corium":fail("METHOD_UNSUPPORTED","Engine Zero belongs to Corium")
+            result=compute_challenge(root,network)
         elif method == "governance.fact":
             if provider != "corium": fail("METHOD_UNSUPPORTED", "native chain facts belong to Corium")
             result = governance_fact(root, network, request["params"]["transaction_hash"])
@@ -800,7 +805,7 @@ import sqlite3
 from contextlib import closing
 
 OPERATIONS = {"shadow6": {"service.stop", "service.run", "package.install", "package.activate", "recovery.checkpoint", "recovery.restore"},
-              "corium": {"artifact.stage", "wiki.create", "snapshot.create", "strata.create", "chain.mine", "compute.run", "identity.register", "content.publish", "zkn.transfer", "zkn.gift", "zkc.issue", "recovery.checkpoint", "recovery.restore"}}
+              "corium": {"artifact.stage", "wiki.create", "snapshot.create", "strata.create", "chain.mine", "compute.run", "compute.submit", "identity.register", "content.publish", "zkn.transfer", "zkn.gift", "zkc.issue", "recovery.checkpoint", "recovery.restore"}}
 
 
 def operation_directory(provider, root, network):
@@ -1008,6 +1013,8 @@ def operation_preflight(provider, root, network, params, config):
         fail("POLICY_DENIED", "native resource is not allowed")
     if action.startswith("recovery."):
         return recovery_preflight(provider, root, network, params, config)
+    if action == "compute.submit":
+        return compute_submit_preflight(root,network,params,config)
     if action == "compute.run":
         return compute_preflight(root, network, params, config)
     if action in {'identity.register','content.publish','zkn.transfer','zkn.gift','zkc.issue'}:
@@ -1136,7 +1143,7 @@ def operation_execute(provider, root, network, plan, config=None):
                 fail("NATIVE_STATE_CONFLICT", "native package changed before activation")
             activate(Path(config["package_root"]), evidence["kind"], evidence["id"], evidence["version"])
         return {"native_selector": resource, "native_signature_verified": True, "activated": plan["action"] == "package.activate", "manifest_digest": evidence["manifest_digest"]}
-    if plan["action"] in {"wiki.create", "snapshot.create", "strata.create", "chain.mine", "compute.run", "identity.register", "content.publish", "zkn.transfer", "zkn.gift", "zkc.issue", "recovery.checkpoint", "recovery.restore"}:
+    if plan["action"] in {"wiki.create", "snapshot.create", "strata.create", "chain.mine", "compute.run", "compute.submit", "identity.register", "content.publish", "zkn.transfer", "zkn.gift", "zkc.issue", "recovery.checkpoint", "recovery.restore"}:
         import subprocess
         source = os.environ.get("_ZIOKT_CORIUM_SOURCE")
         if not source: fail("NATIVE_STATE_UNAVAILABLE", "production monolith unavailable for native action")
@@ -1234,7 +1241,7 @@ def operation_reconcile(provider, root, network, plan, config):
         return {"native_selector": plan["resource"], "native_signature_verified": True, "activated": action == "package.activate", "reconciled": True}
     if action == "wiki.create": return wiki_receipt(root, network, plan)
     if action == "compute.run": return compute_receipt(root, network, plan)
-    if action in {'identity.register','content.publish','zkn.transfer','zkn.gift','zkc.issue'}: return asset_receipt(root,network,plan)
+    if action in {'compute.submit','identity.register','content.publish','zkn.transfer','zkn.gift','zkc.issue'}: return asset_receipt(root,network,plan)
     if action == "chain.mine":
         e = plan["binding_evidence"]
         with closing(corium_db(root, network, "blockchain/chain.db")) as db:
@@ -1696,6 +1703,40 @@ def compute_receipt(root, network, plan):
         if len(data) > 6144 or proof['digest'] != 'sha256:'+hashlib.sha256(data).hexdigest():
             fail('ARTIFACT_DIGEST_MISMATCH', 'native computation proof bytes changed')
     return {**value, 'native_signature_verified': True, 'phase': 'native-execution-completed'}
+
+
+def compute_challenge(root, network):
+    """The accepted native head and configured signer define an Engine Zero job."""
+    with closing(corium_db(root,network,'blockchain/chain.db')) as db:
+        cached=db.execute("SELECT value FROM chain_state WHERE key='chain_info'").fetchone()
+        if not cached or not isinstance(cached[0],str):fail('NATIVE_STATE_UNAVAILABLE','accepted native chain head required')
+        fields=cached[0].split('|')
+        if len(fields)!=2 or not fields[1].isdigit() or not re.fullmatch('[a-f0-9]{64}',fields[0]):fail('NATIVE_STATE_CONFLICT','invalid accepted native head')
+        if not db.execute('SELECT 1 FROM blocks WHERE hash=? AND height=?',(fields[0],int(fields[1]))).fetchone():fail('NATIVE_STATE_CONFLICT','accepted head not present')
+        done=db.execute("SELECT 1 FROM completed_compute_tasks WHERE engine_id=? AND problem_id=?",('corium/internal-engine-zero-v1',fields[0])).fetchone()
+        pending=db.execute('SELECT 1 FROM pending_proofs WHERE problem_id=?',(fields[0],)).fetchone()
+        queued=False
+        for (raw,) in db.execute("SELECT data FROM transactions WHERE type='submit_math_proof' AND block_height IS NULL LIMIT 4096"):
+            data=strict_json(raw.encode())
+            if data.get('engine_id')=='corium/internal-engine-zero-v1' and data.get('problem_id')==fields[0]:queued=True;break
+    return {'schema':'ziokt.engine-zero-challenge.v1','engine_id':'corium/internal-engine-zero-v1','network_id':network,
+            'submitter_id':corium_identity(root,network),'problem_id':fields[0],'height':int(fields[1]),'difficulty':3,'available':not (done or pending or queued)}
+
+
+def compute_submit_preflight(root,network,params,config):
+    args=params['arguments']
+    if params['resource']!='compute:corium/internal-engine-zero-v1' or params['expected_revision'] is not None or set(args)!={'problem_id','nonce'} or not isinstance(args['problem_id'],str) or not re.fullmatch('[a-f0-9]{64}',args['problem_id']) or not isinstance(args['nonce'],str) or not re.fullmatch('0|[1-9][0-9]{0,19}',args['nonce']):fail('INVALID_PARAMS','bounded native Engine Zero proof required')
+    job=compute_challenge(root,network)
+    if args['problem_id']!=job['problem_id']:fail('STALE_PLAN','native Engine Zero head changed')
+    proof={'nonce':args['nonce'],'submitter_id':job['submitter_id'],'network_id':network}
+    if not hashlib.sha256((network+job['submitter_id']+args['nonce']+args['problem_id']).encode()).hexdigest().startswith('000'):fail('INVALID_PROOF','Engine Zero nonce failed verification')
+    payload={'engine_id':job['engine_id'],'problem_id':args['problem_id'],'engine_hash':'BUILT_IN','verifier_hash':'BUILT_IN','proof_data':proof}
+    # Do not submit an alternate proof after another worker already claimed this head.
+    if not job['available']:
+        with closing(corium_db(root,network,'blockchain/chain.db')) as db:
+            same=any(strict_json(raw.encode())==payload for (raw,) in db.execute("SELECT data FROM transactions WHERE type='submit_math_proof' LIMIT 4096"))
+        if not same:fail('TASK_UNAVAILABLE','native challenge is already claimed')
+    return {'transaction_type':'submit_math_proof','payload':payload,'issuer':job['submitter_id']}
 
 """Native signed registration receipts and transferable block-snapshot ZKN assets."""
 
