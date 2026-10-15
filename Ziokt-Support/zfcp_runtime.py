@@ -723,16 +723,33 @@ def rpc(provider, root, network, config, stream):
 
 
 def main(provider, root=None, argv=None, rpc_stream=None):
+    arguments = list(sys.argv[1:] if argv is None else argv)
+    companion_args = None
+    if 'companion' in arguments:
+        boundary = arguments.index('companion')
+        companion_args = arguments[boundary + 1:]
+        arguments = arguments[:boundary + 1]
     parser = argparse.ArgumentParser(prog=provider + " ziokt")
     parser.add_argument("--config", type=Path, help="private native provider configuration")
     if provider == "corium":
         parser.add_argument("--network", default=os.environ.get("CORIUM_NETWORK_ID_OVERRIDE", "default"))
-    parser.add_argument("action", choices=("capabilities", "status", "rpc", "serve-data"))
+    parser.add_argument("action", choices=("capabilities", "status", "rpc", "serve-data", "companion"))
     parser.add_argument("--stdio", action="store_true")
     parser.add_argument("--key-file", type=Path)
     parser.add_argument("--port", type=int, default=0)
-    args = parser.parse_args(argv)
+    args = parser.parse_args(arguments)
     try:
+        if args.action == 'companion':
+            if args.stdio or args.key_file is not None or args.port:
+                fail('INVALID_REQUEST', 'companion does not accept native server options')
+            # Fixed installed Python API: no shell, callback, arbitrary module or plugin.
+            # Installation is explicit; native providers remain independently usable.
+            try:
+                from ziokt.companion_cli import main as companion_main
+            except ImportError:
+                fail('COMPANION_UNAVAILABLE', 'install the Ziokt Python package to enable companion calls')
+            return companion_main(companion_args)
+
         if args.stdio != (args.action == "rpc"):
             fail("INVALID_REQUEST", "rpc requires --stdio; other actions do not accept it")
         network = args.network if provider == "corium" else None
