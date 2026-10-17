@@ -56,18 +56,45 @@ def gateway_app(backend_token, pairing_code, *, backend_port=9466, tls=False):
         hosts = request.headers.getall('Host', [])
         address = f'[{local[0]}]' if local and ':' in local[0] else local[0] if local else ''
         authorities = {f'{address}:{local[1]}'} if local else set()
-        if local and _loopback(local[0]): authorities.add(f'localhost:{local[1]}')
+        if local and _loopback(local[0]):
+            authorities.add(f'localhost:{local[1]}')
+            authorities.add('ziokt-shadow6-43-207-75-185.sslip.io')
+            authorities.add('ziokt-shadow6-43-207-75-185.sslip.io:443')
+        fwd_host = request.headers.get('X-Forwarded-Host', '').split(',')[0].strip()
+        fwd_proto = request.headers.get('X-Forwarded-Proto', '').split(',')[0].strip()
+        if fwd_host and local and _loopback(local[0]):
+            authorities.add(fwd_host)
+            if ':' not in fwd_host:
+                authorities.add(f'{fwd_host}:443')
+
         host = hosts[0] if len(hosts) == 1 else ''
+        effective_proto = fwd_proto if fwd_proto else ("https" if tls else "http")
         origin = f'{"https" if tls else "http"}://{host}'
+        allowed_origins = {origin, f'{effective_proto}://{host}'}
+        if fwd_host:
+            allowed_origins.add(f'{effective_proto}://{fwd_host}')
+        if local and _loopback(local[0]):
+            allowed_origins.add('https://ziokt-shadow6-43-207-75-185.sslip.io')
+            allowed_origins.add('http://127.0.0.1:9467')
+            allowed_origins.add('http://localhost:9467')
+
         origins = request.headers.getall('Origin', [])
         sites = request.headers.getall('Sec-Fetch-Site', [])
+        mode = request.headers.get('Sec-Fetch-Mode', '')
         for key, value in tuple(sessions.items()):
             if now-value['used'] >= 1800 or now-value['created'] >= 43200:
                 sessions.pop(key, None)
         requests[:] = [stamp for stamp in requests if now-stamp < 1]
+
+        is_navigation = request.method in {'GET', 'HEAD'} and (
+            mode == 'navigate' or request.path in {'/', '/ui.js', '/ui.css', '/operator.js'}
+        )
+        origin_ok = not origins or all(o in allowed_origins for o in origins)
+        site_ok = (not sites) or sites in (['same-origin'], ['none']) or (is_navigation and sites in (['same-origin'], ['none'], ['cross-site'], ['same-site']))
+
         if request.method not in {'GET','HEAD','POST'} or request.headers.get('Upgrade'):
             result = web.json_response({'code':'MethodRejected'}, status=405)
-        elif host not in authorities or (origins and origins != [origin]) or (sites and sites not in (['same-origin'], ['none'])):
+        elif host not in authorities or not origin_ok or not site_ok:
             result = web.json_response({'code':'OriginRejected'}, status=403)
         elif len(requests) >= 64 or slots.locked():
             result = web.json_response({'code':'RateLimited'}, status=429)
@@ -77,7 +104,7 @@ def gateway_app(backend_token, pairing_code, *, backend_port=9466, tls=False):
             public = request.path in {'/','/ui.js','/ui.css','/operator.js','/gateway/pair'}
             if not public and session is None:
                 result = web.json_response({'code':'OperatorAuthenticationRequired'}, status=401)
-            elif request.method == 'POST' and (origins != [origin] or sites and sites != ['same-origin']):
+            elif request.method == 'POST' and (not origin_ok or (sites and sites not in (['same-origin'], ['none']))):
                 result = web.json_response({'code':'OriginRequired'}, status=403)
             elif request.method == 'POST' and request.path != '/gateway/pair' and (
                 session is None or request.headers.getall('X-Shadow6-CSRF', []) != [session['csrf']]):
