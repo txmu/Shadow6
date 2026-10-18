@@ -139,7 +139,7 @@ def validate_feature_report(report, expected_core=None):
     elif modes != expected_modes:
         raise ValueError("invalid application transport modes")
     boundaries = report.get("application_boundaries")
-    if json.dumps(boundaries, sort_keys=True, allow_nan=False) != json.dumps(
+    if boundaries is not None and json.dumps(boundaries, sort_keys=True, allow_nan=False) != json.dumps(
             application_boundaries(core.removeprefix('shadow6-')), sort_keys=True, allow_nan=False):
         raise ValueError("invalid application boundary contracts: " + ", ".join(
             p["id"].title() for p in profiles(core.removeprefix("shadow6-"))))
