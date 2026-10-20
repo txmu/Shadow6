@@ -69,5 +69,10 @@ class GatewayTests(unittest.IsolatedAsyncioTestCase):
     def test_credentials_must_be_separate(self):
         with self.assertRaises(ValueError): gateway_app('x'*32, 'x'*32)
 
+    async def test_retired_public_aliases_are_not_host_authorities(self):
+        for host in ('ziokt-shadow6-43-207-75-185.sslip.io', 'shadow6.ziokt.com'):
+            response = await self.client.get('/v1/schema', headers={'Host':host})
+            self.assertEqual(response.status, 403)
+
 
 if __name__ == '__main__': unittest.main()

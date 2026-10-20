@@ -58,12 +58,8 @@ def gateway_app(backend_token, pairing_code, *, backend_port=9466, tls=False):
         authorities = {f'{address}:{local[1]}'} if local else set()
         if local and _loopback(local[0]):
             authorities.add(f'localhost:{local[1]}')
-            authorities.add('shadow6.ziokt.com')
-            authorities.add('shadow6.ziokt.com:443')
             authorities.add('cor-web.ziokt.com')
             authorities.add('cor-web.ziokt.com:443')
-            authorities.add('ziokt-shadow6-43-207-75-185.sslip.io')
-            authorities.add('ziokt-shadow6-43-207-75-185.sslip.io:443')
         fwd_host = request.headers.get('X-Forwarded-Host', '').split(',')[0].strip()
         fwd_proto = request.headers.get('X-Forwarded-Proto', '').split(',')[0].strip()
         if fwd_host and local and _loopback(local[0]):
@@ -80,7 +76,6 @@ def gateway_app(backend_token, pairing_code, *, backend_port=9466, tls=False):
         if local and _loopback(local[0]):
             allowed_origins.add('https://shadow6.ziokt.com')
             allowed_origins.add('https://cor-web.ziokt.com')
-            allowed_origins.add('https://ziokt-shadow6-43-207-75-185.sslip.io')
             allowed_origins.add('http://127.0.0.1:9467')
             allowed_origins.add('http://localhost:9467')
 
