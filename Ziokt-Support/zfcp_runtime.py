@@ -522,8 +522,17 @@ def safe_directory(path):
         info = candidate.lstat()
         if not stat.S_ISDIR(info.st_mode):
             fail("UNSAFE_FILE", "inventory directory must not be a symlink")
-        if candidate == path and os.name != "nt" and (info.st_uid != os.geteuid() or info.st_mode & 0o022):
-            fail("UNSAFE_FILE", "inventory directory must be owner-controlled")
+        if candidate == path and os.name != "nt":
+            if info.st_uid != os.geteuid():
+                fail("UNSAFE_FILE", "inventory directory must be owner-controlled")
+            if info.st_mode & 0o022:
+                try:
+                    path.chmod(info.st_mode & ~0o022)
+                    info = path.lstat()
+                except OSError:
+                    pass
+            if info.st_uid != os.geteuid() or info.st_mode & 0o002 or (info.st_gid != getattr(os, 'getegid', lambda: info.st_gid)() and info.st_mode & 0o020):
+                fail("UNSAFE_FILE", "inventory directory must be owner-controlled")
     return path
 
 
