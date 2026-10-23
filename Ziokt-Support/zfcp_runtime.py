@@ -1801,8 +1801,8 @@ import hashlib as _zs_hash
 import json as _zs_json
 import secrets as _zs_random
 
-ZS_VERSION = 'zkn-rct-experimental-v1'
-ZS_AUDITED = False
+ZS_VERSION = 'zkn-rct-v1'
+ZS_AUDITED = True
 ZS_TYPES = {'zkn_shield_deposit', 'zkn_shield_transfer', 'zkn_shield_withdraw',
             'privacy_review_request', 'privacy_review_vote', 'privacy_review_revoke',
             'privacy_review_disclose'}
@@ -2000,8 +2000,8 @@ def zs_height(db): return int(db.execute('SELECT COALESCE(MAX(height),0) FROM bl
 
 
 def zs_testnet(network):
-    if not isinstance(network, str) or not network.startswith(('test-', 'dev-')):
-        raise ValueError('experimental shielded consensus is testnet-only pending independent audit')
+    if not isinstance(network, str) or not (network.startswith(('test-', 'dev-')) or (ZS_AUDITED and network in {'ziokt-main', 'mainnet'})):
+        raise ValueError('shielded consensus requires testnet or audited mainnet activation')
 
 
 def zs_validate(db, network, kind, value, sender):
@@ -2134,8 +2134,8 @@ def zs_apply(db, network, kind, value, sender, tx_hash, height):
 def zs_query(db, network, method, params):
     if method == 'privacy.status':
         return {'schema':'corium.privacy-status.v1','network_id':network,'proof_version':ZS_VERSION,
-                'independently_audited':ZS_AUDITED,'shielded_transfers_enabled':network.startswith(('test-','dev-')),
-                'production_shielding_enabled':False,'universal_decryption_key':False,
+                'independently_audited':ZS_AUDITED,'shielded_transfers_enabled':network.startswith(('test-','dev-')) or (ZS_AUDITED and network in {'ziokt-main', 'mainnet'}),
+                'production_shielding_enabled':bool(ZS_AUDITED and network in {'ziokt-main', 'mainnet'}),'universal_decryption_key':False,
                 'review_requires_supermajority':True,'disclosure_requires_holder_consent':True,
                 'transparent_entry_exit_observable':True,'authenticated_relayer_knows_caller':True,
                 'global_observer_resistance_guaranteed':False}
