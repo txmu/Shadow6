@@ -1791,7 +1791,7 @@ Ristretto255 primitives are provided by libsodium, never Python curve arithmetic
 The two-row ring proof follows the MLSAG construction (MRL-0005), with only
 the ownership row linkable. The second row proves conservation of the asset
 commitment. This implementation has NOT received an independent crypto audit.
-Production activation is deliberately unavailable. No review/decryption key
+Mainnet enablement is a functional switch, not an audit attestation. No review/decryption key
 exists in consensus. Embedded verbatim in the standalone Corium monolith.
 """
 import base64 as _zs_b64
@@ -1802,7 +1802,10 @@ import json as _zs_json
 import secrets as _zs_random
 
 ZS_VERSION = 'zkn-rct-v1'
-ZS_AUDITED = True
+# Preserve the existing functional gate without representing it as an audit.
+ZS_MAINNET_ENABLED = True
+ZS_AUDITED = False  # No independent third-party audit evidenced.
+ZS_SELF_REVIEW_REPORT = 'AUDIT-SHIELDED-2026-10-23.md'
 ZS_TYPES = {'zkn_shield_deposit', 'zkn_shield_transfer', 'zkn_shield_withdraw',
             'privacy_review_request', 'privacy_review_vote', 'privacy_review_revoke',
             'privacy_review_disclose'}
@@ -2000,8 +2003,8 @@ def zs_height(db): return int(db.execute('SELECT COALESCE(MAX(height),0) FROM bl
 
 
 def zs_testnet(network):
-    if not isinstance(network, str) or not (network.startswith(('test-', 'dev-')) or (ZS_AUDITED and network in {'ziokt-main', 'mainnet'})):
-        raise ValueError('shielded consensus requires testnet or audited mainnet activation')
+    if not isinstance(network, str) or not (network.startswith(('test-', 'dev-')) or (ZS_MAINNET_ENABLED and network in {'ziokt-main', 'mainnet'})):
+        raise ValueError('shielded consensus requires testnet or enabled mainnet activation')
 
 
 def zs_validate(db, network, kind, value, sender):
@@ -2134,8 +2137,11 @@ def zs_apply(db, network, kind, value, sender, tx_hash, height):
 def zs_query(db, network, method, params):
     if method == 'privacy.status':
         return {'schema':'corium.privacy-status.v1','network_id':network,'proof_version':ZS_VERSION,
-                'independently_audited':ZS_AUDITED,'shielded_transfers_enabled':network.startswith(('test-','dev-')) or (ZS_AUDITED and network in {'ziokt-main', 'mainnet'}),
-                'production_shielding_enabled':bool(ZS_AUDITED and network in {'ziokt-main', 'mainnet'}),'universal_decryption_key':False,
+                'independently_audited':ZS_AUDITED,'mainnet_feature_enabled':ZS_MAINNET_ENABLED,
+                'self_review_report':ZS_SELF_REVIEW_REPORT,'third_party_audit_status':'not_evidenced',
+                'mainnet_governance_approval':'not_verified','cryptographic_security_verified':False,
+                'shielded_transfers_enabled':network.startswith(('test-','dev-')) or (ZS_MAINNET_ENABLED and network in {'ziokt-main', 'mainnet'}),
+                'production_shielding_enabled':bool(ZS_MAINNET_ENABLED and network in {'ziokt-main', 'mainnet'}),'universal_decryption_key':False,
                 'review_requires_supermajority':True,'disclosure_requires_holder_consent':True,
                 'transparent_entry_exit_observable':True,'authenticated_relayer_knows_caller':True,
                 'global_observer_resistance_guaranteed':False}
