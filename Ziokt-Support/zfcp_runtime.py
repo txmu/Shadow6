@@ -2186,7 +2186,12 @@ def asset_token_id(network, block_hash):
 
 
 def asset_transaction_bytes(tx):
-    # Match Corium's existing signed serialization exactly.
+    # Recovery networks bind native wallet signatures to chain namespace and actor.
+    network=tx['data'].get('network_id')
+    if network in {'ziokt-main-recovery-20261024','ziokt-dna-side-20261024'}:
+        return encoded({'schema':'corium.chain-transaction.v3','network':network,'public_key':tx['public_key'],
+                        'type':tx['type'],'data':tx['data'],'timestamp':tx['timestamp']})
+    # Match Corium's historical signed serialization exactly.
     return ('{"type":'+json.dumps(tx['type'])+',"data":'+encoded(tx['data']).decode()+',"timestamp":'+str(tx['timestamp'])+'}').encode()
 
 
@@ -2397,6 +2402,7 @@ def asset_validate(db, network, tx_type, payload, sender):
     if tx_type in {'zkn_transfer','zkn_private_transfer'}:
         fields = {'token_id','recipient','nonce'}
         if tx_type == 'zkn_private_transfer': fields |= {'network_id','receipt'}
+        if network in {'ziokt-main-recovery-20261024','ziokt-dna-side-20261024'}: fields.add('network_id')
         if not isinstance(payload,dict) or set(payload)!=fields:
             fail('INVALID_ZKN','exact native NFT transfer required')
         if tx_type == 'zkn_private_transfer':
@@ -2564,6 +2570,7 @@ def asset_preflight(root,network,params,config):
     if action=='zkn.transfer':
         if not resource.startswith('zkn:') or set(arguments)!={'recipient','nonce'}: fail('INVALID_PARAMS','fixed NFT gift arguments required')
         payload={'token_id':resource[4:],**arguments};sender=corium_identity(root,network)
+        if network in {'ziokt-main-recovery-20261024','ziokt-dna-side-20261024'}:payload['network_id']=network
         with closing(corium_db(root,network,'blockchain/chain.db')) as db: asset_validate(db,network,'zkn_transfer',payload,sender)
         return {'transaction_type':'zkn_transfer','payload':payload,'issuer':sender}
     fail('INVALID_PARAMS','known native asset operation required')
