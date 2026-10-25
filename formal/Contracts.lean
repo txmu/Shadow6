@@ -4,6 +4,18 @@ import Init
 type proofs remain separate native evidence; no C/Go/Rust/FFI equivalence claim. -/
 namespace Shadow6.Contracts
 
+-- BEGIN GENERATED VERIFIED GUARDS
+abbrev credit_reservable (available : Nat) (amount : Nat) : Prop :=
+  (amount ≤ available)
+
+abbrev credit_acknowledgeable (outstanding : Nat) (amount : Nat) : Prop :=
+  (amount ≤ outstanding)
+
+abbrev capability_allowed (build : Bool) (grant : Bool) (policy : Bool) (domain : Bool) : Prop :=
+  ((build = true) ∧ (grant = true) ∧ (policy = true) ∧ (domain = true))
+
+-- END GENERATED VERIFIED GUARDS
+
 structure Credits where
   capacity : Nat
   available : Nat
@@ -13,18 +25,18 @@ structure Credits where
 def valid (s : Credits) : Prop := s.available + s.outstanding = s.capacity
 
 def reserve (s : Credits) (amount : Nat) : Option Credits :=
-  if amount ≤ s.available then
+  if credit_reservable s.available amount then
     some {s with available := s.available - amount, outstanding := s.outstanding + amount}
   else none
 
 def acknowledge (s : Credits) (amount : Nat) : Option Credits :=
-  if amount ≤ s.outstanding then
+  if credit_acknowledgeable s.outstanding amount then
     some {s with available := s.available + amount, outstanding := s.outstanding - amount}
   else none
 
 theorem reserve_conserves_credits (s next : Credits) (amount : Nat)
     (invariant : valid s) (accepted : reserve s amount = some next) : valid next := by
-  unfold reserve at accepted
+  unfold reserve credit_reservable at accepted
   split at accepted
   · cases accepted
     unfold valid at *
@@ -34,7 +46,7 @@ theorem reserve_conserves_credits (s next : Credits) (amount : Nat)
 
 theorem acknowledge_conserves_credits (s next : Credits) (amount : Nat)
     (invariant : valid s) (accepted : acknowledge s amount = some next) : valid next := by
-  unfold acknowledge at accepted
+  unfold acknowledge credit_acknowledgeable at accepted
   split at accepted
   · cases accepted
     unfold valid at *
@@ -44,11 +56,11 @@ theorem acknowledge_conserves_credits (s next : Credits) (amount : Nat)
 
 theorem cannot_overdraw (s : Credits) (amount : Nat) (h : s.available < amount) :
     reserve s amount = none := by
-  simp [reserve, Nat.not_le.mpr h]
+  simp [reserve, credit_reservable, Nat.not_le.mpr h]
 
 theorem cannot_invent_acknowledgements (s : Credits) (amount : Nat) (h : s.outstanding < amount) :
     acknowledge s amount = none := by
-  simp [acknowledge, Nat.not_le.mpr h]
+  simp [acknowledge, credit_acknowledgeable, Nat.not_le.mpr h]
 
 theorem available_bounded (s : Credits) (h : valid s) : s.available ≤ s.capacity := by
   unfold valid at h

@@ -1,0 +1,84 @@
+{
+  "schema": "ziokt.guard-contracts.v1",
+  "python_target": "libshadow6/_verified_guards.py",
+  "predicates": {
+    "credit_reservable": {
+      "parameters": {
+        "available": "Nat",
+        "amount": "Nat"
+      },
+      "expression": [
+        "le",
+        [
+          "var",
+          "amount"
+        ],
+        [
+          "var",
+          "available"
+        ]
+      ],
+      "lean_targets": [
+        "formal/Contracts.lean"
+      ],
+      "production_bindings": [
+        "libshadow6/__init__.py"
+      ],
+      "binding_scope": "production predicate"
+    },
+    "credit_acknowledgeable": {
+      "parameters": {
+        "outstanding": "Nat",
+        "amount": "Nat"
+      },
+      "expression": [
+        "le",
+        [
+          "var",
+          "amount"
+        ],
+        [
+          "var",
+          "outstanding"
+        ]
+      ],
+      "lean_targets": [
+        "formal/Contracts.lean"
+      ],
+      "production_bindings": [],
+      "binding_scope": "model-only; not claimed as a production binding"
+    },
+    "capability_allowed": {
+      "parameters": {
+        "build": "Bool",
+        "grant": "Bool",
+        "policy": "Bool",
+        "domain": "Bool"
+      },
+      "expression": [
+        "and",
+        [
+          "var",
+          "build"
+        ],
+        [
+          "var",
+          "grant"
+        ],
+        [
+          "var",
+          "policy"
+        ],
+        [
+          "var",
+          "domain"
+        ]
+      ],
+      "lean_targets": [
+        "formal/Contracts.lean"
+      ],
+      "production_bindings": [],
+      "binding_scope": "model-only; not claimed as a production binding"
+    }
+  }
+}

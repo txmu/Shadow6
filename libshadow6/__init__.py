@@ -17,6 +17,7 @@ from .webrtc_signal import WebrtcClientReflector
 from .boundary import BoundaryDescriptor, ConnectionHandle, ConnectionError
 from .control import ControlClient, RegistryControl
 from .peer import PeerConnection
+from ._verified_guards import credit_reservable
 
 try:
     from Deployment.core_catalog import CoreCatalog
@@ -111,7 +112,7 @@ class CreditedSession:
         payload = self.endpoint.adapter.codec.payload
         frames = sum((min(maximum, len(data) - offset) + payload - 1) // payload
                      for offset in range(0, len(data), maximum))
-        if frames > self.application_credit():
+        if not credit_reservable(self.application_credit(),frames):
             raise Shadow6Error("S6NA_BACKPRESSURE")
         for offset in range(0, len(data), maximum):
             self.send_record(data[offset:offset + maximum])

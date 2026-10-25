@@ -16,6 +16,7 @@ ROOT=Path(__file__).resolve().parents[1]
 
 
 def check(refresh=False, inventory_only=False):
+    subprocess.run([__import__('sys').executable,str(ROOT/'formal/generate_guards.py'),'--check'],check=True,timeout=10,stdout=subprocess.DEVNULL)
     path=ROOT/'formal/models.json';manifest=json.loads(path.read_text())
     actual={p.name for p in (ROOT/'formal').glob('*.lean')}
     if actual!=set(manifest['models']):raise ValueError('formal module inventory drift')
