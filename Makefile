@@ -591,7 +591,7 @@ endif
 	@install -m 0644 Deployment/credited_attachment.py Deployment/supervisor_contract.py Deployment/system_operations.py "$(DESTDIR)$(PYTHON_SITE_PACKAGES)/Deployment/"
 	@install -m 0644 Deployment/config_store.py "$(DESTDIR)$(PYTHON_SITE_PACKAGES)/Deployment/"
 	@install -m 0644 Deployment/configuration_forms.py "$(DESTDIR)$(PYTHON_SITE_PACKAGES)/Deployment/"
-	@install -m 0644 libshadow6/__init__.py "$(DESTDIR)$(PYTHON_SITE_PACKAGES)/libshadow6/"
+	@install -m 0644 libshadow6/__init__.py libshadow6/_verified_guards.py "$(DESTDIR)$(PYTHON_SITE_PACKAGES)/libshadow6/"
 	@install -m 0644 libshadow6/webrtc_signal.py "$(DESTDIR)$(PYTHON_SITE_PACKAGES)/libshadow6/"
 	@install -m 0644 libshadow6/boundary.py "$(DESTDIR)$(PYTHON_SITE_PACKAGES)/libshadow6/"
 	@install -m 0644 libshadow6/control.py "$(DESTDIR)$(PYTHON_SITE_PACKAGES)/libshadow6/"
