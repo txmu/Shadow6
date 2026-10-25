@@ -271,7 +271,7 @@ class IdrisExecutables(unittest.TestCase):
                 signed = ("{\"capabilities\":[" + ",".join('"' + c + '"' for c in sorted(request["capabilities"])) +
                           "],\"issued_at\":" + str(request["issued_at"]) +
                           ",\"mod_id\":\"" + request["mod_id"] +
-                          ",\"nonce\":\"" + request["nonce"] +
+                          "\",\"nonce\":\"" + request["nonce"] +
                           "\",\"payload_hash\":\"" + payload_hash +
                           "\",\"requested_level\":" + str(request["requested_level"]) +
                           ",\"source_domain\":\"" + request["source_domain"] +
