@@ -262,16 +262,17 @@ class IdrisExecutables(unittest.TestCase):
             key = Ed25519PrivateKey.generate()
             request = dict(version=1, mod_id="test", nonce="ab" * 16, issued_at=int(time.time()),
                            requested_level=1, capabilities=["observe.health"], source_domain="red", target_domain="red",
-                           payload_hash=hashlib.sha256(b"{}").hexdigest())
+                           payload={})
             trust = dict(version=1, mod_id="test", pubkey=key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw).hex(),
                          max_level=5, capabilities=["observe.health"], allowed_domains=["red"], source_domain="red", target_domain="red",
                          domain_policies=[dict(source="red", target="red", allowed=True)], replay_path=str(base / "ledger"))
             def save():
+                payload_hash=hashlib.sha256(json.dumps(request['payload'],sort_keys=True,separators=(',',':'),ensure_ascii=False).encode()).hexdigest()
                 signed = ("{\"capabilities\":[" + ",".join('"' + c + '"' for c in sorted(request["capabilities"])) +
                           "],\"issued_at\":" + str(request["issued_at"]) +
                           ",\"mod_id\":\"" + request["mod_id"] +
                           ",\"nonce\":\"" + request["nonce"] +
-                          "\",\"payload_hash\":\"" + request["payload_hash"] +
+                          "\",\"payload_hash\":\"" + payload_hash +
                           "\",\"requested_level\":" + str(request["requested_level"]) +
                           ",\"source_domain\":\"" + request["source_domain"] +
                           "\",\"target_domain\":\"" + request["target_domain"] +
