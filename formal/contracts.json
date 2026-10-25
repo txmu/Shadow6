@@ -79,6 +79,46 @@
       ],
       "production_bindings": [],
       "binding_scope": "model-only; not claimed as a production binding"
+    },
+    "chat_peer_bound": {
+      "parameters": {
+        "local_name": "String",
+        "recipient": "String",
+        "peer": "String",
+        "sender": "String"
+      },
+      "expression": [
+        "and",
+        [
+          "eq",
+          [
+            "var",
+            "local_name"
+          ],
+          [
+            "var",
+            "recipient"
+          ]
+        ],
+        [
+          "eq",
+          [
+            "var",
+            "peer"
+          ],
+          [
+            "var",
+            "sender"
+          ]
+        ]
+      ],
+      "lean_targets": [
+        "formal/Messager.lean"
+      ],
+      "production_bindings": [
+        "ShadowMessager/shadowmessager.py"
+      ],
+      "binding_scope": "production predicate"
     }
   }
 }

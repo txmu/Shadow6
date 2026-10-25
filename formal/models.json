@@ -11,9 +11,9 @@
         "Core-Ada/src/domain_policy.ads": "d24e1674afafcfb0084590b39619098815cfa99bb30b872a1546e32c2cd114f9",
         "Core-Idris/src/Shadow6/Security/Allocation.idr": "6e309b3041c1aa3aab371bb2e4f0daf2210ac982c6abc18fa572b9d79b1e4ddb",
         "Core-Idris/src/Shadow6/Security/Policy.idr": "971f2d55b35eaf13698826e25b0e626ea45659481bc7f60175fc6b500f56e3a9",
-        "formal/contracts.json": "6516377072e1aa3ac27c466c2e00333c83f0b6f3d91f4c258bc2138adfb539b5",
+        "formal/contracts.json": "58b1a31520ea29da8be72c36f86e309a6ff1798a8c2e04f8952eac4946c51e0f",
         "formal/generate_guards.py": "da17dd6bbda8cf4c00e01e7e8ca4e91e0c8e8ba16b1634b1932ebbd954f7747b",
-        "libshadow6/_verified_guards.py": "59b5a8db51bb102309e2c6c1b071573d914d4d084ac495be9bade3f7730ebeec",
+        "libshadow6/_verified_guards.py": "60bf425828ff64bcfdd609c0e029e9a68fdabd3d9bece9e4cbe720fe35f3de09",
         "libshadow6/__init__.py": "89e6563629de3d32b39847b8cd6b20451d115815de89ea389beaf3c8927073d1"
       },
       "regressions": [
@@ -26,6 +26,19 @@
         "Core-Ada/proof.gpr",
         "Core-Idris/src/Shadow6/Types.idr",
         ".github/workflows/idris-security.yml"
+      ]
+    },
+    "Messager.lean": {
+      "namespace": "Shadow6.Messager",
+      "source_sha256": {
+        "ShadowMessager/shadowmessager.py": "31d2231d9445eaa652023bb9be98519aae8247c0f79945f99f90cfe466f69c70",
+        "Application-Layer/shadow_protocols.py": "c6488c5a9b1d1dbfa63a5f923bb0adefb2762679a824be1925e7e29b4dc4aac2",
+        "libshadow6/_verified_guards.py": "60bf425828ff64bcfdd609c0e029e9a68fdabd3d9bece9e4cbe720fe35f3de09",
+        "formal/contracts.json": "58b1a31520ea29da8be72c36f86e309a6ff1798a8c2e04f8952eac4946c51e0f",
+        "formal/generate_guards.py": "da17dd6bbda8cf4c00e01e7e8ca4e91e0c8e8ba16b1634b1932ebbd954f7747b"
+      },
+      "regressions": [
+        "ShadowMessager/test_shadowmessager.py"
       ]
     }
   }

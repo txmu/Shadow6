@@ -25,4 +25,12 @@ def capability_allowed(build, grant, policy, domain):
     return (build and grant and policy and domain)
 
 
+def chat_peer_bound(local_name, recipient, peer, sender):
+    _contract_argument(local_name, 'String')
+    _contract_argument(recipient, 'String')
+    _contract_argument(peer, 'String')
+    _contract_argument(sender, 'String')
+    return ((local_name == recipient) and (peer == sender))
+
+
 # END GENERATED VERIFIED GUARDS
