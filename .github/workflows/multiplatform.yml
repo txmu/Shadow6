@@ -2383,6 +2383,9 @@ jobs:
           work_dir="$GITHUB_WORKSPACE/.tmp/shadow6-${{ matrix.os }}"
           mkdir -p "$work_dir"
           if test '${{ matrix.os }}' = dragonflybsd; then
+            # https://www.dragonflybsd.org/mirrors/ documents this HTTPS selector.
+            sudo mkdir -p /usr/local/etc/pkg/repos
+            printf '%s\n' 'Avalon: { enabled: no }' 'AUTO: { url: "https://pkg.dragonflybsd.org/pkg/${ABI}/LATEST", mirror_type: "HTTP", enabled: yes }' | sudo tee /usr/local/etc/pkg/repos/df-latest.conf
             sudo pkg update -f
             # Preserve the VM bootstrap rsync before the package transaction,
             # which removes its auto-installed rsync and sudo packages.
@@ -2442,7 +2445,7 @@ jobs:
           cp Core-Go/shadow6-go* Gate/shadow6-gate Guard/shadow6-guard \
             "$work_dir/artifact/"
           for optional in Core-Rust/shadow6-rust* Core-Cpp/shadow6-cpp C11Relay/bridge_relay; do
-            test -e "$optional" && cp -a "$optional" "$work_dir/artifact/"
+            if test -e "$optional"; then cp -a "$optional" "$work_dir/artifact/"; fi
           done
           test -x "$work_dir/artifact/shadow6-go"
           {

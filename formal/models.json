@@ -1,0 +1,28 @@
+{
+  "schema": "ziokt.formal-models.v1",
+  "scope": "Shared abstract credit/frame/capability contracts supplement existing Ada SPARK and Idris native proofs. No whole-Core or FFI refinement claim.",
+  "models": {
+    "Contracts.lean": {
+      "namespace": "Shadow6.Contracts",
+      "source_sha256": {
+        "libshadow6/credited_boundary.py": "d9d5d6e49802a8df04fb6a6ad965a232b81dab70fe9c0b1e00269635a1966fc6",
+        "libshadow6/peer.py": "2d959328b85919b1692ef004ef87ac17298344bf9cbc1e90b6662bfb394fc9b2",
+        "Core-Ada/src/cells.ads": "6f36887a267a63bc58949ba8139118f4fbcac27b2c695599fa9ddddfa4e48f98",
+        "Core-Ada/src/domain_policy.ads": "d24e1674afafcfb0084590b39619098815cfa99bb30b872a1546e32c2cd114f9",
+        "Core-Idris/src/Shadow6/Security/Allocation.idr": "6e309b3041c1aa3aab371bb2e4f0daf2210ac982c6abc18fa572b9d79b1e4ddb",
+        "Core-Idris/src/Shadow6/Security/Policy.idr": "971f2d55b35eaf13698826e25b0e626ea45659481bc7f60175fc6b500f56e3a9"
+      },
+      "regressions": [
+        "libshadow6/test_credited_boundary.py",
+        "libshadow6/test_peer.py",
+        "Core-Ada/src/test_cells.adb",
+        "Core-Idris/test_security.py"
+      ],
+      "existing_native_evidence": [
+        "Core-Ada/proof.gpr",
+        "Core-Idris/src/Shadow6/Types.idr",
+        ".github/workflows/idris-security.yml"
+      ]
+    }
+  }
+}

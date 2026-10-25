@@ -1,0 +1,32 @@
+name: Shared safety proofs and native proof inventory
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  lean-contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Install the pinned Lean kernel without compiling Cores
+        run: |
+          curl --fail --location --retry 3 --max-time 180 https://github.com/leanprover/lean4/releases/download/v4.19.0/lean-4.19.0-linux.tar.zst -o "$RUNNER_TEMP/lean.tar.zst"
+          tar --zstd -xf "$RUNNER_TEMP/lean.tar.zst" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/lean-4.19.0-linux/bin" >> "$GITHUB_PATH"
+      - name: Check shared models and preserve Ada/Idris native contract evidence
+        run: |
+          python3 formal/check.py > formal-evidence.json
+          test -f Core-Ada/proof.gpr
+          test -f Core-Idris/src/Shadow6/Security/Allocation.idr
+      - uses: actions/upload-artifact@v6
+        with:
+          name: shadow6-formal-contracts
+          path: |
+            formal-evidence.json
+            formal/models.json
+            Core-Ada/proof.gpr
