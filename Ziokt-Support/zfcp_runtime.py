@@ -1815,7 +1815,7 @@ def _load_native_gimps():
     Supports:
     1. Versioned schema 'corium.gimps-proof.v1', 'corium.gimps-proof.v2', and modern PRP 'corium.gimps-prp-proof.v1'.
     2. Probable Prime (PRP) tests (base 3) with low-cost verifiable certification (Pietrzak / Gerbicz Proof
-       of Exponentiation with Fiat-Shamir folding, verification cost < 0.5%, verifier O(depth) operations).
+       of Exponentiation with Fiat-Shamir folding, bounded residual squarings and modular exponentiations).
     3. Lucas-Lehmer recomputation for backward compatibility (exponents 2..4096).
     4. Task state lifecycle:
        - assigned: task dispatched with an unexpired lease
@@ -1835,6 +1835,7 @@ def _load_native_gimps():
     from contextlib import closing
     import hashlib
     import json
+    import math
     from pathlib import Path
     import re
     import sqlite3
@@ -1851,6 +1852,107 @@ def _load_native_gimps():
     MAX_LL_EXPONENT = 4096
     MAX_PRP_EXPONENT = 2_000_000_000
     MAX_VERIFIED_EXPONENT = MAX_LL_EXPONENT
+
+    # Node-local resource governance (configurable by node operator per host capacity)
+    DEFAULT_NODE_MAX_NATIVE_EXPONENT = 100_000
+    DEFAULT_NODE_MAX_MEMORY_MB = 256
+    GERBICZ_MODULUS_Q = 4294967311
+
+
+    def get_node_resource_limits(configured_max_exp=None, configured_max_mem_mb=None):
+        """Retrieve node-local resource limits from arguments, environment, or safe defaults.
+        These limits apply to the local node's native execution to prevent memory/CPU starvation,
+        and can be configured by the user/operator per host capacity.
+        """
+        import os
+        if configured_max_exp is not None:
+            max_exp = int(configured_max_exp)
+        else:
+            env_exp = os.environ.get('CORIUM_GIMPS_MAX_EXPONENT')
+            max_exp = int(env_exp) if env_exp and env_exp.isdigit() else DEFAULT_NODE_MAX_NATIVE_EXPONENT
+
+        if configured_max_mem_mb is not None:
+            max_mem = int(configured_max_mem_mb)
+        else:
+            env_mem = os.environ.get('CORIUM_GIMPS_MAX_MEMORY_MB')
+            max_mem = int(env_mem) if env_mem and env_mem.isdigit() else DEFAULT_NODE_MAX_MEMORY_MB
+
+        require(2 <= max_exp <= MAX_PRP_EXPONENT and 1 <= max_mem <= 65536,
+                'positive bounded local resource limits required')
+        return max_exp, max_mem
+
+
+    def _squares(value, count, modulus):
+        for _ in range(count):
+            value = value * value % modulus
+        return value
+
+
+    def _transition_challenge(x, y, z, modulus, count):
+        return int(hashlib.sha256(f'corium-checkpoint-v1:{x:x}:{y:x}:{z:x}:{modulus:x}:{count}'.encode()).hexdigest(), 16)
+
+
+    def _transition_proof(x, y, count, modulus):
+        steps = []
+        while count > 32:
+            odd = bool(count % 2)
+            if odd:
+                x = x * x % modulus
+                count -= 1
+            z = _squares(x, count // 2, modulus)
+            r = _transition_challenge(x, y, z, modulus, count)
+            steps.append({'Z': hex(z), 'odd': odd})
+            x, y = pow(x, r, modulus) * z % modulus, pow(z, r, modulus) * y % modulus
+            count //= 2
+        return steps
+
+
+    def _verify_transition(x, y, count, steps, modulus):
+        require(type(steps) is list and len(steps) <= 32, 'bounded checkpoint transition proof required')
+        for step in steps:
+            require(count > 32 and type(step) is dict, 'unexpected checkpoint folding step')
+            require(type(step.get('odd')) is bool and step['odd'] == bool(count % 2), 'checkpoint parity mismatch')
+            if step['odd']:
+                x = x * x % modulus
+                count -= 1
+            z = _bounded_hex(step.get('Z'), modulus)
+            r = _transition_challenge(x, y, z, modulus, count)
+            x, y = pow(x, r, modulus) * z % modulus, pow(z, r, modulus) * y % modulus
+            count //= 2
+        require(count <= 32 and _squares(x, count, modulus) == y, 'checkpoint mathematical recurrence failed')
+
+
+    def _bounded_hex(value, modulus):
+        require(type(value) is str and len(value) <= (modulus.bit_length() + 3) // 4 + 2
+                and re.fullmatch(r'0x[0-9a-f]+', value), 'bounded hex residue required')
+        result = int(value, 16)
+        require(0 <= result < modulus, 'bounded residue required')
+        return result
+
+
+    def _decimal_text(value):
+        # Avoid changing Python's process-wide integer conversion safety setting.
+        if value < 10**1000:
+            return str(value)
+        parts = []
+        while value:
+            value, part = divmod(value, 10**1000)
+            parts.append(part)
+        return str(parts[-1]) + ''.join(f'{part:01000d}' for part in reversed(parts[:-1]))
+
+
+    def _decimal_integer(value):
+        result = 0
+        for offset in range(0, len(value), 1000):
+            part = value[offset:offset + 1000]
+            result = result * 10**len(part) + int(part)
+        return result
+
+
+    def _legacy_challenge(x, y, z, modulus):
+        message = ':'.join(_decimal_text(v) for v in (x, y, z, modulus))
+        return int(hashlib.sha256(message.encode()).hexdigest()[:16], 16)
+
 
     # Known Mersenne primes for deterministic primality classification (including M136279841)
     KNOWN_MERSENNE_PRIMES = {
@@ -1894,9 +1996,20 @@ def _load_native_gimps():
         return (s == claimed_residue), s
 
 
-    def generate_prp_proof(p, base=3, depth=None):
+    def generate_prp_proof(p, base=3, depth=None, max_native_exponent=None, max_memory_mb=None):
         """Generate PRP proof for Mersenne number M_p = 2^p - 1 with Fiat-Shamir folding."""
         require(type(p) is int and 2 <= p <= MAX_PRP_EXPONENT, 'valid exponent bound')
+        node_max_exp, node_max_mem = get_node_resource_limits(max_native_exponent, max_memory_mb)
+        est_mem_bytes = (p // 8) * 32
+        if p > node_max_exp or est_mem_bytes > node_max_mem * 1024 * 1024:
+            raise ValueError(
+                f"EXPONENT_EXCEEDS_LOCAL_NODE_CAPACITY: exponent {p} (requires ~{est_mem_bytes // (1024*1024)}MB RAM) "
+                f"exceeds this node's configured native capacity (max_exp={node_max_exp}, max_mem={node_max_mem}MB). "
+                f"Configure higher limits or use external mprime engine."
+            )
+
+        require(type(base) is int and base == 3, 'base 3 required')
+        require(depth is None or type(depth) is int and 1 <= depth <= 64, 'bounded proof depth required')
         N = (1 << p) - 1
         if p == 2:
             return {
@@ -1920,7 +2033,7 @@ def _load_native_gimps():
         y = pow(base, (N - 1) // 2, N)
         is_prp = (y == N - 1)
         prp_result = "PRP" if is_prp else "COMPOSITE"
-        is_prime = bool(is_prp and (p <= 61 or p in KNOWN_MERSENNE_PRIMES))
+        is_prime = bool(is_prp and p in KNOWN_MERSENNE_PRIMES)
         res64 = f"{y & 0xFFFFFFFFFFFFFFFF:016X}"
 
         # Target value for 2^(p-1) squarings from base: Y = (base * y) % N
@@ -1943,25 +2056,44 @@ def _load_native_gimps():
             Z = curr_X
             for _ in range(half):
                 Z = (Z * Z) % N
-            h = hashlib.sha256(f"{curr_X}:{curr_Y}:{Z}:{N}".encode()).hexdigest()
-            r = int(h[:16], 16)
+            r = _legacy_challenge(curr_X, curr_Y, Z, N)
             proof_steps.append({'Z': hex(Z), 'odd': was_odd})
             curr_X = (pow(curr_X, r, N) * Z) % N
             curr_Y = (pow(Z, r, N) * curr_Y) % N
             curr_T = half
 
-        # Construct verifiable Gerbicz checkpoint hash chain
+        # Exact states plus bounded transition proofs bind the summaries to arithmetic.
         gerbicz_checkpoints = []
-        curr_chk_hash = hashlib.sha256(f"gerbicz-init:{p}:{base}".encode()).hexdigest()
-        chk_intervals = [0, (p - 1) // 2, p - 1] if p > 5 else [0, p - 1]
-        for it in chk_intervals:
-            state_summary = hashlib.sha256(f"{p}:{it}:{res64}".encode()).hexdigest()
-            curr_chk_hash = hashlib.sha256(f"{curr_chk_hash}:{it}:{state_summary}".encode()).hexdigest()
+        Q = GERBICZ_MODULUS_Q
+        curr_chk_hash = hashlib.sha256(f"gerbicz-init:{p}:{base}:{Q}".encode()).hexdigest()
+        previous_it, previous_state = 0, base
+        intervals = sorted({0, (p - 1) // 2, p - 1})
+        for it in intervals:
+            state = _squares(previous_state, it - previous_it, N)
+            state_summary = hashlib.sha256(f"{p}:{it}:{state:x}".encode()).hexdigest()
+            res = f"{state & 0xFFFFFFFFFFFFFFFF:016X}"
+            q = state % Q
+            curr_chk_hash = hashlib.sha256(f"{curr_chk_hash}:{it}:{state_summary}:{res}:{q}".encode()).hexdigest()
             gerbicz_checkpoints.append({
-                'iteration': it,
-                'state_hash': state_summary,
-                'hash': curr_chk_hash
+                'iteration': it, 'state': hex(state), 'state_hash': state_summary,
+                'res64': res, 'math_residue_q': q, 'hash': curr_chk_hash,
+                'transition': _transition_proof(previous_state, state, it - previous_it, N)
             })
+            previous_it, previous_state = it, state
+
+        # Gerbicz block product identity, without division (also valid for nonunits).
+        length = max(1, math.isqrt(p - 1))
+        blocks = (p - 1) // length
+        state, product = base, 1
+        for _ in range(blocks):
+            product = product * state % N
+            state = _squares(state, length, N)
+        require(_squares(product, length, N) * base % N == product * state % N,
+                'Gerbicz generation check failed')
+        require(_squares(state, (p - 1) - blocks * length, N) == Y, 'Gerbicz final state mismatch')
+        gerbicz_check = {'block_size': length, 'blocks': blocks,
+                         'product': hex(product), 'end_state': hex(state),
+                         'transition': _transition_proof(base, state, blocks * length, N)}
 
         return {
             'schema': PRP_SCHEMA,
@@ -1969,28 +2101,35 @@ def _load_native_gimps():
             'method': 'prp-fiat-shamir',
             'base': base,
             'res64': res64,
-            'residue': str(y),
+            'residue': _decimal_text(y),
             'is_prp': is_prp,
             'prp_result': prp_result,
             'is_prime': is_prime,
             'iterations': p - 1,
             'proof_steps': proof_steps,
             'gerbicz_status': 'OK',
-            'gerbicz_checkpoints': gerbicz_checkpoints
+            'gerbicz_checkpoints': gerbicz_checkpoints,
+            'gerbicz_check': gerbicz_check
         }
 
 
-    def verify_prp_proof(p, proof_data):
-        """Verify PRP proof for Mersenne number M_p in O(depth) steps."""
+    def verify_prp_proof(p, proof_data, max_native_exponent=None, max_memory_mb=None):
+        """Verify the Corium PRP transcript with bounded local arithmetic."""
         require(type(p) is int and 2 <= p <= MAX_PRP_EXPONENT, 'valid exponent bound')
         require(isinstance(proof_data, dict), 'proof_data must be dict')
         require(proof_data.get('schema') == PRP_SCHEMA, 'corium.gimps-prp-proof.v1 required')
-        require(proof_data.get('exponent') == p, 'exponent mismatch')
+        require(type(proof_data.get('exponent')) is int and proof_data['exponent'] == p, 'exponent mismatch')
         require(proof_data.get('method') == 'prp-fiat-shamir', 'prp-fiat-shamir required')
         require(proof_data.get('base') == 3, 'base 3 required')
-        require(proof_data.get('iterations') == p - 1, 'iterations mismatch')
+        require(type(proof_data.get('iterations')) is int and proof_data['iterations'] == p - 1, 'iterations mismatch')
         require(proof_data.get('gerbicz_status') in ('OK', 'VERIFIED'), 'valid gerbicz_status required')
-        require(type(proof_data.get('res64')) is str and len(proof_data['res64']) == 16, 'valid 16-hex res64 required')
+        require(type(proof_data.get('res64')) is str and re.fullmatch('[0-9A-Fa-f]{16}', proof_data['res64']), 'valid 16-hex res64 required')
+
+        # The submitter's engine label never grants local verification resources.
+        node_max_exp, node_max_mem = get_node_resource_limits(max_native_exponent, max_memory_mb)
+        est_mem_bytes = (p // 8) * 32
+        require(p <= node_max_exp and est_mem_bytes <= node_max_mem * 1024 * 1024,
+                'EXPONENT_EXCEEDS_LOCAL_NODE_CAPACITY')
 
         if p == 2:
             require(proof_data.get('residue') == '0', 'p=2 special case')
@@ -1999,8 +2138,10 @@ def _load_native_gimps():
 
         N = (1 << p) - 1
         residue_str = proof_data.get('residue')
-        require(type(residue_str) is str and residue_str.isdigit(), 'decimal residue required')
-        y = int(residue_str)
+        require(type(residue_str) is str and 1 <= len(residue_str) <= p // 3 + 1
+                and residue_str.isascii() and residue_str.isdigit(), 'bounded decimal residue required')
+        require(residue_str == '0' or not residue_str.startswith('0'), 'canonical decimal residue required')
+        y = _decimal_integer(residue_str)
         require(0 <= y < N, 'bounded residue required')
         expected_res64 = f"{y & 0xFFFFFFFFFFFFFFFF:016X}"
         require(proof_data['res64'].upper() == expected_res64, 'res64 mismatch')
@@ -2015,19 +2156,47 @@ def _load_native_gimps():
             require(proof_data['prp_result'] == expected_prp_result, 'prp_result mismatch')
         if 'is_prime' in proof_data:
             require(type(proof_data['is_prime']) is bool, 'boolean is_prime required')
-            expected_prime = bool(is_prp and (p <= 61 or p in KNOWN_MERSENNE_PRIMES))
+            expected_prime = bool(is_prp and p in KNOWN_MERSENNE_PRIMES)
             require(proof_data['is_prime'] == expected_prime, 'primality claim mismatch')
 
-        # Gerbicz checkpoint hash chain verification (if supplied)
-        chk_list = proof_data.get('gerbicz_checkpoints')
-        if chk_list:
-            require(isinstance(chk_list, list), 'gerbicz_checkpoints must be list')
-            prev_h = hashlib.sha256(f"gerbicz-init:{p}:{proof_data['base']}".encode()).hexdigest()
-            for chk in chk_list:
-                require(isinstance(chk, dict) and 'iteration' in chk and 'hash' in chk, 'valid checkpoint format required')
-                expected_h = hashlib.sha256(f"{prev_h}:{chk['iteration']}:{chk.get('state_hash', '')}".encode()).hexdigest()
-                require(chk['hash'] == expected_h, 'corrupted Gerbicz checkpoint hash chain')
-                prev_h = chk['hash']
+        checkpoints = proof_data.get('gerbicz_checkpoints', [])
+        require(type(checkpoints) is list and 2 <= len(checkpoints) <= 16, 'bounded mathematical checkpoints required')
+        if checkpoints:
+            previous_hash = hashlib.sha256(f"gerbicz-init:{p}:3:{GERBICZ_MODULUS_Q}".encode()).hexdigest()
+            previous_it, previous_state = 0, 3
+            for index, chk in enumerate(checkpoints):
+                require(type(chk) is dict, 'checkpoint dict required')
+                it = integer(chk.get('iteration'), 0, p - 1)
+                require((index == 0 and it == 0) or (index > 0 and it > previous_it), 'strict checkpoint coverage required')
+                state = _bounded_hex(chk.get('state'), N)
+                _verify_transition(previous_state, state, it - previous_it, chk.get('transition'), N)
+                state_hash = hashlib.sha256(f"{p}:{it}:{state:x}".encode()).hexdigest()
+                res = f"{state & 0xFFFFFFFFFFFFFFFF:016X}"
+                q = state % GERBICZ_MODULUS_Q
+                require(chk.get('state_hash') == state_hash and chk.get('res64') == res
+                        and type(chk.get('math_residue_q')) is int and chk['math_residue_q'] == q,
+                        'checkpoint residue mismatch')
+                expected = hashlib.sha256(f"{previous_hash}:{it}:{state_hash}:{res}:{q}".encode()).hexdigest()
+                require(chk.get('hash') == expected, 'corrupted Gerbicz checkpoint hash chain')
+                previous_hash, previous_it, previous_state = expected, it, state
+            require(previous_it == p - 1 and previous_state == (3 * y) % N, 'checkpoint final state mismatch')
+
+        check = proof_data.get('gerbicz_check')
+        if checkpoints or check is not None:
+            require(type(check) is dict, 'Gerbicz block product required')
+            length = max(1, math.isqrt(p - 1))
+            blocks = (p - 1) // length
+            require(type(check.get('block_size')) is int and check['block_size'] == length
+                    and type(check.get('blocks')) is int and check['blocks'] == blocks,
+                    'Gerbicz block coverage mismatch')
+            product = _bounded_hex(check.get('product'), N)
+            end = _bounded_hex(check.get('end_state'), N)
+            require(math.gcd(product, N) == 1, 'nonunit Gerbicz product rejected')
+            _verify_transition(3, end, blocks * length, check.get('transition'), N)
+            require(_squares(product, length, N) * 3 % N == product * end % N,
+                    'Gerbicz product identity failed')
+            require(_squares(end, p - 1 - length * blocks, N) == (3 * y) % N,
+                    'Gerbicz tail recurrence failed')
 
         # Prover MUST provide proof_steps; verifier NEVER computes midpoints for workers
         proof_steps = proof_data.get('proof_steps')
@@ -2041,14 +2210,14 @@ def _load_native_gimps():
 
         for step in proof_steps:
             require(isinstance(step, dict) and 'Z' in step and 'odd' in step, 'step dict required')
-            Z = int(step['Z'], 16)
-            require(0 <= Z < N, 'bounded midpoint Z required')
+            require(v_T > 1, 'unexpected proof step')
+            require(type(step.get('odd')) is bool and step['odd'] == bool(v_T % 2), 'fold parity mismatch')
+            Z = _bounded_hex(step.get('Z'), N)
             if step['odd']:
                 v_X = (v_X * v_X) % N
                 v_T -= 1
             half = v_T // 2
-            h = hashlib.sha256(f"{v_X}:{v_Y}:{Z}:{N}".encode()).hexdigest()
-            r = int(h[:16], 16)
+            r = _legacy_challenge(v_X, v_Y, Z, N)
             v_X = (pow(v_X, r, N) * Z) % N
             v_Y = (pow(Z, r, N) * v_Y) % N
             v_T = half
@@ -2056,10 +2225,6 @@ def _load_native_gimps():
         # Remaining squarings must be bounded to O(depth) cost ceiling (<= 4096 squarings)
         require(v_T <= 4096, 'remaining squarings exceed verifier cost ceiling')
         final_s = v_X
-        for _ in range(v_T):
-            final_s = (final_s * final_s) % N
-        require(final_s == v_Y, 'Pietrzak Proof of Exponentiation check failed')
-        return True
         for _ in range(v_T):
             final_s = (final_s * final_s) % N
         require(final_s == v_Y, 'Pietrzak Proof of Exponentiation check failed')
@@ -2264,8 +2429,12 @@ def _load_native_gimps():
                 blocked.update(str(row[0]) for row in db.execute("SELECT exponent FROM gimps_tasks WHERE engine_id=? AND state='paused'", (engine,)))
             for exponent in candidates(problem[1]):
                 if str(exponent) not in blocked:
+                    metadata = json.loads(problem[1]) if isinstance(problem[1], str) else problem[1]
+                    use_prp = metadata.get('method') in ('prp', 'prp-fiat-shamir')
                     return dict(base, available=True, engine_id=engine, problem_set_id=problem[0], problem_id=str(exponent),
-                                exponent=exponent, engine_hash=program, verifier_hash=verifier)
+                                exponent=exponent, engine_hash=program, verifier_hash=verifier,
+                                method='prp-fiat-shamir' if use_prp else 'lucas-lehmer',
+                                proof_schema=PRP_SCHEMA if use_prp else PORTABLE_SCHEMA)
         return dict(base, available=False, reason='no-active-gimps-engine' if not engines else 'no-available-gimps-task')
 
 
