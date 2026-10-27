@@ -23,7 +23,7 @@ MAX_CONFIG = 262_144
 MAX_OBJECTS = 4096
 ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}\Z")
 METHODS = ("capabilities.get", "status.get", "health.challenge", "objects.list", "operation.prepare",
-           "operation.commit", "operation.abort", "operation.status", "operation.reconcile", "events.list", "content.get", "governance.fact", "zkt.status", "zkt.account", "identity.fact", "zkn.list", "zkn.fact", "zkc.list", "zkc.fact", "service.binding", "compute.challenge", "privacy.status", "privacy.review.list", "privacy.review.get", "zkn.shield.notes", "zkn.shield.images")
+           "operation.commit", "operation.abort", "operation.status", "operation.reconcile", "events.list", "content.get", "governance.fact", "zkt.status", "zkt.account", "identity.fact", "zkn.list", "zkn.fact", "zkc.list", "zkc.fact", "service.binding", "compute.challenge", "privacy.status", "privacy.review.list", "privacy.review.get", "zkn.shield.notes", "zkn.shield.images", "cooperative.state", "cooperative.asset.prepare")
 
 
 class ProtocolError(ValueError):
@@ -359,7 +359,7 @@ def validate_config(value):
                 any(not isinstance(v, str) or not 1 <= len(v) <= 160 for v in values) or len(set(values)) != len(values)):
             fail("INVALID_CONFIG", "bounded explicit native action/resource allowlists required")
     known_operations = {"service.stop", "service.run", "artifact.stage", "package.install", "package.activate",
-                        "wiki.create", "snapshot.create", "strata.create", "chain.mine", "compute.run", "compute.submit", "identity.register", "content.publish", "zkn.transfer", "zkn.gift", "zkc.issue", "privacy.submit", "naming.submit", "recovery.checkpoint", "recovery.restore"}
+                        "wiki.create", "snapshot.create", "strata.create", "chain.mine", "compute.run", "compute.submit", "identity.register", "content.publish", "zkn.transfer", "zkn.gift", "zkc.issue", "privacy.submit", "cooperative.submit", "naming.submit", "recovery.checkpoint", "recovery.restore"}
     if any(v not in known_operations for v in result["allowed_operations"]):
         fail("INVALID_CONFIG", "unknown native action")
     if "coordinator_public_key" in result and (not isinstance(result["coordinator_public_key"], str) or not re.fullmatch("[a-f0-9]{64}", result["coordinator_public_key"])):
@@ -460,6 +460,12 @@ def validate_request(value, config):
         if 'cursor' in params and params['cursor']:
             try:zs_hex(params['cursor'])
             except ValueError:fail('INVALID_PARAMS','bounded privacy cursor required')
+    elif method.startswith('cooperative.'):
+        fields={'cursor','limit'} if method=='cooperative.state' else {'cooperative','type','payload'}
+        if (set(params)-fields if method=='cooperative.state' else set(params)!=fields):fail('INVALID_PARAMS','exact cooperative query fields required')
+        if method=='cooperative.state':
+            if type(params.get('cursor',''))is not str or len(params.get('cursor',''))>64 or type(params.get('limit',4))is not int or not 1<=params.get('limit',4)<=4:fail('INVALID_PARAMS','bounded cooperative state page required')
+        if method!='cooperative.state' and (type(params['cooperative'])is not str or type(params['type'])is not str or type(params['payload'])is not dict):fail('INVALID_PARAMS','cooperative operation types')
     elif method=='compute.challenge':
         if params not in ({},{'engine':'gimps'}):fail('INVALID_PARAMS','fixed zero or native GIMPS challenge selector required')
     elif method=='service.binding':
@@ -674,7 +680,7 @@ def capabilities(provider, config):
             "profile": "local-v1", "mutations": config["allow_mutations"],
             "capabilities": [{"id": "ziokt." + method + ".v1", "operation": method,
                               "status": "available" if config["enabled"] and (method not in {"operation.prepare", "operation.commit", "operation.abort", "operation.reconcile"} or config["allow_mutations"]) else "disabled"}
-                              for method in METHODS if (provider == "corium" and method != "service.binding") or (provider == "shadow6" and not method.startswith(("zkt.","zkn.","zkc.")) and method not in {"content.get", "governance.fact", "identity.fact", "compute.challenge", "privacy.status", "privacy.review.list", "privacy.review.get"})],
+                              for method in METHODS if (provider == "corium" and method != "service.binding") or (provider == "shadow6" and not method.startswith(("zkt.","zkn.","zkc.","cooperative.")) and method not in {"content.get", "governance.fact", "identity.fact", "compute.challenge", "privacy.status", "privacy.review.list", "privacy.review.get"})],
             "native_actions": sorted(OPERATIONS[provider]),
             "object_kinds": ["service", "package", "application"] if provider == "shadow6" else ["package", "environment", "application", "identity", "name", "proposal", "recovery"],
             "transport": "native-application-boundary; one Core family per path" if provider == "shadow6" else "native-signature-preserving Ziokt binding; explicit fallback"}
@@ -738,6 +744,17 @@ def rpc(provider, root, network, config, stream):
         elif method == "governance.fact":
             if provider != "corium": fail("METHOD_UNSUPPORTED", "native chain facts belong to Corium")
             result = governance_fact(root, network, request["params"]["transaction_hash"])
+        elif method.startswith('cooperative.'):
+            if provider!='corium':fail('METHOD_UNSUPPORTED','cooperative authority belongs to Corium')
+            with closing(corium_db(root,network,'blockchain/chain.db')) as db:
+                height=zs_height(db)+1;cc=_native_cooperative_consensus
+                if method=='cooperative.asset.prepare':
+                    params=request['params'];result=cc.asset_command(db,network,params['type'],params['payload'],params['cooperative'],height)
+                else:
+                    state=cc.state_at(db,network,height)
+                    params=request['params'];ids=[cid for cid in sorted(state['cooperatives']) if cid>params.get('cursor','')];page=ids[:params.get('limit',4)]
+                    result={'state':{**state,'cooperatives':{cid:state['cooperatives'][cid] for cid in page}},'state_root':_native_cooperative.state_root(state),'asset_state_root':cc.asset_state_root(db),
+                            'accounts':{cid:cc.account(state['chain'],cid) for cid in page},'next_nonces':{cid:cc.next_nonce(db,cid) for cid in page},'next_cursor':page[-1] if len(ids)>len(page) else None,'root_scope':'complete canonical registry; state is paginated'}
         elif method in {'identity.fact','zkn.list','zkn.fact','zkc.list','zkc.fact'}:
             if provider!='corium': fail('METHOD_UNSUPPORTED','native chain assets belong to Corium')
             result=asset_query(root,network,method,request['params'])
@@ -850,7 +867,7 @@ import sqlite3
 from contextlib import closing
 
 OPERATIONS = {"shadow6": {"service.stop", "service.run", "package.install", "package.activate", "recovery.checkpoint", "recovery.restore"},
-              "corium": {"artifact.stage", "wiki.create", "snapshot.create", "strata.create", "chain.mine", "compute.run", "compute.submit", "identity.register", "content.publish", "zkn.transfer", "zkn.gift", "zkc.issue", "privacy.submit", "naming.submit", "recovery.checkpoint", "recovery.restore"}}
+              "corium": {"artifact.stage", "wiki.create", "snapshot.create", "strata.create", "chain.mine", "compute.run", "compute.submit", "identity.register", "content.publish", "zkn.transfer", "zkn.gift", "zkc.issue", "privacy.submit", "cooperative.submit", "naming.submit", "recovery.checkpoint", "recovery.restore"}}
 
 
 def operation_directory(provider, root, network):
@@ -1064,7 +1081,7 @@ def operation_preflight(provider, root, network, params, config):
         return compute_submit_preflight(root,network,params,config)
     if action == "compute.run":
         return compute_preflight(root, network, params, config)
-    if action in {'identity.register','content.publish','zkn.transfer','zkn.gift','zkc.issue','privacy.submit'}:
+    if action in {'identity.register','content.publish','zkn.transfer','zkn.gift','zkc.issue','privacy.submit','cooperative.submit'}:
         return asset_preflight(root,network,params,config)
     if action in {"service.stop", "service.run"}:
         if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}/[A-Za-z0-9][A-Za-z0-9._-]{0,63}", resource) or args:
@@ -1159,10 +1176,10 @@ def operation_preflight(provider, root, network, params, config):
 
 def operation_execute(provider, root, network, plan, config=None):
     resource = plan["resource"]
-    if provider=='corium' and plan['action'] in {'zkn.gift','zkc.issue','privacy.submit'}:
+    if provider=='corium' and plan['action'] in {'zkn.gift','zkc.issue','privacy.submit','cooperative.submit'}:
         if asset_preflight(root,network,plan,config)!=plan['binding_evidence']:
             fail('STALE_PLAN','private gift evidence changed')
-        return asset_submit_gift(root,network,plan['arguments']['transaction'],plan['arguments']['transaction']['type'] if plan['action']=='privacy.submit' else 'zkc_issue' if plan['action']=='zkc.issue' else 'zkn_private_transfer')
+        return asset_submit_gift(root,network,plan['arguments']['transaction'],plan['arguments']['transaction']['type'] if plan['action'] in {'privacy.submit','cooperative.submit'} else 'zkc_issue' if plan['action']=='zkc.issue' else 'zkn_private_transfer')
     if provider == "shadow6" and plan["action"].startswith("recovery."):
         return recovery_execute(provider, root, network, plan, config)
     if plan["action"] in {"service.stop", "service.run"}:
@@ -1190,7 +1207,7 @@ def operation_execute(provider, root, network, plan, config=None):
                 fail("NATIVE_STATE_CONFLICT", "native package changed before activation")
             activate(Path(config["package_root"]), evidence["kind"], evidence["id"], evidence["version"])
         return {"native_selector": resource, "native_signature_verified": True, "activated": plan["action"] == "package.activate", "manifest_digest": evidence["manifest_digest"]}
-    if plan["action"] in {"wiki.create", "snapshot.create", "strata.create", "chain.mine", "compute.run", "compute.submit", "identity.register", "content.publish", "zkn.transfer", "zkn.gift", "zkc.issue", "privacy.submit", "naming.submit", "recovery.checkpoint", "recovery.restore"}:
+    if plan["action"] in {"wiki.create", "snapshot.create", "strata.create", "chain.mine", "compute.run", "compute.submit", "identity.register", "content.publish", "zkn.transfer", "zkn.gift", "zkc.issue", "privacy.submit", "cooperative.submit", "naming.submit", "recovery.checkpoint", "recovery.restore"}:
         import subprocess
         source = os.environ.get("_ZIOKT_CORIUM_SOURCE")
         if not source: fail("NATIVE_STATE_UNAVAILABLE", "production monolith unavailable for native action")
@@ -1288,7 +1305,7 @@ def operation_reconcile(provider, root, network, plan, config):
         return {"native_selector": plan["resource"], "native_signature_verified": True, "activated": action == "package.activate", "reconciled": True}
     if action == "wiki.create": return wiki_receipt(root, network, plan)
     if action == "compute.run": return compute_receipt(root, network, plan)
-    if action in {'compute.submit','identity.register','content.publish','zkn.transfer','zkn.gift','zkc.issue','privacy.submit','naming.submit'}: return asset_receipt(root,network,plan)
+    if action in {'compute.submit','identity.register','content.publish','zkn.transfer','zkn.gift','zkc.issue','privacy.submit','cooperative.submit','naming.submit'}: return asset_receipt(root,network,plan)
     if action == "chain.mine":
         e = plan["binding_evidence"]
         with closing(corium_db(root, network, "blockchain/chain.db")) as db:
@@ -2892,6 +2909,519 @@ def _load_native_gimps():
     return locals()
 _native_gimps=__import__("types").SimpleNamespace(**_load_native_gimps())
 
+def _load__native_dna():
+    """Bounded DNA duplex storage and authenticated RNA transmission primitives.
+
+    ACGT/ACGU are reversible encodings, not new cryptographic algorithms. Repair
+    requires an externally authenticated payload root and at least one intact strand.
+    Signatures authenticate roots and metadata; coherent replacement is rejected.
+    """
+    import hashlib
+    import json
+    import re
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import ec
+
+    MAX_GENE_BYTES = 4096
+    ALPHABET = 'ACGT'
+    PAIR = str.maketrans('ACGT', 'TGCA')
+
+
+    def require(value, message):
+        if not value:
+            raise ValueError(message)
+
+
+    def integer(value, low=0, high=2**63-1):
+        require(type(value) is int and low <= value <= high, 'integer bounds')
+        return value
+
+
+    def encoded(value):
+        return json.dumps(value, sort_keys=True, separators=(',', ':'), ensure_ascii=True, allow_nan=False).encode()
+
+
+    def loads(raw, limit=65536):
+        require(type(raw) is str and len(raw.encode()) <= limit, 'JSON byte budget')
+        def unique(pairs):
+            result = {}
+            for key, value in pairs:
+                require(key not in result, 'duplicate field')
+                result[key] = value
+            return result
+        def forbidden(_):
+            raise ValueError('only integer JSON numbers are supported')
+        try:
+            result = json.loads(raw, object_pairs_hook=unique, parse_float=forbidden, parse_constant=forbidden)
+        except (RecursionError, OverflowError) as error:
+            raise ValueError('JSON nesting budget') from error
+        def portable(value, depth=0):
+            require(depth <= 24, 'JSON nesting budget')
+            if isinstance(value, (dict, list)):
+                for child in value.values() if isinstance(value, dict) else value:
+                    portable(child, depth+1)
+            elif type(value) is int:
+                integer(value, -(2**63)+1)
+        portable(result)
+        return result
+
+
+    def digest(raw):
+        return hashlib.sha256(b'Corium/DNA/payload/v1\0'+raw).hexdigest()
+
+
+    def encode_bases(raw):
+        require(type(raw) is bytes and len(raw) <= MAX_GENE_BYTES, 'gene byte budget')
+        return ''.join(ALPHABET[(value >> shift) & 3] for value in raw for shift in (6, 4, 2, 0))
+
+
+    def decode_bases(bases):
+        require(type(bases) is str and len(bases) <= MAX_GENE_BYTES*4 and len(bases) % 4 == 0
+                and re.fullmatch('[ACGT]*', bases) is not None, 'canonical DNA bases')
+        return bytes(sum(ALPHABET.index(bases[offset+i]) << (6-2*i) for i in range(4))
+                     for offset in range(0, len(bases), 4))
+
+
+    def complement(bases):
+        require(type(bases) is str and len(bases) <= MAX_GENE_BYTES*4
+                and re.fullmatch('[ACGT]*', bases) is not None, 'bounded DNA strand')
+        return bases.translate(PAIR)[::-1]
+
+
+    def duplex(raw):
+        sense = encode_bases(raw)
+        return {'schema':'corium.dna.duplex.v1', 'bytes':len(raw), 'root':digest(raw),
+                'sense':sense, 'antisense':complement(sense)}
+
+
+    def restore(gene, authenticated_root, repair=False):
+        require(type(gene) is dict and set(gene) == {'schema','bytes','root','sense','antisense'}
+                and gene['schema'] == 'corium.dna.duplex.v1', 'exact duplex schema')
+        require(type(authenticated_root) is str and re.fullmatch('[a-f0-9]{64}', authenticated_root)
+                and gene['root'] == authenticated_root, 'externally authenticated root required')
+        integer(gene['bytes'], 0, MAX_GENE_BYTES)
+        # A damaged strand may have invalid bases; only the authenticated intact
+        # strand is eligible for repair. Never combine two unauthenticated guesses.
+        candidates = []
+        for name in ('sense','antisense'):
+            try:
+                bases = gene[name] if name == 'sense' else complement(gene[name])
+                data = decode_bases(bases)
+                require(len(data) == gene['bytes'] and digest(data) == authenticated_root, 'strand root mismatch')
+                candidates.append(data)
+            except ValueError:
+                if not repair:
+                    raise
+        require(candidates and (repair or len(candidates) == 2), 'no authenticated intact strand')
+        require(all(data == candidates[0] for data in candidates), 'ambiguous duplex')
+        if not repair:
+            require(gene['antisense'] == complement(gene['sense']), 'duplex complement mismatch')
+        return candidates[0]
+
+
+    def public_key(key):
+        return key.public_key().public_bytes(serialization.Encoding.PEM,
+            serialization.PublicFormat.SubjectPublicKeyInfo).decode().rstrip('\n')
+
+
+    def rna_sign(key, chain, policy, sender, sequence, issued_at, payload):
+        require(isinstance(key, ec.EllipticCurvePrivateKey) and isinstance(key.curve, ec.SECP256K1), 'native key')
+        require(type(payload) is bytes and len(payload) <= MAX_GENE_BYTES, 'RNA payload budget')
+        for name in (chain, policy, sender):
+            require(type(name) is str and re.fullmatch('[a-f0-9]{64}', name), 'RNA domain digest')
+        integer(sequence, 1); integer(issued_at, 0, 2**63-121)
+        header = {'schema':'corium.rna.v1','chain':chain,'policy':policy,'sender':sender,
+                  'sequence':sequence,'issued_at':issued_at,'expires_at':issued_at+120,
+                  'bytes':len(payload),'root':digest(payload)}
+        signature = key.sign(b'Corium/RNA/message/v1\0'+encoded(header),ec.ECDSA(hashes.SHA256())).hex()
+        return {'header':header,'rna':encode_bases(payload).replace('T','U'),'signature':signature}
+
+
+    def rna_open(frame, pem, chain, policy, sender, previous_sequence, now):
+        require(type(frame) is dict and set(frame) == {'header','rna','signature'}, 'exact RNA frame')
+        h = frame['header']
+        require(type(h) is dict and set(h) == {'schema','chain','policy','sender','sequence','issued_at','expires_at','bytes','root'}
+                and h['schema'] == 'corium.rna.v1', 'exact RNA header')
+        require(h['chain'] == chain and h['policy'] == policy and h['sender'] == sender, 'RNA domain mismatch')
+        integer(previous_sequence); integer(now); integer(h['sequence'],1); integer(h['issued_at']); integer(h['expires_at'])
+        require(previous_sequence < h['sequence'] and h['issued_at'] <= now <= h['expires_at']
+                and h['expires_at']-h['issued_at'] == 120, 'RNA replay or validity window')
+        integer(h['bytes'],0,MAX_GENE_BYTES)
+        require(type(frame['rna']) is str and re.fullmatch('[ACGU]*',frame['rna']) is not None
+                and len(frame['rna']) == h['bytes']*4, 'canonical RNA bases')
+        data = decode_bases(frame['rna'].replace('U','T'))
+        require(digest(data) == h['root'], 'RNA payload commitment')
+        require(type(frame['signature']) is str and re.fullmatch('[a-f0-9]{16,144}',frame['signature']), 'RNA signature format')
+        key = serialization.load_pem_public_key(pem.encode())
+        require(isinstance(key, ec.EllipticCurvePublicKey) and isinstance(key.curve,ec.SECP256K1), 'native RNA key')
+        require(hashlib.sha256(pem.encode()).hexdigest() == sender, 'RNA sender identity')
+        key.verify(bytes.fromhex(frame['signature']),b'Corium/RNA/message/v1\0'+encoded(h),ec.ECDSA(hashes.SHA256()))
+        return data
+
+    return locals()
+_native_dna=__import__("types").SimpleNamespace(**_load__native_dna())
+def _load__native_cooperative():
+    """Pure cooperative registry transitions, independent of mining eligibility.
+
+    Membership is a public-key identity, not proof of a distinct human or operator.
+    These rules reject on-chain control transfer and capital-weighted governance;
+    they cannot prevent private-key sales, collusion, or a software hard fork.
+    No claim is made that metadata here locks external/native financial assets.
+    """
+    import hashlib
+    import copy
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import ec
+    encoded,require,integer,public_key=_native_dna.encoded,_native_dna.require,_native_dna.integer,_native_dna.public_key
+
+    CHARTER = {'schema':'corium.cooperative-charter.v1','vote_rule':'one-member-one-vote',
+               'membership_transfer':False,'control_transfer':False,'mergers':False,
+               'federation_exit':'unilateral-by-each-cooperative','capital_voting':False}
+    FORBIDDEN = {'merge','sell_control','delegate_control','transfer_membership','capital_weighted_vote','change_charter'}
+
+
+    def identity(pem):
+        require(type(pem)is str and len(pem)<=1024,'bounded member public key')
+        key=serialization.load_pem_public_key(pem.encode())
+        require(isinstance(key,ec.EllipticCurvePublicKey) and isinstance(key.curve,ec.SECP256K1),'native member key')
+        require(key.public_bytes(serialization.Encoding.PEM,serialization.PublicFormat.SubjectPublicKeyInfo).decode().rstrip('\n')==pem,'canonical member key')
+        return hashlib.sha256(pem.encode()).hexdigest()
+
+
+    def empty(chain):
+        require(type(chain) is str and len(chain)==64 and all(c in '0123456789abcdef'for c in chain),'chain identity')
+        return {'schema':'corium.cooperative-registry.v1','chain':chain,'cooperatives':{}}
+
+
+    def state_root(state):
+        return hashlib.sha256(b'Corium/Cooperative/state/v1\0'+encoded(state)).hexdigest()
+
+
+    def command_bytes(command):
+        return b'Corium/Cooperative/command/v1\0'+encoded(command)
+
+
+    def endorse(command,key):
+        pem=public_key(key)
+        return {'public_key':pem,'signature':key.sign(command_bytes(command),ec.ECDSA(hashes.SHA256())).hex()}
+
+
+    def endorsements(command,proofs):
+        return verify_endorsements(command_bytes(command),proofs)
+
+
+    def verify_endorsements(message,proofs):
+        require(type(proofs) is list and 0<len(proofs)<=512,'bounded endorsements')
+        voters={}
+        for proof in proofs:
+            require(type(proof) is dict and set(proof)=={'public_key','signature'},'endorsement fields')
+            pem=proof['public_key'];member=identity(pem)
+            require(member not in voters,'duplicate member vote')
+            require(type(proof['signature'])is str and 16<=len(proof['signature'])<=144,'bounded signature')
+            serialization.load_pem_public_key(pem.encode()).verify(bytes.fromhex(proof['signature']),message,ec.ECDSA(hashes.SHA256()))
+            voters[member]=pem
+        return voters
+
+
+    def quorum(members,voters):
+        # Funding/wealth fields have no place in the exact command schema or tally.
+        require(members and 3*len(set(members)&set(voters))>2*len(members),'strict member supermajority')
+
+
+    def apply(state,command,proofs):
+        require(type(command)is dict and set(command)=={'schema','chain','cooperative','sequence','previous_state','action','arguments'}
+                and command['schema']=='corium.cooperative-command.v1','exact cooperative command')
+        require(command['chain']==state['chain'] and command['previous_state']==state_root(state),'chain/state binding')
+        action=command['action'];require(action not in FORBIDDEN,'immutable anti-takeover charter')
+        require(action in {'create','admit','leave','federate','unfederate'},'unknown cooperative action')
+        integer(command['sequence'],1);args=command['arguments'];require(type(args)is dict,'arguments object')
+        cid=command['cooperative'];require(type(cid)is str and 1<=len(cid)<=64 and all(c.isascii()and(c.isalnum()or c in '-_')for c in cid),'cooperative id')
+        voters=endorsements(command,proofs);result=copy.deepcopy(state);coops=result['cooperatives']
+        require(len(coops)<=10000,'cooperative registry budget')
+        if action=='create':
+            require(cid not in coops and len(coops)<10000 and command['sequence']==1 and set(args)=={'members'},'new cooperative')
+            require(type(args['members'])is list and 1<=len(args['members'])<=128,'founding member budget')
+            members={identity(pem):pem for pem in args['members']}
+            require(len(members)==len(args['members']) and members==voters,'all founding members must consent')
+            coops[cid]={'charter':copy.deepcopy(CHARTER),'members':members,'sequence':1,'federations':[]}
+            require(len(encoded(result))<=4*1024*1024,'cooperative state byte budget')
+            return result
+        require(cid in coops,'known cooperative');coop=coops[cid]
+        require(coop['charter']==CHARTER and command['sequence']==coop['sequence']+1,'charter or sequence mismatch')
+        if action=='leave':
+            require(set(args)=={'member'} and args['member'] in coop['members']
+                    and set(voters)=={args['member']},'only member can exercise own exit')
+            del coop['members'][args['member']]
+        else:
+            quorum(coop['members'],voters)
+            if action=='admit':
+                require(set(args)=={'public_key'},'admission fields');new=identity(args['public_key'])
+                require(new not in coop['members'] and new in voters and len(coop['members'])<128,'new member consent/budget')
+                coop['members'][new]=args['public_key']
+            else:
+                require(set(args)=={'partner'} and type(args['partner'])is str and args['partner'] in coops
+                        and args['partner']!=cid,'independent federation partner')
+                partner=coops[args['partner']]
+                if action=='federate':
+                    require(args['partner'] not in coop['federations'],'already federated')
+                    quorum(partner['members'],voters)
+                    coop['federations'].append(args['partner']);partner['federations'].append(cid)
+                else:
+                    require(args['partner'] in coop['federations'],'existing federation')
+                    coop['federations'].remove(args['partner']);partner['federations'].remove(cid)
+                partner['sequence']+=1
+                partner['federations'].sort()
+                # Federation never combines member lists, identities or authority.
+            coop['federations'].sort()
+        coop['sequence']=command['sequence']
+        require(len(encoded(result))<=4*1024*1024,'cooperative state byte budget')
+        return result
+
+    return locals()
+_native_cooperative=__import__("types").SimpleNamespace(**_load__native_cooperative())
+def _load__native_recovery():
+    """Explicit signed recovery boundary. Never manufactures historical governance."""
+    import hashlib
+    import os
+    from pathlib import Path
+    import stat
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import ec
+    DNA=_native_dna
+
+    SCHEMA='corium.recovery-declaration.v1'
+    MAIN='corium.recovery-work.v3'
+    SIDE='corium.dna-work.v1'
+    NETWORKS={'ziokt-main-recovery-20261024','ziokt-dna-side-20261024'}
+    FIELDS={'schema','network','protocol','checkpoint','initial_state_root','legacy_archive_root',
+            'genesis_sha256','verifier_source_sha256','work_policy','authority_public_key','signature'}
+
+
+    def unsigned(value):return {k:v for k,v in value.items() if k!='signature'}
+    def signing_bytes(value):return b'Corium/Recovery/declaration/v1\0'+DNA.encoded(unsigned(value))
+    def identity(value):return hashlib.sha256(signing_bytes(value)).hexdigest()
+
+
+    def read_public(path):
+        fd=os.open(path,os.O_RDONLY|os.O_NOFOLLOW)
+        try:
+            info=os.fstat(fd)
+            DNA.require(stat.S_ISREG(info.st_mode) and info.st_uid==os.getuid() and not info.st_mode&0o022
+                        and info.st_size<=65536,'bounded owner-controlled public recovery document')
+            raw=os.read(fd,65537);DNA.require(len(raw)<=65536,'recovery document budget')
+            return raw
+        finally:os.close(fd)
+
+
+    def declaration(network):
+        if network not in NETWORKS:return None
+        root=os.environ.get('CORIUM_ROOT')
+        DNA.require(root,'recovery root required')
+        directory=Path(root)/'etc/corix/networks'/network
+        value=DNA.loads(read_public(directory/'recovery.json').decode())
+        DNA.require(type(value)is dict and set(value)==FIELDS and value['schema']==SCHEMA
+                    and value['network']==network,'exact recovery declaration')
+        DNA.require(value['protocol']==(MAIN if network.startswith('ziokt-main-')else SIDE),'distinct chain protocol')
+        genesis_raw=read_public(directory/'genesis.json');genesis=DNA.loads(genesis_raw.decode())
+        DNA.require(hashlib.sha256(genesis_raw).hexdigest()==value['genesis_sha256'],'complete genesis configuration binding')
+        for name in ('initial_state_root','legacy_archive_root','verifier_source_sha256'):
+            DNA.require(type(value[name])is str and len(value[name])==64 and all(c in '0123456789abcdef'for c in value[name]),'recovery commitment')
+        cp=value['checkpoint'];DNA.require(type(cp)is dict and set(cp)=={'height','hash'},'recovery checkpoint fields')
+        DNA.integer(cp['height'],0);DNA.require(type(cp['hash'])is str and len(cp['hash'])==64,'checkpoint digest')
+        DNA.require(cp['height']==50 if value['protocol']==MAIN else cp['height']>=784,'operator recovery boundary')
+        pem=value['authority_public_key'];keys={v['public_key'].rstrip('\n')for v in genesis['genesis_validators']}
+        DNA.require(pem in keys,'recovery authority must be supplied genesis authority')
+        key=serialization.load_pem_public_key(pem.encode())
+        DNA.require(isinstance(key,ec.EllipticCurvePublicKey) and isinstance(key.curve,ec.SECP256K1),'native recovery authority')
+        DNA.require(type(value['signature'])is str and 16<=len(value['signature'])<=144,'recovery signature budget')
+        key.verify(bytes.fromhex(value['signature']),signing_bytes(value),ec.ECDSA(hashes.SHA256()))
+        return value
+
+
+    def active(db,network,height,source_hash,check_policy,legacy):
+        value=declaration(network)
+        if value is None or height<=value['checkpoint']['height']:return None
+        cp=value['checkpoint'];known=db.execute('SELECT hash FROM blocks WHERE height=?',(cp['height'],)).fetchone()
+        DNA.require(known is not None and known[0]==cp['hash'],'recovery checkpoint differs from accepted history')
+        DNA.require(value['verifier_source_sha256']==source_hash,'recovery verifier source commitment')
+        policy={'schema':'corium.native-work-policy.v2','previous_policy':legacy,'checkpoint':cp,'work_policy':value['work_policy']}
+        genesis=db.execute('SELECT hash FROM blocks WHERE height=0').fetchone()
+        check_policy(policy,network,genesis[0])
+        DNA.require(policy['work_policy']['activation_height']==cp['height']+1,'recovery activation is prospective')
+        return policy
+
+
+    def body(block,value):
+        return DNA.encoded({'chain':identity(value),'protocol':value['protocol'],
+             'height':block['height'],'parent':block['previous_hash'],'timestamp':block['timestamp'],
+             'miner':block['validator'],'transactions':block['transactions'],
+             'initial_state_root':value['initial_state_root'],'policy':block['work']['policy']})
+
+
+    def transaction_bytes(value,network,kind,payload,timestamp,pem,height):
+        # Prefix signatures retain their historical bytes; new signatures bind both
+        # network identity, including the actor, rather than only tx data.
+        if value is None or height<=value['checkpoint']['height']:
+            import json
+            return '{"type":'+json.dumps(kind)+',"data":'+payload+',"timestamp":'+str(timestamp)+'}'
+        return DNA.encoded({'schema':'corium.chain-transaction.v3','network':network,
+            'public_key':pem,'type':kind,'data':DNA.loads(payload),'timestamp':timestamp}).decode()
+
+    return locals()
+_native_recovery=__import__("types").SimpleNamespace(**_load__native_recovery())
+def _load__native_cooperative_consensus():
+    """Shared canonical cooperative state and native asset authorizations."""
+    import hashlib
+    import json
+    import re
+    Cooperative=_native_cooperative
+    Recovery=_native_recovery
+    DNA=_native_dna
+    from cryptography.hazmat.primitives import hashes,serialization
+    from cryptography.hazmat.primitives.asymmetric import ec
+
+    require=DNA.require
+    loads=DNA.loads
+
+    def chain_context(db,network):
+        require(type(network)is str and re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,63}',network),'cooperative network')
+        recovery=Recovery.declaration(network)
+        if recovery:return Recovery.identity(recovery),recovery['checkpoint']['height']
+        genesis=db.execute('SELECT hash FROM blocks WHERE height=0').fetchone()
+        require(genesis is not None and re.fullmatch('[a-f0-9]{64}',genesis[0]),'cooperative genesis')
+        return hashlib.sha256(b'Corium/Cooperative/chain/v1\0'+DNA.encoded({'network':network,'genesis':genesis[0]})).hexdigest(),0
+
+    def state_at(db,network,height):
+        """Rebuild cooperative state from the canonical prefix before height.
+
+        The materialized cooperative_registry table is only a cache: fork rollback
+        can leave it stale. Every admission/replay therefore derives authority from
+        canonical block order and runs the same pure transition function.
+        """
+        chain,start=chain_context(db,network)
+        require(type(height)is int and height>start,'cooperative candidate height')
+        state=Cooperative.empty(chain)
+        # Use a materialized checkpoint only when its recorded block remains in the
+        # canonical chain and its deterministic root matches. Legacy/unanchored rows
+        # and orphaned checkpoints are ignored and reconstructed from history.
+        table=db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='cooperative_registry'").fetchone()
+        if table:
+            columns={row[1] for row in db.execute('PRAGMA table_info(cooperative_registry)').fetchall()}
+            if {'state','height','block_hash','state_root'}<=columns:
+                cached=db.execute('SELECT state,height,block_hash,state_root FROM cooperative_registry WHERE id=1').fetchone()
+                if cached:
+                    try:
+                        candidate=DNA.loads(cached[0],4*1024*1024);anchor=db.execute('SELECT hash FROM blocks WHERE height=?',(cached[1],)).fetchone()
+                        if (type(cached[1])is int and start<=cached[1]<height and anchor and anchor[0]==cached[2]
+                            and type(candidate)is dict and candidate.get('chain')==chain
+                            and Cooperative.state_root(candidate)==cached[3]):
+                            state=candidate;start=cached[1]
+                    except (ValueError,TypeError,KeyError):
+                        pass
+        commands=db.execute("SELECT hash,data,block_height FROM transactions WHERE type='cooperative_command' AND block_height>? AND block_height<? ORDER BY block_height,hash",
+                            (start,height)).fetchall()
+        require(len(commands)<=1_000_000,'cooperative history budget')
+        for txhash,raw,block_height in commands:
+            block=db.execute('SELECT transactions FROM blocks WHERE height=?',(block_height,)).fetchone()
+            require(block is not None,'cooperative transaction block missing')
+            hashes=json.loads(block[0]);require(type(hashes)is list and len(hashes)<=200,'canonical transaction list')
+            require(hashes.count(txhash)==1,'cooperative transaction absent from canonical block')
+            envelope=loads(raw)
+            require(type(envelope)is dict and set(envelope)=={'command','endorsements'},'cooperative envelope')
+            state=Cooperative.apply(state,envelope['command'],envelope['endorsements'])
+        return state
+
+
+    def tables(db):
+        db.execute('CREATE TABLE IF NOT EXISTS cooperative_registry(id INTEGER PRIMARY KEY CHECK(id=1),state TEXT NOT NULL,height INTEGER,block_hash TEXT,state_root TEXT)')
+        columns={r[1] for r in db.execute('PRAGMA table_info(cooperative_registry)')}
+        for name in ('height INTEGER','block_hash TEXT','state_root TEXT'):
+            if name.split()[0] not in columns:db.execute('ALTER TABLE cooperative_registry ADD COLUMN '+name)
+        db.execute('CREATE TABLE IF NOT EXISTS cooperative_asset_nonces(cooperative TEXT PRIMARY KEY,nonce INTEGER NOT NULL)')
+        db.execute('CREATE TABLE IF NOT EXISTS cooperative_note_controls(note_id TEXT PRIMARY KEY,cooperative TEXT NOT NULL)')
+        db.execute('CREATE TABLE IF NOT EXISTS zkc_owners(edition_id TEXT PRIMARY KEY,owner TEXT NOT NULL,nonce INTEGER NOT NULL)')
+
+
+    def apply_command(db,network,payload,height,commit=False):
+        require(type(payload)is dict and set(payload)=={'command','endorsements'},'cooperative envelope')
+        state=state_at(db,network,height)
+        changed=Cooperative.apply(state,payload['command'],payload['endorsements'])
+        if commit:
+            tables(db)
+            block=db.execute('SELECT hash FROM blocks WHERE height=?',(height,)).fetchone()
+            require(block is not None,'cooperative application requires committed block')
+            db.execute('INSERT OR REPLACE INTO cooperative_registry(id,state,height,block_hash,state_root) VALUES(1,?,?,?,?)',
+                       (DNA.encoded(changed).decode(),height,block[0],Cooperative.state_root(changed)))
+        return changed
+
+
+    def account(chain,cooperative):
+        return hashlib.sha256(b'Corium/Cooperative/custody/v1\0'+DNA.encoded({'chain':chain,'cooperative':cooperative})).hexdigest()
+
+
+    def has_registry(db):
+        if not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='transactions'").fetchone():return False
+        return db.execute("SELECT 1 FROM transactions WHERE type='cooperative_command' AND block_height IS NOT NULL LIMIT 1").fetchone() is not None
+
+
+    def owner_cooperative(db,network,owner,height):
+        if not has_registry(db):return None
+        state=state_at(db,network,height)
+        return next((cid for cid in state['cooperatives'] if account(state['chain'],cid)==owner),None)
+
+
+    def asset_operation(network,kind,payload):
+        return hashlib.sha256(b'Corium/Cooperative/asset-operation/v1\0'+DNA.encoded({'network':network,'type':kind,'payload':payload})).hexdigest()
+
+
+    def asset_bytes(command):
+        return b'Corium/Cooperative/asset-authorization/v1\0'+DNA.encoded(command)
+
+
+    def asset_endorse(command,key):
+        return {'public_key':DNA.public_key(key),'signature':key.sign(asset_bytes(command),ec.ECDSA(hashes.SHA256())).hex()}
+
+
+    def next_nonce(db,cid):
+        if not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='cooperative_asset_nonces'").fetchone():return 1
+        row=db.execute('SELECT nonce FROM cooperative_asset_nonces WHERE cooperative=?',(cid,)).fetchone()
+        return (row[0] if row else 0)+1
+
+
+    def asset_command(db,network,kind,payload,cid,height):
+        state=state_at(db,network,height)
+        require(cid in state['cooperatives'],'known cooperative')
+        return {'schema':'corium.cooperative-asset-authorization.v1','chain':state['chain'],
+                'cooperative':cid,'registry_root':Cooperative.state_root(state),'nonce':next_nonce(db,cid),
+                'operation':asset_operation(network,kind,payload)}
+
+
+    def authorize(db,network,kind,payload,authorization,height):
+        require(type(authorization)is dict and set(authorization)=={'command','endorsements'},'cooperative asset authorization envelope')
+        command=authorization['command']
+        require(type(command)is dict and set(command)=={'schema','chain','cooperative','registry_root','nonce','operation'},'cooperative asset authorization fields')
+        cid=command['cooperative'];require(type(cid)is str,'cooperative identity')
+        state=state_at(db,network,height)
+        require(cid in state['cooperatives'] and state['cooperatives'][cid]['charter']==Cooperative.CHARTER,'cooperative asset charter')
+        DNA.integer(command['nonce'],1,2**53-1)
+        require(command==asset_command(db,network,kind,payload,cid,height),'cooperative asset chain, state, operation or nonce mismatch')
+        voters=Cooperative.verify_endorsements(asset_bytes(command),authorization['endorsements'])
+        Cooperative.quorum(state['cooperatives'][cid]['members'],voters)
+        require(set(voters)<=set(state['cooperatives'][cid]['members']),'asset endorsements require current members')
+        return {'cooperative':cid,'account':account(state['chain'],cid),'nonce':command['nonce']}
+
+
+    def asset_state_root(db):
+        state={}
+        for name in ('cooperative_asset_nonces','cooperative_note_controls','zkc_owners'):
+            exists=db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",(name,)).fetchone()
+            state[name]=[list(r) for r in db.execute('SELECT * FROM '+name+' ORDER BY 1')] if exists else []
+        return hashlib.sha256(b'Corium/Cooperative/assets/v1\0'+DNA.encoded(state)).hexdigest()
+
+
+    return locals()
+_native_cooperative_consensus=__import__("types").SimpleNamespace(**_load__native_cooperative_consensus())
+
 """ZKN fixed-unit confidential notes and voluntary review; experimental v1.
 
 Ristretto255 primitives are provided by libsodium, never Python curve arithmetic.
@@ -3110,11 +3640,12 @@ def zs_height(db): return int(db.execute('SELECT COALESCE(MAX(height),0) FROM bl
 
 
 def zs_testnet(network):
-    if not isinstance(network, str) or not (network.startswith(('test-', 'dev-')) or (ZS_MAINNET_ENABLED and network in {'ziokt-main', 'mainnet'})):
+    if not isinstance(network, str) or not (network.startswith(('test-', 'dev-')) or (ZS_MAINNET_ENABLED and network in {'ziokt-main', 'mainnet','ziokt-main-recovery-20261024','ziokt-dna-side-20261024'})):
         raise ValueError('shielded consensus requires testnet or enabled mainnet activation')
 
 
-def zs_validate(db, network, kind, value, sender):
+def zs_validate(db, network, kind, value, sender, height=None):
+    parent_height=zs_height(db) if height is None else height-1
     zs_json(value)
     if kind not in ZS_TYPES: raise ValueError('unknown privacy transaction')
     if kind.startswith('zkn_shield_'):
@@ -3135,7 +3666,7 @@ def zs_validate(db, network, kind, value, sender):
             if not zs_exists(db, 'zkn_shield_notes') or not zs_exists(db, 'zkn_shield_images'):
                 raise ValueError('shielded pool not initialized')
             anchor = db.execute('SELECT height FROM blocks WHERE hash=?', (value['anchor'],)).fetchone()
-            if not anchor or not 1 <= zs_height(db)-anchor[0] <= 128: raise ValueError('mature canonical anchor required')
+            if not anchor or not 1 <= parent_height-anchor[0] <= 128: raise ValueError('mature canonical anchor required')
             ring = []
             for identifier in value['ring']:
                 zs_hex(identifier)
@@ -3153,7 +3684,7 @@ def zs_validate(db, network, kind, value, sender):
         if 'note' in value and zs_exists(db, 'zkn_shield_notes'):
             if db.execute('SELECT 1 FROM zkn_shield_notes WHERE note_id=? OR public_key=? OR commitment=?', (zs_note_id(value['note']), value['note']['public_key'],value['note']['commitment'])).fetchone(): raise ValueError('one-time note key reused')
         return
-    height = zs_height(db)
+    height = parent_height
     if kind == 'privacy_review_request':
         zs_exact(value, {'network_id', 'case_commitment', 'legal_basis_commitment', 'recipient_key', 'scope', 'expires_height', 'nonce'})
         if value['network_id'] != network: raise ValueError('review network mismatch')
@@ -3181,7 +3712,7 @@ def zs_validate(db, network, kind, value, sender):
         if not db.execute('SELECT 1 FROM privacy_electorate WHERE request_id=? AND voter=?', (value['request_id'], sender)).fetchone(): raise ValueError('only request-height electorate can vote')
         if db.execute('SELECT 1 FROM privacy_votes WHERE request_id=? AND voter=?', (value['request_id'], sender)).fetchone(): raise ValueError('review vote already cast')
     else:
-        if not zs_review_status(db, value['request_id'])['approved']: raise ValueError('review has no supermajority approval')
+        if not zs_review_status(db, value['request_id'],height)['approved']: raise ValueError('review has no supermajority approval')
         body = _zs_json.loads(row[1]); zs_hex(value['note_id'])
         if value['note_id'] not in body['scope']: raise ValueError('disclosure outside approved scope')
         if not zs_exists(db, 'zkn_shield_notes'): raise ValueError('unknown disclosure note')
@@ -3206,18 +3737,19 @@ def zs_schnorr_verify(public, value, proof, network):
     if zs_base(s) != zs_add(r,zs_mul(c,p)): raise ValueError('holder did not authorize disclosure')
 
 
-def zs_review_status(db, request_id):
+def zs_review_status(db, request_id, height=None):
+    height=zs_height(db) if height is None else height
     zs_hex(request_id)
     row = db.execute('SELECT expires,revoked FROM privacy_requests WHERE request_id=?',(request_id,)).fetchone()
     if not row: raise ValueError('unknown review request')
     total = db.execute('SELECT COALESCE(SUM(weight),0) FROM privacy_electorate WHERE request_id=?',(request_id,)).fetchone()[0]
     yes = db.execute("SELECT COALESCE(SUM(e.weight),0) FROM privacy_electorate e JOIN privacy_votes v USING(request_id,voter) WHERE e.request_id=? AND v.decision='approve'",(request_id,)).fetchone()[0]
-    live = not row[1] and zs_height(db) <= row[0]
-    return {'request_id':request_id,'approved':bool(live and total>0 and 3*yes>2*total),'expired':zs_height(db)>row[0], 'revoked':bool(row[1]),'approved_weight':yes,'total_weight':total,'automatic_decryption':False,'holder_consent_required':True}
+    live = not row[1] and height <= row[0]
+    return {'request_id':request_id,'approved':bool(live and total>0 and 3*yes>2*total),'expired':height>row[0], 'revoked':bool(row[1]),'approved_weight':yes,'total_weight':total,'automatic_decryption':False,'holder_consent_required':True}
 
 
-def zs_apply(db, network, kind, value, sender, tx_hash, height):
-    zs_validate(db,network,kind,value,sender); zs_tables(db)
+def zs_apply(db, network, kind, value, sender, tx_hash, height, validation_height=None):
+    zs_validate(db,network,kind,value,sender,validation_height); zs_tables(db)
     if kind == 'zkn_shield_deposit':
         db.execute('UPDATE zkn_tokens SET owner=? WHERE token_id=?', ('shielded-pool:v1',value['token_id']))
     if kind in {'zkn_shield_deposit','zkn_shield_transfer'}:
@@ -3247,8 +3779,8 @@ def zs_query(db, network, method, params):
                 'independently_audited':ZS_AUDITED,'mainnet_feature_enabled':ZS_MAINNET_ENABLED,
                 'self_review_report':ZS_SELF_REVIEW_REPORT,'third_party_audit_status':'not_evidenced',
                 'mainnet_governance_approval':'not_verified','cryptographic_security_verified':False,
-                'shielded_transfers_enabled':network.startswith(('test-','dev-')) or (ZS_MAINNET_ENABLED and network in {'ziokt-main', 'mainnet'}),
-                'production_shielding_enabled':bool(ZS_MAINNET_ENABLED and network in {'ziokt-main', 'mainnet'}),'universal_decryption_key':False,
+                'shielded_transfers_enabled':network.startswith(('test-','dev-')) or (ZS_MAINNET_ENABLED and network in {'ziokt-main', 'mainnet','ziokt-main-recovery-20261024','ziokt-dna-side-20261024'}),
+                'production_shielding_enabled':bool(ZS_MAINNET_ENABLED and network in {'ziokt-main', 'mainnet','ziokt-main-recovery-20261024','ziokt-dna-side-20261024'}),'universal_decryption_key':False,
                 'review_requires_supermajority':True,'disclosure_requires_holder_consent':True,
                 'transparent_entry_exit_observable':True,'authenticated_relayer_knows_caller':True,
                 'global_observer_resistance_guaranteed':False}
@@ -3274,7 +3806,7 @@ def zs_query(db, network, method, params):
 
 """Native signed registration receipts and transferable block-snapshot ZKN assets."""
 
-ASSET_TYPES = {'ziokt_identity_register', 'ziokt_content', 'zkn_mint', 'zkn_transfer', 'zkn_private_transfer', 'zkc_issue'} | ZS_TYPES
+ASSET_TYPES = {'ziokt_identity_register', 'ziokt_content', 'zkn_mint', 'zkn_transfer', 'zkn_private_transfer', 'zkc_issue', 'zkc_transfer', 'cooperative_command'} | ZS_TYPES
 
 
 def asset_tables(db):
@@ -3292,9 +3824,9 @@ def asset_token_id(network, block_hash):
     return hashlib.sha256(('Ziokt/ZKN/v1\n'+network+'\n'+block_hash).encode()).hexdigest()
 
 
-def asset_transaction_bytes(tx):
+def asset_transaction_bytes(tx, network=None):
     # Recovery networks bind native wallet signatures to chain namespace and actor.
-    network=tx['data'].get('network_id')
+    network=network or tx['data'].get('network_id')
     if network in {'ziokt-main-recovery-20261024','ziokt-dna-side-20261024'}:
         return encoded({'schema':'corium.chain-transaction.v3','network':network,'public_key':tx['public_key'],
                         'type':tx['type'],'data':tx['data'],'timestamp':tx['timestamp']})
@@ -3308,13 +3840,13 @@ def zkc_edition_id(payload):
 
 def asset_signed_gift(tx, network, kind='zkn_private_transfer'):
     if (not isinstance(tx,dict) or set(tx)!={'type','data','timestamp','public_key','signature'} or
-            kind not in ({'zkn_transfer','zkn_private_transfer','zkc_issue'}|ZS_TYPES) or tx['type']!=kind or type(tx['timestamp']) is not int or not 0<tx['timestamp']<2**53 or
-            not isinstance(tx['data'],dict) or (kind != 'zkn_transfer' and tx['data'].get('network_id')!=network) or
+            kind not in ({'zkn_mint','zkn_transfer','zkn_private_transfer','zkc_issue','zkc_transfer','cooperative_command'}|ZS_TYPES) or tx['type']!=kind or type(tx['timestamp']) is not int or not 0<tx['timestamp']<2**53 or
+            not isinstance(tx['data'],dict) or (kind not in {'zkn_mint','zkn_transfer','cooperative_command'} and tx['data'].get('network_id')!=network) or
             not isinstance(tx['public_key'],str) or len(tx['public_key'])>1024 or
             not isinstance(tx['signature'],str) or len(tx['signature'])>160):
         fail('INVALID_ZKN','scoped signed private gift transaction required')
-    raw=asset_transaction_bytes(tx)
-    if len(raw)>(65536 if kind in ZS_TYPES else 8192): fail('RESPONSE_LIMIT','gift transaction exceeds budget')
+    raw=asset_transaction_bytes(tx,network)
+    if len(raw)>(65536 if kind in ZS_TYPES or kind=='cooperative_command' or 'cooperative_authorization' in tx['data'] else 8192): fail('RESPONSE_LIMIT','gift transaction exceeds budget')
     native_ec_verify(tx['public_key'],tx['signature'],raw)
     return tx,hashlib.sha256(raw).hexdigest(),hashlib.sha256(tx['public_key'].rstrip('\n').encode()).hexdigest()
 
@@ -3400,6 +3932,11 @@ def asset_submit_gift(root, network, tx, kind='zkn_private_transfer'):
                 if db.execute('SELECT COUNT(*) FROM transactions WHERE block_height IS NULL').fetchone()[0]>=4096:
                     fail('BACKPRESSURE','pending transaction budget exhausted')
                 asset_validate(db,network,tx['type'],tx['data'],sender)
+                if kind=='cooperative_command' or 'cooperative_authorization' in tx['data']:
+                    pending=db.execute("SELECT 1 FROM transactions WHERE block_height IS NULL AND (type='cooperative_command' OR json_type(data,'$.cooperative_authorization') IS NOT NULL) LIMIT 1").fetchone()
+                    if pending:fail('COOPERATIVE_PENDING','a cooperative operation is already pending; confirm or remove it first')
+                if kind=='zkc_transfer' and db.execute("SELECT 1 FROM transactions WHERE block_height IS NULL AND type='zkc_transfer' AND json_extract(data,'$.edition_id')=?",(tx['data']['edition_id'],)).fetchone():
+                    fail('EDITION_PENDING','edition transfer already pending')
                 if kind in ZS_TYPES or kind in {'zkn_transfer', 'zkn_private_transfer', 'zkc_issue'}:
                     asset_privacy_pending(db, network, kind, tx['data'], sender)
                 for (raw,) in db.execute("SELECT data FROM transactions WHERE type IN ('zkn_transfer','zkn_private_transfer','zkc_issue') AND block_height IS NULL LIMIT 4097"):
@@ -3462,9 +3999,72 @@ def asset_manifest(envelope, network, db):
     return value
 
 
-def asset_validate(db, network, tx_type, payload, sender):
+def asset_cooperative_guard(db, network, kind, payload, sender, height):
+    if type(payload)is not dict:fail('INVALID_PARAMS','asset payload object required')
+    plain=dict(payload);authorization=plain.pop('cooperative_authorization',None)
+    if 'cooperative_authorization' in payload and authorization is None:fail('COOPERATIVE_REJECTED','authorization must be an object')
+    supported={'zkn_mint','zkn_transfer','zkn_private_transfer','zkc_issue','zkc_transfer',
+               'zkn_shield_deposit','zkn_shield_transfer','zkn_shield_withdraw','privacy_review_disclose'}
+    if authorization is not None and kind not in supported:fail('COOPERATIVE_REJECTED','cooperative authorization is not supported for this operation')
+    required=None;owner=None;cc=_native_cooperative_consensus
+    if kind in {'zkn_transfer','zkn_private_transfer','zkc_issue','zkn_shield_deposit'} and zs_exists(db,'zkn_tokens'):
+        row=db.execute('SELECT owner FROM zkn_tokens WHERE token_id=?',(plain.get('token_id'),)).fetchone()
+        if row:owner=row[0]
+    elif kind=='zkc_transfer' and zs_exists(db,'zkc_editions'):
+        row=asset_edition_owner(db,plain.get('edition_id'))
+        if row:owner=row[0]
+    if owner:required=cc.owner_cooperative(db,network,owner,height)
+    if kind in {'zkn_shield_transfer','zkn_shield_withdraw'}:
+        ring=plain.get('ring')
+        if type(ring)is not list or len(ring) not in (16,32,64) or any(type(n)is not str for n in ring):
+            fail('PRIVACY_REJECTED','bounded shielded ring required')
+        labels=set()
+        for note in ring:
+            row=db.execute('SELECT cooperative FROM cooperative_note_controls WHERE note_id=?',(note,)).fetchone() if zs_exists(db,'cooperative_note_controls') else None
+            labels.add(row[0] if row else None)
+        if len(labels)!=1:fail('COOPERATIVE_REJECTED','shielded ring mixes cooperative authorization domains')
+        required=next(iter(labels))
+    if kind=='privacy_review_disclose' and zs_exists(db,'cooperative_note_controls'):
+        row=db.execute('SELECT cooperative FROM cooperative_note_controls WHERE note_id=?',(plain.get('note_id'),)).fetchone()
+        if row:required=row[0]
+    if required and authorization is None:fail('COOPERATIVE_REJECTED','current cooperative members must authorize this asset operation')
+    info=None
+    if authorization is not None:
+        try:info=cc.authorize(db,network,kind,plain,authorization,height)
+        except Exception as error:
+            from cryptography.exceptions import InvalidSignature
+            if isinstance(error,(ValueError,KeyError,TypeError,InvalidSignature)):fail('COOPERATIVE_REJECTED',str(error) or 'invalid cooperative endorsement')
+            raise
+        if required and required!=info['cooperative']:fail('COOPERATIVE_REJECTED','asset belongs to another cooperative')
+        if required and kind in {'zkn_transfer','zkn_private_transfer','zkc_issue','zkc_transfer','zkn_shield_deposit'}:sender=info['account']
+    return plain,sender,info
+
+
+def asset_edition_owner(db,edition):
+    if zs_exists(db,'zkc_owners'):
+        row=db.execute('SELECT owner,nonce FROM zkc_owners WHERE edition_id=?',(edition,)).fetchone()
+        if row:return row
+    if zs_exists(db,'zkc_editions'):
+        row=db.execute('SELECT issuer FROM zkc_editions WHERE edition_id=?',(edition,)).fetchone()
+        if row:return (row[0],0)
+    return None
+
+
+def asset_validate(db, network, tx_type, payload, sender, height=None):
+    height=zs_height(db)+1 if height is None else height
+    if tx_type=='cooperative_command':
+        try:return _native_cooperative_consensus.apply_command(db,network,payload,height)
+        except Exception as error:
+            from cryptography.exceptions import InvalidSignature
+            if isinstance(error,(ValueError,TypeError,KeyError,InvalidSignature)):fail('COOPERATIVE_REJECTED',str(error) or 'invalid cooperative command')
+            raise
+    plain,effective,_=asset_cooperative_guard(db,network,tx_type,payload,sender,height)
+    return _asset_validate_base(db,network,tx_type,plain,effective,height)
+
+
+def _asset_validate_base(db, network, tx_type, payload, sender, height=None):
     if tx_type in ZS_TYPES:
-        try:return zs_validate(db,network,tx_type,payload,sender)
+        try:return zs_validate(db,network,tx_type,payload,sender,height)
         except (ValueError,TypeError,KeyError) as exc:fail('PRIVACY_REJECTED',str(exc))
     if tx_type=='zkc_issue':
         fields={'network_id','token_id','kind','serial','contents_digest'}
@@ -3481,6 +4081,13 @@ def asset_validate(db, network, tx_type, payload, sender):
         if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='zkc_editions'").fetchone():
             prior=db.execute('SELECT contents_digest FROM zkc_editions WHERE edition_id=?',(zkc_edition_id(payload),)).fetchone()
             if prior and (payload['kind']=='unique' or prior[0]!=payload['contents_digest']): fail('EDITION_CONFLICT','edition serial or repeat content already assigned')
+        return payload
+    if tx_type=='zkc_transfer':
+        if (type(payload)is not dict or set(payload)!={'network_id','edition_id','recipient','nonce'} or payload['network_id']!=network
+            or any(type(payload[k])is not str or not re.fullmatch('[a-f0-9]{64}',payload[k]) for k in ('edition_id','recipient'))
+            or type(payload['nonce'])is not int or not 1<=payload['nonce']<2**53):fail('INVALID_ZKC','exact edition transfer required')
+        row=asset_edition_owner(db,payload['edition_id'])
+        if not row or row[0]!=sender or row[1]+1!=payload['nonce']:fail('POLICY_DENIED','current edition owner and next nonce required')
         return payload
     if tx_type=='ziokt_content':
         if not isinstance(payload,dict) or set(payload)!={'text','data_base64','content_type'} or any(not isinstance(v,str) for v in payload.values()) or len(payload['text'].encode())>8192 or not re.fullmatch('[A-Za-z0-9.+-]+/[A-Za-z0-9.+-]+',payload['content_type']):
@@ -3533,10 +4140,24 @@ def asset_validate(db, network, tx_type, payload, sender):
 
 
 def asset_apply(db, network, tx_hash, tx_type, payload, sender, height):
+    if tx_type=='cooperative_command':
+        return _native_cooperative_consensus.apply_command(db,network,payload,height,True)
+    plain,effective,info=asset_cooperative_guard(db,network,tx_type,payload,sender,height)
+    _asset_apply_base(db,network,tx_hash,tx_type,plain,effective,height)
+    if info:
+        cc=_native_cooperative_consensus;cc.tables(db)
+        db.execute('INSERT OR REPLACE INTO cooperative_asset_nonces VALUES(?,?)',(info['cooperative'],info['nonce']))
+        if tx_type=='zkn_mint':
+            db.execute('UPDATE zkn_tokens SET owner=? WHERE token_id=?',(info['account'],plain['snapshot']['manifest']['token_id']))
+        if tx_type in {'zkn_shield_deposit','zkn_shield_transfer'}:
+            db.execute('INSERT INTO cooperative_note_controls VALUES(?,?)',(zs_note_id(plain['note']),info['cooperative']))
+
+
+def _asset_apply_base(db, network, tx_hash, tx_type, payload, sender, height):
     if tx_type in ZS_TYPES:
-        try:return zs_apply(db,network,tx_type,payload,sender,tx_hash,height)
+        try:return zs_apply(db,network,tx_type,payload,sender,tx_hash,height,validation_height=height)
         except (ValueError,TypeError,KeyError) as exc:fail('PRIVACY_REJECTED',str(exc))
-    value=asset_validate(db,network,tx_type,payload,sender)
+    value=_asset_validate_base(db,network,tx_type,payload,sender,height)
     if tx_type=='ziokt_content': return
     asset_tables(db)
     if tx_type=='ziokt_identity_register':
@@ -3548,6 +4169,12 @@ def asset_apply(db, network, tx_hash, tx_type, payload, sender, height):
     elif tx_type=='zkc_issue':
         db.execute('INSERT OR IGNORE INTO zkc_editions VALUES (?,?,?,?,?,?,?,?)',
             (zkc_edition_id(payload),payload['token_id'],payload['kind'],payload['serial'],payload['contents_digest'],sender,tx_hash,height))
+        _native_cooperative_consensus.tables(db)
+        issuer=db.execute('SELECT issuer FROM zkc_editions WHERE edition_id=?',(zkc_edition_id(payload),)).fetchone()[0]
+        db.execute('INSERT OR IGNORE INTO zkc_owners VALUES(?,?,0)',(zkc_edition_id(payload),issuer))
+    elif tx_type=='zkc_transfer':
+        _native_cooperative_consensus.tables(db)
+        db.execute('INSERT OR REPLACE INTO zkc_owners VALUES(?,?,?)',(payload['edition_id'],payload['recipient'],payload['nonce']))
     else:
         db.execute('UPDATE zkn_tokens SET owner=?,nonce=? WHERE token_id=?',
             (payload['recipient'],payload['nonce'],payload['token_id']))
@@ -3563,7 +4190,7 @@ def asset_engine_main(args):
         if db_path != root/'var/lib/corix/networks'/network/'blockchain/chain.db':
             fail('SCOPE_MISMATCH', 'native privacy database belongs to another root')
         tx = strict_json(args[4].encode())
-        if type(tx) is not dict or tx.get('type') not in ZS_TYPES | {'zkn_transfer','zkn_private_transfer','zkc_issue'}:
+        if type(tx) is not dict or tx.get('type') not in ZS_TYPES | {'zkn_mint','zkn_transfer','zkn_private_transfer','zkc_issue','zkc_transfer','cooperative_command'}:
             fail('INVALID_PARAMS', 'admitted native asset transaction required')
         result = asset_submit_gift(root, network, tx, tx['type'])
         print(result['transaction_hash'])
@@ -3577,7 +4204,7 @@ def asset_engine_main(args):
         payload=strict_json(raw.encode())
         db=sqlite3.connect(db_path,timeout=5)
         try:
-            if action=='validate': asset_validate(db,network,tx_type,payload,sender)
+            if action=='validate': asset_validate(db,network,tx_type,payload,sender,int(args[6]) if len(args)>6 else None)
             else:
                 with db: asset_apply(db,network,args[6],tx_type,payload,sender,int(args[7]))
         finally: db.close()
@@ -3641,10 +4268,10 @@ def asset_engine_main(args):
 def asset_preflight(root,network,params,config):
     action=params['action'];resource=params['resource'];arguments=params['arguments']
     if params['expected_revision'] is not None: fail('INVALID_PARAMS','native asset submit requires null revision')
-    if action=='privacy.submit':
-        if resource!='privacy:'+network or set(arguments)!={'transaction'}:fail('INVALID_PARAMS','exact signed privacy transaction required')
+    if action in {'privacy.submit','cooperative.submit'}:
+        if resource!=('privacy:' if action=='privacy.submit' else 'cooperative:')+network or set(arguments)!={'transaction'}:fail('INVALID_PARAMS','exact signed privacy transaction required')
         transaction=arguments['transaction']
-        if not isinstance(transaction,dict) or transaction.get('type') not in ZS_TYPES:fail('INVALID_PARAMS','known signed privacy transaction required')
+        if not isinstance(transaction,dict) or transaction.get('type') not in (ZS_TYPES if action=='privacy.submit' else ASSET_TYPES-{'ziokt_content','ziokt_identity_register'}):fail('INVALID_PARAMS','known signed privacy transaction required')
         tx,tx_hash,sender=asset_signed_gift(transaction,network,transaction['type'])
         with closing(corium_db(root,network,'blockchain/chain.db')) as db:
             existing=db.execute('SELECT type,data,signature,public_key,timestamp FROM transactions WHERE hash=?',(tx_hash,)).fetchone()
