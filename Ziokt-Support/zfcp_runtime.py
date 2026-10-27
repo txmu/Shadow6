@@ -752,9 +752,9 @@ def rpc(provider, root, network, config, stream):
                     params=request['params'];result=cc.asset_command(db,network,params['type'],params['payload'],params['cooperative'],height)
                 else:
                     state=cc.state_at(db,network,height)
-                    params=request['params'];ids=[cid for cid in sorted(state['cooperatives']) if cid>params.get('cursor','')];page=ids[:params.get('limit',4)]
-                    result={'state':{**state,'cooperatives':{cid:state['cooperatives'][cid] for cid in page}},'state_root':_native_cooperative.state_root(state),'asset_state_root':cc.asset_state_root(db),
-                            'accounts':{cid:cc.account(state['chain'],cid) for cid in page},'next_nonces':{cid:cc.next_nonce(db,cid) for cid in page},'next_cursor':page[-1] if len(ids)>len(page) else None,'root_scope':'complete canonical registry; state is paginated'}
+                    params=request['params'];ids=[cid for cid in sorted(state['cooperatives']) if cid>params.get('cursor','')];cooperative_page=ids[:params.get('limit',4)]
+                    result={'state':{**state,'cooperatives':{cid:state['cooperatives'][cid] for cid in cooperative_page}},'state_root':_native_cooperative.state_root(state),'asset_state_root':cc.asset_state_root(db),
+                            'accounts':{cid:cc.account(state['chain'],cid) for cid in cooperative_page},'next_nonces':{cid:cc.next_nonce(db,cid) for cid in cooperative_page},'next_cursor':cooperative_page[-1] if len(ids)>len(cooperative_page) else None,'root_scope':'complete canonical registry; state is paginated'}
         elif method in {'identity.fact','zkn.list','zkn.fact','zkc.list','zkc.fact'}:
             if provider!='corium': fail('METHOD_UNSUPPORTED','native chain assets belong to Corium')
             result=asset_query(root,network,method,request['params'])
