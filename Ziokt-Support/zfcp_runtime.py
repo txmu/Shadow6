@@ -467,7 +467,11 @@ def validate_request(value, config):
             if type(params.get('cursor',''))is not str or len(params.get('cursor',''))>64 or type(params.get('limit',4))is not int or not 1<=params.get('limit',4)<=4:fail('INVALID_PARAMS','bounded cooperative state page required')
         if method!='cooperative.state' and (type(params['cooperative'])is not str or type(params['type'])is not str or type(params['payload'])is not dict):fail('INVALID_PARAMS','cooperative operation types')
     elif method=='compute.challenge':
-        if params not in ({},{'engine':'gimps'}):fail('INVALID_PARAMS','fixed zero or native GIMPS challenge selector required')
+        if params != {}:
+            if (set(params)-{'engine','exclude_exponents'} or params.get('engine')!='gimps'
+                    or type(params.get('exclude_exponents',[])) is not list or len(params.get('exclude_exponents',[]))>128
+                    or any(type(p) is not int or not 2<=p<=2000000000 for p in params.get('exclude_exponents',[]))):
+                fail('INVALID_PARAMS','bounded native GIMPS challenge selector required')
     elif method=='service.binding':
         if set(params)!={'service_name'} or not isinstance(params['service_name'],str) or not re.fullmatch('[A-Za-z0-9][A-Za-z0-9._/-]{0,127}',params['service_name']):
             fail('INVALID_PARAMS','fixed named Broker binding required')
@@ -705,8 +709,7 @@ def health_challenge(provider, config, challenge):
             "native_project":provider,"provider_id":config["provider_id"],
             "federation_id":config["federation_id"],"enabled":config["enabled"],
             "observed_at_ms":time.time_ns()//1_000_000,
-            "checks":{"pinned_process_rpc":"passed","application_runtime":"not_assessed",
-                      "external_peer":"not_assessed"}}
+            "checks":{"pinned_process_rpc":"passed"}}
 
 
 def rpc(provider, root, network, config, stream):
@@ -740,7 +743,7 @@ def rpc(provider, root, network, config, stream):
             result = operation_dispatch(provider, root, network, config, method, request["params"])
         elif method == "compute.challenge":
             if provider != "corium":fail("METHOD_UNSUPPORTED","Engine Zero belongs to Corium")
-            result=compute_challenge(root,network,request['params'].get('engine'))
+            result=compute_challenge(root,network,request['params'].get('engine'),request['params'].get('exclude_exponents',[]))
         elif method == "governance.fact":
             if provider != "corium": fail("METHOD_UNSUPPORTED", "native chain facts belong to Corium")
             result = governance_fact(root, network, request["params"]["transaction_hash"])
@@ -1769,11 +1772,11 @@ def compute_receipt(root, network, plan):
     return {**value, 'native_signature_verified': True, 'phase': 'native-execution-completed'}
 
 
-def compute_challenge(root, network, engine=None):
+def compute_challenge(root, network, engine=None, exclude_exponents=None):
     """Select an explicit independent native engine; no cross-engine fallback."""
     if engine=='gimps':
         with closing(corium_db(root,network,'blockchain/chain.db')) as db:
-            try:return _native_gimps.native_challenge(db,network,corium_identity(root,network))
+            try:return _native_gimps.native_challenge(db,network,corium_identity(root,network),exclude_exponents or [])
             except (ValueError,TypeError,KeyError) as exc:fail('NATIVE_STATE_CONFLICT',str(exc))
     with closing(corium_db(root,network,'blockchain/chain.db')) as db:
         cached=db.execute("SELECT value FROM chain_state WHERE key='chain_info'").fetchone()
@@ -2411,7 +2414,7 @@ def _load_native_gimps():
         return (p for p in range(start, end + 1) if all(p % d for d in range(2, int(p**0.5) + 1)))
 
 
-    def native_challenge(db, network, submitter):
+    def native_challenge(db, network, submitter, exclude_exponents=()):
         """Read-only native GIMPS selection; never falls back to another engine."""
         row = db.execute("SELECT value FROM chain_state WHERE key='chain_info'").fetchone()
         require(row and type(row[0]) is str, 'accepted native head required')
@@ -2445,7 +2448,7 @@ def _load_native_gimps():
                 blocked.update(str(row[0]) for row in db.execute("SELECT exponent FROM gimps_tasks WHERE engine_id=? AND state='assigned' AND lease_timeout>?", (engine, int(time.time()))))
                 blocked.update(str(row[0]) for row in db.execute("SELECT exponent FROM gimps_tasks WHERE engine_id=? AND state='paused'", (engine,)))
             for exponent in candidates(problem[1]):
-                if str(exponent) not in blocked:
+                if str(exponent) not in blocked and exponent not in exclude_exponents:
                     metadata = json.loads(problem[1]) if isinstance(problem[1], str) else problem[1]
                     use_prp = metadata.get('method') in ('prp', 'prp-fiat-shamir')
                     return dict(base, available=True, engine_id=engine, problem_set_id=problem[0], problem_id=str(exponent),

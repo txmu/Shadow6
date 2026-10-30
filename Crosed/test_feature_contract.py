@@ -6,6 +6,23 @@ from feature_contract import (APP_TRANSPORT_MODES, SEQPACKET_MAX_RECORD,
     validate_feature_report, validate_ready_event)
 
 class FeatureContractTests(unittest.TestCase):
+    def test_gleam_resolver_uses_locked_files_without_ambient_vm_options(self):
+        import tempfile,os
+        from unittest.mock import patch
+        from feature_contract import runtime_environment
+        with tempfile.TemporaryDirectory() as directory:
+            root=pathlib.Path(directory);folder=root/'Core-Gleam';folder.mkdir()
+            config=folder/'inetrc';config.write_bytes(b'{lookup,[file]}.\n');config.chmod(0o600)
+            with patch.dict(os.environ,{'ERL_FLAGS':'-eval arbitrary','ERL_INETRC':'/tmp/ambient','ERL_LIBS':'/tmp/modules'}):
+                environment=runtime_environment(root,'Core-Gleam/shadow6-gleam')
+            self.assertEqual(environment['ERL_INETRC'],str(config));self.assertNotIn('ERL_FLAGS',environment);self.assertNotIn('ERL_LIBS',environment)
+            config.chmod(0o666)
+            with self.assertRaises(ValueError):runtime_environment(root,'Core-Gleam/shadow6-gleam')
+            config.chmod(0o600);config.write_text('{lookup,[dns]}.\n')
+            with self.assertRaises(ValueError):runtime_environment(root,'Core-Gleam/shadow6-gleam')
+            config.unlink();config.symlink_to(root/'missing')
+            with self.assertRaises(ValueError):runtime_environment(root,'Core-Gleam/shadow6-gleam')
+
     def report(self, core):
         return dict(core=core, version="1.1.0", crosed_compiled=False,
             crosed_max_level=0, app_transport=False, qubes_isolation=False,

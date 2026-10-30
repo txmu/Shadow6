@@ -194,6 +194,8 @@ def runtime_material_paths(root):
     provider = Path(root) / 'OCaml/privacy_envelope/lib/libdatachannel.so.0.23'
     if provider.exists() or provider.is_symlink():
         files['envelope_webrtc_provider'] = str(provider)
+    gleam_inetrc = Path(root) / 'Core-Gleam/inetrc'
+    if gleam_inetrc.exists() or gleam_inetrc.is_symlink():files['gleam_inetrc'] = str(gleam_inetrc)
     return files
 
 

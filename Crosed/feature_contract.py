@@ -1,5 +1,6 @@
 """Shared, strict feature-report contract for every registered Core family."""
 import os
+import stat
 import json
 import re
 from pathlib import Path
@@ -33,6 +34,18 @@ def runtime_environment(root, relative):
     else:
         directories = []
     environment = os.environ.copy()
+    if relative.startswith('Core-Gleam/'):
+        # Native profiles use numeric/local endpoints. Do not stall VM startup
+        # on DNS in an isolated namespace with a deliberately blackholed route.
+        inetrc = root / 'Core-Gleam/inetrc'
+        info = inetrc.lstat()
+        if (not stat.S_ISREG(info.st_mode) or info.st_mode & 0o022 or
+                info.st_uid not in (0,os.geteuid()) or info.st_size != 17 or
+                inetrc.read_bytes() != b'{lookup,[file]}.\n'):
+            raise ValueError('owner-controlled Gleam resolver configuration required')
+        for name in ('ERL_INETRC','ERL_FLAGS','ERL_AFLAGS','ERL_ZFLAGS','ERL_LIBS'):
+            environment.pop(name,None)
+        environment['ERL_INETRC'] = str(inetrc.absolute())
     for name in ("LD_LIBRARY_PATH", "DYLD_LIBRARY_PATH", "LD_PRELOAD", "DYLD_INSERT_LIBRARIES"):
         environment.pop(name, None)
     existing = [str(path) for path in directories if path.is_dir() and not path.is_symlink()]

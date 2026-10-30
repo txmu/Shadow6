@@ -109,6 +109,9 @@ def named_workload(profile, binary, payload_bytes, requests, rtt_ms, target_port
                 registry.setup(names[role], core=profile['core'], profile=profile['id'],
                     config={'config_path': str(configs[role])}, context=context)
                 created.append(names[role])
+            # Finish expensive configuration/feature checks before opening the
+            # short native Agent-to-Client rendezvous window.
+            for role in ('broker', 'agent', 'client'):
                 registry.run(names[role])
             deadline = time.monotonic() + 30
             while True:
