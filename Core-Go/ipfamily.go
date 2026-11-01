@@ -81,6 +81,6 @@ func listenTCPAnyFamily(host string, port int) (net.Listener, error) {
 			}
 			candidate = translated
 		}
-		return net.Listen(network, net.JoinHostPort(candidate, fmt.Sprint(port)))
+		return listenTCP(network, net.JoinHostPort(candidate, fmt.Sprint(port)))
 	})
 }

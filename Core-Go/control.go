@@ -490,7 +490,13 @@ func (broker *Broker) websocketHandler() http.Handler {
 }
 
 var webhookSlots = make(chan struct{}, 50)
-var webhookClient = &http.Client{Timeout: 5 * time.Second}
+var webhookClient = &http.Client{Timeout: 5 * time.Second, Transport: tcpHTTPTransport()}
+
+func tcpHTTPTransport() *http.Transport {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.DialContext = newTCPDialer(5 * time.Second).DialContext
+	return transport
+}
 
 func (broker *Broker) sendWebhook(status, clientID, targetAgent, clientIP string) {
 	if broker.config.WebhookURL == "" {
@@ -527,7 +533,8 @@ func (broker *Broker) sendWebhook(status, clientID, targetAgent, clientIP string
 
 func dialBroker(addresses []string, peerID string, peerKey ed25519.PrivateKey, brokerKey ed25519.PublicKey) (*websocket.Conn, *sync.Mutex, error) {
 	dialer := websocket.Dialer{
-		Proxy: http.ProxyFromEnvironment, HandshakeTimeout: 10 * time.Second,
+		NetDialContext: newTCPDialer(10 * time.Second).DialContext,
+		Proxy:          http.ProxyFromEnvironment, HandshakeTimeout: 10 * time.Second,
 		ReadBufferSize: 16 * 1024, WriteBufferSize: 16 * 1024,
 		TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS13},
 	}

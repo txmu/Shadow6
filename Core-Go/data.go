@@ -290,7 +290,7 @@ func closeWrite(conn net.Conn) {
 
 func proxyConnection(client net.Conn, targetPort int, key []byte) {
 	defer client.Close()
-	target, err := net.DialTimeout("tcp", net.JoinHostPort("127.0.0.1", fmt.Sprint(targetPort)), 5*time.Second)
+	target, err := newTCPDialer(5*time.Second).Dial("tcp", net.JoinHostPort("127.0.0.1", fmt.Sprint(targetPort)))
 	if err != nil {
 		log.Printf("[Agent] target connection failed: %v", err)
 		return
@@ -970,7 +970,7 @@ func startClient(config *Config) error {
 	if err != nil {
 		return err
 	}
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	listener, err := listenTCP("tcp", "127.0.0.1:0")
 	if err != nil {
 		return err
 	}

@@ -2,6 +2,8 @@ module shadow6
 
 go 1.25.0
 
+godebug multipathtcp=0
+
 require (
 	github.com/gorilla/websocket v1.5.3
 	github.com/xtaci/kcp-go/v5 v5.6.72

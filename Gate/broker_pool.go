@@ -36,7 +36,7 @@ func dialTCPPool(ctx context.Context, values []string, fallback string, randomiz
 		if len(targets) > 1 {
 			timeout = 2 * time.Second
 		}
-		conn, err := (&net.Dialer{Timeout: timeout}).DialContext(deadline, "tcp", target)
+		conn, err := newTCPDialer(timeout).DialContext(deadline, "tcp", target)
 		if err == nil {
 			return conn, nil
 		}

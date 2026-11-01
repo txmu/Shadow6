@@ -261,7 +261,7 @@ func (state *spaState) isAuthorized(sourceIP string, now time.Time) bool {
 
 func proxyTCP(ctx context.Context, client net.Conn, target string) {
 	defer client.Close()
-	dialer := net.Dialer{Timeout: 5 * time.Second}
+	dialer := newTCPDialer(5 * time.Second)
 	backend, err := dialer.DialContext(ctx, "tcp", target)
 	if err != nil {
 		return
@@ -516,7 +516,7 @@ func startStealthClient(ctx context.Context, cfg StealthConfig) error {
 			return nil
 		case <-timer.C:
 		}
-		dialer := &net.Dialer{Timeout: 5 * time.Second}
+		dialer := newTCPDialer(5 * time.Second)
 		connection, dialErr := tls.DialWithDialer(dialer, "tcp", address, &tls.Config{MinVersion: tls.VersionTLS13, ServerName: serverName})
 		if dialErr == nil {
 			_ = connection.Close()
@@ -604,7 +604,7 @@ func brokerHandler(cfg BrokerConfig) http.Handler {
 		http.Error(writer, "bad gateway", http.StatusBadGateway)
 	}
 	proxy.Transport = &http.Transport{
-		DialContext:     (&net.Dialer{Timeout: 5 * time.Second}).DialContext,
+		DialContext:     newTCPDialer(5 * time.Second).DialContext,
 		MaxConnsPerHost: 256, MaxIdleConnsPerHost: 16, MaxIdleConns: 16,
 		IdleConnTimeout: 60 * time.Second, ResponseHeaderTimeout: 10 * time.Second,
 	}

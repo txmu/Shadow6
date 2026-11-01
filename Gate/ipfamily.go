@@ -84,7 +84,7 @@ func listenTCPAnyFamily(host string, port int) (net.Listener, error) {
 				return nil, errors.New("no equivalent host in the other address family")
 			}
 		}
-		return net.Listen(network, net.JoinHostPort(candidate, fmt.Sprint(port)))
+		return listenTCP(network, net.JoinHostPort(candidate, fmt.Sprint(port)))
 	})
 }
 

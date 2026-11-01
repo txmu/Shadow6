@@ -1,0 +1,52 @@
+name: MPTCP socket security and native Go artifacts
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  native-go:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.26.7'
+          cache-dependency-path: |
+            Core-Go/go.sum
+            Guard/go.sum
+            Gate/go.mod
+      - name: Real socket protocol and affected native module regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence artifacts
+          for module in Core-Go Gate Guard; do
+            (cd "$module" && GODEBUG=multipathtcp=1 go test -count=1 -timeout=8m ./...) 2>&1 | tee "evidence/$module.log"
+          done
+      - name: Build affected native variants and cross-platform runtimes
+        shell: bash
+        run: |
+          set -euo pipefail
+          for platform in linux-amd64 linux-arm64 windows-amd64 darwin-arm64 android-arm64; do
+            export GOOS=${platform%-*} GOARCH=${platform#*-} CGO_ENABLED=0
+            mkdir -p "artifacts/$platform"
+            (cd Core-Go && bash ./compile.sh)
+            cp Core-Go/shadow6-go "artifacts/$platform/shadow6-go"
+            (cd Core-Go && CROSED_LEVEL=5 APP_TRANSPORT=1 QUBES_ISOLATION=0 bash ./compile.sh)
+            cp Core-Go/shadow6-go "artifacts/$platform/shadow6-go-crosed"
+            (cd Core-Go && CROSED_LEVEL=5 APP_TRANSPORT=1 QUBES_ISOLATION=1 bash ./compile.sh)
+            cp Core-Go/shadow6-go "artifacts/$platform/shadow6-go-public6"
+            (cd Core-Go && bash ./compile.sh)
+            (cd Gate && go build -buildvcs=false -trimpath -o "../artifacts/$platform/shadow6-gate" .)
+            (cd Guard && go build -buildvcs=false -trimpath -o "../artifacts/$platform/shadow6-guard" .)
+          done
+          find artifacts -type f -print0 | sort -z | xargs -0 sha256sum > evidence/SHA256SUMS
+          go version > evidence/toolchain.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: shadow6-mptcp-security
+          path: |
+            artifacts/
+            evidence/
