@@ -718,6 +718,15 @@ def merge_runtime_companions(root: Path, *, idris_artifact: Path | None,
     nim_binary = root / "Core-Nim" / "shadow6-nim"
     nim_provider = root / "Core-Nim" / "libdatachannel.so.0.23"
     release_archive = root / "ci-artifacts" / "linux" / "Shadow6.tar.gz"
+    gleam_binary = root / "Core-Gleam" / "shadow6-gleam"
+    gleam_inetrc = root / "Core-Gleam" / "inetrc"
+    if gleam_binary.is_file():
+        if not gleam_inetrc.exists() and not gleam_inetrc.is_symlink() and release_archive.is_file():
+            _extract_tar_member(release_archive, "Shadow6/Core-Gleam/inetrc", gleam_inetrc)
+        if not gleam_inetrc.is_file() or gleam_inetrc.is_symlink():
+            missing.append("Gleam artifact lacks its required fixed resolver configuration")
+        elif _read_file(gleam_inetrc) != b'{lookup,[file]}.\n':
+            raise ValueError("Gleam artifact resolver configuration differs from the native contract")
     if nim_binary.is_file() and not nim_provider.is_file() and release_archive.is_file():
         temporary_package = root / ".test-lab-nim-runtime"
         if temporary_package.exists():
@@ -929,7 +938,7 @@ def fetch_artifacts(destination: Path, *, run_id=None, commit=None, tag=None):
                 file_info = _checked_file(binary)
                 binaries.append({"path": relative, "size": file_info.st_size,
                                  "sha256": sha256_file(binary)})
-        for relative in ("Core-Nim/libdatachannel.so.0.23", "Core-Idris/libsodium_ffi.so",
+        for relative in ("Core-Gleam/inetrc", "Core-Nim/libdatachannel.so.0.23", "Core-Idris/libsodium_ffi.so",
                          "runtime-artifacts/shadow6-s6epe-linux-runtime/lib/libdatachannel.so.0.23",
                          "runtime-artifacts/shadow6-s6epe-linux-runtime/shadow6-privacy-envelope",
                          "runtime-artifacts/shadow6-s6epe-linux-runtime/shadow6-lab-webrtc-peer"):

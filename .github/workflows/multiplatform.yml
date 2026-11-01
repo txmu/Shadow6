@@ -892,6 +892,7 @@ jobs:
           path: |
             Core-Gleam/shadow6-gleam
             Core-Gleam/shadow6-gleam-crosed
+            Core-Gleam/inetrc
           if-no-files-found: error
   carp-generated:
     name: Generate portable Carp source for native ARM64 compilation
@@ -1377,6 +1378,7 @@ jobs:
             Core-Go/shadow6-go*
             Core-Rust/shadow6-rust*
             Core-Gleam/shadow6-gleam*
+            Core-Gleam/inetrc
             Core-Cpp/shadow6-cpp
             Core-Zig/shadow6-zig
             Core-Zig/zig-out/bin/shadow6-zig
@@ -1846,9 +1848,11 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - name: Install macOS native core dependencies
         run: |
-          brew install openssl@3 libsodium libunistring zig epoll-shim
+          brew install openssl@3 libsodium libunistring epoll-shim
           python3 -m venv .venv
           .venv/bin/pip install -r requirements.txt
+      - uses: goto-bus-stop/setup-zig@v2
+        with: {version: '0.16.0'}
       - run: |
           cd Core-Go && go test ./...
           cd ../Gate && go test ./... && go build -trimpath -o shadow6-gate .

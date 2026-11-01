@@ -1,0 +1,30 @@
+name: macOS supported Zig and Go native recovery
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  macos-arm64:
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with: {go-version: '1.26.7'}
+      - uses: goto-bus-stop/setup-zig@v2
+        with: {version: '0.16.0'}
+      - name: Build and test with the supported native compiler
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          zig version | tee evidence/zig-version.txt
+          (cd Core-Zig && zig build -Doptimize=ReleaseSafe && zig build test -Doptimize=ReleaseSafe) 2>&1 | tee evidence/zig.log
+          for module in Core-Go Gate Guard; do
+            (cd "$module" && go test -count=1 ./...) 2>&1 | tee "evidence/$module.log"
+          done
+          PYTHONPATH=Test-Lab:Crosed python3 -m unittest -v test_gleam_artifact_runtime
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: macos-zig-native-recovery
+          path: evidence/
