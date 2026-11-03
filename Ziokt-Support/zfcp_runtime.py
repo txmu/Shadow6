@@ -1791,7 +1791,8 @@ def compute_challenge(root, network, engine=None, exclude_exponents=None):
             data=strict_json(raw.encode())
             if data.get('engine_id')=='corium/internal-engine-zero-v1' and data.get('problem_id')==fields[0]:queued=True;break
     return {'schema':'ziokt.engine-zero-challenge.v1','engine_id':'corium/internal-engine-zero-v1','network_id':network,
-            'submitter_id':corium_identity(root,network),'problem_id':fields[0],'height':int(fields[1]),'difficulty':3,'available':not (done or pending or queued)}
+            'submitter_id':corium_identity(root,network),'problem_id':fields[0],'height':int(fields[1]),'difficulty':3,'available':not (done or pending or queued),
+            'reason':'proof-awaiting-confirmation' if queued or pending else 'head-task-completed' if done else 'available'}
 
 
 def compute_submit_preflight(root,network,params,config):
@@ -4374,7 +4375,8 @@ def naming_preflight(root,network,params,config):
     if params['expected_revision'] is not None or params['resource']!='naming:'+network or set(params['arguments'])!={'transaction_type','payload'}:
         fail('INVALID_PARAMS','fixed native naming transaction plan required')
     kind=params['arguments']['transaction_type'];payload=params['arguments']['payload']
-    allowed={'nns_register','nns_update','nns_transfer','nns_renew','ibc_dispatch','ibc_receive'}
+    allowed={'nns_register','nns_update','nns_transfer','nns_renew','ibc_dispatch','ibc_receive',
+             'nns_start_auction','nns_bid','nns_reveal','nns_lease_offer','nns_lease_update','nns_lease_extend','nns_lease_revoke'}
     if kind not in allowed or not isinstance(payload,dict) or len(encoded(payload))>65536:
         fail('INVALID_PARAMS','bounded NNS or naming IBC payload required')
     issuer=corium_identity(root,network)
@@ -4408,6 +4410,21 @@ def naming_preflight(root,network,params,config):
     elif kind=='nns_renew':
         if set(payload)!={'domain_name'}:fail('INVALID_PARAMS','exact native renewal required')
         owned(payload['domain_name'])
+    elif kind in {'nns_start_auction','nns_bid','nns_reveal','nns_lease_offer','nns_lease_update','nns_lease_extend','nns_lease_revoke'}:
+        fields={'nns_start_auction':{'domain_name'},'nns_bid':{'domain_name','blind_hash'},
+                'nns_reveal':{'domain_name','amount','salt'},
+                'nns_lease_offer':{'domain_name','delegate_commitment','expires_height'},
+                'nns_lease_update':{'domain_name','target_hash','salt'},
+                'nns_lease_extend':{'domain_name','expires_height'},'nns_lease_revoke':{'domain_name'}}
+        if set(payload)!=fields[kind]:fail('INVALID_PARAMS','exact native auction or lending payload required')
+        label(payload['domain_name'])
+        if kind in {'nns_lease_offer','nns_lease_extend','nns_lease_revoke'}:owned(payload['domain_name'])
+        for key in ('blind_hash','delegate_commitment','target_hash'):
+            if key in payload:hex32(payload[key])
+        if 'salt' in payload and (not isinstance(payload['salt'],str) or not re.fullmatch('[a-f0-9]{32}',payload['salt'])):fail('INVALID_PARAMS','128-bit native reveal salt required')
+        if 'amount' in payload and (type(payload['amount']) is not int or not 1<=payload['amount']<10**18):fail('INVALID_PARAMS','positive bounded contribution bid required')
+        if 'expires_height' in payload and (type(payload['expires_height']) is not int or not 1<=payload['expires_height']<10**12):fail('INVALID_PARAMS','bounded native lending height required')
+        # Native block admission enforces the phase, borrower proof and current ownership.
     elif kind=='ibc_dispatch':
         if set(payload)!={'target_chain_id','message_type','message_payload'} or payload['message_type']!='ZIOKT_NAME_BINDING_V1':fail('INVALID_PARAMS','naming-only native IBC dispatch required')
         identifier(payload['target_chain_id'],'destination network')
