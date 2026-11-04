@@ -1776,14 +1776,22 @@ def compute_challenge(root, network, engine=None, exclude_exponents=None):
     """Select an explicit independent native engine; no cross-engine fallback."""
     if engine=='gimps':
         with closing(corium_db(root,network,'blockchain/chain.db')) as db:
+            db.execute('BEGIN')
             try:return _native_gimps.native_challenge(db,network,corium_identity(root,network),exclude_exponents or [])
-            except (ValueError,TypeError,KeyError) as exc:fail('NATIVE_STATE_CONFLICT',str(exc))
+            except (ValueError,TypeError,KeyError) as exc:
+                if isinstance(exc,ValueError) and str(exc)=='accepted head must exist':
+                    return {'schema':'corium.gimps-challenge.v1','network_id':network,
+                            'submitter_id':corium_identity(root,network),'available':False,'reason':'chain-reorganizing'}
+                fail('NATIVE_STATE_CONFLICT',str(exc))
     with closing(corium_db(root,network,'blockchain/chain.db')) as db:
+        db.execute('BEGIN')
         cached=db.execute("SELECT value FROM chain_state WHERE key='chain_info'").fetchone()
         if not cached or not isinstance(cached[0],str):fail('NATIVE_STATE_UNAVAILABLE','accepted native chain head required')
         fields=cached[0].split('|')
         if len(fields)!=2 or not fields[1].isdigit() or not re.fullmatch('[a-f0-9]{64}',fields[0]):fail('NATIVE_STATE_CONFLICT','invalid accepted native head')
-        if not db.execute('SELECT 1 FROM blocks WHERE hash=? AND height=?',(fields[0],int(fields[1]))).fetchone():fail('NATIVE_STATE_CONFLICT','accepted head not present')
+        if not db.execute('SELECT 1 FROM blocks WHERE hash=? AND height=?',(fields[0],int(fields[1]))).fetchone():
+            return {'schema':'ziokt.engine-zero-challenge.v1','network_id':network,
+                    'submitter_id':corium_identity(root,network),'available':False,'reason':'chain-reorganizing'}
         done=db.execute("SELECT 1 FROM completed_compute_tasks WHERE engine_id=? AND problem_id=?",('corium/internal-engine-zero-v1',fields[0])).fetchone()
         pending=db.execute('SELECT 1 FROM pending_proofs WHERE problem_id=?',(fields[0],)).fetchone()
         queued=False
